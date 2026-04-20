@@ -1,4 +1,4 @@
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 
 const WORKER_URL = 'https://be-milestones-upload.jmbeard.workers.dev';
 
@@ -24,13 +24,14 @@ export async function uploadToR2(
     const contentType = getContentType(localUri);
 
     const result = await FileSystem.uploadAsync(WORKER_URL, localUri, {
-      httpMethod: 'PUT',
-      headers: {
-        'Content-Type': contentType,
-        'x-media-type': mediaType,
-      },
-      uploadType: 1,
-    });
+  httpMethod: 'PUT',
+  headers: {
+    'Content-Type': contentType,
+    'x-media-type': mediaType,
+  },
+  uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+  mimeType: contentType,
+});
 
     if (result.status === 200 || result.status === 201) {
       const data = JSON.parse(result.body);
