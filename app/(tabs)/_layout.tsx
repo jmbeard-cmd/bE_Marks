@@ -1,13 +1,5 @@
 import { Tabs } from 'expo-router';
-import { StyleSheet, Text, View } from 'react-native';
-
-function LogIcon({ color }: { color: string }) {
-  return (
-    <View style={[s.iconWrap, { borderColor: color }]}>
-      <Text style={[s.iconPlus, { color }]}>+</Text>
-    </View>
-  );
-}
+import { StyleSheet, View } from 'react-native';
 
 function TimelineIcon({ color }: { color: string }) {
   return (
@@ -31,6 +23,7 @@ function SettingsIcon({ color }: { color: string }) {
 export default function TabLayout() {
   return (
     <Tabs
+      initialRouteName="timeline"
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
@@ -43,19 +36,11 @@ export default function TabLayout() {
           paddingBottom: 10,
           paddingTop: 6,
         },
-        
         tabBarActiveTintColor: '#c9973a',
         tabBarInactiveTintColor: '#444',
         tabBarLabelStyle: { fontSize: 10, fontWeight: '600', letterSpacing: 0.5 },
       }}
     >
-      <Tabs.Screen
-        name="log"
-        options={{
-          title: 'Log',
-          tabBarIcon: ({ color }) => <LogIcon color={color} />,
-        }}
-      />
       <Tabs.Screen
         name="timeline"
         options={{
@@ -70,13 +55,17 @@ export default function TabLayout() {
           tabBarIcon: ({ color }) => <SettingsIcon color={color} />,
         }}
       />
+      <Tabs.Screen
+        name="log"
+        options={{
+          href: null, // hidden from tab bar, still navigable
+        }}
+      />
     </Tabs>
   );
 }
 
 const s = StyleSheet.create({
-  iconWrap: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
-  iconPlus: { fontSize: 16, lineHeight: 20, fontWeight: '300' },
   timelineIcon: { gap: 3, justifyContent: 'center', height: 22 },
   tLine: { height: 2, width: 18, borderRadius: 1 },
   settingsIcon: { width: 22, height: 22, alignItems: 'center', justifyContent: 'center' },

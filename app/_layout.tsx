@@ -68,7 +68,7 @@ export default function RootLayout() {
     const inAuth = (segments[0] as string) === '(auth)';
     const hasIdentity = !!npub;
     if (!hasIdentity && !inAuth) router.replace('/(auth)/identity' as any);
-    if (hasIdentity && inAuth) router.replace('/(tabs)/log' as any);
+    if (hasIdentity && inAuth) router.replace('/(tabs)/timeline' as any);
   }, [ready, npub]);
 
   const setIdentity = (p: string, s: string) => { setNpub(p); setNsec(s); };

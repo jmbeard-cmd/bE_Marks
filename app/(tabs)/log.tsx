@@ -1,14 +1,15 @@
 import * as ImagePicker from 'expo-image-picker';
+import { useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView, StyleSheet,
-    Text, TextInput, TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView, StyleSheet,
+  Text, TextInput, TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AudioRecorder from '../../components/AudioRecorder';
@@ -22,6 +23,7 @@ const PRESET_TAGS = ['Family', 'Faith', 'Career', 'School', 'Travel', 'Health', 
 
 export default function LogScreen() {
   const { nsec, npub, family } = useIdentity();
+  const router = useRouter();
   const [title, setTitle] = useState('');
   const [note, setNote] = useState('');
   const [tags, setTags] = useState<string[]>([]);
@@ -105,7 +107,9 @@ export default function LogScreen() {
       setVideoUri(undefined);
       videoUriRef.current = undefined;
       setTagInput('');
-      Alert.alert('✓ Saved', published ? 'Published to your relay.' : 'Saved locally.');
+      Alert.alert('✓ Saved', published ? 'Published to your relay.' : 'Saved locally.', [
+  { text: 'OK', onPress: () => router.replace('/(tabs)/timeline') }
+]);
     } catch (e: any) {
       Alert.alert('Error', e.message);
     }

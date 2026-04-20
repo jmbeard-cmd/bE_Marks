@@ -1,7 +1,7 @@
 import { useAudioPlayer } from 'expo-audio';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Dimensions,
@@ -35,6 +35,8 @@ export default function MilestoneDetail() {
     milestone?.audioUri ? { uri: milestone.audioUri } : null
   );
 
+  const videoViewRef = useRef<VideoView>(null);
+  
   const videoPlayer = useVideoPlayer(
     milestone?.videoUri ? { uri: milestone.videoUri } : null,
     player => { player.loop = false; }
@@ -193,6 +195,7 @@ export default function MilestoneDetail() {
               <Text style={s.sectionLabel}>VIDEO CLIP</Text>
               <View style={s.videoContainer}>
                 <VideoView
+                  ref={videoViewRef}
                   player={videoPlayer}
                   style={s.video}
                   contentFit="contain"
@@ -200,15 +203,16 @@ export default function MilestoneDetail() {
                 />
                 <TouchableOpacity
                   style={s.videoOverlay}
-                  onPress={() => {
-                    if (isVideoPlaying) {
-                      videoPlayer.pause();
-                      setIsVideoPlaying(false);
-                    } else {
-                      videoPlayer.play();
-                      setIsVideoPlaying(true);
-                    }
-                  }}
+                 onPress={() => {
+  if (isVideoPlaying) {
+    videoPlayer.pause();
+    setIsVideoPlaying(false);
+  } else {
+    videoPlayer.play();
+    setIsVideoPlaying(true);
+    videoViewRef.current?.enterFullscreen();
+  }
+}}
                 >
                   {!isVideoPlaying && (
                     <View style={s.playCircle}>
