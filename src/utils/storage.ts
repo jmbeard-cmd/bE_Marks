@@ -80,6 +80,18 @@ export function generateFamilyId(): string {
   return result;
 }
 
+const FAMILY_CHECK_KEY = 'family_last_check_';
+
+export async function getLastFamilyCheck(familyId: string): Promise<number> {
+  const raw = await AsyncStorage.getItem(FAMILY_CHECK_KEY + familyId);
+  if (!raw) return 0;
+  return parseInt(raw, 10);
+}
+
+export async function setLastFamilyCheck(familyId: string, timestamp: number): Promise<void> {
+  await AsyncStorage.setItem(FAMILY_CHECK_KEY + familyId, String(timestamp));
+}
+
 export function formatDate(timestamp: number): string {
   const d = new Date(timestamp * 1000);
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });

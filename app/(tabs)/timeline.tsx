@@ -1,17 +1,17 @@
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
-    Dimensions,
-    FlatList, Image,
-    RefreshControl,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Dimensions,
+  FlatList, Image,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import BEHeader from '../../components/BEHeader';
-import { formatDate, getMilestones, type Milestone } from '../../src/utils/storage';
+import { formatDate, getLastFamilyCheck, getMilestones, setLastFamilyCheck, type Milestone } from '../../src/utils/storage';
 import { useIdentity } from '../_layout';
 
 const { width } = Dimensions.get('window');
@@ -21,20 +21,47 @@ export default function TimelineScreen() {
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [tab, setTab] = useState<'mine' | 'family'>('mine');
+  const [newFamilyCount, setNewFamilyCount] = useState(0);
+  const [showBanner, setShowBanner] = useState(false);
   const router = useRouter();
   const { npub, family } = useIdentity();
 
   const load = useCallback(async () => {
     const all = await getMilestones();
     setMilestones(all);
-  }, []);
 
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+    // Check for new family milestones since last visit
+    if (family) {
+      const lastCheck = await getLastFamilyCheck(family.id);
+      const familyMilestones = all.filter(m => m.familyId === family.id);
+      const newOnes = familyMilestones.filter(m =>
+        m.authorNpub !== npub && m.createdAt > lastCheck
+      );
+      if (newOnes.length > 0) {
+        setNewFamilyCount(newOnes.length);
+        setShowBanner(true);
+      }
+      await setLastFamilyCheck(family.id, Math.floor(Date.now() / 1000));
+    }
+  }, [family, npub]);
+
+  useFocusEffect(useCallback(() => {
+    load();
+    return () => {};
+  }, [load]));
 
   const onRefresh = async () => {
     setRefreshing(true);
     await load();
     setRefreshing(false);
+  };
+
+  const dismissBanner = () => setShowBanner(false);
+
+  const switchToFamily = () => {
+    setTab('family');
+    setShowBanner(false);
+    setActiveFilter(null);
   };
 
   const myMilestones = milestones.filter(m => !m.familyId || m.authorNpub === npub);
@@ -110,6 +137,26 @@ export default function TimelineScreen() {
     <SafeAreaView style={s.safe}>
       <BEHeader title="Timeline" />
 
+      {/* New family milestones banner */}
+      {showBanner && family && (
+        <TouchableOpacity style={s.banner} onPress={switchToFamily} activeOpacity={0.85}>
+          <View style={s.bannerContent}>
+            <Text style={s.bannerIcon}>👨‍👩‍👧‍👦</Text>
+            <View style={s.bannerText}>
+              <Text style={s.bannerTitle}>
+                {newFamilyCount === 1
+                  ? '1 new family milestone'
+                  : `${newFamilyCount} new family milestones`}
+              </Text>
+              <Text style={s.bannerHint}>Tap to view {family.name}</Text>
+            </View>
+            <TouchableOpacity onPress={dismissBanner} style={s.bannerDismiss}>
+              <Text style={s.bannerDismissText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      )}
+
       {/* My / Family tab toggle */}
       <View style={s.tabRow}>
         <TouchableOpacity
@@ -120,11 +167,18 @@ export default function TimelineScreen() {
         </TouchableOpacity>
         <TouchableOpacity
           style={[s.tabBtn, tab === 'family' && s.tabBtnActive]}
-          onPress={() => { setTab('family'); setActiveFilter(null); }}
+          onPress={() => { setTab('family'); setActiveFilter(null); setShowBanner(false); }}
         >
-          <Text style={[s.tabText, tab === 'family' && s.tabTextActive]}>
-            {family ? `${family.name}` : 'Family'}
-          </Text>
+          <View style={s.tabLabelRow}>
+            <Text style={[s.tabText, tab === 'family' && s.tabTextActive]}>
+              {family ? family.name : 'Family'}
+            </Text>
+            {showBanner && newFamilyCount > 0 && (
+              <View style={s.tabBadge}>
+                <Text style={s.tabBadgeText}>{newFamilyCount}</Text>
+              </View>
+            )}
+          </View>
         </TouchableOpacity>
       </View>
 
@@ -191,11 +245,25 @@ export default function TimelineScreen() {
 
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#111' },
+  // Banner
+  banner: { backgroundColor: '#1e1600', borderBottomWidth: 0.5, borderBottomColor: '#c9973a33' },
+  bannerContent: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, gap: 12 },
+  bannerIcon: { fontSize: 22 },
+  bannerText: { flex: 1 },
+  bannerTitle: { fontSize: 14, color: '#c9973a', fontWeight: '600' },
+  bannerHint: { fontSize: 12, color: '#7a5a1a', marginTop: 2 },
+  bannerDismiss: { padding: 4 },
+  bannerDismissText: { fontSize: 14, color: '#555' },
+  // Tabs
   tabRow: { flexDirection: 'row', borderBottomWidth: 0.5, borderBottomColor: '#1e1e1e' },
   tabBtn: { flex: 1, paddingVertical: 12, alignItems: 'center' },
   tabBtnActive: { borderBottomWidth: 2, borderBottomColor: '#c9973a' },
   tabText: { fontSize: 13, color: '#444', fontWeight: '500' },
   tabTextActive: { color: '#c9973a', fontWeight: '700' },
+  tabLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  tabBadge: { backgroundColor: '#c9973a', borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2, minWidth: 18, alignItems: 'center' },
+  tabBadgeText: { fontSize: 10, color: '#111', fontWeight: '700' },
+  // Filters
   filterWrap: { borderBottomWidth: 0.5, borderBottomColor: '#1e1e1e' },
   filters: { paddingHorizontal: 16, paddingVertical: 10, gap: 7 },
   chip: { paddingHorizontal: 13, paddingVertical: 6, borderRadius: 20, borderWidth: 0.5, borderColor: '#2a2a2a', backgroundColor: '#1a1a1a' },

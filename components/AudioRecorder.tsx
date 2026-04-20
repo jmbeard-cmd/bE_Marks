@@ -1,4 +1,4 @@
-import { Audio } from 'expo-av';
+import { AudioModule, RecordingPresets, useAudioPlayer, useAudioRecorder } from 'expo-audio';
 import { useEffect, useState } from 'react';
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
@@ -8,23 +8,25 @@ interface Props {
 }
 
 export default function AudioRecorder({ onRecordingComplete, existingUri }: Props) {
-  const [recording, setRecording] = useState<Audio.Recording | null>(null);
-  const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [audioUri, setAudioUri] = useState<string | undefined>(existingUri);
 
-  useEffect(() => {
-    return () => {
-      if (sound) sound.unloadAsync();
-      if (recording) recording.stopAndUnloadAsync();
-    };
-  }, []);
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const player = useAudioPlayer(audioUri ? { uri: audioUri } : null);
 
   useEffect(() => {
-  setAudioUri(existingUri);
-}, [existingUri]);
+    setAudioUri(existingUri);
+  }, [existingUri]);
+
+  useEffect(() => {
+    if (player) {
+      player.addListener('playbackStatusUpdate', (status: any) => {
+        if (status.didJustFinish) setIsPlaying(false);
+      });
+    }
+  }, [player]);
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
@@ -46,19 +48,13 @@ export default function AudioRecorder({ onRecordingComplete, existingUri }: Prop
 
   const startRecording = async () => {
     try {
-      const { status } = await Audio.requestPermissionsAsync();
-      if (status !== 'granted') {
+      const status = await AudioModule.requestRecordingPermissionsAsync();
+      if (!status.granted) {
         Alert.alert('Permission needed', 'Allow microphone access in settings.');
         return;
       }
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-      });
-      const { recording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
-      );
-      setRecording(recording);
+      await recorder.prepareToRecordAsync();
+      recorder.record();
       setIsRecording(true);
       setAudioUri(undefined);
     } catch (e) {
@@ -67,11 +63,9 @@ export default function AudioRecorder({ onRecordingComplete, existingUri }: Prop
   };
 
   const stopRecording = async () => {
-    if (!recording) return;
     try {
-      await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
-      setRecording(null);
+      await recorder.stop();
+      const uri = recorder.uri;
       setIsRecording(false);
       if (uri) {
         setAudioUri(uri);
@@ -83,34 +77,19 @@ export default function AudioRecorder({ onRecordingComplete, existingUri }: Prop
   };
 
   const playAudio = async () => {
-    if (!audioUri) return;
+    if (!player) return;
     try {
-      if (sound) {
-        await sound.unloadAsync();
-        setSound(null);
-      }
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
-      const { sound: newSound } = await Audio.Sound.createAsync(
-        { uri: audioUri },
-        { shouldPlay: true }
-      );
-      setSound(newSound);
+      player.play();
       setIsPlaying(true);
-      newSound.setOnPlaybackStatusUpdate(status => {
-        if (status.isLoaded && status.didJustFinish) {
-          setIsPlaying(false);
-        }
-      });
     } catch (e) {
       Alert.alert('Error', 'Could not play audio.');
     }
   };
 
   const stopAudio = async () => {
-    if (sound) {
-      await sound.stopAsync();
-      setIsPlaying(false);
-    }
+    if (!player) return;
+    player.pause();
+    setIsPlaying(false);
   };
 
   const deleteAudio = () => {

@@ -1,18 +1,17 @@
-import { Audio, ResizeMode, Video } from 'expo-av';
+import { useAudioPlayer } from 'expo-audio';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useVideoPlayer, VideoView } from 'expo-video';
+import { useEffect, useState } from 'react';
 import {
-    Alert,
-    Dimensions,
-    Image,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+  Alert,
+  Dimensions,
+  Image,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { formatDate, getMilestones, updateMilestone, type Milestone } from '../src/utils/storage';
@@ -23,21 +22,23 @@ export default function MilestoneDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const [milestone, setMilestone] = useState<Milestone | null>(null);
-  const [sound, setSound] = useState<Audio.Sound | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const videoRef = useRef<Video>(null);
-  const [videoStatus, setVideoStatus] = useState<any>({});
+  const [isAudioPlaying, setIsAudioPlaying] = useState(false);
+  const [isVideoPlaying, setIsVideoPlaying] = useState(false);
 
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState('');
   const [editNote, setEditNote] = useState('');
-
   const [isAddingReflection, setIsAddingReflection] = useState(false);
   const [reflectionText, setReflectionText] = useState('');
 
-  useEffect(() => {
-    return () => { if (sound) sound.unloadAsync(); };
-  }, [sound]);
+  const audioPlayer = useAudioPlayer(
+    milestone?.audioUri ? { uri: milestone.audioUri } : null
+  );
+
+  const videoPlayer = useVideoPlayer(
+    milestone?.videoUri ? { uri: milestone.videoUri } : null,
+    player => { player.loop = false; }
+  );
 
   useEffect(() => {
     getMilestones().then(all => {
@@ -46,25 +47,24 @@ export default function MilestoneDetail() {
     });
   }, [id]);
 
-  const playAudio = async () => {
-    if (!milestone?.audioUri) return;
-    try {
-      if (sound) { await sound.unloadAsync(); setSound(null); }
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
-      const { sound: newSound } = await Audio.Sound.createAsync(
-        { uri: milestone.audioUri },
-        { shouldPlay: true }
-      );
-      setSound(newSound);
-      setIsPlaying(true);
-      newSound.setOnPlaybackStatusUpdate(status => {
-        if (status.isLoaded && status.didJustFinish) setIsPlaying(false);
-      });
-    } catch { }
+  useEffect(() => {
+    if (!audioPlayer) return;
+    const sub = audioPlayer.addListener('playbackStatusUpdate', (status: any) => {
+      if (status.didJustFinish) setIsAudioPlaying(false);
+    });
+    return () => sub.remove();
+  }, [audioPlayer]);
+
+  const playAudio = () => {
+    if (!audioPlayer) return;
+    audioPlayer.play();
+    setIsAudioPlaying(true);
   };
 
-  const stopAudio = async () => {
-    if (sound) { await sound.stopAsync(); setIsPlaying(false); }
+  const stopAudio = () => {
+    if (!audioPlayer) return;
+    audioPlayer.pause();
+    setIsAudioPlaying(false);
   };
 
   const startEditing = () => {
@@ -117,13 +117,8 @@ export default function MilestoneDetail() {
   const hasTitle = milestone.note?.includes('\n\n');
   const title = hasTitle ? milestone.note.split('\n\n')[0] : null;
   const body = hasTitle ? milestone.note.split('\n\n').slice(1).join('\n\n') : milestone.note;
-  const isVideoPlaying = videoStatus?.isPlaying ?? false;
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
     <SafeAreaView style={s.safe}>
       <View style={s.header}>
         <TouchableOpacity onPress={() => router.back()} style={s.backBtn}>
@@ -186,9 +181,9 @@ export default function MilestoneDetail() {
           {milestone.audioUri && (
             <View style={s.section}>
               <Text style={s.sectionLabel}>VOICE NOTE</Text>
-              <TouchableOpacity style={s.playBtn} onPress={isPlaying ? stopAudio : playAudio}>
-                <Text style={s.playIcon}>{isPlaying ? '⏹' : '▶'}</Text>
-                <Text style={s.playText}>{isPlaying ? 'Stop' : 'Play voice note'}</Text>
+              <TouchableOpacity style={s.playBtn} onPress={isAudioPlaying ? stopAudio : playAudio}>
+                <Text style={s.playIcon}>{isAudioPlaying ? '⏹' : '▶'}</Text>
+                <Text style={s.playText}>{isAudioPlaying ? 'Stop' : 'Play voice note'}</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -197,17 +192,23 @@ export default function MilestoneDetail() {
             <View style={s.section}>
               <Text style={s.sectionLabel}>VIDEO CLIP</Text>
               <View style={s.videoContainer}>
-                <Video
-                  ref={videoRef}
-                  source={{ uri: milestone.videoUri }}
+                <VideoView
+                  player={videoPlayer}
                   style={s.video}
-                  resizeMode={ResizeMode.CONTAIN}
-                  useNativeControls={false}
-                  onPlaybackStatusUpdate={status => setVideoStatus(status)}
+                  contentFit="contain"
+                  nativeControls={false}
                 />
                 <TouchableOpacity
                   style={s.videoOverlay}
-                  onPress={() => isVideoPlaying ? videoRef.current?.pauseAsync() : videoRef.current?.playAsync()}
+                  onPress={() => {
+                    if (isVideoPlaying) {
+                      videoPlayer.pause();
+                      setIsVideoPlaying(false);
+                    } else {
+                      videoPlayer.play();
+                      setIsVideoPlaying(true);
+                    }
+                  }}
                 >
                   {!isVideoPlaying && (
                     <View style={s.playCircle}>
@@ -292,7 +293,6 @@ export default function MilestoneDetail() {
         </View>
       </ScrollView>
     </SafeAreaView>
-    </KeyboardAvoidingView>
   );
 }
 

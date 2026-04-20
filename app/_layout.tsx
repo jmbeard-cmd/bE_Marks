@@ -2,7 +2,7 @@ import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { createContext, useContext, useEffect, useState } from 'react';
 import 'react-native-get-random-values';
-import { getStoredIdentity } from '../src/utils/nostr';
+import { fetchNostrProfile, getStoredIdentity, type NostrProfile } from '../src/utils/nostr';
 import { getFamily, leaveFamily, saveFamily, type Family } from '../src/utils/storage';
 
 interface IdentityContextType {
@@ -14,6 +14,10 @@ interface IdentityContextType {
   setUseAmber: (v: boolean) => void;
   family: Family | null;
   setFamily: (f: Family | null) => void;
+  profile: NostrProfile | null;
+  setProfile: (p: NostrProfile | null) => void;
+  relays: string[];
+  setRelays: (r: string[]) => void;
 }
 
 export const IdentityContext = createContext<IdentityContextType>({
@@ -25,6 +29,10 @@ export const IdentityContext = createContext<IdentityContextType>({
   setUseAmber: () => {},
   family: null,
   setFamily: () => {},
+  profile: null,
+  setProfile: () => {},
+  relays: ['wss://relay.beginningend.com'],
+  setRelays: () => {},
 });
 
 export function useIdentity() {
@@ -37,6 +45,8 @@ export default function RootLayout() {
   const [useAmber, setUseAmber] = useState(false);
   const [ready, setReady] = useState(false);
   const [family, setFamilyState] = useState<Family | null>(null);
+  const [profile, setProfile] = useState<NostrProfile | null>(null);
+  const [relays, setRelays] = useState<string[]>(['wss://relay.beginningend.com']);
   const router = useRouter() as any;
   const segments = useSegments() as any;
 
@@ -49,6 +59,11 @@ export default function RootLayout() {
   }, []);
 
   useEffect(() => {
+    if (!npub) { setProfile(null); return; }
+    fetchNostrProfile(npub).then(p => { if (p) setProfile(p); });
+  }, [npub]);
+
+  useEffect(() => {
     if (!ready) return;
     const inAuth = (segments[0] as string) === '(auth)';
     const hasIdentity = !!npub;
@@ -57,7 +72,7 @@ export default function RootLayout() {
   }, [ready, npub]);
 
   const setIdentity = (p: string, s: string) => { setNpub(p); setNsec(s); };
-  const clear = () => { setNpub(null); setNsec(null); setUseAmber(false); };
+  const clear = () => { setNpub(null); setNsec(null); setUseAmber(false); setProfile(null); };
 
   const setFamily = async (f: Family | null) => {
     if (f) { await saveFamily(f); setFamilyState(f); }
@@ -69,6 +84,8 @@ export default function RootLayout() {
       npub, nsec, setIdentity, clearIdentity: clear,
       useAmber, setUseAmber,
       family, setFamily,
+      profile, setProfile,
+      relays, setRelays,
     }}>
       <StatusBar style="light" />
       <Stack screenOptions={{ headerShown: false } as any} />

@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "milestone-app",
+    "name": "bE Milestones",
     "slug": "milestone-app",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -17,10 +17,11 @@
         "backgroundColor": "#111111"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.beginningend.milestones"
     },
     "web": {
-      "output": "static",
+      "output": "single",
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
@@ -35,14 +36,17 @@
         }
       ],
       "expo-secure-store",
-      "expo-video"
+      "expo-video",
+      "expo-audio"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
     },
     "extra": {
-      "router": {},
+      "router": {
+        "origin": false
+      },
       "eas": {
         "projectId": "d91d6928-a44e-462f-86d0-51a7ec3c540c"
       }
