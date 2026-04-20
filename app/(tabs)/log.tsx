@@ -16,6 +16,7 @@ import AudioRecorder from '../../components/AudioRecorder';
 import BEHeader from '../../components/BEHeader';
 import VideoRecorder from '../../components/VideoRecorder';
 import { signAndPublish } from '../../src/utils/nostr';
+import { uploadMilestoneMedia } from '../../src/utils/r2';
 import { saveMilestone } from '../../src/utils/storage';
 import { useIdentity } from '../_layout';
 
@@ -87,17 +88,25 @@ export default function LogScreen() {
         }
       }
 
-      await saveMilestone({
-        note: fullNote,
-        tags,
-        photoUri,
-        audioUri,
-        videoUri: videoUriRef.current,
-        nostrEventId,
-        publishedToRelay: published,
-        familyId: shareWithFamily && family ? family.id : undefined,
-        authorNpub: npub ?? undefined,
-      });
+      // Upload media to R2 before saving
+const { photoUri: uploadedPhoto, videoUri: uploadedVideo, audioUri: uploadedAudio } =
+  await uploadMilestoneMedia({
+    photoUri,
+    videoUri: videoUriRef.current,
+    audioUri,
+  });
+
+await saveMilestone({
+  note: fullNote,
+  tags,
+  photoUri: uploadedPhoto,
+  audioUri: uploadedAudio,
+  videoUri: uploadedVideo,
+  nostrEventId,
+  publishedToRelay: published,
+  familyId: shareWithFamily && family ? family.id : undefined,
+  authorNpub: npub ?? undefined,
+});
 
       setTitle('');
       setNote('');

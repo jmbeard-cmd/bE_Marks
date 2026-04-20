@@ -18,6 +18,8 @@ import { formatDate, getMilestones, updateMilestone, type Milestone } from '../s
 
 const { width } = Dimensions.get('window');
 
+const PRESET_TAGS = ['Family', 'Faith', 'Career', 'School', 'Travel', 'Health', 'Achievement', 'Personal'];
+
 export default function MilestoneDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -28,6 +30,9 @@ export default function MilestoneDetail() {
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState('');
   const [editNote, setEditNote] = useState('');
+  const [editTags, setEditTags] = useState<string[]>([]);
+  const [editTagInput, setEditTagInput] = useState('');
+
   const [isAddingReflection, setIsAddingReflection] = useState(false);
   const [reflectionText, setReflectionText] = useState('');
 
@@ -36,7 +41,7 @@ export default function MilestoneDetail() {
   );
 
   const videoViewRef = useRef<VideoView>(null);
-  
+
   const videoPlayer = useVideoPlayer(
     milestone?.videoUri ? { uri: milestone.videoUri } : null,
     player => { player.loop = false; }
@@ -57,24 +62,27 @@ export default function MilestoneDetail() {
     return () => sub.remove();
   }, [audioPlayer]);
 
-  const playAudio = () => {
-    if (!audioPlayer) return;
-    audioPlayer.play();
-    setIsAudioPlaying(true);
-  };
-
-  const stopAudio = () => {
-    if (!audioPlayer) return;
-    audioPlayer.pause();
-    setIsAudioPlaying(false);
-  };
+  const playAudio = () => { if (!audioPlayer) return; audioPlayer.play(); setIsAudioPlaying(true); };
+  const stopAudio = () => { if (!audioPlayer) return; audioPlayer.pause(); setIsAudioPlaying(false); };
 
   const startEditing = () => {
     if (!milestone) return;
     const hasTitle = milestone.note?.includes('\n\n');
     setEditTitle(hasTitle ? milestone.note.split('\n\n')[0] : '');
     setEditNote(hasTitle ? milestone.note.split('\n\n').slice(1).join('\n\n') : milestone.note);
+    setEditTags(milestone.tags ?? []);
     setIsEditing(true);
+  };
+
+  const addEditTag = (tag: string) => {
+    const clean = tag.trim();
+    if (!clean || editTags.includes(clean)) { setEditTagInput(''); return; }
+    setEditTags(prev => [...prev, clean]);
+    setEditTagInput('');
+  };
+
+  const removeEditTag = (tag: string) => {
+    setEditTags(prev => prev.filter(t => t !== tag));
   };
 
   const saveEdit = async () => {
@@ -82,17 +90,14 @@ export default function MilestoneDetail() {
     const newNote = editTitle.trim()
       ? `${editTitle.trim()}\n\n${editNote.trim()}`
       : editNote.trim();
-    await updateMilestone(milestone.id, { note: newNote });
-    setMilestone(prev => prev ? { ...prev, note: newNote } : prev);
+    await updateMilestone(milestone.id, { note: newNote, tags: editTags });
+    setMilestone(prev => prev ? { ...prev, note: newNote, tags: editTags } : prev);
     setIsEditing(false);
   };
 
   const saveReflection = async () => {
     if (!milestone || !reflectionText.trim()) return;
-    const reflection = {
-      text: reflectionText.trim(),
-      createdAt: Math.floor(Date.now() / 1000),
-    };
+    const reflection = { text: reflectionText.trim(), createdAt: Math.floor(Date.now() / 1000) };
     const updatedReflections = [...(milestone.reflections ?? []), reflection];
     await updateMilestone(milestone.id, { reflections: updatedReflections });
     setMilestone(prev => prev ? { ...prev, reflections: updatedReflections } : prev);
@@ -141,6 +146,8 @@ export default function MilestoneDetail() {
 
           {isEditing ? (
             <View style={s.editBlock}>
+
+              {/* Title */}
               <Text style={s.sectionLabel}>TITLE</Text>
               <TextInput
                 style={s.editInput}
@@ -149,6 +156,8 @@ export default function MilestoneDetail() {
                 placeholder="Title..."
                 placeholderTextColor="#444"
               />
+
+              {/* Note */}
               <Text style={[s.sectionLabel, { marginTop: 14 }]}>NOTE</Text>
               <TextInput
                 style={[s.editInput, s.editTextarea]}
@@ -159,6 +168,41 @@ export default function MilestoneDetail() {
                 multiline
                 textAlignVertical="top"
               />
+
+              {/* Tags */}
+              <Text style={[s.sectionLabel, { marginTop: 14 }]}>TAGS</Text>
+              <View style={s.presetTagsRow}>
+                {PRESET_TAGS.map(t => (
+                  <TouchableOpacity
+                    key={t}
+                    style={[s.presetTag, editTags.includes(t) && s.presetTagActive]}
+                    onPress={() => editTags.includes(t) ? removeEditTag(t) : addEditTag(t)}
+                  >
+                    <Text style={[s.presetTagText, editTags.includes(t) && s.presetTagTextActive]}>{t}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <TextInput
+                style={[s.editInput, { marginTop: 8 }]}
+                value={editTagInput}
+                onChangeText={setEditTagInput}
+                placeholder="Custom tag..."
+                placeholderTextColor="#444"
+                returnKeyType="done"
+                autoCapitalize="words"
+                onSubmitEditing={() => addEditTag(editTagInput)}
+              />
+              {editTags.length > 0 && (
+                <View style={s.selectedTagsRow}>
+                  {editTags.map(t => (
+                    <TouchableOpacity key={t} style={s.selectedTag} onPress={() => removeEditTag(t)}>
+                      <Text style={s.selectedTagText}>{t} ✕</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+
+              {/* Actions */}
               <View style={s.editActions}>
                 <TouchableOpacity style={s.cancelEditBtn} onPress={() => setIsEditing(false)}>
                   <Text style={s.cancelEditText}>Cancel</Text>
@@ -203,16 +247,16 @@ export default function MilestoneDetail() {
                 />
                 <TouchableOpacity
                   style={s.videoOverlay}
-                 onPress={() => {
-  if (isVideoPlaying) {
-    videoPlayer.pause();
-    setIsVideoPlaying(false);
-  } else {
-    videoPlayer.play();
-    setIsVideoPlaying(true);
-    videoViewRef.current?.enterFullscreen();
-  }
-}}
+                  onPress={() => {
+                    if (isVideoPlaying) {
+                      videoPlayer.pause();
+                      setIsVideoPlaying(false);
+                    } else {
+                      videoPlayer.play();
+                      setIsVideoPlaying(true);
+                      videoViewRef.current?.enterFullscreen();
+                    }
+                  }}
                 >
                   {!isVideoPlaying && (
                     <View style={s.playCircle}>
@@ -224,7 +268,7 @@ export default function MilestoneDetail() {
             </View>
           )}
 
-          {milestone.tags.length > 0 && (
+          {milestone.tags.length > 0 && !isEditing && (
             <View style={s.section}>
               <Text style={s.sectionLabel}>TAGS</Text>
               <View style={s.tags}>
@@ -246,9 +290,7 @@ export default function MilestoneDetail() {
             </View>
 
             {(milestone.reflections ?? []).length === 0 && !isAddingReflection && (
-              <Text style={s.reflectionEmpty}>
-                No reflections yet. Come back later and add one.
-              </Text>
+              <Text style={s.reflectionEmpty}>No reflections yet. Come back later and add one.</Text>
             )}
 
             {(milestone.reflections ?? []).map((r, i) => (
@@ -338,6 +380,16 @@ const s = StyleSheet.create({
   cancelEditText: { fontSize: 14, color: '#555' },
   saveEditBtn: { flex: 2, padding: 12, borderRadius: 8, backgroundColor: '#c9973a', alignItems: 'center' },
   saveEditText: { fontSize: 14, color: '#111', fontWeight: '700' },
+  // Tag editing
+  presetTagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginBottom: 4 },
+  presetTag: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 0.5, borderColor: '#2a2a2a', backgroundColor: '#1a1a1a' },
+  presetTagActive: { backgroundColor: '#c9973a', borderColor: '#c9973a' },
+  presetTagText: { fontSize: 12, color: '#666' },
+  presetTagTextActive: { color: '#111', fontWeight: '600' },
+  selectedTagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
+  selectedTag: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, backgroundColor: '#1a1a1a', borderWidth: 0.5, borderColor: '#c9973a' },
+  selectedTagText: { fontSize: 12, color: '#c9973a' },
+  // Reflections
   reflectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   addReflectionBtn: { fontSize: 13, color: '#c9973a', fontWeight: '600' },
   reflectionEmpty: { fontSize: 14, color: '#333', fontStyle: 'italic', lineHeight: 22 },
