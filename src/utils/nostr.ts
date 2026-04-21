@@ -12,6 +12,7 @@ import { Linking } from 'react-native';
 const SECKEY = 'nostr_nsec';
 const PUBKEY = 'nostr_npub';
 export const DEFAULT_RELAY = 'wss://relay.beginningend.com';
+export const FAMILY_MILESTONE_KIND = 30078;
 
 // ─── Key Management ───────────────────────────────────────────────
 
@@ -175,6 +176,111 @@ export async function publishRelayList(
   } catch (e: any) {
     return { success: false, error: e.message };
   }
+}
+
+// ─── Family Milestones (kind 30078) ──────────────────────────────
+
+export async function publishFamilyMilestone(
+  milestone: {
+    id: string;
+    note: string;
+    tags: string[];
+    photoUri?: string;
+    videoUri?: string;
+    audioUri?: string;
+    createdAt: number;
+    familyId: string;
+    authorNpub: string;
+  },
+  nsec: string,
+  relays: string[]
+): Promise<{ success: boolean; eventId?: string; error?: string }> {
+  try {
+    const decoded = nip19.decode(nsec);
+    if (decoded.type !== 'nsec') throw new Error('Invalid nsec');
+    const sk = decoded.data as Uint8Array;
+    const pk = getPublicKey(sk);
+
+    const content = JSON.stringify({
+      id: milestone.id,
+      note: milestone.note,
+      tags: milestone.tags,
+      photoUri: milestone.photoUri,
+      videoUri: milestone.videoUri,
+      audioUri: milestone.audioUri,
+      createdAt: milestone.createdAt,
+      authorNpub: milestone.authorNpub,
+    });
+
+    const eventTags: string[][] = [
+      ['d', milestone.id],
+      ['family', milestone.familyId],
+      ['client', 'be-milestones'],
+    ];
+    milestone.tags.forEach(t => eventTags.push(['t', t]));
+
+    const unsigned: UnsignedEvent = {
+      kind: FAMILY_MILESTONE_KIND,
+      created_at: milestone.createdAt,
+      tags: eventTags,
+      content,
+      pubkey: pk,
+    };
+
+    const signed = finalizeEvent(unsigned, sk);
+    const results = await Promise.all(relays.map(r => publishToSpecificRelay(signed, r)));
+    const anySuccess = results.some(r => r.success);
+    const successResult = results.find(r => r.success);
+    return {
+      success: anySuccess,
+      eventId: successResult?.eventId,
+      error: anySuccess ? undefined : 'All relays failed',
+    };
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+}
+
+export function fetchFamilyMilestones(
+  familyId: string,
+  since: number = 0,
+  relayUrl: string = DEFAULT_RELAY
+): Promise<any[]> {
+  return new Promise(resolve => {
+    try {
+      const ws = new WebSocket(relayUrl);
+      const events: any[] = [];
+      const timeout = setTimeout(() => { ws.close(); resolve(events); }, 8000);
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify([
+          'REQ',
+          'family-fetch',
+          {
+            kinds: [FAMILY_MILESTONE_KIND],
+            '#family': [familyId],
+            since,
+            limit: 100,
+          }
+        ]));
+      };
+
+      ws.onmessage = (msg) => {
+        try {
+          const data = JSON.parse(msg.data);
+          if (data[0] === 'EVENT' && data[2]?.kind === FAMILY_MILESTONE_KIND) {
+            events.push(data[2]);
+          } else if (data[0] === 'EOSE') {
+            clearTimeout(timeout);
+            ws.close();
+            resolve(events);
+          }
+        } catch {}
+      };
+
+      ws.onerror = () => { clearTimeout(timeout); resolve(events); };
+    } catch { resolve([]); }
+  });
 }
 
 // ─── Amber Signer (Android NIP-55) ────────────────────────────────

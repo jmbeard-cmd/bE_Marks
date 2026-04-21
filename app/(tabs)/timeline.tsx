@@ -1,6 +1,7 @@
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
+  ActivityIndicator,
   Dimensions,
   FlatList, Image,
   Modal,
@@ -13,7 +14,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import BEHeader from '../../components/BEHeader';
-import { formatDate, getLastFamilyCheck, getMilestones, setLastFamilyCheck, type Milestone } from '../../src/utils/storage';
+import { fetchFamilyMilestones } from '../../src/utils/nostr';
+import { formatDate, getLastFamilyCheck, getMilestones, saveMilestone, setLastFamilyCheck, type Milestone } from '../../src/utils/storage';
 import { useIdentity } from '../_layout';
 
 const { width } = Dimensions.get('window');
@@ -64,6 +66,7 @@ function applyFilters(milestones: Milestone[], filters: FilterState, npub: strin
 export default function TimelineScreen() {
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [tab, setTab] = useState<'mine' | 'family'>('mine');
   const [newFamilyCount, setNewFamilyCount] = useState(0);
   const [showBanner, setShowBanner] = useState(false);
@@ -71,7 +74,7 @@ export default function TimelineScreen() {
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [pendingFilters, setPendingFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const router = useRouter();
-  const { npub, family, profile } = useIdentity();
+  const { npub, family } = useIdentity();
 
   const load = useCallback(async () => {
     const all = await getMilestones();
@@ -85,9 +88,53 @@ export default function TimelineScreen() {
     }
   }, [family, npub]);
 
-  useFocusEffect(useCallback(() => { load(); return () => {}; }, [load]));
+  const syncFamilyMilestones = useCallback(async () => {
+    if (!family || !npub) return;
+    setSyncing(true);
+    try {
+      const remoteEvents = await fetchFamilyMilestones(family.id);
+      const local = await getMilestones();
+      const localIds = new Set(local.map(m => m.id));
+      let addedCount = 0;
 
-  const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
+      for (const event of remoteEvents) {
+        try {
+          const data = JSON.parse(event.content);
+          if (!localIds.has(data.id) && data.authorNpub !== npub) {
+            await saveMilestone({
+              note: data.note ?? '',
+              tags: data.tags ?? [],
+              photoUri: data.photoUri,
+              videoUri: data.videoUri,
+              audioUri: data.audioUri,
+              familyId: family.id,
+              authorNpub: data.authorNpub,
+              publishedToRelay: true,
+              nostrEventId: event.id,
+            });
+            addedCount++;
+          }
+        } catch {}
+      }
+
+      if (addedCount > 0) await load();
+    } catch (e) {
+      console.warn('[Family Sync] Fetch error:', e);
+    }
+    setSyncing(false);
+  }, [family, npub, load]);
+
+  useFocusEffect(useCallback(() => {
+    load();
+    return () => {};
+  }, [load]));
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await load();
+    if (tab === 'family') await syncFamilyMilestones();
+    setRefreshing(false);
+  };
 
   const openDrawer = () => { setPendingFilters(filters); setShowFilterDrawer(true); };
   const applyDrawer = () => { setFilters(pendingFilters); setShowFilterDrawer(false); };
@@ -100,16 +147,18 @@ export default function TimelineScreen() {
     }));
   };
 
+  const switchToFamily = () => {
+  setTab('family');
+  setShowBanner(false);
+  setFilters(DEFAULT_FILTERS);
+  syncFamilyMilestones();
+};
+
   const myMilestones = milestones.filter(m => !m.familyId || m.authorNpub === npub);
   const familyMilestones = family ? milestones.filter(m => m.familyId === family.id) : [];
   const source = tab === 'mine' ? myMilestones : familyMilestones;
-
-  // Get unique authors in family tab for member filter
   const familyAuthors = Array.from(new Set(familyMilestones.map(m => m.authorNpub).filter(Boolean))) as string[];
-
-  // Get all unique tags from source
   const allTags = Array.from(new Set(source.flatMap(m => m.tags)));
-
   const filtered = applyFilters(source, filters, npub);
   const activeFilterCount = countActiveFilters(filters);
 
@@ -160,6 +209,9 @@ export default function TimelineScreen() {
               {item.reflections && item.reflections.length > 0 && (
                 <Text style={s.reflectionBadge}>✦ {item.reflections.length} reflection{item.reflections.length > 1 ? 's' : ''}</Text>
               )}
+              {item.authorNpub && item.authorNpub !== npub && (
+                <Text style={s.authorBadge}>👤 {item.authorNpub.slice(0, 8)}...</Text>
+              )}
             </View>
           </View>
         </View>
@@ -173,7 +225,7 @@ export default function TimelineScreen() {
 
       {/* Banner */}
       {showBanner && family && (
-        <TouchableOpacity style={s.banner} onPress={() => { setTab('family'); setShowBanner(false); }} activeOpacity={0.85}>
+        <TouchableOpacity style={s.banner} onPress={switchToFamily} activeOpacity={0.85}>
           <View style={s.bannerContent}>
             <Text style={s.bannerIcon}>👨‍👩‍👧‍👦</Text>
             <View style={s.bannerText}>
@@ -189,13 +241,25 @@ export default function TimelineScreen() {
 
       {/* Tab row */}
       <View style={s.tabRow}>
-        <TouchableOpacity style={[s.tabBtn, tab === 'mine' && s.tabBtnActive]} onPress={() => { setTab('mine'); setFilters(DEFAULT_FILTERS); }}>
+        <TouchableOpacity
+          style={[s.tabBtn, tab === 'mine' && s.tabBtnActive]}
+          onPress={() => { setTab('mine'); setFilters(DEFAULT_FILTERS); }}
+        >
           <Text style={[s.tabText, tab === 'mine' && s.tabTextActive]}>My Timeline</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[s.tabBtn, tab === 'family' && s.tabBtnActive]} onPress={() => { setTab('family'); setShowBanner(false); setFilters(DEFAULT_FILTERS); }}>
+        <TouchableOpacity
+          style={[s.tabBtn, tab === 'family' && s.tabBtnActive]}
+          onPress={() => {
+            setTab('family');
+            setShowBanner(false);
+            setFilters(DEFAULT_FILTERS);
+            syncFamilyMilestones();
+          }}
+        >
           <View style={s.tabLabelRow}>
             <Text style={[s.tabText, tab === 'family' && s.tabTextActive]}>{family ? family.name : 'Family'}</Text>
             {showBanner && newFamilyCount > 0 && <View style={s.tabBadge}><Text style={s.tabBadgeText}>{newFamilyCount}</Text></View>}
+            {syncing && tab === 'family' && <ActivityIndicator size="small" color="#c9973a" style={{ marginLeft: 4 }} />}
           </View>
         </TouchableOpacity>
       </View>
@@ -242,10 +306,12 @@ export default function TimelineScreen() {
         </View>
       ) : filtered.length === 0 ? (
         <View style={s.empty}>
-          <Text style={s.emptyIcon}>{activeFilterCount > 0 ? '🔍' : '◎'}</Text>
-          <Text style={s.emptyText}>{activeFilterCount > 0 ? 'No matches' : tab === 'family' ? 'No family milestones yet' : 'No milestones yet'}</Text>
+          <Text style={s.emptyIcon}>{activeFilterCount > 0 ? '🔍' : syncing ? '⟳' : '◎'}</Text>
+          <Text style={s.emptyText}>
+            {syncing ? 'Syncing family milestones...' : activeFilterCount > 0 ? 'No matches' : tab === 'family' ? 'No family milestones yet' : 'No milestones yet'}
+          </Text>
           <Text style={s.emptyHint}>
-            {activeFilterCount > 0
+            {syncing ? '' : activeFilterCount > 0
               ? 'Try adjusting your filters.'
               : tab === 'family' ? 'Save a milestone and tag it to your family.' : 'Tap + to capture your first moment.'}
           </Text>
@@ -276,37 +342,24 @@ export default function TimelineScreen() {
           <TouchableOpacity style={s.drawer} activeOpacity={1} onPress={() => {}}>
             <View style={s.drawerHandle} />
             <Text style={s.drawerTitle}>Filter milestones</Text>
-
             <ScrollView showsVerticalScrollIndicator={false}>
-
-              {/* Tags */}
               {allTags.length > 0 && (
                 <View style={s.drawerSection}>
                   <Text style={s.drawerSectionLabel}>TAGS</Text>
                   <View style={s.drawerChips}>
                     {allTags.map(t => (
-                      <TouchableOpacity
-                        key={t}
-                        style={[s.drawerChip, pendingFilters.tags.includes(t) && s.drawerChipActive]}
-                        onPress={() => togglePendingTag(t)}
-                      >
+                      <TouchableOpacity key={t} style={[s.drawerChip, pendingFilters.tags.includes(t) && s.drawerChipActive]} onPress={() => togglePendingTag(t)}>
                         <Text style={[s.drawerChipText, pendingFilters.tags.includes(t) && s.drawerChipTextActive]}>{t}</Text>
                       </TouchableOpacity>
                     ))}
                   </View>
                 </View>
               )}
-
-              {/* Media type */}
               <View style={s.drawerSection}>
                 <Text style={s.drawerSectionLabel}>MEDIA TYPE</Text>
                 <View style={s.drawerChips}>
                   {(['all', 'photo', 'video', 'voice', 'text'] as const).map(m => (
-                    <TouchableOpacity
-                      key={m}
-                      style={[s.drawerChip, pendingFilters.mediaType === m && s.drawerChipActive]}
-                      onPress={() => setPendingFilters(prev => ({ ...prev, mediaType: m }))}
-                    >
+                    <TouchableOpacity key={m} style={[s.drawerChip, pendingFilters.mediaType === m && s.drawerChipActive]} onPress={() => setPendingFilters(prev => ({ ...prev, mediaType: m }))}>
                       <Text style={[s.drawerChipText, pendingFilters.mediaType === m && s.drawerChipTextActive]}>
                         {m === 'all' ? 'All media' : m === 'photo' ? 'Photo' : m === 'video' ? 'Video' : m === 'voice' ? 'Voice' : 'Text only'}
                       </Text>
@@ -314,40 +367,25 @@ export default function TimelineScreen() {
                   ))}
                 </View>
               </View>
-
-              {/* Date range */}
               <View style={s.drawerSection}>
                 <Text style={s.drawerSectionLabel}>DATE RANGE</Text>
                 <View style={s.drawerChips}>
                   {([['all', 'All time'], ['week', 'This week'], ['month', 'This month'], ['year', 'This year']] as const).map(([val, label]) => (
-                    <TouchableOpacity
-                      key={val}
-                      style={[s.drawerChip, pendingFilters.dateRange === val && s.drawerChipActive]}
-                      onPress={() => setPendingFilters(prev => ({ ...prev, dateRange: val }))}
-                    >
+                    <TouchableOpacity key={val} style={[s.drawerChip, pendingFilters.dateRange === val && s.drawerChipActive]} onPress={() => setPendingFilters(prev => ({ ...prev, dateRange: val }))}>
                       <Text style={[s.drawerChipText, pendingFilters.dateRange === val && s.drawerChipTextActive]}>{label}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
               </View>
-
-              {/* Family member — only in family tab */}
               {tab === 'family' && familyAuthors.length > 1 && (
                 <View style={s.drawerSection}>
                   <Text style={s.drawerSectionLabel}>FAMILY MEMBER</Text>
                   <View style={s.drawerChips}>
-                    <TouchableOpacity
-                      style={[s.drawerChip, pendingFilters.authorNpub === null && s.drawerChipActive]}
-                      onPress={() => setPendingFilters(prev => ({ ...prev, authorNpub: null }))}
-                    >
+                    <TouchableOpacity style={[s.drawerChip, pendingFilters.authorNpub === null && s.drawerChipActive]} onPress={() => setPendingFilters(prev => ({ ...prev, authorNpub: null }))}>
                       <Text style={[s.drawerChipText, pendingFilters.authorNpub === null && s.drawerChipTextActive]}>Everyone</Text>
                     </TouchableOpacity>
                     {familyAuthors.map(a => (
-                      <TouchableOpacity
-                        key={a}
-                        style={[s.drawerChip, pendingFilters.authorNpub === a && s.drawerChipActive]}
-                        onPress={() => setPendingFilters(prev => ({ ...prev, authorNpub: a }))}
-                      >
+                      <TouchableOpacity key={a} style={[s.drawerChip, pendingFilters.authorNpub === a && s.drawerChipActive]} onPress={() => setPendingFilters(prev => ({ ...prev, authorNpub: a }))}>
                         <Text style={[s.drawerChipText, pendingFilters.authorNpub === a && s.drawerChipTextActive]}>
                           {a === npub ? 'Me' : `${a.slice(0, 8)}...`}
                         </Text>
@@ -356,23 +394,13 @@ export default function TimelineScreen() {
                   </View>
                 </View>
               )}
-
-              {/* Has reflection toggle */}
               <View style={s.drawerSection}>
                 <Text style={s.drawerSectionLabel}>REFLECTIONS</Text>
-                <TouchableOpacity
-                  style={[s.drawerChip, pendingFilters.hasReflection && s.drawerChipActive]}
-                  onPress={() => setPendingFilters(prev => ({ ...prev, hasReflection: !prev.hasReflection }))}
-                >
-                  <Text style={[s.drawerChipText, pendingFilters.hasReflection && s.drawerChipTextActive]}>
-                    Has reflection
-                  </Text>
+                <TouchableOpacity style={[s.drawerChip, pendingFilters.hasReflection && s.drawerChipActive]} onPress={() => setPendingFilters(prev => ({ ...prev, hasReflection: !prev.hasReflection }))}>
+                  <Text style={[s.drawerChipText, pendingFilters.hasReflection && s.drawerChipTextActive]}>Has reflection</Text>
                 </TouchableOpacity>
               </View>
-
             </ScrollView>
-
-            {/* Actions */}
             <View style={s.drawerActions}>
               <TouchableOpacity style={s.drawerClearBtn} onPress={clearFilters}>
                 <Text style={s.drawerClearText}>Clear all</Text>
@@ -407,7 +435,6 @@ const s = StyleSheet.create({
   tabLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   tabBadge: { backgroundColor: '#c9973a', borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2, minWidth: 18, alignItems: 'center' },
   tabBadgeText: { fontSize: 10, color: '#111', fontWeight: '700' },
-  // Filter bar
   filterBar: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: 0.5, borderBottomColor: '#1e1e1e', paddingRight: 12 },
   filterBarInner: { paddingHorizontal: 12, paddingVertical: 9, gap: 6, flexDirection: 'row', alignItems: 'center' },
   activeChip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, backgroundColor: '#1e1600', borderWidth: 0.5, borderColor: '#c9973a33' },
@@ -418,7 +445,6 @@ const s = StyleSheet.create({
   filterBtnActive: { borderColor: '#c9973a', backgroundColor: '#1e1600' },
   filterBtnText: { fontSize: 12, color: '#555', fontWeight: '500' },
   filterBtnTextActive: { color: '#c9973a', fontWeight: '600' },
-  // List
   list: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 100 },
   item: { flexDirection: 'row', gap: 14, marginBottom: 20 },
   timelineCol: { alignItems: 'center', width: 12, paddingTop: 4 },
@@ -441,20 +467,18 @@ const s = StyleSheet.create({
   note: { fontSize: 14, color: '#888', lineHeight: 21 },
   tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 10 },
   tag: { fontSize: 11, color: '#c9973a', backgroundColor: '#1e1600', paddingHorizontal: 9, paddingVertical: 4, borderRadius: 20, borderWidth: 0.5, borderColor: '#3a2800' },
-  cardMeta: { flexDirection: 'row', gap: 10, marginTop: 8 },
+  cardMeta: { flexDirection: 'row', gap: 10, marginTop: 8, flexWrap: 'wrap' },
   relayBadge: { fontSize: 10, color: '#444' },
   reflectionBadge: { fontSize: 10, color: '#c9973a' },
-  // Empty
+  authorBadge: { fontSize: 10, color: '#555' },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 48 },
   emptyIcon: { fontSize: 36, color: '#333', marginBottom: 12 },
   emptyText: { fontSize: 17, color: '#555', fontWeight: '500' },
   emptyHint: { fontSize: 13, color: '#333', marginTop: 6, textAlign: 'center' },
   goSettingsBtn: { marginTop: 20, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8, borderWidth: 0.5, borderColor: '#c9973a' },
   goSettingsText: { fontSize: 14, color: '#c9973a', fontWeight: '500' },
-  // FAB
   fab: { position: 'absolute', bottom: 24, right: 24, width: 58, height: 58, borderRadius: 29, backgroundColor: '#c9973a', alignItems: 'center', justifyContent: 'center', shadowColor: '#c9973a', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8, elevation: 8 },
   fabIcon: { fontSize: 32, color: '#111', lineHeight: 36, fontWeight: '300' },
-  // Drawer
   drawerOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
   drawer: { backgroundColor: '#1a1a1a', borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingHorizontal: 20, paddingBottom: 40, maxHeight: '80%' },
   drawerHandle: { width: 36, height: 4, backgroundColor: '#333', borderRadius: 2, alignSelf: 'center', marginTop: 12, marginBottom: 16 },
