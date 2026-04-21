@@ -1,7 +1,7 @@
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import * as SecureStore from 'expo-secure-store';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -20,9 +20,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   clearIdentity,
   DEFAULT_RELAY,
+  fetchFamilyMembers,
   fetchRelayList,
+  publishFamilyMembership,
   publishProfile,
-  publishRelayList,
+  publishRelayList
 } from '../../src/utils/nostr';
 import { uploadToR2 } from '../../src/utils/r2';
 import { generateFamilyId } from '../../src/utils/storage';
@@ -52,6 +54,28 @@ export default function SettingsScreen() {
 
   const [showNsec, setShowNsec] = useState(false);
   const [nsecValue, setNsecValue] = useState('');
+  useEffect(() => {
+  const republishFamilyNameIfNeeded = async () => {
+    if (!family) return;
+    if (family.role !== 'admin') return;
+    if (!npub || !nsec) return;
+    if (!family.name?.trim()) return;
+
+    await publishFamilyMembership(
+      {
+        familyId: family.id,
+        familyName: family.name.trim(),
+        memberNpub: npub,
+        role: 'admin',
+        joinedAt: family.createdAt,
+      },
+      nsec,
+      relays
+    );
+  };
+
+  republishFamilyNameIfNeeded();
+}, [family?.id, family?.name, family?.role, npub, nsec]);
 
   const displayName = profile?.display_name || profile?.name || null;
   const avatarUri = profile?.picture || null;
@@ -219,23 +243,111 @@ export default function SettingsScreen() {
   };
 
   const handleCreateFamily = async () => {
-    if (!familyName.trim()) { Alert.alert('Name required', 'Enter a family name.'); return; }
-    const newFamily = { id: generateFamilyId(), name: familyName.trim(), createdAt: Math.floor(Date.now() / 1000), role: 'admin' as const };
-    await setFamily(newFamily);
-    setFamilyName('');
-    setShowCreateFamily(false);
-    Alert.alert('Family created!', `Your family code is:\n\n${newFamily.id}\n\nShare this with family members so they can join.`, [{ text: 'Got it' }]);
+  if (!familyName.trim()) {
+    Alert.alert('Name required', 'Enter a family name.');
+    return;
+  }
+
+  if (!npub) {
+    Alert.alert('No identity', 'You need a Nostr identity first.');
+    return;
+  }
+
+  if (!nsec) {
+    Alert.alert('No private key', 'Cannot publish family membership without a private key.');
+    return;
+  }
+
+  const newFamily = {
+    id: generateFamilyId(),
+    name: familyName.trim(),
+    createdAt: Math.floor(Date.now() / 1000),
+    role: 'admin' as const,
   };
 
-  const handleJoinFamily = async () => {
-    const code = joinCode.trim().toUpperCase();
-    if (code.length !== 8) { Alert.alert('Invalid code', 'Family codes are 8 characters.'); return; }
-    const joined = { id: code, name: 'Family', createdAt: Math.floor(Date.now() / 1000), role: 'member' as const };
-    await setFamily(joined);
-    setJoinCode('');
-    setShowJoinFamily(false);
-    Alert.alert('Joined!', `You've joined family ${code}. Their milestones will appear on your Family Timeline.`);
+  const publishResult = await publishFamilyMembership(
+    {
+      familyId: newFamily.id,
+      familyName: newFamily.name,
+      memberNpub: npub,
+      role: 'admin',
+      joinedAt: newFamily.createdAt,
+    },
+    nsec,
+    relays
+  );
+
+  if (!publishResult.success) {
+    Alert.alert('Could not create family', publishResult.error || 'Membership event failed to publish.');
+    return;
+  }
+
+  await setFamily(newFamily);
+  setFamilyName('');
+  setShowCreateFamily(false);
+
+  Alert.alert(
+    'Family created!',
+    `Your family code is:\n\n${newFamily.id}\n\nShare this with family members so they can join.`
+  );
+};
+
+const handleJoinFamily = async () => {
+  const code = joinCode.trim().toUpperCase();
+
+  if (code.length !== 8) {
+    Alert.alert('Invalid code', 'Family codes are 8 characters.');
+    return;
+  }
+
+  if (!npub) {
+    Alert.alert('No identity', 'You need a Nostr identity first.');
+    return;
+  }
+
+  if (!nsec) {
+    Alert.alert('No private key', 'Cannot publish family membership without a private key.');
+    return;
+  }
+
+  // First, try to find an existing family name from relay
+  const existingMembers = await fetchFamilyMembers(code, relays[0] || DEFAULT_RELAY);
+  const existingFamilyName =
+    existingMembers.find(m => m.familyName && m.familyName.trim())?.familyName?.trim() || 'Family';
+
+  const joined = {
+    id: code,
+    name: existingFamilyName,
+    createdAt: Math.floor(Date.now() / 1000),
+    role: 'member' as const,
   };
+
+  const publishResult = await publishFamilyMembership(
+    {
+      familyId: joined.id,
+      familyName: joined.name,
+      memberNpub: npub,
+      role: 'member',
+      joinedAt: joined.createdAt,
+    },
+    nsec,
+    relays
+  );
+
+  if (!publishResult.success) {
+    Alert.alert('Could not join family', publishResult.error || 'Membership event failed to publish.');
+    return;
+  }
+
+  await setFamily(joined);
+  setJoinCode('');
+  setShowJoinFamily(false);
+
+  Alert.alert(
+    'Joined!',
+    `You've joined ${joined.name}. Your membership was published to Nostr.`
+  );
+};
 
   const handleLeaveFamily = () => {
     Alert.alert('Leave family', 'You will no longer see shared family milestones.', [

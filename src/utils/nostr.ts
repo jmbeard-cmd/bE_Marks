@@ -13,6 +13,7 @@ const SECKEY = 'nostr_nsec';
 const PUBKEY = 'nostr_npub';
 export const DEFAULT_RELAY = 'wss://relay.beginningend.com';
 export const FAMILY_MILESTONE_KIND = 30078;
+export const FAMILY_MEMBERSHIP_KIND = 30079;
 
 // ─── Key Management ───────────────────────────────────────────────
 
@@ -120,6 +121,25 @@ export async function publishProfile(
   }
 }
 
+export interface FamilyMembershipPayload {
+  familyId: string;
+  familyName?: string;
+  memberNpub: string;
+  role: 'admin' | 'member';
+  joinedAt: number;
+}
+
+export interface FamilyMemberRecord {
+  familyId: string;
+  familyName?: string;
+  memberNpub: string;
+  role: 'admin' | 'member';
+  joinedAt: number;
+  pubkey: string;
+  created_at: number;
+  eventId: string;
+}
+
 // ─── Relay List (kind 10002) ──────────────────────────────────────
 
 export function fetchRelayList(npub: string): Promise<string[]> {
@@ -176,6 +196,126 @@ export async function publishRelayList(
   } catch (e: any) {
     return { success: false, error: e.message };
   }
+}
+
+// ─── Family Membership (kind 30079) ──────────────────────────────
+
+export async function publishFamilyMembership(
+  membership: FamilyMembershipPayload,
+  nsec: string,
+  relays: string[]
+): Promise<{ success: boolean; eventId?: string; error?: string }> {
+  try {
+    const decoded = nip19.decode(nsec);
+    if (decoded.type !== 'nsec') throw new Error('Invalid nsec');
+
+    const sk = decoded.data as Uint8Array;
+    const pk = getPublicKey(sk);
+
+    const content = JSON.stringify({
+      familyId: membership.familyId,
+      familyName: membership.familyName || '',
+      memberNpub: membership.memberNpub,
+      role: membership.role,
+      joinedAt: membership.joinedAt,
+    });
+
+    const tags: string[][] = [
+      ['d', `${membership.familyId}:${membership.memberNpub}`],
+      ['t', `family:${membership.familyId}`],
+      ['p', npubToHex(membership.memberNpub)],
+      ['client', 'be-milestones'],
+    ];
+
+    const unsigned: UnsignedEvent = {
+      kind: FAMILY_MEMBERSHIP_KIND,
+      created_at: Math.floor(Date.now() / 1000),
+      tags,
+      content,
+      pubkey: pk,
+    };
+
+    const signed = finalizeEvent(unsigned, sk);
+    const results = await Promise.all(relays.map(r => publishToSpecificRelay(signed, r)));
+    const anySuccess = results.some(r => r.success);
+    const successResult = results.find(r => r.success);
+
+    return {
+      success: anySuccess,
+      eventId: successResult?.eventId,
+      error: anySuccess ? undefined : 'All relays failed',
+    };
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+}
+
+export function fetchFamilyMembers(
+  familyId: string,
+  relayUrl: string = DEFAULT_RELAY
+): Promise<FamilyMemberRecord[]> {
+  return new Promise(resolve => {
+    try {
+      const ws = new WebSocket(relayUrl);
+      const events: FamilyMemberRecord[] = [];
+      const seen = new Set<string>();
+
+      const timeout = setTimeout(() => {
+        ws.close();
+        resolve(events);
+      }, 8000);
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify([
+          'REQ',
+          `family-members-${familyId}`,
+          {
+            kinds: [FAMILY_MEMBERSHIP_KIND],
+            '#t': [`family:${familyId}`],
+            limit: 100,
+          }
+        ]));
+      };
+
+      ws.onmessage = (msg) => {
+        try {
+          const data = JSON.parse(msg.data);
+
+          if (data[0] === 'EVENT' && data[2]?.kind === FAMILY_MEMBERSHIP_KIND) {
+            const evt = data[2];
+            const parsed = JSON.parse(evt.content || '{}');
+
+            const memberNpub = parsed.memberNpub;
+            if (!memberNpub || seen.has(memberNpub)) return;
+
+            seen.add(memberNpub);
+
+            events.push({
+              familyId: parsed.familyId,
+              familyName: parsed.familyName,
+              memberNpub,
+              role: parsed.role === 'admin' ? 'admin' : 'member',
+              joinedAt: parsed.joinedAt || evt.created_at,
+              pubkey: evt.pubkey,
+              created_at: evt.created_at,
+              eventId: evt.id,
+            });
+          } else if (data[0] === 'EOSE') {
+            clearTimeout(timeout);
+            ws.close();
+            resolve(events);
+          }
+        } catch {}
+      };
+
+      ws.onerror = () => {
+        clearTimeout(timeout);
+        resolve(events);
+      };
+    } catch {
+      resolve([]);
+    }
+  });
 }
 
 // ─── Family Milestones (kind 30078) ──────────────────────────────
