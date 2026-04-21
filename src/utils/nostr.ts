@@ -214,7 +214,7 @@ export async function publishFamilyMilestone(
 
     const eventTags: string[][] = [
       ['d', milestone.id],
-      ['family', milestone.familyId],
+      ['t', `family:${milestone.familyId}`],
       ['client', 'be-milestones'],
     ];
     milestone.tags.forEach(t => eventTags.push(['t', t]));
@@ -258,7 +258,7 @@ export function fetchFamilyMilestones(
           'family-fetch',
           {
             kinds: [FAMILY_MILESTONE_KIND],
-            '#family': [familyId],
+            '#t': [`family:${familyId}`],
             since,
             limit: 100,
           }

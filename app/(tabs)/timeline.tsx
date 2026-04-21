@@ -15,7 +15,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import BEHeader from '../../components/BEHeader';
 import { fetchFamilyMilestones } from '../../src/utils/nostr';
-import { formatDate, getLastFamilyCheck, getMilestones, saveMilestone, setLastFamilyCheck, type Milestone } from '../../src/utils/storage';
+import { formatDate, getLastFamilyCheck, getMilestones, saveRemoteMilestone, setLastFamilyCheck, type Milestone } from '../../src/utils/storage';
 import { useIdentity } from '../_layout';
 
 const { width } = Dimensions.get('window');
@@ -97,25 +97,27 @@ export default function TimelineScreen() {
       const localIds = new Set(local.map(m => m.id));
       let addedCount = 0;
 
-      for (const event of remoteEvents) {
-        try {
-          const data = JSON.parse(event.content);
-          if (!localIds.has(data.id) && data.authorNpub !== npub) {
-            await saveMilestone({
-              note: data.note ?? '',
-              tags: data.tags ?? [],
-              photoUri: data.photoUri,
-              videoUri: data.videoUri,
-              audioUri: data.audioUri,
-              familyId: family.id,
-              authorNpub: data.authorNpub,
-              publishedToRelay: true,
-              nostrEventId: event.id,
-            });
-            addedCount++;
-          }
-        } catch {}
-      }
+     for (const event of remoteEvents) {
+  try {
+    const data = JSON.parse(event.content);
+    if (data.authorNpub !== npub) {
+      await saveRemoteMilestone({
+        id: data.id,
+        note: data.note ?? '',
+        tags: data.tags ?? [],
+        photoUri: data.photoUri,
+        videoUri: data.videoUri,
+        audioUri: data.audioUri,
+        createdAt: data.createdAt ?? event.created_at,
+        familyId: family.id,
+        authorNpub: data.authorNpub,
+        publishedToRelay: true,
+        nostrEventId: event.id,
+      });
+      addedCount++;
+    }
+  } catch {}
+}
 
       if (addedCount > 0) await load();
     } catch (e) {

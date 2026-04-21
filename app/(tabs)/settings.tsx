@@ -319,6 +319,18 @@ export default function SettingsScreen() {
               </View>
             )}
 
+<View style={s.row}>
+  <Text style={s.rowLabel}>Public key (npub)</Text>
+  <TouchableOpacity onPress={async () => {
+    if (npub) {
+      await Clipboard.setStringAsync(npub);
+      Alert.alert('Copied', 'Your public key has been copied to clipboard. Share it freely — this is your public identity.');
+    }
+  }}>
+    <Text style={s.rowValue} numberOfLines={1}>{shortNpub}</Text>
+  </TouchableOpacity>
+</View>
+
             <View style={s.row}>
               <Text style={s.rowLabel}>Signer</Text>
               <Text style={s.rowValue}>{useAmber ? 'Amber (NIP-55)' : 'Built-in'}</Text>

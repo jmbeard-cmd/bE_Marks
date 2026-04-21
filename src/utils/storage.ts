@@ -37,6 +37,17 @@ export async function saveMilestone(m: Omit<Milestone, 'id' | 'createdAt'>): Pro
   return milestone;
 }
 
+export async function saveRemoteMilestone(m: Milestone): Promise<void> {
+  const all = await getMilestones();
+  const exists = all.some(existing => 
+    existing.id === m.id || existing.nostrEventId === m.nostrEventId
+  );
+  if (exists) return;
+  all.unshift(m);
+  all.sort((a, b) => b.createdAt - a.createdAt);
+  await AsyncStorage.setItem(MILESTONES_KEY, JSON.stringify(all));
+}
+
 export async function getMilestones(): Promise<Milestone[]> {
   const raw = await AsyncStorage.getItem(MILESTONES_KEY);
   if (!raw) return [];
