@@ -1,4 +1,5 @@
 import * as Clipboard from 'expo-clipboard';
+import * as ImagePicker from 'expo-image-picker';
 import * as SecureStore from 'expo-secure-store';
 import { useState } from 'react';
 import {
@@ -23,34 +24,32 @@ import {
   publishProfile,
   publishRelayList,
 } from '../../src/utils/nostr';
+import { uploadToR2 } from '../../src/utils/r2';
 import { generateFamilyId } from '../../src/utils/storage';
 import { useIdentity } from '../_layout';
 
 export default function SettingsScreen() {
   const { npub, nsec, useAmber, clearIdentity: clearCtx, family, setFamily, profile, setProfile, relays, setRelays } = useIdentity();
 
-  // Family state
   const [showCreateFamily, setShowCreateFamily] = useState(false);
   const [showJoinFamily, setShowJoinFamily] = useState(false);
   const [familyName, setFamilyName] = useState('');
   const [joinCode, setJoinCode] = useState('');
 
-  // Profile edit state
   const [editingProfile, setEditingProfile] = useState(false);
   const [editName, setEditName] = useState('');
   const [editDisplayName, setEditDisplayName] = useState('');
   const [editAbout, setEditAbout] = useState('');
   const [editPicture, setEditPicture] = useState('');
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
 
-  // Relay state
   const [editingRelays, setEditingRelays] = useState(false);
   const [newRelay, setNewRelay] = useState('');
   const [localRelays, setLocalRelays] = useState<string[]>([]);
   const [loadingRelays, setLoadingRelays] = useState(false);
   const [savingRelays, setSavingRelays] = useState(false);
 
-  // Key backup state
   const [showNsec, setShowNsec] = useState(false);
   const [nsecValue, setNsecValue] = useState('');
 
@@ -64,6 +63,63 @@ export default function SettingsScreen() {
     setEditAbout(profile?.about || '');
     setEditPicture(profile?.picture || '');
     setEditingProfile(true);
+  };
+
+  const pickProfilePhoto = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Allow photo access in settings.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.9,
+      allowsEditing: true,
+      aspect: [1, 1],
+    });
+    if (!result.canceled) {
+      setUploadingPhoto(true);
+      const url = await uploadToR2(result.assets[0].uri, 'photo');
+      if (url) {
+        setEditPicture(url);
+        Alert.alert('✓ Photo uploaded', 'Tap Publish to save your profile.');
+      } else {
+        Alert.alert('Upload failed', 'Could not upload photo. Check your connection.');
+      }
+      setUploadingPhoto(false);
+    }
+  };
+
+  const takeProfilePhoto = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Allow camera access in settings.');
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      quality: 0.9,
+      allowsEditing: true,
+      aspect: [1, 1],
+    });
+    if (!result.canceled) {
+      setUploadingPhoto(true);
+      const url = await uploadToR2(result.assets[0].uri, 'photo');
+      if (url) {
+        setEditPicture(url);
+        Alert.alert('✓ Photo uploaded', 'Tap Publish to save your profile.');
+      } else {
+        Alert.alert('Upload failed', 'Could not upload photo. Check your connection.');
+      }
+      setUploadingPhoto(false);
+    }
+  };
+
+  const handlePickPhoto = () => {
+    Alert.alert('Profile photo', 'Choose a photo', [
+      { text: 'Take photo', onPress: takeProfilePhoto },
+      { text: 'Choose from library', onPress: pickProfilePhoto },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
   };
 
   const saveProfileEdits = async () => {
@@ -193,7 +249,6 @@ export default function SettingsScreen() {
       <SafeAreaView style={s.safe}>
         <ScrollView contentContainerStyle={s.container} keyboardShouldPersistTaps="handled">
 
-          {/* Logo header */}
           <View style={s.header}>
             <Image source={require('../../assets/images/bE_logo_transparent.png')} style={s.logo} resizeMode="contain" />
             <View>
@@ -225,19 +280,39 @@ export default function SettingsScreen() {
 
             {editingProfile && (
               <View style={s.editBlock}>
-                <Text style={s.inputLabel}>NAME</Text>
+
+                {/* Profile photo picker */}
+                <Text style={s.inputLabel}>PROFILE PHOTO</Text>
+                <TouchableOpacity style={s.photoPicker} onPress={handlePickPhoto} disabled={uploadingPhoto}>
+                  {uploadingPhoto ? (
+                    <ActivityIndicator color="#c9973a" />
+                  ) : editPicture ? (
+                    <View style={s.photoPickerPreview}>
+                      <Image source={{ uri: editPicture }} style={s.photoPickerImg} />
+                      <Text style={s.photoPickerChange}>Tap to change</Text>
+                    </View>
+                  ) : (
+                    <View style={s.photoPickerEmpty}>
+                      <Text style={s.photoPickerIcon}>📷</Text>
+                      <Text style={s.photoPickerText}>Add profile photo</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+
+                <Text style={[s.inputLabel, { marginTop: 12 }]}>NAME</Text>
                 <TextInput style={s.input} value={editName} onChangeText={setEditName} placeholder="username" placeholderTextColor="#444" autoCapitalize="none" />
+
                 <Text style={[s.inputLabel, { marginTop: 12 }]}>DISPLAY NAME</Text>
                 <TextInput style={s.input} value={editDisplayName} onChangeText={setEditDisplayName} placeholder="Your full name" placeholderTextColor="#444" />
+
                 <Text style={[s.inputLabel, { marginTop: 12 }]}>BIO</Text>
                 <TextInput style={[s.input, { minHeight: 80 }]} value={editAbout} onChangeText={setEditAbout} placeholder="Tell your story..." placeholderTextColor="#444" multiline textAlignVertical="top" />
-                <Text style={[s.inputLabel, { marginTop: 12 }]}>PICTURE URL</Text>
-                <TextInput style={s.input} value={editPicture} onChangeText={setEditPicture} placeholder="https://..." placeholderTextColor="#444" autoCapitalize="none" keyboardType="url" />
+
                 <View style={s.inputActions}>
                   <TouchableOpacity style={s.cancelBtn} onPress={() => setEditingProfile(false)}>
                     <Text style={s.cancelText}>Cancel</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={s.confirmBtn} onPress={saveProfileEdits} disabled={savingProfile}>
+                  <TouchableOpacity style={s.confirmBtn} onPress={saveProfileEdits} disabled={savingProfile || uploadingPhoto}>
                     {savingProfile ? <ActivityIndicator color="#111" /> : <Text style={s.confirmText}>Publish</Text>}
                   </TouchableOpacity>
                 </View>
@@ -249,7 +324,6 @@ export default function SettingsScreen() {
               <Text style={s.rowValue}>{useAmber ? 'Amber (NIP-55)' : 'Built-in'}</Text>
             </View>
 
-            {/* Key backup */}
             {!useAmber && (
               <View style={s.backupBlock}>
                 {!showNsec ? (
@@ -445,6 +519,15 @@ const s = StyleSheet.create({
   profileNpub: { fontSize: 11, color: '#444', fontFamily: 'monospace' },
   editProfileBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, borderWidth: 0.5, borderColor: '#c9973a' },
   editProfileBtnText: { fontSize: 12, color: '#c9973a', fontWeight: '600' },
+  // Photo picker
+  photoPicker: { borderWidth: 0.5, borderColor: '#2a2a2a', borderRadius: 10, backgroundColor: '#1a1a1a', overflow: 'hidden', marginBottom: 4, height: 100, justifyContent: 'center', alignItems: 'center' },
+  photoPickerEmpty: { alignItems: 'center', gap: 6 },
+  photoPickerIcon: { fontSize: 28 },
+  photoPickerText: { fontSize: 13, color: '#555' },
+  photoPickerPreview: { alignItems: 'center', gap: 6 },
+  photoPickerImg: { width: 72, height: 72, borderRadius: 36 },
+  photoPickerChange: { fontSize: 11, color: '#555' },
+  // Relay
   relayUrl: { fontSize: 13, color: '#555', flex: 1 },
   relayDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#2a6a2a' },
   relayRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 0.5, borderBottomColor: '#1e1e1e' },
