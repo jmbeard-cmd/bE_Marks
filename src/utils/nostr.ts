@@ -453,13 +453,23 @@ export interface MilestonePayload {
 
 export function buildMilestoneEvent(payload: MilestonePayload, pubkeyHex: string): UnsignedEvent {
   const tags: string[][] = payload.tags.map(t => ['t', t]);
-  if (payload.imageUrl) tags.push(['image', payload.imageUrl]);
+
+  if (payload.imageUrl) {
+    tags.push(['image', payload.imageUrl]);
+    tags.push(['url', payload.imageUrl]);
+  }
+
   tags.push(['client', 'milestone-journal']);
+
+  const content = payload.imageUrl
+    ? `${payload.note}\n\n${payload.imageUrl}`
+    : payload.note;
+
   return {
     kind: 1,
     created_at: Math.floor(Date.now() / 1000),
     tags,
-    content: payload.note,
+    content,
     pubkey: pubkeyHex,
   };
 }
