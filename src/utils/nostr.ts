@@ -3,7 +3,9 @@ import {
   finalizeEvent,
   generateSecretKey,
   getPublicKey,
+  nip17,
   nip19,
+  SimplePool,
   type Event,
   type UnsignedEvent,
 } from 'nostr-tools';
@@ -54,6 +56,80 @@ export function npubToHex(npub: string): string {
   const decoded = nip19.decode(npub);
   if (decoded.type !== 'npub') throw new Error('Invalid npub');
   return decoded.data as string;
+}
+
+export interface SendDMResult {
+  success: boolean;
+  threadPubkey?: string;
+  eventIds?: string[];
+  error?: string;
+}
+
+export async function sendNostrDM(input: {
+  toPubkey: string;          // hex pubkey
+  content: string;
+  relayUrls?: string[];
+  subject?: string;
+  replyToEventId?: string;
+}): Promise<SendDMResult> {
+  try {
+    const identity = await getStoredIdentity();
+    if (!identity?.nsec) {
+      throw new Error('Missing nsec in SecureStore');
+    }
+
+    const trimmed = input.content.trim();
+    if (!trimmed) {
+      throw new Error('Cannot send an empty message');
+    }
+
+    const decoded = nip19.decode(identity.nsec);
+    if (decoded.type !== 'nsec') {
+      throw new Error('Stored nsec is invalid');
+    }
+
+    const sk = decoded.data as Uint8Array;
+    const myPubkey = getPublicKey(sk);
+
+    const relayUrls =
+      input.relayUrls && input.relayUrls.length > 0
+        ? input.relayUrls
+        : [DEFAULT_RELAY];
+
+    const recipients = [
+      { publicKey: input.toPubkey, relayUrl: relayUrls[0] },
+      { publicKey: myPubkey, relayUrl: relayUrls[0] }, // self-copy for cross-device sync
+    ];
+
+    const wrappedEvents = nip17.wrapManyEvents(
+      sk,
+      recipients,
+      trimmed,
+      input.subject,
+      input.replyToEventId ? { eventId: input.replyToEventId } : undefined
+    );
+
+    const pool = new SimplePool();
+
+    const publishResults = await Promise.all(
+      wrappedEvents.map(async (evt) => {
+        const pubs = pool.publish(relayUrls, evt);
+        await Promise.any(pubs);
+        return evt.id;
+      })
+    );
+
+    return {
+      success: true,
+      threadPubkey: input.toPubkey,
+      eventIds: publishResults,
+    };
+  } catch (e: any) {
+    return {
+      success: false,
+      error: e?.message || 'Failed to send Nostr DM',
+    };
+  }
 }
 
 // ─── Nostr Profile (kind 0) ───────────────────────────────────────

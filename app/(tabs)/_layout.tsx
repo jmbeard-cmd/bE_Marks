@@ -11,6 +11,16 @@ function TimelineIcon({ color }: { color: string }) {
   );
 }
 
+function MessagesIcon({ color }: { color: string }) {
+  return (
+    <View style={s.messagesIcon}>
+      <View style={[s.mBubble, { borderColor: color }]} />
+      <View style={[s.mLine, { backgroundColor: color }]} />
+      <View style={[s.mLineShort, { backgroundColor: color }]} />
+    </View>
+  );
+}
+
 function SettingsIcon({ color }: { color: string }) {
   return (
     <View style={s.settingsIcon}>
@@ -49,6 +59,13 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="messages"
+        options={{
+          title: 'Messages',
+          tabBarIcon: ({ color }) => <MessagesIcon color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="settings"
         options={{
           title: 'Settings',
@@ -58,7 +75,13 @@ export default function TabLayout() {
       <Tabs.Screen
         name="log"
         options={{
-          href: null, // hidden from tab bar, still navigable
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="dm-thread"
+        options={{
+          href: null,
         }}
       />
     </Tabs>
@@ -68,6 +91,31 @@ export default function TabLayout() {
 const s = StyleSheet.create({
   timelineIcon: { gap: 3, justifyContent: 'center', height: 22 },
   tLine: { height: 2, width: 18, borderRadius: 1 },
+
+  messagesIcon: { width: 22, height: 22, alignItems: 'center', justifyContent: 'center' },
+  mBubble: {
+    width: 18,
+    height: 14,
+    borderRadius: 5,
+    borderWidth: 1.5,
+    position: 'absolute',
+    top: 2,
+  },
+  mLine: {
+    width: 10,
+    height: 1.5,
+    borderRadius: 1,
+    position: 'absolute',
+    top: 7,
+  },
+  mLineShort: {
+    width: 6,
+    height: 1.5,
+    borderRadius: 1,
+    position: 'absolute',
+    top: 11,
+  },
+
   settingsIcon: { width: 22, height: 22, alignItems: 'center', justifyContent: 'center' },
   sCircle: { width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, position: 'absolute' },
   sDot: { width: 6, height: 6, borderRadius: 3 },
