@@ -12,32 +12,41 @@ export default {
       supportsTablet: true,
     },
     android: {
-      adaptiveIcon: {
-        foregroundImage: "./assets/images/icon.png",
-        backgroundColor: "#111111",
-      },
-      edgeToEdgeEnabled: true,
-      predictiveBackGestureEnabled: false,
-      package: "com.beginningend.milestones",
-    },
+  adaptiveIcon: {
+    foregroundImage: "./assets/images/icon.png",
+    backgroundColor: "#111111",
+  },
+  edgeToEdgeEnabled: true,
+  predictiveBackGestureEnabled: false,
+  package: "com.beginningend.milestones",
+  permissions: [
+    "android.permission.READ_CONTACTS"
+  ],
+},
     web: {
       output: "single",
       favicon: "./assets/images/favicon.png",
     },
     plugins: [
-      "expo-router",
-      [
-        "expo-splash-screen",
-        {
-          image: "./assets/images/splash.png",
-          imageWidth: 400,
-          resizeMode: "contain",
-          backgroundColor: "#111111",
-        },
-      ],
-      "expo-secure-store",
-      "expo-video",
-    ],
+  "expo-router",
+  [
+    "expo-splash-screen",
+    {
+      image: "./assets/images/splash.png",
+      imageWidth: 400,
+      resizeMode: "contain",
+      backgroundColor: "#111111",
+    },
+  ],
+  "expo-secure-store",
+  "expo-video",
+  [
+    "expo-contacts",
+    {
+      contactsPermission: "Allow bE Milestones to access your contacts to start encrypted conversations."
+    }
+  ],
+],
     experiments: {
       typedRoutes: true,
       reactCompiler: true,

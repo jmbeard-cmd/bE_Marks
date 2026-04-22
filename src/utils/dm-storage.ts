@@ -143,6 +143,17 @@ export async function markThreadRead(threadId: string): Promise<void> {
   await saveDMThreads(updatedThreads);
 }
 
+
+export async function deleteThread(threadId: string): Promise<void> {
+  // Remove the thread
+  const threads = await getDMThreads();
+  await saveDMThreads(threads.filter(t => t.id !== threadId));
+
+  // Remove all messages for this thread
+  const messages = await getDMMessages();
+  await saveDMMessages(messages.filter(m => m.threadId !== threadId));
+}
+
 export function formatDMTime(unix: number): string {
   const date = new Date(unix * 1000);
   return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });

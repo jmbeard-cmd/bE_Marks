@@ -3,13 +3,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  Image,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -20,7 +22,7 @@ import {
   sendLocalDM,
   type DMMessage,
 } from '../../src/utils/dm-storage';
-import { fetchNostrDMs, sendNostrDM, subscribeToNostrDMs } from '../../src/utils/nostr';
+import { fetchNostrDMs, fetchNostrProfile, sendNostrDM, subscribeToNostrDMs, type NostrProfile } from '../../src/utils/nostr';
 
 export default function DmThreadScreen() {
   const router = useRouter();
@@ -30,6 +32,8 @@ export default function DmThreadScreen() {
   const [messages, setMessages] = useState<DMMessage[]>([]);
   const [sending, setSending] = useState(false);
   const [hasPubkey, setHasPubkey] = useState(false);
+  const [contactProfile, setContactProfile] = useState<NostrProfile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
   const listRef = useRef<FlatList>(null);
 
   const threadId = useMemo(() => params.id || '', [params.id]);
@@ -38,6 +42,18 @@ export default function DmThreadScreen() {
   const scrollToBottom = useCallback((animated = true) => {
     listRef.current?.scrollToEnd({ animated });
   }, []);
+
+  // Fetch the contact's Nostr profile for display in the header
+  const loadContactProfile = useCallback(async () => {
+    const thread = await getDMThreadById(threadId);
+    if (!thread?.participantNpub) return;
+    setProfileLoading(true);
+    try {
+      const profile = await fetchNostrProfile(thread.participantNpub);
+      if (profile) setContactProfile(profile);
+    } catch {}
+    setProfileLoading(false);
+  }, [threadId]);
 
   const loadMessages = useCallback(async () => {
     if (!threadId) return;
@@ -76,7 +92,8 @@ export default function DmThreadScreen() {
   useFocusEffect(
     useCallback(() => {
       loadMessages();
-    }, [loadMessages])
+      loadContactProfile();
+    }, [loadMessages, loadContactProfile])
   );
 
   useEffect(() => {
@@ -118,6 +135,7 @@ export default function DmThreadScreen() {
 
     setSending(true);
     setDraft('');
+    Keyboard.dismiss();
 
     try {
       await sendLocalDM({ threadId, text, mine: true });
@@ -135,10 +153,13 @@ export default function DmThreadScreen() {
     setSending(false);
   };
 
-  // Always navigate to messages tab — reliable regardless of stack state
   const handleBack = () => {
     router.navigate('/(tabs)/messages' as any);
   };
+
+  // Display name logic: prefer profile display_name > name > thread title
+  const displayName = contactProfile?.display_name || contactProfile?.name || title;
+  const avatarLetter = displayName[0]?.toUpperCase() || '?';
 
   const renderMessage = ({ item, index }: { item: DMMessage; index: number }) => {
     const prevMsg = index > 0 ? messages[index - 1] : null;
@@ -154,6 +175,18 @@ export default function DmThreadScreen() {
           </View>
         )}
         <View style={[s.row, item.mine ? s.rowMine : s.rowOther]}>
+          {/* Show contact avatar on their messages */}
+          {!item.mine && (
+            <View style={s.msgAvatar}>
+              {contactProfile?.picture ? (
+                <Image source={{ uri: contactProfile.picture }} style={s.msgAvatarImg} />
+              ) : (
+                <View style={s.msgAvatarFallback}>
+                  <Text style={s.msgAvatarLetter}>{avatarLetter}</Text>
+                </View>
+              )}
+            </View>
+          )}
           <View style={[s.bubble, item.mine ? s.bubbleMine : s.bubbleOther]}>
             <Text style={[s.messageText, item.mine ? s.messageTextMine : s.messageTextOther]}>
               {item.text}
@@ -175,15 +208,40 @@ export default function DmThreadScreen() {
         keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
       >
         <View style={s.container}>
-          {/* Header */}
+
+          {/* Header with contact profile */}
           <View style={s.header}>
-            <TouchableOpacity onPress={handleBack} style={s.backBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <TouchableOpacity
+              onPress={handleBack}
+              style={s.backBtn}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
               <Text style={s.backText}>← Back</Text>
             </TouchableOpacity>
+
             <View style={s.headerCenter}>
-              <Text style={s.headerTitle} numberOfLines={1}>{title}</Text>
-              {hasPubkey && <Text style={s.headerSub}>End-to-end encrypted</Text>}
+              {/* Avatar */}
+              <View style={s.headerAvatar}>
+                {contactProfile?.picture ? (
+                  <Image source={{ uri: contactProfile.picture }} style={s.headerAvatarImg} />
+                ) : (
+                  <View style={s.headerAvatarFallback}>
+                    {profileLoading
+                      ? <ActivityIndicator size="small" color="#c9973a" />
+                      : <Text style={s.headerAvatarLetter}>{avatarLetter}</Text>
+                    }
+                  </View>
+                )}
+              </View>
+              {/* Name + encrypted label */}
+              <View>
+                <Text style={s.headerTitle} numberOfLines={1}>{displayName}</Text>
+                {hasPubkey && (
+                  <Text style={s.headerSub}>🔒 End-to-end encrypted</Text>
+                )}
+              </View>
             </View>
+
             <View style={{ width: 60 }} />
           </View>
 
@@ -200,10 +258,14 @@ export default function DmThreadScreen() {
               <View style={s.empty}>
                 <Text style={s.emptyIcon}>✉️</Text>
                 <Text style={s.emptyText}>No messages yet</Text>
-                <Text style={s.emptyHint}>Send the first message below.</Text>
+                <Text style={s.emptyHint}>
+                  {hasPubkey
+                    ? `Send ${displayName} a message below.`
+                    : 'Send the first message below.'}
+                </Text>
                 {!hasPubkey && (
                   <Text style={s.emptyLocalNote}>
-                    This thread has no Nostr address — messages are stored locally only.
+                    No Nostr address — messages are stored locally only.
                   </Text>
                 )}
               </View>
@@ -215,7 +277,7 @@ export default function DmThreadScreen() {
           <View style={s.composer}>
             <TextInput
               style={s.input}
-              placeholder="Write a message…"
+              placeholder={`Message ${displayName}…`}
               placeholderTextColor="#444"
               value={draft}
               onChangeText={setDraft}
@@ -233,6 +295,7 @@ export default function DmThreadScreen() {
               }
             </TouchableOpacity>
           </View>
+
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -253,33 +316,56 @@ function formatDividerDate(unixSecs: number): string {
   const isToday = date.toDateString() === now.toDateString();
   const yesterday = new Date(now);
   yesterday.setDate(now.getDate() - 1);
-  const isYesterday = date.toDateString() === yesterday.toDateString();
   if (isToday) return 'Today';
-  if (isYesterday) return 'Yesterday';
+  if (date.toDateString() === yesterday.toDateString()) return 'Yesterday';
   return date.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
 }
 
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#111' },
   container: { flex: 1 },
+
+  // Header
   header: {
-    height: 58, borderBottomWidth: 0.5, borderBottomColor: '#222',
+    borderBottomWidth: 0.5, borderBottomColor: '#222',
     flexDirection: 'row', alignItems: 'center',
-    justifyContent: 'space-between', paddingHorizontal: 16,
+    justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingVertical: 10,
   },
   backBtn: { width: 60 },
   backText: { color: '#c9973a', fontSize: 14, fontWeight: '600' },
-  headerCenter: { flex: 1, alignItems: 'center' },
-  headerTitle: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  headerCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
+  headerAvatar: { width: 36, height: 36 },
+  headerAvatarImg: { width: 36, height: 36, borderRadius: 18 },
+  headerAvatarFallback: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: '#2a2a2a', alignItems: 'center', justifyContent: 'center',
+  },
+  headerAvatarLetter: { color: '#c9973a', fontWeight: '700', fontSize: 15 },
+  headerTitle: { color: '#fff', fontSize: 15, fontWeight: '700', maxWidth: 160 },
   headerSub: { color: '#555', fontSize: 10, marginTop: 1 },
+
+  // Message list
   list: { padding: 16, paddingBottom: 8, flexGrow: 1 },
+
   dateDivider: { flexDirection: 'row', alignItems: 'center', gap: 10, marginVertical: 16 },
   dateDividerLine: { flex: 1, height: 0.5, backgroundColor: '#222' },
   dateDividerText: { fontSize: 11, color: '#444', fontWeight: '500' },
-  row: { marginBottom: 4, flexDirection: 'row' },
+
+  row: { marginBottom: 6, flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
   rowMine: { justifyContent: 'flex-end' },
   rowOther: { justifyContent: 'flex-start' },
-  bubble: { maxWidth: '80%', borderRadius: 18, paddingHorizontal: 14, paddingVertical: 10 },
+
+  // Contact avatar next to their messages
+  msgAvatar: { width: 28, height: 28, marginBottom: 2 },
+  msgAvatarImg: { width: 28, height: 28, borderRadius: 14 },
+  msgAvatarFallback: {
+    width: 28, height: 28, borderRadius: 14,
+    backgroundColor: '#2a2a2a', alignItems: 'center', justifyContent: 'center',
+  },
+  msgAvatarLetter: { color: '#c9973a', fontWeight: '700', fontSize: 11 },
+
+  bubble: { maxWidth: '75%', borderRadius: 18, paddingHorizontal: 14, paddingVertical: 10 },
   bubbleMine: { backgroundColor: '#c9973a', borderBottomRightRadius: 4 },
   bubbleOther: { backgroundColor: '#1f1f1f', borderWidth: 0.5, borderColor: '#2a2a2a', borderBottomLeftRadius: 4 },
   messageText: { fontSize: 15, lineHeight: 21 },
@@ -288,11 +374,15 @@ const s = StyleSheet.create({
   time: { fontSize: 10, marginTop: 5 },
   timeMine: { color: 'rgba(0,0,0,0.4)', textAlign: 'right' },
   timeOther: { color: '#555' },
+
+  // Empty state
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 60, paddingHorizontal: 32 },
   emptyIcon: { fontSize: 36, marginBottom: 14 },
   emptyText: { color: '#fff', fontSize: 16, fontWeight: '600', marginBottom: 6 },
   emptyHint: { color: '#555', fontSize: 13, textAlign: 'center' },
   emptyLocalNote: { color: '#3a3a3a', fontSize: 11, textAlign: 'center', marginTop: 16, lineHeight: 17 },
+
+  // Composer
   composer: {
     borderTopWidth: 0.5, borderTopColor: '#222',
     padding: 12, flexDirection: 'row', gap: 10, alignItems: 'flex-end',
