@@ -21,6 +21,16 @@ function MessagesIcon({ color }: { color: string }) {
   );
 }
 
+function LogIcon({ color }: { color: string }) {
+  return (
+    <View style={s.logIcon}>
+      <View style={[s.logCircle, { borderColor: color }]} />
+      <View style={[s.logPlus1, { backgroundColor: color }]} />
+      <View style={[s.logPlus2, { backgroundColor: color }]} />
+    </View>
+  );
+}
+
 function SettingsIcon({ color }: { color: string }) {
   return (
     <View style={s.settingsIcon}>
@@ -59,6 +69,10 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="log"
+        options={{ href: null }}
+      />
+      <Tabs.Screen
         name="messages"
         options={{
           title: 'Messages',
@@ -72,17 +86,10 @@ export default function TabLayout() {
           tabBarIcon: ({ color }) => <SettingsIcon color={color} />,
         }}
       />
-      <Tabs.Screen
-        name="log"
-        options={{
-          href: null,
-        }}
-      />
+      {/* dm-thread is NOT a tab — it lives in the root Stack */}
       <Tabs.Screen
         name="dm-thread"
-        options={{
-          href: null,
-        }}
+        options={{ href: null }}
       />
     </Tabs>
   );
@@ -92,29 +99,18 @@ const s = StyleSheet.create({
   timelineIcon: { gap: 3, justifyContent: 'center', height: 22 },
   tLine: { height: 2, width: 18, borderRadius: 1 },
 
+  logIcon: { width: 22, height: 22, alignItems: 'center', justifyContent: 'center' },
+  logCircle: { width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, position: 'absolute' },
+  logPlus1: { width: 10, height: 1.5, borderRadius: 1, position: 'absolute' },
+  logPlus2: { width: 1.5, height: 10, borderRadius: 1, position: 'absolute' },
+
   messagesIcon: { width: 22, height: 22, alignItems: 'center', justifyContent: 'center' },
   mBubble: {
-    width: 18,
-    height: 14,
-    borderRadius: 5,
-    borderWidth: 1.5,
-    position: 'absolute',
-    top: 2,
+    width: 18, height: 14, borderRadius: 5, borderWidth: 1.5,
+    position: 'absolute', top: 2,
   },
-  mLine: {
-    width: 10,
-    height: 1.5,
-    borderRadius: 1,
-    position: 'absolute',
-    top: 7,
-  },
-  mLineShort: {
-    width: 6,
-    height: 1.5,
-    borderRadius: 1,
-    position: 'absolute',
-    top: 11,
-  },
+  mLine: { width: 10, height: 1.5, borderRadius: 1, position: 'absolute', top: 7 },
+  mLineShort: { width: 6, height: 1.5, borderRadius: 1, position: 'absolute', top: 11 },
 
   settingsIcon: { width: 22, height: 22, alignItems: 'center', justifyContent: 'center' },
   sCircle: { width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, position: 'absolute' },

@@ -1,8 +1,9 @@
 import { useAudioPlayer } from 'expo-audio';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Dimensions,
   Image,
@@ -19,6 +20,38 @@ import { formatDate, getMilestones, updateMilestone, type Milestone } from '../s
 const { width } = Dimensions.get('window');
 
 const PRESET_TAGS = ['Family', 'Faith', 'Career', 'School', 'Travel', 'Health', 'Achievement', 'Personal'];
+
+
+// Handles load states and broken URIs gracefully
+function MilestonePhoto({ uri }: { uri: string }) {
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState(false);
+  if (error) {
+    return (
+      <View style={{ width: '100%', height: 80, backgroundColor: '#0d0d0d', alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+        <Text style={{ fontSize: 16 }}>🖼️</Text>
+        <Text style={{ fontSize: 12, color: '#444' }}>Image unavailable</Text>
+      </View>
+    );
+  }
+  return (
+    <View style={{ width: '100%', backgroundColor: '#0d0d0d', marginBottom: 16 }}>
+      <Image
+        source={{ uri }}
+        style={{ width: '100%', height: 280 }}
+        resizeMode="contain"
+        onLoadStart={() => setLoading(true)}
+        onLoadEnd={() => setLoading(false)}
+        onError={() => { setLoading(false); setError(true); }}
+      />
+      {loading && (
+        <View style={{ ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0d0d0d' }}>
+          <ActivityIndicator size="small" color="#c9973a" />
+        </View>
+      )}
+    </View>
+  );
+}
 
 export default function MilestoneDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -128,7 +161,13 @@ export default function MilestoneDetail() {
   return (
     <SafeAreaView style={s.safe}>
       <View style={s.header}>
-        <TouchableOpacity onPress={() => router.back()} style={s.backBtn}>
+        <TouchableOpacity
+          onPress={() => {
+            if (router.canGoBack()) router.back();
+            else router.replace('/(tabs)/timeline' as any);
+          }}
+          style={s.backBtn}
+        >
           <Text style={s.backText}>← Back</Text>
         </TouchableOpacity>
         <Text style={s.date}>{formatDate(milestone.createdAt)}</Text>
@@ -139,7 +178,7 @@ export default function MilestoneDetail() {
 
       <ScrollView contentContainerStyle={s.container} keyboardShouldPersistTaps="handled">
         {milestone.photoUri && (
-          <Image source={{ uri: milestone.photoUri }} style={s.photo} resizeMode="contain" />
+          <MilestonePhoto uri={milestone.photoUri} />
         )}
 
         <View style={s.content}>

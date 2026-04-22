@@ -135,13 +135,9 @@ export default function DmThreadScreen() {
     setSending(false);
   };
 
-  // Safe back — won't throw if there's nothing to go back to
+  // Always navigate to messages tab — reliable regardless of stack state
   const handleBack = () => {
-    if (router.canGoBack()) {
-      router.back();
-    } else {
-      router.replace('/(tabs)/messages' as any);
-    }
+    router.navigate('/(tabs)/messages' as any);
   };
 
   const renderMessage = ({ item, index }: { item: DMMessage; index: number }) => {

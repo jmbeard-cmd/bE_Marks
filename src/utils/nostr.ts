@@ -750,21 +750,44 @@ export interface MilestonePayload {
   note: string;
   tags: string[];
   imageUrl?: string;
+  videoUrl?: string;
+  audioUrl?: string;
 }
 
 export function buildMilestoneEvent(payload: MilestonePayload, pubkeyHex: string): UnsignedEvent {
   const tags: string[][] = payload.tags.map(t => ['t', t]);
 
+  // Image — NIP-94 style tags so clients like Amethyst, Damus, Snort render it
   if (payload.imageUrl) {
     tags.push(['image', payload.imageUrl]);
     tags.push(['url', payload.imageUrl]);
+    tags.push(['imeta',
+      `url ${payload.imageUrl}`,
+      'mime image/jpeg',
+    ]);
   }
 
-  tags.push(['client', 'milestone-journal']);
+  // Video — include as 'url' tag with mime so clients can render it
+  if (payload.videoUrl) {
+    tags.push(['url', payload.videoUrl]);
+    tags.push(['imeta',
+      `url ${payload.videoUrl}`,
+      'mime video/mp4',
+    ]);
+  }
 
-  const content = payload.imageUrl
-    ? `${payload.note}\n\n${payload.imageUrl}`
-    : payload.note;
+  // Audio
+  if (payload.audioUrl) {
+    tags.push(['url', payload.audioUrl]);
+  }
+
+  tags.push(['client', 'bE-Marks']);
+
+  // Build content — append media URLs on their own lines so clients pick them up
+  let content = payload.note;
+  if (payload.imageUrl) content += `\n\n${payload.imageUrl}`;
+  if (payload.videoUrl) content += `\n\n${payload.videoUrl}`;
+  if (payload.audioUrl) content += `\n\n${payload.audioUrl}`;
 
   return {
     kind: 1,

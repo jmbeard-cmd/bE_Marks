@@ -80,25 +80,37 @@ export default function LogScreen() {
       const fullNote = title.trim() ? `${title.trim()}\n\n${note.trim()}` : note.trim();
 
       // ── Step 1: Upload media FIRST so the URL is ready for the Nostr event ──
-      const { photoUri: uploadedPhoto, videoUri: uploadedVideo, audioUri: uploadedAudio } =
-        await uploadMilestoneMedia({
-          photoUri,
-          videoUri: videoUriRef.current,
-          audioUri,
-        });
+      const {
+        photoUri: uploadedPhoto,
+        videoUri: uploadedVideo,
+        audioUri: uploadedAudio,
+        uploadErrors,
+      } = await uploadMilestoneMedia({
+        photoUri,
+        videoUri: videoUriRef.current,
+        audioUri,
+      });
 
-      // ── Step 2: Build the note content — include photo URL if we have one ──
-      // NIP-94 / common convention: append the image URL on its own line
-      const noteWithMedia = uploadedPhoto
-        ? `${fullNote}\n\n${uploadedPhoto}`
-        : fullNote;
+      // Warn user immediately if any media failed — don't silently drop it
+      if (uploadErrors.length > 0) {
+        Alert.alert(
+          'Media upload issue',
+          `Could not upload: ${uploadErrors.join(', ')}. The milestone will save without that media. Check your connection and try again.`
+        );
+      }
 
-      // ── Step 3: Publish to Nostr relay ──
+      // ── Step 2: Publish to Nostr relay with all media URLs ──
       let nostrEventId: string | undefined;
       let published = false;
 
       if (publishToNostr && nsec) {
-        const result = await signAndPublish({ note: noteWithMedia, tags }, nsec);
+        const result = await signAndPublish({
+          note: fullNote,
+          tags,
+          imageUrl: uploadedPhoto,
+          videoUrl: uploadedVideo,
+          audioUrl: uploadedAudio,
+        }, nsec);
         if (result.success) {
           nostrEventId = result.eventId;
           published = true;
@@ -153,10 +165,11 @@ export default function LogScreen() {
       setShareWithFamily(false);
       setTagInput('');
 
-      const photoStatus = uploadedPhoto ? ' Photo uploaded ✓' : photoUri ? ' (photo upload failed)' : '';
-      Alert.alert('✓ Saved', `${published ? 'Published to your relay.' : 'Saved locally.'}${photoStatus}`, [
-        { text: 'OK', onPress: () => router.replace('/(tabs)/timeline') }
-      ]);
+      Alert.alert(
+        '✓ Saved',
+        published ? 'Published to your relay.' : 'Saved locally.',
+        [{ text: 'OK', onPress: () => router.replace('/(tabs)/timeline') }]
+      );
     } catch (e: any) {
       Alert.alert('Error', e.message);
     }
@@ -171,7 +184,7 @@ export default function LogScreen() {
     <SafeAreaView style={s.safe}>
       <ScrollView contentContainerStyle={s.container} keyboardShouldPersistTaps="handled">
 
-        <BEHeader title="New milestone" />
+        <BEHeader title="Log" />
 
         {/* Photo */}
         {photoUri ? (
