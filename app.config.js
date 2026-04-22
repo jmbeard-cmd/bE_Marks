@@ -1,52 +1,61 @@
 export default {
   expo: {
-    name: "bE Milestones",
-    slug: "milestone-app",
+    name: "bE Marks",
+    slug: "marks-app",
     version: "1.2.0",
     orientation: "portrait",
     icon: "./assets/images/icon.png",
-    scheme: "milestoneapp",
+    scheme: "marksapp",
     userInterfaceStyle: "automatic",
     newArchEnabled: true,
     ios: {
       supportsTablet: true,
+      bundleIdentifier: "com.beginningend.marks",
+      buildNumber: "1",
+      infoPlist: {
+        NSContactsUsageDescription: "Allow bE Marks to access your contacts to start encrypted conversations.",
+        NSCameraUsageDescription: "Allow bE Marks to record video milestones.",
+        NSMicrophoneUsageDescription: "Allow bE Marks to record voice notes and video audio.",
+        NSPhotoLibraryUsageDescription: "Allow bE Marks to select photos for milestones.",
+        NSPhotoLibraryAddUsageDescription: "Allow bE Marks to save photos.",
+      },
     },
     android: {
-  adaptiveIcon: {
-    foregroundImage: "./assets/images/icon.png",
-    backgroundColor: "#111111",
-  },
-  edgeToEdgeEnabled: true,
-  predictiveBackGestureEnabled: false,
-  package: "com.beginningend.milestones",
-  permissions: [
-    "android.permission.READ_CONTACTS"
-  ],
-},
+      adaptiveIcon: {
+        foregroundImage: "./assets/images/icon.png",
+        backgroundColor: "#111111",
+      },
+      edgeToEdgeEnabled: true,
+      predictiveBackGestureEnabled: false,
+      package: "com.beginningend.marks",
+      permissions: [
+        "android.permission.READ_CONTACTS"
+      ],
+    },
     web: {
       output: "single",
       favicon: "./assets/images/favicon.png",
     },
     plugins: [
-  "expo-router",
-  [
-    "expo-splash-screen",
-    {
-      image: "./assets/images/splash.png",
-      imageWidth: 400,
-      resizeMode: "contain",
-      backgroundColor: "#111111",
-    },
-  ],
-  "expo-secure-store",
-  "expo-video",
-  [
-    "expo-contacts",
-    {
-      contactsPermission: "Allow bE Milestones to access your contacts to start encrypted conversations."
-    }
-  ],
-],
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          image: "./assets/images/splash.png",
+          imageWidth: 400,
+          resizeMode: "contain",
+          backgroundColor: "#111111",
+        },
+      ],
+      "expo-secure-store",
+      "expo-video",
+      [
+        "expo-contacts",
+        {
+          contactsPermission: "Allow bE Marks to access your contacts to start encrypted conversations."
+        }
+      ],
+    ],
     experiments: {
       typedRoutes: true,
       reactCompiler: true,
