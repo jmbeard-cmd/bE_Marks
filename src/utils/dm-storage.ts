@@ -41,6 +41,11 @@ export async function getDMThreads(): Promise<DMThread[]> {
   return threads.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
+export async function getDMThreadById(threadId: string): Promise<DMThread | null> {
+  const threads = await getDMThreads();
+  return threads.find(thread => thread.id === threadId) || null;
+}
+
 export async function saveDMThreads(threads: DMThread[]): Promise<void> {
   await writeJson(DM_THREADS_KEY, threads);
 }

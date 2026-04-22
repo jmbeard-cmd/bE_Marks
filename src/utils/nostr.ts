@@ -65,6 +65,18 @@ export interface SendDMResult {
   error?: string;
 }
 
+export interface NostrDMMessage {
+  id: string;
+  threadPubkey: string;   // other person's hex pubkey
+  senderPubkey: string;
+  recipientPubkey: string;
+  content: string;
+  createdAt: number;
+  isMine: boolean;
+  rawEvent?: Event;
+  rawInnerEvent?: any;
+}
+
 export async function sendNostrDM(input: {
   toPubkey: string;          // hex pubkey
   content: string;
@@ -95,6 +107,11 @@ export async function sendNostrDM(input: {
       input.relayUrls && input.relayUrls.length > 0
         ? input.relayUrls
         : [DEFAULT_RELAY];
+
+        console.log('sendNostrDM started');
+console.log('toPubkey:', input.toPubkey);
+console.log('myPubkey:', myPubkey);
+console.log('relayUrls:', relayUrls);
 
     const recipients = [
       { publicKey: input.toPubkey, relayUrl: relayUrls[0] },
@@ -129,6 +146,211 @@ export async function sendNostrDM(input: {
       success: false,
       error: e?.message || 'Failed to send Nostr DM',
     };
+  }
+}
+
+export async function fetchNostrDMs(input?: {
+  withPubkey?: string;     // hex pubkey of the other person
+  relayUrls?: string[];
+  limit?: number;
+}): Promise<NostrDMMessage[]> {
+  try {
+    const identity = await getStoredIdentity();
+    if (!identity?.nsec) {
+      throw new Error('Missing nsec in SecureStore');
+    }
+
+    const decoded = nip19.decode(identity.nsec);
+    if (decoded.type !== 'nsec') {
+      throw new Error('Stored nsec is invalid');
+    }
+
+    const sk = decoded.data as Uint8Array;
+    const myPubkey = getPublicKey(sk);
+
+    const relayUrls =
+      input?.relayUrls && input.relayUrls.length > 0
+        ? input.relayUrls
+        : [DEFAULT_RELAY];
+
+    const limit = input?.limit ?? 100;
+
+    const pool = new SimplePool();
+    const giftWraps: Event[] = [];
+
+    await new Promise<void>((resolve) => {
+      const sub = pool.subscribe(
+        relayUrls,
+        {
+          kinds: [1059],
+          '#p': [myPubkey],
+          limit,
+        },
+        {
+          onevent(event) {
+            giftWraps.push(event);
+          },
+          oneose() {
+            try {
+              sub.close();
+            } catch {}
+            resolve();
+          },
+        }
+      );
+
+      setTimeout(() => {
+        try {
+          sub.close();
+        } catch {}
+        resolve();
+      }, 4000);
+    });
+
+    const messages: NostrDMMessage[] = [];
+
+    for (const wrapped of giftWraps) {
+      try {
+        const inner = nip17.unwrapEvent(wrapped, sk);
+        console.log('wrapped DM event received:', wrapped.id);
+
+        if (!inner || inner.kind !== 14) continue;
+
+        const pTag = inner.tags.find((tag) => tag[0] === 'p');
+        const recipientPubkey = pTag?.[1] || '';
+
+        const otherPubkey =
+          inner.pubkey === myPubkey ? recipientPubkey : inner.pubkey;
+        console.log('wrapped DM decrypted:', inner?.id, 'kind:', inner?.kind);  
+
+        if (!otherPubkey) continue;
+        if (input?.withPubkey && otherPubkey !== input.withPubkey) continue;
+
+        messages.push({
+          id: inner.id,
+          threadPubkey: otherPubkey,
+          senderPubkey: inner.pubkey,
+          recipientPubkey,
+          content: inner.content,
+          createdAt: inner.created_at,
+          isMine: inner.pubkey === myPubkey,
+          rawEvent: wrapped,
+          rawInnerEvent: inner,
+        });
+      } catch {
+        // ignore anything we can't decrypt
+      }
+    }
+
+    messages.sort((a, b) => a.createdAt - b.createdAt);
+
+    return messages;
+  } catch (e) {
+    console.log('fetchNostrDMs error:', e);
+    return [];
+  }
+}
+
+export async function subscribeToNostrDMs(
+  input: {
+    withPubkey?: string;
+    relayUrls?: string[];
+    onMessage: (message: NostrDMMessage) => void;
+  }
+): Promise<() => void> {
+  try {
+    const identity = await getStoredIdentity();
+    if (!identity?.nsec) {
+      throw new Error('Missing nsec in SecureStore');
+    }
+
+    console.log('withPubkey filter:', input.withPubkey);
+
+    const decoded = nip19.decode(identity.nsec);
+    if (decoded.type !== 'nsec') {
+      throw new Error('Stored nsec is invalid');
+    }
+
+    const sk = decoded.data as Uint8Array;
+    const myPubkey = getPublicKey(sk);
+
+    console.log('SUB STARTED');
+console.log('myPubkey:', myPubkey);
+console.log('filter withPubkey:', input.withPubkey);
+
+    const relayUrls =
+      input.relayUrls && input.relayUrls.length > 0
+        ? input.relayUrls
+        : [DEFAULT_RELAY];
+
+    const pool = new SimplePool();
+
+    const sub = pool.subscribe(
+      relayUrls,
+      {
+        kinds: [1059],
+        '#p': [myPubkey],
+        since: Math.floor(Date.now() / 1000),
+      },
+      {
+        
+        onevent(wrapped) {
+          try {
+            console.log('RAW EVENT RECEIVED:', wrapped.id);
+            const inner = nip17.unwrapEvent(wrapped, sk);
+            console.log('DECRYPTED EVENT:', inner?.id, 'kind:', inner?.kind);
+
+            if (!inner || inner.kind !== 14) return;
+
+           const pTag = inner.tags.find((tag) => tag[0] === 'p');
+const recipientPubkey = pTag?.[1] || '';
+
+const otherPubkey =
+  inner.pubkey === myPubkey ? recipientPubkey : inner.pubkey;
+
+console.log('recipientPubkey:', recipientPubkey);
+console.log('otherPubkey:', otherPubkey);
+
+            if (!otherPubkey) {
+  console.log('SKIP: no otherPubkey');
+  return;
+}
+
+if (input.withPubkey && otherPubkey !== input.withPubkey) {
+  console.log('SKIP: pubkey mismatch');
+  console.log('expected withPubkey:', input.withPubkey);
+  console.log('actual otherPubkey:', otherPubkey);
+  return;
+}
+
+console.log('PASSING TO UI');
+            
+            input.onMessage({
+              id: inner.id,
+              threadPubkey: otherPubkey,
+              senderPubkey: inner.pubkey,
+              recipientPubkey,
+              content: inner.content,
+              createdAt: inner.created_at,
+              isMine: inner.pubkey === myPubkey,
+              rawEvent: wrapped,
+              rawInnerEvent: inner,
+            });
+          } catch {
+            // ignore anything we can't decrypt
+          }
+        },
+      }
+    );
+
+    return () => {
+      try {
+        sub.close();
+      } catch {}
+    };
+  } catch (e) {
+    console.log('subscribeToNostrDMs error:', e);
+    return () => {};
   }
 }
 

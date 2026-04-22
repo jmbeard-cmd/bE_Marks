@@ -1,5 +1,5 @@
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     FlatList,
     Keyboard,
@@ -15,11 +15,13 @@ import {
 } from 'react-native';
 import {
     formatDMTime,
+    getDMThreadById,
     getMessagesForThread,
     markThreadRead,
     sendLocalDM,
     type DMMessage,
 } from '../../src/utils/dm-storage';
+import { fetchNostrDMs, sendNostrDM, subscribeToNostrDMs } from '../../src/utils/nostr';
 
 export default function DmThreadScreen() {
   const router = useRouter();
@@ -32,11 +34,40 @@ export default function DmThreadScreen() {
   const title = useMemo(() => params.title || 'Conversation', [params.title]);
 
   const loadMessages = useCallback(async () => {
-    if (!threadId) return;
-    const data = await getMessagesForThread(threadId);
-    setMessages(data);
-    await markThreadRead(threadId);
-  }, [threadId]);
+  if (!threadId) return;
+
+  console.log('live DM effect started for threadId:', threadId);
+
+  const localMessages = await getMessagesForThread(threadId);
+  const thread = await getDMThreadById(threadId);
+
+  let merged: DMMessage[] = [...localMessages];
+
+  if (thread?.participantPubkey) {
+    const remoteMessages = await fetchNostrDMs({
+      withPubkey: thread.participantPubkey,
+    });
+
+    const convertedRemote: DMMessage[] = remoteMessages.map((msg) => ({
+      id: `nostr_${msg.id}`,
+      threadId,
+      text: msg.content,
+      mine: msg.isMine,
+      createdAt: msg.createdAt,
+    }));
+
+    const byId = new Map<string, DMMessage>();
+
+    for (const msg of [...localMessages, ...convertedRemote]) {
+      byId.set(msg.id, msg);
+    }
+
+    merged = Array.from(byId.values()).sort((a, b) => a.createdAt - b.createdAt);
+  }
+
+  setMessages(merged);
+  await markThreadRead(threadId);
+}, [threadId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -44,10 +75,51 @@ export default function DmThreadScreen() {
     }, [loadMessages])
   );
 
-  const handleSend = async () => {
-    const text = draft.trim();
-    if (!text || !threadId) return;
+  useEffect(() => {
+  if (!threadId) return;
 
+  let unsubscribe: (() => void) | undefined;
+
+  async function startLiveDMs() {
+    const thread = await getDMThreadById(threadId);
+    console.log('thread from storage:', thread);
+    if (!thread?.participantPubkey) return;
+
+    unsubscribe = await subscribeToNostrDMs({
+      withPubkey: thread.participantPubkey,
+      onMessage: (msg) => {
+        console.log('live DM received in UI:', msg);
+        setMessages((prev) => {
+          const converted: DMMessage = {
+            id: `nostr_${msg.id}`,
+            threadId,
+            text: msg.content,
+            mine: msg.isMine,
+            createdAt: msg.createdAt,
+          };
+
+          const exists = prev.some((m) => m.id === converted.id);
+          if (exists) return prev;
+
+          return [...prev, converted].sort((a, b) => a.createdAt - b.createdAt);
+        });
+      },
+    });
+  }
+
+  startLiveDMs();
+
+  return () => {
+    if (unsubscribe) unsubscribe();
+  };
+}, [threadId]);
+
+  const handleSend = async () => {
+  const text = draft.trim();
+  if (!text || !threadId) return;
+
+  try {
+    // 1. Save locally first (instant UI)
     await sendLocalDM({
       threadId,
       text,
@@ -56,7 +128,31 @@ export default function DmThreadScreen() {
 
     setDraft('');
     await loadMessages();
-  };
+
+    // 2. Load thread to get pubkey
+    const thread = await getDMThreadById(threadId);
+
+    if (!thread?.participantPubkey) {
+      console.log('No participant pubkey — skipping Nostr DM');
+      return;
+    }
+
+    // 3. Send to Nostr
+    const result = await sendNostrDM({
+      toPubkey: thread.participantPubkey,
+      content: text,
+    });
+
+    if (!result.success) {
+      console.log('Nostr DM failed:', result.error);
+    } else {
+      console.log('Nostr DM sent:', result.eventIds);
+    }
+
+  } catch (err) {
+    console.error('Send error:', err);
+  }
+};
 
   return (
     <SafeAreaView style={s.safe}>
