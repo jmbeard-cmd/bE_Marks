@@ -66,7 +66,8 @@ export async function uploadMilestoneMedia(params: {
       results.photoUri = params.photoUri;
     } else {
       const url = await uploadToR2(params.photoUri, 'photo');
-      results.photoUri = url ?? params.photoUri;
+      // Don't fall back to local URI — a dead file:// path is worse than no image
+      if (url) results.photoUri = url;
     }
   }
 
@@ -75,7 +76,7 @@ export async function uploadMilestoneMedia(params: {
       results.videoUri = params.videoUri;
     } else {
       const url = await uploadToR2(params.videoUri, 'video');
-      results.videoUri = url ?? params.videoUri;
+      if (url) results.videoUri = url;
     }
   }
 
@@ -84,7 +85,7 @@ export async function uploadMilestoneMedia(params: {
       results.audioUri = params.audioUri;
     } else {
       const url = await uploadToR2(params.audioUri, 'audio');
-      results.audioUri = url ?? params.audioUri;
+      if (url) results.audioUri = url;
     }
   }
 

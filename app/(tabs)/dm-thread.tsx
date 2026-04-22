@@ -1,25 +1,24 @@
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-    FlatList,
-    Keyboard,
-    KeyboardAvoidingView,
-    Platform,
-    SafeAreaView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    TouchableWithoutFeedback,
-    View,
+  ActivityIndicator,
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import {
-    formatDMTime,
-    getDMThreadById,
-    getMessagesForThread,
-    markThreadRead,
-    sendLocalDM,
-    type DMMessage,
+  formatDMTime,
+  getDMThreadById,
+  getMessagesForThread,
+  markThreadRead,
+  sendLocalDM,
+  type DMMessage,
 } from '../../src/utils/dm-storage';
 import { fetchNostrDMs, sendNostrDM, subscribeToNostrDMs } from '../../src/utils/nostr';
 
@@ -29,45 +28,50 @@ export default function DmThreadScreen() {
 
   const [draft, setDraft] = useState('');
   const [messages, setMessages] = useState<DMMessage[]>([]);
+  const [sending, setSending] = useState(false);
+  const [hasPubkey, setHasPubkey] = useState(false);
+  const listRef = useRef<FlatList>(null);
 
   const threadId = useMemo(() => params.id || '', [params.id]);
   const title = useMemo(() => params.title || 'Conversation', [params.title]);
 
+  const scrollToBottom = useCallback((animated = true) => {
+    listRef.current?.scrollToEnd({ animated });
+  }, []);
+
   const loadMessages = useCallback(async () => {
-  if (!threadId) return;
+    if (!threadId) return;
+    const localMessages = await getMessagesForThread(threadId);
+    const thread = await getDMThreadById(threadId);
 
-  console.log('live DM effect started for threadId:', threadId);
+    setHasPubkey(!!thread?.participantPubkey);
 
-  const localMessages = await getMessagesForThread(threadId);
-  const thread = await getDMThreadById(threadId);
+    let merged: DMMessage[] = [...localMessages];
 
-  let merged: DMMessage[] = [...localMessages];
-
-  if (thread?.participantPubkey) {
-    const remoteMessages = await fetchNostrDMs({
-      withPubkey: thread.participantPubkey,
-    });
-
-    const convertedRemote: DMMessage[] = remoteMessages.map((msg) => ({
-      id: `nostr_${msg.id}`,
-      threadId,
-      text: msg.content,
-      mine: msg.isMine,
-      createdAt: msg.createdAt,
-    }));
-
-    const byId = new Map<string, DMMessage>();
-
-    for (const msg of [...localMessages, ...convertedRemote]) {
-      byId.set(msg.id, msg);
+    if (thread?.participantPubkey) {
+      try {
+        const remoteMessages = await fetchNostrDMs({ withPubkey: thread.participantPubkey });
+        const convertedRemote: DMMessage[] = remoteMessages.map(msg => ({
+          id: `nostr_${msg.id}`,
+          threadId,
+          text: msg.content,
+          mine: msg.isMine,
+          createdAt: msg.createdAt,
+        }));
+        const byId = new Map<string, DMMessage>();
+        for (const msg of [...localMessages, ...convertedRemote]) {
+          byId.set(msg.id, msg);
+        }
+        merged = Array.from(byId.values()).sort((a, b) => a.createdAt - b.createdAt);
+      } catch (e) {
+        console.warn('[DM] Remote fetch error:', e);
+      }
     }
 
-    merged = Array.from(byId.values()).sort((a, b) => a.createdAt - b.createdAt);
-  }
-
-  setMessages(merged);
-  await markThreadRead(threadId);
-}, [threadId]);
+    setMessages(merged);
+    await markThreadRead(threadId);
+    setTimeout(() => scrollToBottom(false), 100);
+  }, [threadId, scrollToBottom]);
 
   useFocusEffect(
     useCallback(() => {
@@ -76,83 +80,96 @@ export default function DmThreadScreen() {
   );
 
   useEffect(() => {
-  if (!threadId) return;
+    if (!threadId) return;
+    let unsubscribe: (() => void) | undefined;
 
-  let unsubscribe: (() => void) | undefined;
+    async function startLiveDMs() {
+      const thread = await getDMThreadById(threadId);
+      if (!thread?.participantPubkey) return;
 
-  async function startLiveDMs() {
-    const thread = await getDMThreadById(threadId);
-    console.log('thread from storage:', thread);
-    if (!thread?.participantPubkey) return;
+      unsubscribe = await subscribeToNostrDMs({
+        withPubkey: thread.participantPubkey,
+        onMessage: msg => {
+          setMessages(prev => {
+            const converted: DMMessage = {
+              id: `nostr_${msg.id}`,
+              threadId,
+              text: msg.content,
+              mine: msg.isMine,
+              createdAt: msg.createdAt,
+            };
+            const exists = prev.some(m => m.id === converted.id);
+            if (exists) return prev;
+            const next = [...prev, converted].sort((a, b) => a.createdAt - b.createdAt);
+            setTimeout(() => scrollToBottom(true), 50);
+            return next;
+          });
+        },
+      });
+    }
 
-    unsubscribe = await subscribeToNostrDMs({
-      withPubkey: thread.participantPubkey,
-      onMessage: (msg) => {
-        console.log('live DM received in UI:', msg);
-        setMessages((prev) => {
-          const converted: DMMessage = {
-            id: `nostr_${msg.id}`,
-            threadId,
-            text: msg.content,
-            mine: msg.isMine,
-            createdAt: msg.createdAt,
-          };
-
-          const exists = prev.some((m) => m.id === converted.id);
-          if (exists) return prev;
-
-          return [...prev, converted].sort((a, b) => a.createdAt - b.createdAt);
-        });
-      },
-    });
-  }
-
-  startLiveDMs();
-
-  return () => {
-    if (unsubscribe) unsubscribe();
-  };
-}, [threadId]);
+    startLiveDMs();
+    return () => { if (unsubscribe) unsubscribe(); };
+  }, [threadId, scrollToBottom]);
 
   const handleSend = async () => {
-  const text = draft.trim();
-  if (!text || !threadId) return;
+    const text = draft.trim();
+    if (!text || !threadId || sending) return;
 
-  try {
-    // 1. Save locally first (instant UI)
-    await sendLocalDM({
-      threadId,
-      text,
-      mine: true,
-    });
-
+    setSending(true);
     setDraft('');
-    await loadMessages();
 
-    // 2. Load thread to get pubkey
-    const thread = await getDMThreadById(threadId);
+    try {
+      await sendLocalDM({ threadId, text, mine: true });
+      await loadMessages();
 
-    if (!thread?.participantPubkey) {
-      console.log('No participant pubkey — skipping Nostr DM');
-      return;
+      const thread = await getDMThreadById(threadId);
+      if (thread?.participantPubkey) {
+        const result = await sendNostrDM({ toPubkey: thread.participantPubkey, content: text });
+        if (!result.success) console.warn('[DM] Nostr send failed:', result.error);
+      }
+    } catch (err) {
+      console.error('[DM] Send error:', err);
     }
 
-    // 3. Send to Nostr
-    const result = await sendNostrDM({
-      toPubkey: thread.participantPubkey,
-      content: text,
-    });
+    setSending(false);
+  };
 
-    if (!result.success) {
-      console.log('Nostr DM failed:', result.error);
+  // Safe back — won't throw if there's nothing to go back to
+  const handleBack = () => {
+    if (router.canGoBack()) {
+      router.back();
     } else {
-      console.log('Nostr DM sent:', result.eventIds);
+      router.replace('/(tabs)/messages' as any);
     }
+  };
 
-  } catch (err) {
-    console.error('Send error:', err);
-  }
-};
+  const renderMessage = ({ item, index }: { item: DMMessage; index: number }) => {
+    const prevMsg = index > 0 ? messages[index - 1] : null;
+    const showDateDivider = !prevMsg || !isSameDay(item.createdAt, prevMsg.createdAt);
+
+    return (
+      <>
+        {showDateDivider && (
+          <View style={s.dateDivider}>
+            <View style={s.dateDividerLine} />
+            <Text style={s.dateDividerText}>{formatDividerDate(item.createdAt)}</Text>
+            <View style={s.dateDividerLine} />
+          </View>
+        )}
+        <View style={[s.row, item.mine ? s.rowMine : s.rowOther]}>
+          <View style={[s.bubble, item.mine ? s.bubbleMine : s.bubbleOther]}>
+            <Text style={[s.messageText, item.mine ? s.messageTextMine : s.messageTextOther]}>
+              {item.text}
+            </Text>
+            <Text style={[s.time, item.mine ? s.timeMine : s.timeOther]}>
+              {formatDMTime(item.createdAt)}
+            </Text>
+          </View>
+        </View>
+      </>
+    );
+  };
 
   return (
     <SafeAreaView style={s.safe}>
@@ -161,182 +178,138 @@ export default function DmThreadScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
       >
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <View style={s.container}>
-            {/* Header */}
-            <View style={s.header}>
-              <TouchableOpacity onPress={() => router.back()} style={s.backBtn}>
-                <Text style={s.backText}>Back</Text>
-              </TouchableOpacity>
-
-              <Text style={s.headerTitle} numberOfLines={1}>
-                {title}
-              </Text>
-
-              <View style={{ width: 44 }} />
+        <View style={s.container}>
+          {/* Header */}
+          <View style={s.header}>
+            <TouchableOpacity onPress={handleBack} style={s.backBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Text style={s.backText}>← Back</Text>
+            </TouchableOpacity>
+            <View style={s.headerCenter}>
+              <Text style={s.headerTitle} numberOfLines={1}>{title}</Text>
+              {hasPubkey && <Text style={s.headerSub}>End-to-end encrypted</Text>}
             </View>
-
-            {/* Messages */}
-            <FlatList
-              data={messages}
-              keyExtractor={(item) => item.id}
-              contentContainerStyle={s.list}
-              keyboardShouldPersistTaps="handled"
-              keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-              ListEmptyComponent={
-                <View style={s.empty}>
-                  <Text style={s.emptyText}>No messages yet</Text>
-                  <Text style={s.emptyHint}>Send the first one below.</Text>
-                </View>
-              }
-              renderItem={({ item }) => (
-                <View style={[s.row, item.mine ? s.rowMine : s.rowOther]}>
-                  <View style={[s.bubble, item.mine ? s.bubbleMine : s.bubbleOther]}>
-                    <Text
-                      style={[
-                        s.messageText,
-                        item.mine ? s.messageTextMine : s.messageTextOther,
-                      ]}
-                    >
-                      {item.text}
-                    </Text>
-                    <Text style={[s.time, item.mine ? s.timeMine : s.timeOther]}>
-                      {formatDMTime(item.createdAt)}
-                    </Text>
-                  </View>
-                </View>
-              )}
-            />
-
-            {/* Composer */}
-            <View style={s.composer}>
-              <TextInput
-                style={s.input}
-                placeholder="Write a message..."
-                placeholderTextColor="#555"
-                value={draft}
-                onChangeText={setDraft}
-                multiline
-              />
-
-              <TouchableOpacity style={s.sendBtn} onPress={handleSend}>
-                <Text style={s.sendText}>Send</Text>
-              </TouchableOpacity>
-            </View>
+            <View style={{ width: 60 }} />
           </View>
-        </TouchableWithoutFeedback>
+
+          {/* Messages */}
+          <FlatList
+            ref={listRef}
+            data={messages}
+            keyExtractor={item => item.id}
+            contentContainerStyle={s.list}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+            onContentSizeChange={() => scrollToBottom(false)}
+            ListEmptyComponent={
+              <View style={s.empty}>
+                <Text style={s.emptyIcon}>✉️</Text>
+                <Text style={s.emptyText}>No messages yet</Text>
+                <Text style={s.emptyHint}>Send the first message below.</Text>
+                {!hasPubkey && (
+                  <Text style={s.emptyLocalNote}>
+                    This thread has no Nostr address — messages are stored locally only.
+                  </Text>
+                )}
+              </View>
+            }
+            renderItem={renderMessage}
+          />
+
+          {/* Composer */}
+          <View style={s.composer}>
+            <TextInput
+              style={s.input}
+              placeholder="Write a message…"
+              placeholderTextColor="#444"
+              value={draft}
+              onChangeText={setDraft}
+              multiline
+              maxLength={2000}
+            />
+            <TouchableOpacity
+              style={[s.sendBtn, (!draft.trim() || sending) && s.sendBtnDim]}
+              onPress={handleSend}
+              disabled={!draft.trim() || sending}
+            >
+              {sending
+                ? <ActivityIndicator size="small" color="#111" />
+                : <Text style={s.sendText}>↑</Text>
+              }
+            </TouchableOpacity>
+          </View>
+        </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
+function isSameDay(a: number, b: number): boolean {
+  const da = new Date(a * 1000);
+  const db = new Date(b * 1000);
+  return da.getFullYear() === db.getFullYear()
+    && da.getMonth() === db.getMonth()
+    && da.getDate() === db.getDate();
+}
+
+function formatDividerDate(unixSecs: number): string {
+  const date = new Date(unixSecs * 1000);
+  const now = new Date();
+  const isToday = date.toDateString() === now.toDateString();
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  const isYesterday = date.toDateString() === yesterday.toDateString();
+  if (isToday) return 'Today';
+  if (isYesterday) return 'Yesterday';
+  return date.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
+}
+
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#111' },
-
   container: { flex: 1 },
-
   header: {
-    height: 56,
-    borderBottomWidth: 0.5,
-    borderBottomColor: '#222',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
+    height: 58, borderBottomWidth: 0.5, borderBottomColor: '#222',
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between', paddingHorizontal: 16,
   },
-
-  backBtn: { paddingVertical: 8, paddingRight: 8, width: 44 },
+  backBtn: { width: 60 },
   backText: { color: '#c9973a', fontSize: 14, fontWeight: '600' },
-
-  headerTitle: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '700',
-    flex: 1,
-    textAlign: 'center',
-  },
-
-  list: {
-    padding: 16,
-    paddingBottom: 24,
-    flexGrow: 1,
-  },
-
-  row: {
-    marginBottom: 12,
-    flexDirection: 'row',
-  },
-
+  headerCenter: { flex: 1, alignItems: 'center' },
+  headerTitle: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  headerSub: { color: '#555', fontSize: 10, marginTop: 1 },
+  list: { padding: 16, paddingBottom: 8, flexGrow: 1 },
+  dateDivider: { flexDirection: 'row', alignItems: 'center', gap: 10, marginVertical: 16 },
+  dateDividerLine: { flex: 1, height: 0.5, backgroundColor: '#222' },
+  dateDividerText: { fontSize: 11, color: '#444', fontWeight: '500' },
+  row: { marginBottom: 4, flexDirection: 'row' },
   rowMine: { justifyContent: 'flex-end' },
   rowOther: { justifyContent: 'flex-start' },
-
-  bubble: {
-    maxWidth: '80%',
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-
-  bubbleMine: { backgroundColor: '#c9973a' },
-  bubbleOther: {
-    backgroundColor: '#1f1f1f',
-    borderWidth: 0.5,
-    borderColor: '#2a2a2a',
-  },
-
-  messageText: { fontSize: 14, lineHeight: 20 },
+  bubble: { maxWidth: '80%', borderRadius: 18, paddingHorizontal: 14, paddingVertical: 10 },
+  bubbleMine: { backgroundColor: '#c9973a', borderBottomRightRadius: 4 },
+  bubbleOther: { backgroundColor: '#1f1f1f', borderWidth: 0.5, borderColor: '#2a2a2a', borderBottomLeftRadius: 4 },
+  messageText: { fontSize: 15, lineHeight: 21 },
   messageTextMine: { color: '#111' },
   messageTextOther: { color: '#eee' },
-
-  time: { fontSize: 10, marginTop: 6 },
-  timeMine: { color: '#3f2d00' },
-  timeOther: { color: '#666' },
-
+  time: { fontSize: 10, marginTop: 5 },
+  timeMine: { color: 'rgba(0,0,0,0.4)', textAlign: 'right' },
+  timeOther: { color: '#555' },
+  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 60, paddingHorizontal: 32 },
+  emptyIcon: { fontSize: 36, marginBottom: 14 },
+  emptyText: { color: '#fff', fontSize: 16, fontWeight: '600', marginBottom: 6 },
+  emptyHint: { color: '#555', fontSize: 13, textAlign: 'center' },
+  emptyLocalNote: { color: '#3a3a3a', fontSize: 11, textAlign: 'center', marginTop: 16, lineHeight: 17 },
   composer: {
-    borderTopWidth: 0.5,
-    borderTopColor: '#222',
-    padding: 12,
-    flexDirection: 'row',
-    gap: 10,
-    alignItems: 'flex-end',
+    borderTopWidth: 0.5, borderTopColor: '#222',
+    padding: 12, flexDirection: 'row', gap: 10, alignItems: 'flex-end',
   },
-
   input: {
-    flex: 1,
-    backgroundColor: '#1a1a1a',
-    borderWidth: 0.5,
-    borderColor: '#2a2a2a',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    color: '#fff',
-    maxHeight: 120,
+    flex: 1, backgroundColor: '#1a1a1a', borderWidth: 0.5, borderColor: '#2a2a2a',
+    borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10,
+    color: '#fff', fontSize: 15, maxHeight: 120, lineHeight: 20,
   },
-
   sendBtn: {
-    backgroundColor: '#c9973a',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 12,
+    width: 42, height: 42, borderRadius: 21,
+    backgroundColor: '#c9973a', alignItems: 'center', justifyContent: 'center',
   },
-
-  sendText: { color: '#111', fontWeight: '700' },
-
-  empty: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: 60,
-  },
-
-  emptyText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-
-  emptyHint: {
-    color: '#555',
-    fontSize: 13,
-    marginTop: 6,
-  },
+  sendBtnDim: { opacity: 0.4 },
+  sendText: { fontSize: 20, color: '#111', fontWeight: '700', lineHeight: 22 },
 });

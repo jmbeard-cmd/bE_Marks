@@ -2,7 +2,7 @@ export default {
   expo: {
     name: "bE Milestones",
     slug: "milestone-app",
-    version: "1.0.0",
+    version: "1.1.0",
     orientation: "portrait",
     icon: "./assets/images/icon.png",
     scheme: "milestoneapp",

@@ -7,8 +7,11 @@ import {
   Image,
   KeyboardAvoidingView,
   Platform,
-  ScrollView, StyleSheet,
-  Text, TextInput, TouchableOpacity,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -75,11 +78,27 @@ export default function LogScreen() {
     setSaving(true);
     try {
       const fullNote = title.trim() ? `${title.trim()}\n\n${note.trim()}` : note.trim();
+
+      // ── Step 1: Upload media FIRST so the URL is ready for the Nostr event ──
+      const { photoUri: uploadedPhoto, videoUri: uploadedVideo, audioUri: uploadedAudio } =
+        await uploadMilestoneMedia({
+          photoUri,
+          videoUri: videoUriRef.current,
+          audioUri,
+        });
+
+      // ── Step 2: Build the note content — include photo URL if we have one ──
+      // NIP-94 / common convention: append the image URL on its own line
+      const noteWithMedia = uploadedPhoto
+        ? `${fullNote}\n\n${uploadedPhoto}`
+        : fullNote;
+
+      // ── Step 3: Publish to Nostr relay ──
       let nostrEventId: string | undefined;
       let published = false;
 
       if (publishToNostr && nsec) {
-        const result = await signAndPublish({ note: fullNote, tags }, nsec);
+        const result = await signAndPublish({ note: noteWithMedia, tags }, nsec);
         if (result.success) {
           nostrEventId = result.eventId;
           published = true;
@@ -88,16 +107,9 @@ export default function LogScreen() {
         }
       }
 
-      // Upload media to R2 before saving
-      const { photoUri: uploadedPhoto, videoUri: uploadedVideo, audioUri: uploadedAudio } =
-        await uploadMilestoneMedia({
-          photoUri,
-          videoUri: videoUriRef.current,
-          audioUri,
-        });
-
+      // ── Step 4: Save to local storage ──
       const savedMilestone = await saveMilestone({
-        note: fullNote,
+        note: fullNote,   // store clean note without the URL appended
         tags,
         photoUri: uploadedPhoto,
         audioUri: uploadedAudio,
@@ -108,7 +120,7 @@ export default function LogScreen() {
         authorNpub: npub ?? undefined,
       });
 
-      // Publish to family relay if sharing with family
+      // ── Step 5: Publish to family relay if sharing ──
       if (shareWithFamily && family && nsec && npub) {
         publishFamilyMilestone(
           {
@@ -125,14 +137,12 @@ export default function LogScreen() {
           nsec,
           relays
         ).then(result => {
-          if (!result.success) {
-            console.warn('[Family Sync] Failed to publish:', result.error);
-          } else {
-            console.log('[Family Sync] Published:', result.eventId);
-          }
+          if (!result.success) console.warn('[Family Sync] Failed to publish:', result.error);
+          else console.log('[Family Sync] Published:', result.eventId);
         });
       }
 
+      // ── Reset form ──
       setTitle('');
       setNote('');
       setTags([]);
@@ -142,7 +152,9 @@ export default function LogScreen() {
       videoUriRef.current = undefined;
       setShareWithFamily(false);
       setTagInput('');
-      Alert.alert('✓ Saved', published ? 'Published to your relay.' : 'Saved locally.', [
+
+      const photoStatus = uploadedPhoto ? ' Photo uploaded ✓' : photoUri ? ' (photo upload failed)' : '';
+      Alert.alert('✓ Saved', `${published ? 'Published to your relay.' : 'Saved locally.'}${photoStatus}`, [
         { text: 'OK', onPress: () => router.replace('/(tabs)/timeline') }
       ]);
     } catch (e: any) {
@@ -254,16 +266,28 @@ export default function LogScreen() {
               </TouchableOpacity>
             ))}
           </View>
-          <TextInput
-            style={s.tagInput}
-            placeholder="Custom tag..."
-            placeholderTextColor="#444"
-            value={tagInput}
-            onChangeText={setTagInput}
-            onSubmitEditing={() => addTag(tagInput)}
-            returnKeyType="done"
-            autoCapitalize="words"
-          />
+
+          {/* Custom tag input with visible + button */}
+          <View style={s.tagInputRow}>
+            <TextInput
+              style={s.tagInput}
+              placeholder="Custom tag..."
+              placeholderTextColor="#444"
+              value={tagInput}
+              onChangeText={setTagInput}
+              onSubmitEditing={() => addTag(tagInput)}
+              returnKeyType="done"
+              autoCapitalize="words"
+            />
+            <TouchableOpacity
+              style={[s.tagAddBtn, !tagInput.trim() && s.tagAddBtnDim]}
+              onPress={() => addTag(tagInput)}
+              disabled={!tagInput.trim()}
+            >
+              <Text style={s.tagAddBtnText}>+ Add</Text>
+            </TouchableOpacity>
+          </View>
+
           {tags.length > 0 && (
             <View style={s.selectedTags}>
               {tags.map(t => (
@@ -320,7 +344,6 @@ export default function LogScreen() {
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#111' },
   container: { padding: 20, paddingBottom: 48 },
-  screenTitle: { fontSize: 22, fontWeight: '700', color: '#fff', marginBottom: 20, letterSpacing: -0.4 },
   photoRow: { flexDirection: 'row', gap: 10, marginBottom: 22 },
   photoBtn: { flex: 1, height: 90, borderRadius: 10, borderWidth: 0.5, borderColor: '#2a2a2a', backgroundColor: '#1a1a1a', alignItems: 'center', justifyContent: 'center', gap: 6 },
   photoBtnIcon: { fontSize: 24 },
@@ -339,7 +362,12 @@ const s = StyleSheet.create({
   presetChipActive: { backgroundColor: '#c9973a', borderColor: '#c9973a' },
   presetText: { fontSize: 13, color: '#666' },
   presetTextActive: { color: '#111', fontWeight: '600' },
-  tagInput: { borderWidth: 0.5, borderColor: '#2a2a2a', borderRadius: 8, padding: 10, fontSize: 14, color: '#fff', backgroundColor: '#1a1a1a', marginTop: 4 },
+  // Custom tag row
+  tagInputRow: { flexDirection: 'row', gap: 8, alignItems: 'center', marginTop: 4 },
+  tagInput: { flex: 1, borderWidth: 0.5, borderColor: '#2a2a2a', borderRadius: 8, padding: 10, fontSize: 14, color: '#fff', backgroundColor: '#1a1a1a' },
+  tagAddBtn: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 8, backgroundColor: '#c9973a' },
+  tagAddBtnDim: { opacity: 0.35 },
+  tagAddBtnText: { fontSize: 13, color: '#111', fontWeight: '700' },
   selectedTags: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10 },
   tagChip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, backgroundColor: '#1a1a1a', borderWidth: 0.5, borderColor: '#c9973a' },
   tagChipText: { fontSize: 12, color: '#c9973a' },
