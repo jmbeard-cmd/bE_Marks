@@ -212,7 +212,7 @@ export async function fetchNostrDMs(input?: {
     for (const wrapped of giftWraps) {
       try {
         const inner = nip17.unwrapEvent(wrapped, sk);
-        console.log('wrapped DM event received:', wrapped.id);
+        console.log('FETCH wrapped DM event received:', wrapped.id);
 
         if (!inner || inner.kind !== 14) continue;
 
@@ -221,7 +221,7 @@ export async function fetchNostrDMs(input?: {
 
         const otherPubkey =
           inner.pubkey === myPubkey ? recipientPubkey : inner.pubkey;
-        console.log('wrapped DM decrypted:', inner?.id, 'kind:', inner?.kind);  
+       console.log('FETCH wrapped DM decrypted:', inner?.id, 'kind:', inner?.kind);  
 
         if (!otherPubkey) continue;
         if (input?.withPubkey && otherPubkey !== input.withPubkey) continue;
@@ -264,8 +264,6 @@ export async function subscribeToNostrDMs(
       throw new Error('Missing nsec in SecureStore');
     }
 
-    console.log('withPubkey filter:', input.withPubkey);
-
     const decoded = nip19.decode(identity.nsec);
     if (decoded.type !== 'nsec') {
       throw new Error('Stored nsec is invalid');
@@ -275,13 +273,15 @@ export async function subscribeToNostrDMs(
     const myPubkey = getPublicKey(sk);
 
     console.log('SUB STARTED');
-console.log('myPubkey:', myPubkey);
-console.log('filter withPubkey:', input.withPubkey);
+    console.log('myPubkey:', myPubkey);
+    console.log('filter withPubkey:', input.withPubkey);
 
     const relayUrls =
       input.relayUrls && input.relayUrls.length > 0
         ? input.relayUrls
         : [DEFAULT_RELAY];
+
+    console.log('relayUrls:', relayUrls);
 
     const pool = new SimplePool();
 
@@ -293,38 +293,41 @@ console.log('filter withPubkey:', input.withPubkey);
         since: Math.floor(Date.now() / 1000),
       },
       {
-        
         onevent(wrapped) {
           try {
-            console.log('RAW EVENT RECEIVED:', wrapped.id);
+            console.log('LIVE RAW EVENT RECEIVED:', wrapped.id);
+
             const inner = nip17.unwrapEvent(wrapped, sk);
-            console.log('DECRYPTED EVENT:', inner?.id, 'kind:', inner?.kind);
+            console.log('LIVE DECRYPTED EVENT:', inner?.id, 'kind:', inner?.kind);
 
-            if (!inner || inner.kind !== 14) return;
+            if (!inner || inner.kind !== 14) {
+              console.log('SKIP: not a kind 14 DM');
+              return;
+            }
 
-           const pTag = inner.tags.find((tag) => tag[0] === 'p');
-const recipientPubkey = pTag?.[1] || '';
+            const pTag = inner.tags.find((tag) => tag[0] === 'p');
+            const recipientPubkey = pTag?.[1] || '';
 
-const otherPubkey =
-  inner.pubkey === myPubkey ? recipientPubkey : inner.pubkey;
+            const otherPubkey =
+              inner.pubkey === myPubkey ? recipientPubkey : inner.pubkey;
 
-console.log('recipientPubkey:', recipientPubkey);
-console.log('otherPubkey:', otherPubkey);
+            console.log('recipientPubkey:', recipientPubkey);
+            console.log('otherPubkey:', otherPubkey);
 
             if (!otherPubkey) {
-  console.log('SKIP: no otherPubkey');
-  return;
-}
+              console.log('SKIP: no otherPubkey');
+              return;
+            }
 
-if (input.withPubkey && otherPubkey !== input.withPubkey) {
-  console.log('SKIP: pubkey mismatch');
-  console.log('expected withPubkey:', input.withPubkey);
-  console.log('actual otherPubkey:', otherPubkey);
-  return;
-}
+            if (input.withPubkey && otherPubkey !== input.withPubkey) {
+              console.log('SKIP: pubkey mismatch');
+              console.log('expected withPubkey:', input.withPubkey);
+              console.log('actual otherPubkey:', otherPubkey);
+              return;
+            }
 
-console.log('PASSING TO UI');
-            
+            console.log('PASSING TO UI');
+
             input.onMessage({
               id: inner.id,
               threadPubkey: otherPubkey,
@@ -336,8 +339,8 @@ console.log('PASSING TO UI');
               rawEvent: wrapped,
               rawInnerEvent: inner,
             });
-          } catch {
-            // ignore anything we can't decrypt
+          } catch (e) {
+            console.log('SUB onevent error:', e);
           }
         },
       }

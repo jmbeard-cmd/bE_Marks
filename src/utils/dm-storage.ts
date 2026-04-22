@@ -46,6 +46,21 @@ export async function getDMThreadById(threadId: string): Promise<DMThread | null
   return threads.find(thread => thread.id === threadId) || null;
 }
 
+// add to src/utils/dm-storage.ts right below getDMThreads()
+
+export async function getDMThreadByParticipantPubkey(
+  participantPubkey: string
+): Promise<DMThread | null> {
+  const threads = await getDMThreads();
+
+  return (
+    threads.find(
+      (thread) =>
+        thread.participantPubkey?.toLowerCase() === participantPubkey.toLowerCase()
+    ) || null
+  );
+}
+
 export async function saveDMThreads(threads: DMThread[]): Promise<void> {
   await writeJson(DM_THREADS_KEY, threads);
 }

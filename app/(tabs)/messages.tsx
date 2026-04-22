@@ -11,7 +11,7 @@ import {
     View
 } from 'react-native';
 import BEHeader from '../../components/BEHeader';
-import { createThread, getDMThreads, type DMThread } from '../../src/utils/dm-storage';
+import { createThread, getDMThreads, getDMThreadByParticipantPubkey, type DMThread } from '../../src/utils/dm-storage';
 import { normalizeNostrIdentity } from '../../src/utils/nostr-identity';
 
 export default function MessagesScreen() {
