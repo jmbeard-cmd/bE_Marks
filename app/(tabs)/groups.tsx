@@ -148,7 +148,7 @@ export default function GroupsScreen() {
       });
       closeSheet();
       await loadGroups();
-      router.push({ pathname: '/group-detail', params: { id: group.id } } as any);
+      router.push({ pathname: '/group-thread', params: { id: group.id } } as any);
     } catch (e: any) {
       Alert.alert('Error', e.message || 'Could not create group.');
     }
@@ -172,7 +172,7 @@ export default function GroupsScreen() {
       if (result.success && result.group) {
         closeSheet();
         await loadGroups();
-        router.push({ pathname: '/group-detail', params: { id: result.group.id } } as any);
+        router.push({ pathname: '/group-thread', params: { id: result.group.id } } as any);
       } else {
         Alert.alert('Could not join', result.error ?? 'Invalid invite code.');
       }
@@ -186,7 +186,7 @@ export default function GroupsScreen() {
     <TouchableOpacity
       style={[s.card, item.status === 'archived' && s.cardArchived]}
       activeOpacity={0.85}
-      onPress={() => router.push({ pathname: '/group-detail', params: { id: item.id } } as any)}
+      onPress={() => router.push({ pathname: '/group-thread', params: { id: item.id } } as any)}
     >
       <View style={[s.groupIcon, item.status === 'archived' && s.groupIconArchived]}>
         <Text style={s.groupIconText}>{getGroupIcon(item)}</Text>

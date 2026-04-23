@@ -45,15 +45,34 @@ export default function DmThreadScreen() {
 
   // Fetch the contact's Nostr profile for display in the header
   const loadContactProfile = useCallback(async () => {
-    const thread = await getDMThreadById(threadId);
-    if (!thread?.participantNpub) return;
-    setProfileLoading(true);
-    try {
-      const profile = await fetchNostrProfile(thread.participantNpub);
-      if (profile) setContactProfile(profile);
-    } catch {}
-    setProfileLoading(false);
-  }, [threadId]);
+  setContactProfile(null);
+  setProfileLoading(false);
+
+  if (!threadId) return;
+
+  const thread = await getDMThreadById(threadId);
+
+  if (!thread?.participantNpub) {
+    setContactProfile(null);
+    return;
+  }
+
+  setProfileLoading(true);
+
+  try {
+    const profile = await fetchNostrProfile(thread.participantNpub);
+
+    const stillCurrentThread = await getDMThreadById(threadId);
+
+    if (stillCurrentThread?.participantNpub === thread.participantNpub) {
+      setContactProfile(profile);
+    }
+  } catch {
+    setContactProfile(null);
+  }
+
+  setProfileLoading(false);
+}, [threadId]);
 
   const loadMessages = useCallback(async () => {
     if (!threadId) return;
@@ -90,11 +109,15 @@ export default function DmThreadScreen() {
   }, [threadId, scrollToBottom]);
 
   useFocusEffect(
-    useCallback(() => {
-      loadMessages();
-      loadContactProfile();
-    }, [loadMessages, loadContactProfile])
-  );
+  useCallback(() => {
+    setMessages([]);
+    setContactProfile(null);
+    setHasPubkey(false);
+
+    loadMessages();
+    loadContactProfile();
+  }, [loadMessages, loadContactProfile])
+);
 
   useEffect(() => {
     if (!threadId) return;
@@ -130,28 +153,47 @@ export default function DmThreadScreen() {
   }, [threadId, scrollToBottom]);
 
   const handleSend = async () => {
-    const text = draft.trim();
-    if (!text || !threadId || sending) return;
+  const text = draft.trim();
+  if (!text || !threadId || sending) return;
 
-    setSending(true);
-    setDraft('');
-    Keyboard.dismiss();
+  setSending(true);
+  setDraft('');
+  Keyboard.dismiss();
 
-    try {
-      await sendLocalDM({ threadId, text, mine: true });
-      await loadMessages();
+  try {
+    const localMessage = await sendLocalDM({
+      threadId,
+      text,
+      mine: true,
+    });
 
-      const thread = await getDMThreadById(threadId);
-      if (thread?.participantPubkey) {
-        const result = await sendNostrDM({ toPubkey: thread.participantPubkey, content: text });
-        if (!result.success) console.warn('[DM] Nostr send failed:', result.error);
-      }
-    } catch (err) {
-      console.error('[DM] Send error:', err);
+    setMessages(prev => {
+      const exists = prev.some(m => m.id === localMessage.id);
+      if (exists) return prev;
+
+      const next = [...prev, localMessage].sort((a, b) => a.createdAt - b.createdAt);
+      setTimeout(() => scrollToBottom(true), 50);
+      return next;
+    });
+
+    const thread = await getDMThreadById(threadId);
+
+    if (thread?.participantPubkey) {
+      sendNostrDM({
+        toPubkey: thread.participantPubkey,
+        content: text,
+      }).then(result => {
+        if (!result.success) {
+          console.warn('[DM] Nostr send failed:', result.error);
+        }
+      });
     }
+  } catch (err) {
+    console.error('[DM] Send error:', err);
+  }
 
-    setSending(false);
-  };
+  setSending(false);
+};
 
   const handleBack = () => {
     router.navigate('/(tabs)/messages' as any);

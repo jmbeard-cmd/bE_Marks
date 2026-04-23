@@ -107,11 +107,12 @@ export default function RootLayout() {
     }}>
       <StatusBar style="light" />
       <Stack screenOptions={{ headerShown: false } as any}>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-        <Stack.Screen name="milestone-detail" options={{ headerShown: false, animation: 'slide_from_right' }} />
-        <Stack.Screen name="group-detail" options={{ headerShown: false, animation: 'slide_from_right' }} />
-      </Stack>
+  <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+  <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+  <Stack.Screen name="mark-detail" options={{ headerShown: false, animation: 'slide_from_right' }} />
+  <Stack.Screen name="group-thread" options={{ headerShown: false, animation: 'slide_from_right' }} />
+  <Stack.Screen name="group-detail" options={{ headerShown: false, animation: 'slide_from_right' }} />
+</Stack>
     </IdentityContext.Provider>
   );
 }

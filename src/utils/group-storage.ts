@@ -172,23 +172,30 @@ export async function createGroup(input: {
 
   // Publish to relay so others can find and join by invite code
   if (input.nsec) {
-    const payload: NostrGroupPayload = {
-      id: group.id,
-      name: group.name,
-      description: group.description,
-      season: group.season,
-      sport: group.sport,
-      schoolId: group.schoolId,
-      inviteCode: group.inviteCode,
-      status: group.status,
-      relayUrl: group.relayUrl,
-      createdAt: group.createdAt,
-      ownerNpub: input.ownerNpub,
-    };
-    publishGroup(payload, input.nsec).catch(e =>
-      console.warn('[Groups] Failed to publish group to relay:', e)
-    );
-  }
+  const payload: NostrGroupPayload = {
+    id: group.id,
+    name: group.name,
+    description: group.description,
+    season: group.season,
+    sport: group.sport,
+    schoolId: group.schoolId,
+    inviteCode: group.inviteCode,
+    status: group.status,
+    relayUrl: group.relayUrl,
+    createdAt: group.createdAt,
+    ownerNpub: input.ownerNpub,
+  };
+
+  const publishResult = await publishGroup(payload, input.nsec);
+
+  console.log('[Groups] publish result:', publishResult);
+console.log('[Groups] created group invite code:', group.inviteCode);
+console.log('[Groups] created group relayUrl:', group.relayUrl);
+
+if (!publishResult.success) {
+  console.warn('[Groups] Failed to publish group to relay:', publishResult.error);
+}
+}
 
   return group;
 }
@@ -289,9 +296,9 @@ export async function addGroupMember(input: {
 
   // Update group member count
   const activeMembers = members.filter(
-    m => m.groupId === input.groupId && m.status === 'active'
-  );
-  await updateGroup(input.groupId, { memberCount: activeMembers.length + 1 });
+  m => m.groupId === input.groupId && m.status === 'active'
+);
+await updateGroup(input.groupId, { memberCount: activeMembers.length });
 
   return member;
 }
@@ -350,16 +357,21 @@ export async function joinGroupByCode(input: {
   relayUrl?: string;
   nsec?: string;
 }): Promise<{ success: boolean; group?: BEGroup; error?: string }> {
+  console.log('[Groups] joinGroupByCode start:', input.code);
+
   // Step 1: Check local storage first (fast path)
   let group = await getGroupByInviteCode(input.code);
+  console.log('[Groups] local group found:', group);
 
   // Step 2: If not found locally, query the relay
   if (!group) {
     const relayUrl = input.relayUrl ?? 'wss://relay.beginningend.com';
+    console.log('[Groups] trying relay lookup on:', relayUrl);
+
     const remoteGroup = await fetchGroupByInviteCode(input.code, relayUrl);
+    console.log('[Groups] remote group result:', remoteGroup);
 
     if (remoteGroup) {
-      // Save the remotely found group to local storage so it persists
       const groups = await readGroups();
       const now = Math.floor(Date.now() / 1000);
       const newGroup: BEGroup = {
@@ -383,19 +395,19 @@ export async function joinGroupByCode(input: {
     }
   }
 
+  console.log('[Groups] final group before validation:', group);
+
   if (!group) {
     return { success: false, error: 'Invalid or expired invite code. Make sure you have the right code from your group admin.' };
   }
 
-  // Check if code is expired
   if (group.inviteCodeExpiry && group.inviteCodeExpiry < Math.floor(Date.now() / 1000)) {
     return { success: false, error: 'This invite code has expired. Ask an admin for a new one.' };
   }
 
-  // Check if already a member
   const existing = await getMemberByNpub(group.id, input.npub);
   if (existing?.status === 'active') {
-    return { success: true, group }; // Already in — just navigate them there
+    return { success: true, group };
   }
 
   await addGroupMember({
@@ -407,7 +419,6 @@ export async function joinGroupByCode(input: {
     role: 'member',
   });
 
-  // Publish membership event to relay so admin can see who joined
   if (input.nsec) {
     publishGroupMembership({
       groupId: group.id,

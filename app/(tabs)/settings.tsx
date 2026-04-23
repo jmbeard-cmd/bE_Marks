@@ -17,6 +17,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { DEFAULT_RELAYS, RELAY_LABELS } from '../../constants/relays';
 import {
   clearIdentity,
   DEFAULT_RELAY,
@@ -193,6 +194,21 @@ export default function SettingsScreen() {
     if (localRelays.length === 1) { Alert.alert('Cannot remove', 'You need at least one relay.'); return; }
     setLocalRelays(prev => prev.filter(r => r !== url));
   };
+
+  const togglePresetRelay = (url: string) => {
+  setLocalRelays(prev => {
+    if (prev.includes(url)) {
+      if (prev.length === 1) {
+        Alert.alert('Cannot remove', 'You need at least one relay.');
+        return prev;
+      }
+
+      return prev.filter(r => r !== url);
+    }
+
+    return [...prev, url];
+  });
+};
 
   const saveRelays = async () => {
     if (!nsec) { Alert.alert('No key', 'Cannot publish without a private key.'); return; }
@@ -497,16 +513,48 @@ const handleJoinFamily = async () => {
               ))
             ) : (
               <View style={s.editBlock}>
-                {localRelays.map(r => (
-                  <View key={r} style={s.relayRow}>
-                    <Text style={s.relayUrlEdit} numberOfLines={1}>{r}</Text>
-                    {r !== DEFAULT_RELAY && (
-                      <TouchableOpacity onPress={() => removeRelay(r)}>
-                        <Text style={s.relayRemove}>✕</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                ))}
+                <Text style={s.inputLabel}>COMMON RELAYS</Text>
+
+{DEFAULT_RELAYS.map(r => {
+  const selected = localRelays.includes(r);
+
+  return (
+    <TouchableOpacity
+      key={r}
+      style={s.relayPickerRow}
+      onPress={() => togglePresetRelay(r)}
+      activeOpacity={0.8}
+    >
+      <View style={{ flex: 1 }}>
+        <Text style={s.relayPickerName}>
+          {RELAY_LABELS[r] || r}
+        </Text>
+        <Text style={s.relayPickerUrl} numberOfLines={1}>
+          {r}
+        </Text>
+      </View>
+
+      <Text style={[s.relayPickerStatus, selected && s.relayPickerStatusOn]}>
+        {selected ? 'ON' : 'OFF'}
+      </Text>
+    </TouchableOpacity>
+  );
+})}
+
+{localRelays.filter(r => !DEFAULT_RELAYS.includes(r)).length > 0 && (
+  <>
+    <Text style={[s.inputLabel, { marginTop: 16 }]}>CUSTOM RELAYS</Text>
+
+    {localRelays.filter(r => !DEFAULT_RELAYS.includes(r)).map(r => (
+      <View key={r} style={s.relayRow}>
+        <Text style={s.relayUrlEdit} numberOfLines={1}>{r}</Text>
+        <TouchableOpacity onPress={() => removeRelay(r)}>
+          <Text style={s.relayRemove}>✕</Text>
+        </TouchableOpacity>
+      </View>
+    ))}
+  </>
+)}
                 <View style={s.relayAddRow}>
                   <TextInput style={[s.input, { flex: 1 }]} value={newRelay} onChangeText={setNewRelay} placeholder="wss://relay.example.com" placeholderTextColor="#444" autoCapitalize="none" keyboardType="url" />
                   <TouchableOpacity style={s.relayAddBtn} onPress={addRelay}>
@@ -660,6 +708,34 @@ const s = StyleSheet.create({
   relayAddBtn: { padding: 12, borderRadius: 8, backgroundColor: '#1a1a1a', borderWidth: 0.5, borderColor: '#2a2a2a', justifyContent: 'center' },
   relayAddBtnText: { fontSize: 13, color: '#c9973a', fontWeight: '600' },
   editBlock: { marginBottom: 4 },
+  relayPickerRow: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  paddingVertical: 12,
+  borderBottomWidth: 0.5,
+  borderBottomColor: '#1e1e1e',
+},
+relayPickerName: {
+  fontSize: 14,
+  color: '#fff',
+  fontWeight: '600',
+  marginBottom: 2,
+},
+relayPickerUrl: {
+  fontSize: 11,
+  color: '#555',
+  fontFamily: 'monospace',
+},
+relayPickerStatus: {
+  fontSize: 12,
+  color: '#555',
+  fontWeight: '700',
+  marginLeft: 12,
+},
+relayPickerStatusOn: {
+  color: '#c9973a',
+},
   inputLabel: { fontSize: 11, color: '#444', fontWeight: '600', letterSpacing: 0.8, marginBottom: 6 },
   input: { borderWidth: 0.5, borderColor: '#2a2a2a', borderRadius: 8, padding: 12, fontSize: 15, color: '#fff', backgroundColor: '#1a1a1a' },
   inputActions: { flexDirection: 'row', gap: 10, marginTop: 12 },

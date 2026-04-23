@@ -837,10 +837,12 @@ export async function publishGroup(
     const sk = decoded.data as Uint8Array;
     const pk = getPublicKey(sk);
 
+    const normalizedInviteCode = group.inviteCode.toUpperCase();
+
     const tags: string[][] = [
-      ['d', group.id],                          // unique identifier
-      ['name', group.name],                      // searchable name
-      ['invite', group.inviteCode],              // invite code tag for lookup
+      ['d', group.id],
+      ['name', group.name],
+      ['t', `group-invite:${normalizedInviteCode}`],
       ['status', group.status],
       ['relay', group.relayUrl],
       ['client', 'bE-Marks'],
@@ -874,9 +876,7 @@ export async function publishGroup(
 
     const signed = finalizeEvent(unsigned, sk);
 
-    // Publish to your relay — this is the authority for your groups
-    const result = await publishToSpecificRelay(signed, group.relayUrl);
-    return result;
+    return await publishToSpecificRelay(signed, group.relayUrl);
   } catch (e: any) {
     return { success: false, error: e.message };
   }
@@ -889,38 +889,62 @@ export function fetchGroupByInviteCode(
   return new Promise(resolve => {
     try {
       const ws = new WebSocket(relayUrl);
-      const timeout = setTimeout(() => { ws.close(); resolve(null); }, 6000);
+      const timeout = setTimeout(() => {
+        console.log('[Groups] fetchGroupByInviteCode timeout');
+        ws.close();
+        resolve(null);
+      }, 6000);
 
       ws.onopen = () => {
-        ws.send(JSON.stringify([
+        const normalizedInviteCode = inviteCode.toUpperCase();
+
+
+        const req = [
           'REQ',
           'group-invite-fetch',
           {
             kinds: [GROUP_KIND],
-            '#invite': [inviteCode.toUpperCase()],
+            '#t': [`group-invite:${normalizedInviteCode}`],
             limit: 1,
           }
-        ]));
+        ];
+
+        console.log('[Groups] sending REQ:', JSON.stringify(req));
+        ws.send(JSON.stringify(req));
       };
 
       ws.onmessage = (msg) => {
+        console.log('[Groups] fetchGroupByInviteCode raw message:', msg.data);
+
         try {
           const data = JSON.parse(msg.data);
           if (data[0] === 'EVENT' && data[2]?.kind === GROUP_KIND) {
             clearTimeout(timeout);
             ws.close();
             const parsed = JSON.parse(data[2].content || '{}') as NostrGroupPayload;
+            console.log('[Groups] fetchGroupByInviteCode parsed EVENT:', parsed);
             resolve(parsed);
           } else if (data[0] === 'EOSE') {
             clearTimeout(timeout);
             ws.close();
+            console.log('[Groups] fetchGroupByInviteCode got EOSE, no match');
             resolve(null);
           }
-        } catch { resolve(null); }
+        } catch (error) {
+          console.log('[Groups] fetchGroupByInviteCode parse error:', error);
+          resolve(null);
+        }
       };
 
-      ws.onerror = () => { clearTimeout(timeout); resolve(null); };
-    } catch { resolve(null); }
+      ws.onerror = (error) => {
+        clearTimeout(timeout);
+        console.log('[Groups] fetchGroupByInviteCode websocket error:', error);
+        resolve(null);
+      };
+    } catch (error) {
+      console.log('[Groups] fetchGroupByInviteCode outer error:', error);
+      resolve(null);
+    }
   });
 }
 
@@ -958,5 +982,190 @@ export async function publishGroupMembership(input: {
     return await publishToSpecificRelay(signed, input.relayUrl);
   } catch (e: any) {
     return { success: false, error: e.message };
+  }
+}
+export const GROUP_MESSAGE_KIND = 30082;
+
+export interface NostrGroupMessage {
+  id: string;
+  groupId: string;
+  senderPubkey: string;
+  senderNpub?: string;
+  senderName?: string;
+  text?: string;
+  imageUrl?: string;
+  createdAt: number;
+}
+
+export async function publishGroupMessage(input: {
+  groupId: string;
+  text?: string;
+  imageUrl?: string;
+  senderNpub?: string;
+  senderName?: string;
+  nsec: string;
+  relayUrl: string;
+}): Promise<{ success: boolean; eventId?: string; error?: string }> {
+  try {
+    const trimmedText = input.text?.trim() || '';
+
+    if (!trimmedText && !input.imageUrl) {
+      throw new Error('Cannot publish an empty group message');
+    }
+
+    const decoded = nip19.decode(input.nsec);
+    if (decoded.type !== 'nsec') throw new Error('Invalid nsec');
+
+    const sk = decoded.data as Uint8Array;
+    const pk = getPublicKey(sk);
+
+    const tags: string[][] = [
+      ['d', `${input.groupId}:${Date.now()}`],
+      ['t', `group-msg:${input.groupId}`],
+      ['group', input.groupId],
+      ['client', 'bE-Marks'],
+    ];
+
+    if (input.imageUrl) {
+      tags.push(['image', input.imageUrl]);
+      tags.push(['url', input.imageUrl]);
+      tags.push(['imeta', `url ${input.imageUrl}`, 'mime image/jpeg']);
+    }
+
+    const content = JSON.stringify({
+      groupId: input.groupId,
+      text: trimmedText || undefined,
+      imageUrl: input.imageUrl,
+      senderNpub: input.senderNpub,
+      senderName: input.senderName,
+      createdAt: Math.floor(Date.now() / 1000),
+    });
+
+    const unsigned: UnsignedEvent = {
+      kind: GROUP_MESSAGE_KIND,
+      created_at: Math.floor(Date.now() / 1000),
+      tags,
+      content,
+      pubkey: pk,
+    };
+
+    const signed = finalizeEvent(unsigned, sk);
+    return await publishToSpecificRelay(signed, input.relayUrl);
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+}
+
+export function fetchGroupMessages(
+  groupId: string,
+  relayUrl: string = DEFAULT_RELAY
+): Promise<NostrGroupMessage[]> {
+  return new Promise(resolve => {
+    try {
+      const ws = new WebSocket(relayUrl);
+      const events: NostrGroupMessage[] = [];
+      const seen = new Set<string>();
+      const timeout = setTimeout(() => {
+        ws.close();
+        resolve(events);
+      }, 6000);
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify([
+          'REQ',
+          `group-msg-fetch-${groupId}`,
+          {
+            kinds: [GROUP_MESSAGE_KIND],
+            '#t': [`group-msg:${groupId}`],
+            limit: 200,
+          }
+        ]));
+      };
+
+      ws.onmessage = (msg) => {
+        try {
+          const data = JSON.parse(msg.data);
+
+          if (data[0] === 'EVENT' && data[2]?.kind === GROUP_MESSAGE_KIND) {
+            const evt = data[2];
+            if (seen.has(evt.id)) return;
+            seen.add(evt.id);
+
+            const parsed = JSON.parse(evt.content || '{}');
+
+            events.push({
+              id: evt.id,
+              groupId: parsed.groupId || groupId,
+              senderPubkey: evt.pubkey,
+              senderNpub: parsed.senderNpub,
+              senderName: parsed.senderName,
+              text: parsed.text,
+              imageUrl: parsed.imageUrl,
+              createdAt: evt.created_at,
+            });
+          } else if (data[0] === 'EOSE') {
+            clearTimeout(timeout);
+            ws.close();
+            events.sort((a, b) => a.createdAt - b.createdAt);
+            resolve(events);
+          }
+        } catch {}
+      };
+
+      ws.onerror = () => {
+        clearTimeout(timeout);
+        resolve(events);
+      };
+    } catch {
+      resolve([]);
+    }
+  });
+}
+
+export async function subscribeToGroupMessages(input: {
+  groupId: string;
+  relayUrl?: string;
+  onMessage: (message: NostrGroupMessage) => void;
+}): Promise<() => void> {
+  try {
+    const relayUrl = input.relayUrl ?? DEFAULT_RELAY;
+    const pool = new SimplePool();
+    const seen = new Set<string>();
+
+    const sub = pool.subscribe(
+      [relayUrl],
+      {
+        kinds: [GROUP_MESSAGE_KIND],
+        '#t': [`group-msg:${input.groupId}`],
+        since: Math.floor(Date.now() / 1000),
+      },
+      {
+        onevent(evt) {
+          try {
+            if (seen.has(evt.id)) return;
+            seen.add(evt.id);
+
+            const parsed = JSON.parse(evt.content || '{}');
+
+            input.onMessage({
+              id: evt.id,
+              groupId: parsed.groupId || input.groupId,
+              senderPubkey: evt.pubkey,
+              senderNpub: parsed.senderNpub,
+              senderName: parsed.senderName,
+              text: parsed.text,
+              imageUrl: parsed.imageUrl,
+              createdAt: evt.created_at,
+            });
+          } catch {}
+        },
+      }
+    );
+
+    return () => {
+      try { sub.close(); } catch {}
+    };
+  } catch {
+    return () => {};
   }
 }
