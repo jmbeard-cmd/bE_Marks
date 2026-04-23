@@ -2,6 +2,7 @@ import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { createContext, useContext, useEffect, useState } from 'react';
 import 'react-native-get-random-values';
+import { startDMService, stopDMService } from '../src/utils/dm-service';
 import { fetchNostrProfile, getStoredIdentity, type NostrProfile } from '../src/utils/nostr';
 import { getFamily, leaveFamily, saveFamily, type Family } from '../src/utils/storage';
 
@@ -52,7 +53,12 @@ export default function RootLayout() {
 
   useEffect(() => {
     Promise.all([getStoredIdentity(), getFamily()]).then(([id, fam]) => {
-      if (id) { setNpub(id.npub); setNsec(id.nsec); }
+      if (id) {
+        setNpub(id.npub);
+        setNsec(id.nsec);
+        // Start background DM listener on app launch if already signed in
+        startDMService();
+      }
       if (fam) setFamilyState(fam);
       setReady(true);
     });
@@ -71,8 +77,20 @@ export default function RootLayout() {
     if (hasIdentity && inAuth) router.replace('/(tabs)/timeline' as any);
   }, [ready, npub]);
 
-  const setIdentity = (p: string, s: string) => { setNpub(p); setNsec(s); };
-  const clear = () => { setNpub(null); setNsec(null); setUseAmber(false); setProfile(null); };
+  const setIdentity = (p: string, s: string) => {
+    setNpub(p);
+    setNsec(s);
+    // Start background DM listener when identity is established
+    startDMService();
+  };
+  const clear = () => {
+    setNpub(null);
+    setNsec(null);
+    setUseAmber(false);
+    setProfile(null);
+    // Stop background listener on sign out
+    stopDMService();
+  };
 
   const setFamily = async (f: Family | null) => {
     if (f) { await saveFamily(f); setFamilyState(f); }

@@ -1,11 +1,13 @@
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   Dimensions,
   FlatList,
   Image,
   Modal,
+  PanResponder,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -114,6 +116,30 @@ export default function TimelineScreen() {
   const [showFilterDrawer, setShowFilterDrawer] = useState(false);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [pendingFilters, setPendingFilters] = useState<FilterState>(DEFAULT_FILTERS);
+
+  // Swipe-to-close for filter drawer
+  const drawerTranslateY = useRef(new Animated.Value(0)).current;
+  const drawerPan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, g) => g.dy > 8,
+      onPanResponderMove: (_, g) => {
+        if (g.dy > 0) drawerTranslateY.setValue(g.dy);
+      },
+      onPanResponderRelease: (_, g) => {
+        if (g.dy > 80 || g.vy > 0.5) {
+          Animated.timing(drawerTranslateY, {
+            toValue: 600, duration: 200, useNativeDriver: true,
+          }).start(() => {
+            drawerTranslateY.setValue(0);
+            setShowFilterDrawer(false);
+          });
+        } else {
+          Animated.spring(drawerTranslateY, { toValue: 0, useNativeDriver: true }).start();
+        }
+      },
+    })
+  ).current;
   const router = useRouter();
   const { npub, family } = useIdentity();
 
@@ -347,8 +373,9 @@ export default function TimelineScreen() {
 
       <Modal visible={showFilterDrawer} transparent animationType="slide" onRequestClose={() => setShowFilterDrawer(false)}>
         <TouchableOpacity style={s.drawerOverlay} activeOpacity={1} onPress={() => setShowFilterDrawer(false)}>
-          <TouchableOpacity style={s.drawer} activeOpacity={1} onPress={() => {}}>
-            <View style={s.drawerHandle} />
+          <Animated.View style={[s.drawer, { transform: [{ translateY: drawerTranslateY }] }]}>
+            <TouchableOpacity activeOpacity={1} onPress={() => {}}>
+            <View style={s.drawerHandle} {...drawerPan.panHandlers} />
             <Text style={s.drawerTitle}>Filter milestones</Text>
             <ScrollView showsVerticalScrollIndicator={false}>
               {allTags.length > 0 && (
@@ -409,7 +436,8 @@ export default function TimelineScreen() {
               <TouchableOpacity style={s.drawerClearBtn} onPress={clearFilters}><Text style={s.drawerClearText}>Clear all</Text></TouchableOpacity>
               <TouchableOpacity style={s.drawerApplyBtn} onPress={applyDrawer}><Text style={s.drawerApplyText}>Apply filters</Text></TouchableOpacity>
             </View>
-          </TouchableOpacity>
+            </TouchableOpacity>
+          </Animated.View>
         </TouchableOpacity>
       </Modal>
     </SafeAreaView>

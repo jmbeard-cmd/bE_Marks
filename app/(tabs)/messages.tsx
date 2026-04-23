@@ -1,13 +1,15 @@
 import * as ExpoContacts from 'expo-contacts';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   Alert,
+  Animated,
   FlatList,
   Image,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
+  PanResponder,
   Platform,
   ScrollView,
   StyleSheet,
@@ -51,6 +53,35 @@ export default function MessagesScreen() {
   const [threads, setThreads] = useState<DMThread[]>([]);
   const [contacts, setContacts] = useState<BEContact[]>([]);
   const [sheet, setSheet] = useState<Sheet>('none');
+
+  // Swipe-to-close for modal sheet
+  const sheetTranslateY = useRef(new Animated.Value(0)).current;
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, g) => g.dy > 8,
+      onPanResponderMove: (_, g) => {
+        if (g.dy > 0) sheetTranslateY.setValue(g.dy);
+      },
+      onPanResponderRelease: (_, g) => {
+        if (g.dy > 80 || g.vy > 0.5) {
+          Animated.timing(sheetTranslateY, {
+            toValue: 600,
+            duration: 200,
+            useNativeDriver: true,
+          }).start(() => {
+            sheetTranslateY.setValue(0);
+            closeSheet();
+          });
+        } else {
+          Animated.spring(sheetTranslateY, {
+            toValue: 0,
+            useNativeDriver: true,
+          }).start();
+        }
+      },
+    })
+  ).current;
 
   // New thread form
   const [newTitle, setNewTitle] = useState('');
@@ -303,7 +334,7 @@ export default function MessagesScreen() {
 
       {/* FAB */}
       <TouchableOpacity style={s.fab} onPress={() => setSheet('new')} activeOpacity={0.85}>
-        <Text style={s.fabIcon}>✏️</Text>
+        <Text style={s.fabIcon}>＋</Text>
       </TouchableOpacity>
 
       {/* ── MODAL SHEETS ── */}
@@ -315,8 +346,8 @@ export default function MessagesScreen() {
 
               {/* ── New Conversation ── */}
               {sheet === 'new' && (
-                <View style={s.sheet}>
-                  <View style={s.sheetHandle} />
+                <Animated.View style={[s.sheet, { transform: [{ translateY: sheetTranslateY }] }]}>
+                  <View style={s.sheetHandle} {...panResponder.panHandlers} />
                   <Text style={s.sheetTitle}>New Conversation</Text>
                   <Text style={s.sheetHint}>🔒 End-to-end encrypted via Nostr NIP-04</Text>
 
@@ -387,13 +418,13 @@ export default function MessagesScreen() {
                   <TouchableOpacity style={s.manageContactsBtn} onPress={() => setSheet('contacts')}>
                     <Text style={s.manageContactsText}>Manage bE Contacts →</Text>
                   </TouchableOpacity>
-                </View>
+                </Animated.View>
               )}
 
               {/* ── Contacts List ── */}
               {sheet === 'contacts' && (
-                <View style={[s.sheet, s.sheetTall]}>
-                  <View style={s.sheetHandle} />
+                <Animated.View style={[s.sheet, s.sheetTall, { transform: [{ translateY: sheetTranslateY }] }]}>
+                  <View style={s.sheetHandle} {...panResponder.panHandlers} />
                   <View style={s.sheetHeaderRow}>
                     <Text style={s.sheetTitle}>bE Contacts</Text>
                     <View style={s.sheetHeaderActions}>
@@ -441,7 +472,7 @@ export default function MessagesScreen() {
                   <TouchableOpacity style={s.cancelBtn} onPress={closeSheet}>
                     <Text style={s.cancelText}>Done</Text>
                   </TouchableOpacity>
-                </View>
+                </Animated.View>
               )}
 
               {/* ── Add Contact Manually ── */}

@@ -55,6 +55,14 @@ export default {
           contactsPermission: "Allow bE Marks to access your contacts to start encrypted conversations."
         }
       ],
+[
+  "expo-notifications",
+  {
+    icon: "./assets/images/icon.png",
+    color: "#c9973a",
+    sounds: []
+  }
+],
     ],
     experiments: {
       typedRoutes: true,

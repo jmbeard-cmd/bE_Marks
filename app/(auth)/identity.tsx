@@ -1,19 +1,19 @@
 import { useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text, TextInput, TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Image,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text, TextInput, TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
-    generateAndStoreKeypair,
-    getPublicKeyFromAmber,
-    importNsec,
+  generateAndStoreKeypair,
+  getPublicKeyFromAmber,
+  importNsec,
 } from '../../src/utils/nostr';
 import { useIdentity } from '../_layout';
 
@@ -98,7 +98,6 @@ export default function IdentityScreen() {
               description="Use the Amber app on Android to sign without exposing your nsec."
               onPress={() => setMode('amber')}
             />
-            <Text style={s.footer}>Revelation 22:13</Text>
           </View>
         )}
 

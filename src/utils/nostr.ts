@@ -13,7 +13,17 @@ import { Linking } from 'react-native';
 
 const SECKEY = 'nostr_nsec';
 const PUBKEY = 'nostr_npub';
+
 export const DEFAULT_RELAY = 'wss://relay.beginningend.com';
+
+// Fast public relays used alongside your sovereign relay for speed.
+// Messages publish to ALL simultaneously — whichever arrives first wins.
+export const FAST_RELAYS = [
+  'wss://relay.beginningend.com',
+  'wss://relay.damus.io',
+  'wss://nos.lol',
+];
+
 export const FAMILY_MILESTONE_KIND = 30078;
 export const FAMILY_MEMBERSHIP_KIND = 30079;
 
@@ -58,6 +68,8 @@ export function npubToHex(npub: string): string {
   return decoded.data as string;
 }
 
+// ─── DM Types ─────────────────────────────────────────────────────
+
 export interface SendDMResult {
   success: boolean;
   threadPubkey?: string;
@@ -67,7 +79,7 @@ export interface SendDMResult {
 
 export interface NostrDMMessage {
   id: string;
-  threadPubkey: string;   // other person's hex pubkey
+  threadPubkey: string;
   senderPubkey: string;
   recipientPubkey: string;
   content: string;
@@ -77,8 +89,10 @@ export interface NostrDMMessage {
   rawInnerEvent?: any;
 }
 
+// ─── Send DM (multi-relay for speed) ──────────────────────────────
+
 export async function sendNostrDM(input: {
-  toPubkey: string;          // hex pubkey
+  toPubkey: string;
   content: string;
   relayUrls?: string[];
   subject?: string;
@@ -86,32 +100,21 @@ export async function sendNostrDM(input: {
 }): Promise<SendDMResult> {
   try {
     const identity = await getStoredIdentity();
-    if (!identity?.nsec) {
-      throw new Error('Missing nsec in SecureStore');
-    }
+    if (!identity?.nsec) throw new Error('Missing nsec in SecureStore');
 
     const trimmed = input.content.trim();
-    if (!trimmed) {
-      throw new Error('Cannot send an empty message');
-    }
+    if (!trimmed) throw new Error('Cannot send an empty message');
 
     const decoded = nip19.decode(identity.nsec);
-    if (decoded.type !== 'nsec') {
-      throw new Error('Stored nsec is invalid');
-    }
+    if (decoded.type !== 'nsec') throw new Error('Stored nsec is invalid');
 
     const sk = decoded.data as Uint8Array;
     const myPubkey = getPublicKey(sk);
 
-    const relayUrls =
-      input.relayUrls && input.relayUrls.length > 0
-        ? input.relayUrls
-        : [DEFAULT_RELAY];
-
-        console.log('sendNostrDM started');
-console.log('toPubkey:', input.toPubkey);
-console.log('myPubkey:', myPubkey);
-console.log('relayUrls:', relayUrls);
+    // Use provided relays or fall back to all fast relays
+    const relayUrls = input.relayUrls && input.relayUrls.length > 0
+      ? input.relayUrls
+      : FAST_RELAYS;
 
     const recipients = [
       { publicKey: input.toPubkey, relayUrl: relayUrls[0] },
@@ -128,6 +131,8 @@ console.log('relayUrls:', relayUrls);
 
     const pool = new SimplePool();
 
+    // Publish each wrapped event to ALL relays simultaneously
+    // Promise.any resolves as soon as ONE relay accepts it
     const publishResults = await Promise.all(
       wrappedEvents.map(async (evt) => {
         const pubs = pool.publish(relayUrls, evt);
@@ -149,34 +154,31 @@ console.log('relayUrls:', relayUrls);
   }
 }
 
+// ─── Fetch DMs (multi-relay, faster timeout) ──────────────────────
+
 export async function fetchNostrDMs(input?: {
-  withPubkey?: string;     // hex pubkey of the other person
+  withPubkey?: string;
   relayUrls?: string[];
   limit?: number;
 }): Promise<NostrDMMessage[]> {
   try {
     const identity = await getStoredIdentity();
-    if (!identity?.nsec) {
-      throw new Error('Missing nsec in SecureStore');
-    }
+    if (!identity?.nsec) throw new Error('Missing nsec in SecureStore');
 
     const decoded = nip19.decode(identity.nsec);
-    if (decoded.type !== 'nsec') {
-      throw new Error('Stored nsec is invalid');
-    }
+    if (decoded.type !== 'nsec') throw new Error('Stored nsec is invalid');
 
     const sk = decoded.data as Uint8Array;
     const myPubkey = getPublicKey(sk);
 
-    const relayUrls =
-      input?.relayUrls && input.relayUrls.length > 0
-        ? input.relayUrls
-        : [DEFAULT_RELAY];
+    const relayUrls = input?.relayUrls && input.relayUrls.length > 0
+      ? input.relayUrls
+      : FAST_RELAYS;
 
     const limit = input?.limit ?? 100;
-
     const pool = new SimplePool();
     const giftWraps: Event[] = [];
+    const seen = new Set<string>();
 
     await new Promise<void>((resolve) => {
       const sub = pool.subscribe(
@@ -188,23 +190,24 @@ export async function fetchNostrDMs(input?: {
         },
         {
           onevent(event) {
-            giftWraps.push(event);
+            // Deduplicate across relays
+            if (!seen.has(event.id)) {
+              seen.add(event.id);
+              giftWraps.push(event);
+            }
           },
           oneose() {
-            try {
-              sub.close();
-            } catch {}
+            try { sub.close(); } catch {}
             resolve();
           },
         }
       );
 
+      // Reduced timeout — fast relays respond in <1s
       setTimeout(() => {
-        try {
-          sub.close();
-        } catch {}
+        try { sub.close(); } catch {}
         resolve();
-      }, 4000);
+      }, 3000);
     });
 
     const messages: NostrDMMessage[] = [];
@@ -212,16 +215,11 @@ export async function fetchNostrDMs(input?: {
     for (const wrapped of giftWraps) {
       try {
         const inner = nip17.unwrapEvent(wrapped, sk);
-        console.log('FETCH wrapped DM event received:', wrapped.id);
-
         if (!inner || inner.kind !== 14) continue;
 
         const pTag = inner.tags.find((tag) => tag[0] === 'p');
         const recipientPubkey = pTag?.[1] || '';
-
-        const otherPubkey =
-          inner.pubkey === myPubkey ? recipientPubkey : inner.pubkey;
-       console.log('FETCH wrapped DM decrypted:', inner?.id, 'kind:', inner?.kind);  
+        const otherPubkey = inner.pubkey === myPubkey ? recipientPubkey : inner.pubkey;
 
         if (!otherPubkey) continue;
         if (input?.withPubkey && otherPubkey !== input.withPubkey) continue;
@@ -238,18 +236,19 @@ export async function fetchNostrDMs(input?: {
           rawInnerEvent: inner,
         });
       } catch {
-        // ignore anything we can't decrypt
+        // ignore events we can't decrypt
       }
     }
 
     messages.sort((a, b) => a.createdAt - b.createdAt);
-
     return messages;
   } catch (e) {
-    console.log('fetchNostrDMs error:', e);
+    console.warn('[fetchNostrDMs] error:', e);
     return [];
   }
 }
+
+// ─── Subscribe to DMs (used by dm-thread screen) ──────────────────
 
 export async function subscribeToNostrDMs(
   input: {
@@ -260,30 +259,20 @@ export async function subscribeToNostrDMs(
 ): Promise<() => void> {
   try {
     const identity = await getStoredIdentity();
-    if (!identity?.nsec) {
-      throw new Error('Missing nsec in SecureStore');
-    }
+    if (!identity?.nsec) throw new Error('Missing nsec in SecureStore');
 
     const decoded = nip19.decode(identity.nsec);
-    if (decoded.type !== 'nsec') {
-      throw new Error('Stored nsec is invalid');
-    }
+    if (decoded.type !== 'nsec') throw new Error('Stored nsec is invalid');
 
     const sk = decoded.data as Uint8Array;
     const myPubkey = getPublicKey(sk);
 
-    console.log('SUB STARTED');
-    console.log('myPubkey:', myPubkey);
-    console.log('filter withPubkey:', input.withPubkey);
-
-    const relayUrls =
-      input.relayUrls && input.relayUrls.length > 0
-        ? input.relayUrls
-        : [DEFAULT_RELAY];
-
-    console.log('relayUrls:', relayUrls);
+    const relayUrls = input.relayUrls && input.relayUrls.length > 0
+      ? input.relayUrls
+      : FAST_RELAYS;
 
     const pool = new SimplePool();
+    const seen = new Set<string>();
 
     const sub = pool.subscribe(
       relayUrls,
@@ -295,38 +284,18 @@ export async function subscribeToNostrDMs(
       {
         onevent(wrapped) {
           try {
-            console.log('LIVE RAW EVENT RECEIVED:', wrapped.id);
+            if (seen.has(wrapped.id)) return;
+            seen.add(wrapped.id);
 
             const inner = nip17.unwrapEvent(wrapped, sk);
-            console.log('LIVE DECRYPTED EVENT:', inner?.id, 'kind:', inner?.kind);
-
-            if (!inner || inner.kind !== 14) {
-              console.log('SKIP: not a kind 14 DM');
-              return;
-            }
+            if (!inner || inner.kind !== 14) return;
 
             const pTag = inner.tags.find((tag) => tag[0] === 'p');
             const recipientPubkey = pTag?.[1] || '';
+            const otherPubkey = inner.pubkey === myPubkey ? recipientPubkey : inner.pubkey;
 
-            const otherPubkey =
-              inner.pubkey === myPubkey ? recipientPubkey : inner.pubkey;
-
-            console.log('recipientPubkey:', recipientPubkey);
-            console.log('otherPubkey:', otherPubkey);
-
-            if (!otherPubkey) {
-              console.log('SKIP: no otherPubkey');
-              return;
-            }
-
-            if (input.withPubkey && otherPubkey !== input.withPubkey) {
-              console.log('SKIP: pubkey mismatch');
-              console.log('expected withPubkey:', input.withPubkey);
-              console.log('actual otherPubkey:', otherPubkey);
-              return;
-            }
-
-            console.log('PASSING TO UI');
+            if (!otherPubkey) return;
+            if (input.withPubkey && otherPubkey !== input.withPubkey) return;
 
             input.onMessage({
               id: inner.id,
@@ -339,20 +308,16 @@ export async function subscribeToNostrDMs(
               rawEvent: wrapped,
               rawInnerEvent: inner,
             });
-          } catch (e) {
-            console.log('SUB onevent error:', e);
-          }
+          } catch {}
         },
       }
     );
 
     return () => {
-      try {
-        sub.close();
-      } catch {}
+      try { sub.close(); } catch {}
     };
   } catch (e) {
-    console.log('subscribeToNostrDMs error:', e);
+    console.warn('[subscribeToNostrDMs] error:', e);
     return () => {};
   }
 }
@@ -372,10 +337,18 @@ export function fetchNostrProfile(npub: string): Promise<NostrProfile | null> {
       const decoded = nip19.decode(npub);
       if (decoded.type !== 'npub') { resolve(null); return; }
       const pubkeyHex = decoded.data as string;
-      const ws = new WebSocket(DEFAULT_RELAY);
-      const timeout = setTimeout(() => { ws.close(); resolve(null); }, 6000);
+
+      // Try fast relays for profile fetch
+      const relayUrl = FAST_RELAYS[1]; // damus.io tends to have profiles
+      const ws = new WebSocket(relayUrl);
+      const timeout = setTimeout(() => { ws.close(); resolve(null); }, 5000);
+
       ws.onopen = () => {
-        ws.send(JSON.stringify(['REQ', 'profile-fetch', { kinds: [0], authors: [pubkeyHex], limit: 1 }]));
+        ws.send(JSON.stringify(['REQ', 'profile-fetch', {
+          kinds: [0],
+          authors: [pubkeyHex],
+          limit: 1,
+        }]));
       };
       ws.onmessage = (msg) => {
         try {
@@ -422,25 +395,6 @@ export async function publishProfile(
   }
 }
 
-export interface FamilyMembershipPayload {
-  familyId: string;
-  familyName?: string;
-  memberNpub: string;
-  role: 'admin' | 'member';
-  joinedAt: number;
-}
-
-export interface FamilyMemberRecord {
-  familyId: string;
-  familyName?: string;
-  memberNpub: string;
-  role: 'admin' | 'member';
-  joinedAt: number;
-  pubkey: string;
-  created_at: number;
-  eventId: string;
-}
-
 // ─── Relay List (kind 10002) ──────────────────────────────────────
 
 export function fetchRelayList(npub: string): Promise<string[]> {
@@ -452,7 +406,11 @@ export function fetchRelayList(npub: string): Promise<string[]> {
       const ws = new WebSocket(DEFAULT_RELAY);
       const timeout = setTimeout(() => { ws.close(); resolve([DEFAULT_RELAY]); }, 6000);
       ws.onopen = () => {
-        ws.send(JSON.stringify(['REQ', 'relay-fetch', { kinds: [10002], authors: [pubkeyHex], limit: 1 }]));
+        ws.send(JSON.stringify(['REQ', 'relay-fetch', {
+          kinds: [10002],
+          authors: [pubkeyHex],
+          limit: 1,
+        }]));
       };
       ws.onmessage = (msg) => {
         try {
@@ -501,6 +459,25 @@ export async function publishRelayList(
 
 // ─── Family Membership (kind 30079) ──────────────────────────────
 
+export interface FamilyMembershipPayload {
+  familyId: string;
+  familyName?: string;
+  memberNpub: string;
+  role: 'admin' | 'member';
+  joinedAt: number;
+}
+
+export interface FamilyMemberRecord {
+  familyId: string;
+  familyName?: string;
+  memberNpub: string;
+  role: 'admin' | 'member';
+  joinedAt: number;
+  pubkey: string;
+  created_at: number;
+  eventId: string;
+}
+
 export async function publishFamilyMembership(
   membership: FamilyMembershipPayload,
   nsec: string,
@@ -509,7 +486,6 @@ export async function publishFamilyMembership(
   try {
     const decoded = nip19.decode(nsec);
     if (decoded.type !== 'nsec') throw new Error('Invalid nsec');
-
     const sk = decoded.data as Uint8Array;
     const pk = getPublicKey(sk);
 
@@ -525,7 +501,7 @@ export async function publishFamilyMembership(
       ['d', `${membership.familyId}:${membership.memberNpub}`],
       ['t', `family:${membership.familyId}`],
       ['p', npubToHex(membership.memberNpub)],
-      ['client', 'be-milestones'],
+      ['client', 'bE-Marks'],
     ];
 
     const unsigned: UnsignedEvent = {
@@ -560,11 +536,7 @@ export function fetchFamilyMembers(
       const ws = new WebSocket(relayUrl);
       const events: FamilyMemberRecord[] = [];
       const seen = new Set<string>();
-
-      const timeout = setTimeout(() => {
-        ws.close();
-        resolve(events);
-      }, 8000);
+      const timeout = setTimeout(() => { ws.close(); resolve(events); }, 8000);
 
       ws.onopen = () => {
         ws.send(JSON.stringify([
@@ -581,16 +553,12 @@ export function fetchFamilyMembers(
       ws.onmessage = (msg) => {
         try {
           const data = JSON.parse(msg.data);
-
           if (data[0] === 'EVENT' && data[2]?.kind === FAMILY_MEMBERSHIP_KIND) {
             const evt = data[2];
             const parsed = JSON.parse(evt.content || '{}');
-
             const memberNpub = parsed.memberNpub;
             if (!memberNpub || seen.has(memberNpub)) return;
-
             seen.add(memberNpub);
-
             events.push({
               familyId: parsed.familyId,
               familyName: parsed.familyName,
@@ -609,13 +577,8 @@ export function fetchFamilyMembers(
         } catch {}
       };
 
-      ws.onerror = () => {
-        clearTimeout(timeout);
-        resolve(events);
-      };
-    } catch {
-      resolve([]);
-    }
+      ws.onerror = () => { clearTimeout(timeout); resolve(events); };
+    } catch { resolve([]); }
   });
 }
 
@@ -656,7 +619,7 @@ export async function publishFamilyMilestone(
     const eventTags: string[][] = [
       ['d', milestone.id],
       ['t', `family:${milestone.familyId}`],
-      ['client', 'be-milestones'],
+      ['client', 'bE-Marks'],
     ];
     milestone.tags.forEach(t => eventTags.push(['t', t]));
 
@@ -672,6 +635,7 @@ export async function publishFamilyMilestone(
     const results = await Promise.all(relays.map(r => publishToSpecificRelay(signed, r)));
     const anySuccess = results.some(r => r.success);
     const successResult = results.find(r => r.success);
+
     return {
       success: anySuccess,
       eventId: successResult?.eventId,
@@ -727,7 +691,7 @@ export function fetchFamilyMilestones(
 // ─── Amber Signer (Android NIP-55) ────────────────────────────────
 
 export async function signWithAmber(eventJson: string): Promise<string | null> {
-  const callbackUrl = 'milestones://amber-callback';
+  const callbackUrl = 'marksapp://amber-callback';
   const url = `intent:#Intent;scheme=nostrsigner;S.event=${encodeURIComponent(eventJson)};S.callbackUrl=${encodeURIComponent(callbackUrl)};S.type=sign_event;end`;
   const canOpen = await Linking.canOpenURL(url);
   if (!canOpen) return null;
@@ -736,7 +700,7 @@ export async function signWithAmber(eventJson: string): Promise<string | null> {
 }
 
 export async function getPublicKeyFromAmber(): Promise<string | null> {
-  const callbackUrl = 'milestones://amber-callback';
+  const callbackUrl = 'marksapp://amber-callback';
   const url = `intent:#Intent;scheme=nostrsigner;S.callbackUrl=${encodeURIComponent(callbackUrl)};S.type=get_public_key;end`;
   const canOpen = await Linking.canOpenURL(url);
   if (!canOpen) return null;
@@ -757,33 +721,23 @@ export interface MilestonePayload {
 export function buildMilestoneEvent(payload: MilestonePayload, pubkeyHex: string): UnsignedEvent {
   const tags: string[][] = payload.tags.map(t => ['t', t]);
 
-  // Image — NIP-94 style tags so clients like Amethyst, Damus, Snort render it
   if (payload.imageUrl) {
     tags.push(['image', payload.imageUrl]);
     tags.push(['url', payload.imageUrl]);
-    tags.push(['imeta',
-      `url ${payload.imageUrl}`,
-      'mime image/jpeg',
-    ]);
+    tags.push(['imeta', `url ${payload.imageUrl}`, 'mime image/jpeg']);
   }
 
-  // Video — include as 'url' tag with mime so clients can render it
   if (payload.videoUrl) {
     tags.push(['url', payload.videoUrl]);
-    tags.push(['imeta',
-      `url ${payload.videoUrl}`,
-      'mime video/mp4',
-    ]);
+    tags.push(['imeta', `url ${payload.videoUrl}`, 'mime video/mp4']);
   }
 
-  // Audio
   if (payload.audioUrl) {
     tags.push(['url', payload.audioUrl]);
   }
 
   tags.push(['client', 'bE-Marks']);
 
-  // Build content — append media URLs on their own lines so clients pick them up
   let content = payload.note;
   if (payload.imageUrl) content += `\n\n${payload.imageUrl}`;
   if (payload.videoUrl) content += `\n\n${payload.videoUrl}`;
@@ -809,15 +763,20 @@ export async function signAndPublish(
     const pk = getPublicKey(sk);
     const unsigned = buildMilestoneEvent(payload, pk);
     const signed = finalizeEvent(unsigned, sk);
-    return await publishToRelay(signed);
+    // Publish to all fast relays simultaneously
+    const results = await Promise.all(FAST_RELAYS.map(r => publishToSpecificRelay(signed, r)));
+    const success = results.find(r => r.success);
+    return success ?? { success: false, error: 'All relays failed' };
   } catch (e: any) {
     return { success: false, error: e.message };
   }
 }
 
-// ─── Relay ────────────────────────────────────────────────────────
+// ─── Relay Publishing ─────────────────────────────────────────────
 
-export function publishToRelay(event: Event): Promise<{ success: boolean; eventId?: string; error?: string }> {
+export function publishToRelay(
+  event: Event
+): Promise<{ success: boolean; eventId?: string; error?: string }> {
   return publishToSpecificRelay(event, DEFAULT_RELAY);
 }
 
@@ -827,7 +786,10 @@ export function publishToSpecificRelay(
 ): Promise<{ success: boolean; eventId?: string; error?: string }> {
   return new Promise(resolve => {
     const ws = new WebSocket(relayUrl);
-    const timeout = setTimeout(() => { ws.close(); resolve({ success: false, error: 'Relay timeout' }); }, 8000);
+    const timeout = setTimeout(() => {
+      ws.close();
+      resolve({ success: false, error: 'Relay timeout' });
+    }, 8000);
     ws.onopen = () => { ws.send(JSON.stringify(['EVENT', event])); };
     ws.onmessage = (msg) => {
       try {
@@ -839,6 +801,9 @@ export function publishToSpecificRelay(
         }
       } catch {}
     };
-    ws.onerror = () => { clearTimeout(timeout); resolve({ success: false, error: 'WebSocket error' }); };
+    ws.onerror = () => {
+      clearTimeout(timeout);
+      resolve({ success: false, error: 'WebSocket error' });
+    };
   });
 }

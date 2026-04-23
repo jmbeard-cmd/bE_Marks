@@ -205,7 +205,7 @@ export default function DmThreadScreen() {
       <KeyboardAvoidingView
         style={s.safe}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 64}
       >
         <View style={s.container}>
 
@@ -385,7 +385,9 @@ const s = StyleSheet.create({
   // Composer
   composer: {
     borderTopWidth: 0.5, borderTopColor: '#222',
-    padding: 12, flexDirection: 'row', gap: 10, alignItems: 'flex-end',
+    padding: 12,
+    paddingBottom: Platform.OS === 'android' ? 16 : 12,
+    flexDirection: 'row', gap: 10, alignItems: 'flex-end',
   },
   input: {
     flex: 1, backgroundColor: '#1a1a1a', borderWidth: 0.5, borderColor: '#2a2a2a',
