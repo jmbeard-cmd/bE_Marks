@@ -807,3 +807,156 @@ export function publishToSpecificRelay(
     };
   });
 }
+
+// ─── Groups (kind 30080 / 30081) ─────────────────────────────────
+
+export const GROUP_KIND = 30080;
+export const GROUP_MEMBER_KIND = 30081;
+
+export interface NostrGroupPayload {
+  id: string;
+  name: string;
+  description?: string;
+  season?: string;
+  sport?: string;
+  schoolId?: string;
+  inviteCode: string;
+  status: 'active' | 'archived';
+  relayUrl: string;
+  createdAt: number;
+  ownerNpub: string;
+}
+
+export async function publishGroup(
+  group: NostrGroupPayload,
+  nsec: string
+): Promise<{ success: boolean; eventId?: string; error?: string }> {
+  try {
+    const decoded = nip19.decode(nsec);
+    if (decoded.type !== 'nsec') throw new Error('Invalid nsec');
+    const sk = decoded.data as Uint8Array;
+    const pk = getPublicKey(sk);
+
+    const tags: string[][] = [
+      ['d', group.id],                          // unique identifier
+      ['name', group.name],                      // searchable name
+      ['invite', group.inviteCode],              // invite code tag for lookup
+      ['status', group.status],
+      ['relay', group.relayUrl],
+      ['client', 'bE-Marks'],
+    ];
+
+    if (group.season) tags.push(['season', group.season]);
+    if (group.sport) tags.push(['sport', group.sport]);
+    if (group.schoolId) tags.push(['school', group.schoolId]);
+
+    const content = JSON.stringify({
+      id: group.id,
+      name: group.name,
+      description: group.description,
+      season: group.season,
+      sport: group.sport,
+      schoolId: group.schoolId,
+      inviteCode: group.inviteCode,
+      status: group.status,
+      relayUrl: group.relayUrl,
+      createdAt: group.createdAt,
+      ownerNpub: group.ownerNpub,
+    });
+
+    const unsigned: UnsignedEvent = {
+      kind: GROUP_KIND,
+      created_at: Math.floor(Date.now() / 1000),
+      tags,
+      content,
+      pubkey: pk,
+    };
+
+    const signed = finalizeEvent(unsigned, sk);
+
+    // Publish to your relay — this is the authority for your groups
+    const result = await publishToSpecificRelay(signed, group.relayUrl);
+    return result;
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+}
+
+export function fetchGroupByInviteCode(
+  inviteCode: string,
+  relayUrl: string = DEFAULT_RELAY
+): Promise<NostrGroupPayload | null> {
+  return new Promise(resolve => {
+    try {
+      const ws = new WebSocket(relayUrl);
+      const timeout = setTimeout(() => { ws.close(); resolve(null); }, 6000);
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify([
+          'REQ',
+          'group-invite-fetch',
+          {
+            kinds: [GROUP_KIND],
+            '#invite': [inviteCode.toUpperCase()],
+            limit: 1,
+          }
+        ]));
+      };
+
+      ws.onmessage = (msg) => {
+        try {
+          const data = JSON.parse(msg.data);
+          if (data[0] === 'EVENT' && data[2]?.kind === GROUP_KIND) {
+            clearTimeout(timeout);
+            ws.close();
+            const parsed = JSON.parse(data[2].content || '{}') as NostrGroupPayload;
+            resolve(parsed);
+          } else if (data[0] === 'EOSE') {
+            clearTimeout(timeout);
+            ws.close();
+            resolve(null);
+          }
+        } catch { resolve(null); }
+      };
+
+      ws.onerror = () => { clearTimeout(timeout); resolve(null); };
+    } catch { resolve(null); }
+  });
+}
+
+export async function publishGroupMembership(input: {
+  groupId: string;
+  memberNpub: string;
+  memberPubkeyHex: string;
+  action: 'join' | 'leave' | 'remove';
+  nsec: string;
+  relayUrl: string;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    const decoded = nip19.decode(input.nsec);
+    if (decoded.type !== 'nsec') throw new Error('Invalid nsec');
+    const sk = decoded.data as Uint8Array;
+    const pk = getPublicKey(sk);
+
+    const tags: string[][] = [
+      ['d', `${input.groupId}:${input.memberPubkeyHex}`],
+      ['group', input.groupId],
+      ['p', input.memberPubkeyHex],
+      ['action', input.action],
+      ['client', 'bE-Marks'],
+    ];
+
+    const unsigned: UnsignedEvent = {
+      kind: GROUP_MEMBER_KIND,
+      created_at: Math.floor(Date.now() / 1000),
+      tags,
+      content: JSON.stringify({ action: input.action, groupId: input.groupId }),
+      pubkey: pk,
+    };
+
+    const signed = finalizeEvent(unsigned, sk);
+    return await publishToSpecificRelay(signed, input.relayUrl);
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+}

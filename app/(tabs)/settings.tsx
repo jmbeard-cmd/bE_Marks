@@ -364,7 +364,7 @@ const handleJoinFamily = async () => {
           <View style={s.header}>
             <Image source={require('../../assets/images/bE_logo_transparent.png')} style={s.logo} resizeMode="contain" />
             <View>
-              <Text style={s.appName}>Milestones</Text>
+              <Text style={s.appName}>Marks</Text>
               <Text style={s.tagline}>by beginning End</Text>
             </View>
           </View>

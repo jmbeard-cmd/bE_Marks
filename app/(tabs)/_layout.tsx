@@ -21,12 +21,12 @@ function MessagesIcon({ color }: { color: string }) {
   );
 }
 
-function LogIcon({ color }: { color: string }) {
+function GroupsIcon({ color }: { color: string }) {
   return (
-    <View style={s.logIcon}>
-      <View style={[s.logCircle, { borderColor: color }]} />
-      <View style={[s.logPlus1, { backgroundColor: color }]} />
-      <View style={[s.logPlus2, { backgroundColor: color }]} />
+    <View style={s.groupsIcon}>
+      <View style={[s.gCircle1, { borderColor: color }]} />
+      <View style={[s.gCircle2, { borderColor: color, backgroundColor: '#111' }]} />
+      <View style={[s.gCircle3, { borderColor: color, backgroundColor: '#111' }]} />
     </View>
   );
 }
@@ -69,14 +69,17 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="log"
-        options={{ href: null }}
-      />
-      <Tabs.Screen
         name="messages"
         options={{
           title: 'Messages',
           tabBarIcon: ({ color }) => <MessagesIcon color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="groups"
+        options={{
+          title: 'Groups',
+          tabBarIcon: ({ color }) => <GroupsIcon color={color} />,
         }}
       />
       <Tabs.Screen
@@ -86,11 +89,9 @@ export default function TabLayout() {
           tabBarIcon: ({ color }) => <SettingsIcon color={color} />,
         }}
       />
-      {/* dm-thread is NOT a tab — it lives in the root Stack */}
-      <Tabs.Screen
-        name="dm-thread"
-        options={{ href: null }}
-      />
+      {/* Hidden screens — not tabs */}
+      <Tabs.Screen name="log" options={{ href: null }} />
+      <Tabs.Screen name="dm-thread" options={{ href: null }} />
     </Tabs>
   );
 }
@@ -99,11 +100,6 @@ const s = StyleSheet.create({
   timelineIcon: { gap: 3, justifyContent: 'center', height: 22 },
   tLine: { height: 2, width: 18, borderRadius: 1 },
 
-  logIcon: { width: 22, height: 22, alignItems: 'center', justifyContent: 'center' },
-  logCircle: { width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, position: 'absolute' },
-  logPlus1: { width: 10, height: 1.5, borderRadius: 1, position: 'absolute' },
-  logPlus2: { width: 1.5, height: 10, borderRadius: 1, position: 'absolute' },
-
   messagesIcon: { width: 22, height: 22, alignItems: 'center', justifyContent: 'center' },
   mBubble: {
     width: 18, height: 14, borderRadius: 5, borderWidth: 1.5,
@@ -111,6 +107,11 @@ const s = StyleSheet.create({
   },
   mLine: { width: 10, height: 1.5, borderRadius: 1, position: 'absolute', top: 7 },
   mLineShort: { width: 6, height: 1.5, borderRadius: 1, position: 'absolute', top: 11 },
+
+  groupsIcon: { width: 22, height: 22, alignItems: 'center', justifyContent: 'center' },
+  gCircle1: { width: 13, height: 13, borderRadius: 7, borderWidth: 1.5, position: 'absolute', left: 0, top: 2 },
+  gCircle2: { width: 13, height: 13, borderRadius: 7, borderWidth: 1.5, position: 'absolute', left: 6, top: 2 },
+  gCircle3: { width: 10, height: 10, borderRadius: 5, borderWidth: 1.5, position: 'absolute', left: 3, top: 10 },
 
   settingsIcon: { width: 22, height: 22, alignItems: 'center', justifyContent: 'center' },
   sCircle: { width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, position: 'absolute' },
