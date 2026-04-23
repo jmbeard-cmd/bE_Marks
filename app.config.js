@@ -2,7 +2,7 @@ export default {
   expo: {
     name: "bE Marks",
     slug: "marks-app",
-    version: "1.2.0",
+    version: "1.3.0",
     orientation: "portrait",
     icon: "./assets/images/icon.png",
     scheme: "marksapp",
@@ -14,9 +14,9 @@ export default {
       buildNumber: "1",
       infoPlist: {
         NSContactsUsageDescription: "Allow bE Marks to access your contacts to start encrypted conversations.",
-        NSCameraUsageDescription: "Allow bE Marks to record video milestones.",
+        NSCameraUsageDescription: "Allow bE Marks to record video marks.",
         NSMicrophoneUsageDescription: "Allow bE Marks to record voice notes and video audio.",
-        NSPhotoLibraryUsageDescription: "Allow bE Marks to select photos for milestones.",
+        NSPhotoLibraryUsageDescription: "Allow bE Marks to select photos for marks.",
         NSPhotoLibraryAddUsageDescription: "Allow bE Marks to save photos.",
       },
     },

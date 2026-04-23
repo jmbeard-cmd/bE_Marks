@@ -600,7 +600,7 @@ const handleJoinFamily = async () => {
             <Text style={s.sectionLabel}>APP</Text>
             <View style={s.row}>
               <Text style={s.rowLabel}>Version</Text>
-              <Text style={s.rowValue}>1.2.0</Text>
+              <Text style={s.rowValue}>1.3.0</Text>
             </View>
             <View style={s.row}>
               <Text style={s.rowLabel}>Built on</Text>
