@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 
 const DM_THREADS_KEY = 'dm_threads_v1';
@@ -6,8 +7,8 @@ const DM_MESSAGES_KEY = 'dm_messages_v1';
 export type DMThread = {
   id: string;
   title: string;
-  participantPubkey?: string; // hex pubkey for real Nostr usage
-  participantNpub?: string;   // optional display/share value
+  participantPubkey?: string;
+  participantNpub?: string;
   updatedAt: number;
   unread: number;
   lastMessage: string;
@@ -23,8 +24,22 @@ export type DMMessage = {
 
 async function readJson<T>(key: string, fallback: T): Promise<T> {
   try {
-    const raw = await SecureStore.getItemAsync(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
+    const asyncRaw = await AsyncStorage.getItem(key);
+
+    if (asyncRaw) {
+      return JSON.parse(asyncRaw) as T;
+    }
+
+    // One-time fallback: read old SecureStore data if it exists
+    const secureRaw = await SecureStore.getItemAsync(key);
+
+    if (secureRaw) {
+      await AsyncStorage.setItem(key, secureRaw);
+      await SecureStore.deleteItemAsync(key);
+      return JSON.parse(secureRaw) as T;
+    }
+
+    return fallback;
   } catch {
     return fallback;
   }
@@ -32,8 +47,10 @@ async function readJson<T>(key: string, fallback: T): Promise<T> {
 
 async function writeJson<T>(key: string, value: T): Promise<void> {
   try {
-    await SecureStore.setItemAsync(key, JSON.stringify(value));
-  } catch {}
+    await AsyncStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    console.warn('[DM Storage] writeJson failed:', error);
+  }
 }
 
 export async function getDMThreads(): Promise<DMThread[]> {
@@ -46,8 +63,6 @@ export async function getDMThreadById(threadId: string): Promise<DMThread | null
   return threads.find(thread => thread.id === threadId) || null;
 }
 
-// add to src/utils/dm-storage.ts right below getDMThreads()
-
 export async function getDMThreadByParticipantPubkey(
   participantPubkey: string
 ): Promise<DMThread | null> {
@@ -55,7 +70,7 @@ export async function getDMThreadByParticipantPubkey(
 
   return (
     threads.find(
-      (thread) =>
+      thread =>
         thread.participantPubkey?.toLowerCase() === participantPubkey.toLowerCase()
     ) || null
   );
@@ -75,8 +90,9 @@ export async function saveDMMessages(messages: DMMessage[]): Promise<void> {
 
 export async function getMessagesForThread(threadId: string): Promise<DMMessage[]> {
   const all = await getDMMessages();
+
   return all
-    .filter(m => m.threadId === threadId)
+    .filter(message => message.threadId === threadId)
     .sort((a, b) => a.createdAt - b.createdAt);
 }
 
@@ -88,17 +104,18 @@ export async function createThread(input: {
   const threads = await getDMThreads();
 
   const newThread: DMThread = {
-  id: `thread_${Date.now()}`,
-  title: input.title.trim(),
-  participantPubkey: input.participantPubkey,
-  participantNpub: input.participantNpub,
-  updatedAt: Math.floor(Date.now() / 1000),
-  unread: 0,
-  lastMessage: '',
-};
+    id: `thread_${Date.now()}`,
+    title: input.title.trim(),
+    participantPubkey: input.participantPubkey,
+    participantNpub: input.participantNpub,
+    updatedAt: Math.floor(Date.now() / 1000),
+    unread: 0,
+    lastMessage: '',
+  };
 
   threads.unshift(newThread);
   await saveDMThreads(threads);
+
   return newThread;
 }
 
@@ -132,26 +149,76 @@ export async function sendLocalDM(input: {
   );
 
   await saveDMThreads(updatedThreads);
+
   return newMessage;
+}
+
+export async function saveRemoteDMMessage(input: {
+  id: string;
+  threadId: string;
+  text: string;
+  mine: boolean;
+  createdAt: number;
+}): Promise<void> {
+  const allMessages = await getDMMessages();
+
+  const existsById = allMessages.some(message => message.id === input.id);
+  if (existsById) return;
+
+  const existsByContent = allMessages.some(message => {
+    const sameThread = message.threadId === input.threadId;
+    const sameMine = message.mine === input.mine;
+    const sameText = message.text === input.text;
+    const closeInTime = Math.abs(message.createdAt - input.createdAt) <= 10;
+
+    return sameThread && sameMine && sameText && closeInTime;
+  });
+
+  if (existsByContent) return;
+
+  allMessages.push({
+    id: input.id,
+    threadId: input.threadId,
+    text: input.text,
+    mine: input.mine,
+    createdAt: input.createdAt,
+  });
+
+  allMessages.sort((a, b) => a.createdAt - b.createdAt);
+  await saveDMMessages(allMessages);
+
+  const threads = await getDMThreads();
+
+  const updatedThreads = threads.map(thread =>
+    thread.id === input.threadId
+      ? {
+          ...thread,
+          updatedAt: input.createdAt,
+          lastMessage: input.text,
+          unread: input.mine ? thread.unread : thread.unread + 1,
+        }
+      : thread
+  );
+
+  await saveDMThreads(updatedThreads);
 }
 
 export async function markThreadRead(threadId: string): Promise<void> {
   const threads = await getDMThreads();
+
   const updatedThreads = threads.map(thread =>
     thread.id === threadId ? { ...thread, unread: 0 } : thread
   );
+
   await saveDMThreads(updatedThreads);
 }
 
-
 export async function deleteThread(threadId: string): Promise<void> {
-  // Remove the thread
   const threads = await getDMThreads();
-  await saveDMThreads(threads.filter(t => t.id !== threadId));
+  await saveDMThreads(threads.filter(thread => thread.id !== threadId));
 
-  // Remove all messages for this thread
   const messages = await getDMMessages();
-  await saveDMMessages(messages.filter(m => m.threadId !== threadId));
+  await saveDMMessages(messages.filter(message => message.threadId !== threadId));
 }
 
 export function formatDMTime(unix: number): string {

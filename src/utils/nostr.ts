@@ -335,37 +335,89 @@ export function fetchNostrProfile(npub: string): Promise<NostrProfile | null> {
   return new Promise(resolve => {
     try {
       const decoded = nip19.decode(npub);
-      if (decoded.type !== 'npub') { resolve(null); return; }
+
+      if (decoded.type !== 'npub') {
+        resolve(null);
+        return;
+      }
+
       const pubkeyHex = decoded.data as string;
+      const relaysToTry = [
+        DEFAULT_RELAY,
+        ...FAST_RELAYS,
+        'wss://relay.nostr.band',
+        'wss://relay.snort.social',
+      ];
 
-      // Try fast relays for profile fetch
-      const relayUrl = FAST_RELAYS[1]; // damus.io tends to have profiles
-      const ws = new WebSocket(relayUrl);
-      const timeout = setTimeout(() => { ws.close(); resolve(null); }, 5000);
+      let resolved = false;
+      let completed = 0;
 
-      ws.onopen = () => {
-        ws.send(JSON.stringify(['REQ', 'profile-fetch', {
-          kinds: [0],
-          authors: [pubkeyHex],
-          limit: 1,
-        }]));
+      const finishNullIfDone = () => {
+        completed += 1;
+
+        if (!resolved && completed >= relaysToTry.length) {
+          resolved = true;
+          resolve(null);
+        }
       };
-      ws.onmessage = (msg) => {
+
+      relaysToTry.forEach(relayUrl => {
         try {
-          const data = JSON.parse(msg.data);
-          if (data[0] === 'EVENT' && data[2]?.kind === 0) {
+          const ws = new WebSocket(relayUrl);
+
+          const timeout = setTimeout(() => {
+            try { ws.close(); } catch {}
+            finishNullIfDone();
+          }, 3500);
+
+          ws.onopen = () => {
+            ws.send(JSON.stringify([
+              'REQ',
+              `profile-fetch-${pubkeyHex.slice(0, 8)}-${Date.now()}`,
+              {
+                kinds: [0],
+                authors: [pubkeyHex],
+                limit: 1,
+              }
+            ]));
+          };
+
+          ws.onmessage = (msg) => {
+            try {
+              const data = JSON.parse(msg.data);
+
+              if (data[0] === 'EVENT' && data[2]?.kind === 0) {
+                clearTimeout(timeout);
+
+                if (!resolved) {
+                  resolved = true;
+                  try { ws.close(); } catch {}
+                  resolve(JSON.parse(data[2].content) as NostrProfile);
+                }
+              } else if (data[0] === 'EOSE') {
+                clearTimeout(timeout);
+                try { ws.close(); } catch {}
+                finishNullIfDone();
+              }
+            } catch {
+              clearTimeout(timeout);
+              try { ws.close(); } catch {}
+              finishNullIfDone();
+            }
+          };
+
+          ws.onerror = () => {
             clearTimeout(timeout);
-            ws.close();
-            resolve(JSON.parse(data[2].content) as NostrProfile);
-          } else if (data[0] === 'EOSE') {
-            clearTimeout(timeout);
-            ws.close();
-            resolve(null);
-          }
-        } catch { resolve(null); }
-      };
-      ws.onerror = () => { clearTimeout(timeout); resolve(null); };
-    } catch { resolve(null); }
+            try { ws.close(); } catch {}
+            finishNullIfDone();
+          };
+        } catch {
+          finishNullIfDone();
+        }
+      });
+    } catch {
+      resolve(null);
+    }
   });
 }
 

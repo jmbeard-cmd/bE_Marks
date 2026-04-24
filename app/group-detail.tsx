@@ -5,16 +5,24 @@ import {
     Alert,
     FlatList,
     Image,
+    Modal,
     RefreshControl,
     ScrollView,
     Share,
     StyleSheet,
     Text,
+    TextInput,
     TouchableOpacity,
     View,
 } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+    createGroupSticky,
+    deleteGroupSticky,
+    getStickiesForGroup,
+    type GroupSticky,
+} from '../src/utils/group-stickies';
 import {
     archiveGroup,
     getGroupById,
@@ -29,7 +37,7 @@ import {
 } from '../src/utils/group-storage';
 import { useIdentity } from './_layout';
 
-type Tab = 'timeline' | 'gallery' | 'members';
+type Tab = 'stickies' | 'gallery' | 'members';
 
 export default function GroupDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -38,7 +46,12 @@ export default function GroupDetailScreen() {
 
   const [group, setGroup] = useState<BEGroup | null>(null);
   const [members, setMembers] = useState<BEGroupMember[]>([]);
-  const [tab, setTab] = useState<Tab>('timeline');
+  const [stickies, setStickies] = useState<GroupSticky[]>([]);
+const [showStickyModal, setShowStickyModal] = useState(false);
+const [stickyTitle, setStickyTitle] = useState('');
+const [stickyBody, setStickyBody] = useState('');
+const [stickyVisibility, setStickyVisibility] = useState<'private' | 'organization' | 'public'>('private');
+  const [tab, setTab] = useState<Tab>('stickies');
   const [isAdmin, setIsAdmin] = useState(false);
   const [isMember, setIsMember] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
@@ -46,12 +59,15 @@ export default function GroupDetailScreen() {
 
   const load = useCallback(async () => {
     if (!id) return;
-    const [g, m] = await Promise.all([
-      getGroupById(id),
-      getGroupMembers(id),
-    ]);
-    setGroup(g);
-    setMembers(m);
+    const [g, m, stickyList] = await Promise.all([
+  getGroupById(id),
+  getGroupMembers(id),
+  getStickiesForGroup(id),
+]);
+
+setGroup(g);
+setMembers(m);
+setStickies(stickyList);
     if (npub && g) {
       const [admin, member] = await Promise.all([
         isGroupAdmin(id, npub),
@@ -121,6 +137,49 @@ export default function GroupDetailScreen() {
       ]
     );
   };
+
+  const handleCreateSticky = async () => {
+  if (!group) return;
+
+  const title = stickyTitle.trim();
+  const body = stickyBody.trim();
+
+  if (!title || !body) {
+    Alert.alert('Missing info', 'Add a title and message for the sticky.');
+    return;
+  }
+
+  await createGroupSticky({
+    groupId: group.id,
+    title,
+    body,
+    authorNpub: npub ?? undefined,
+  });
+
+  setStickyTitle('');
+  setStickyBody('');
+  setStickyVisibility('private');
+  setShowStickyModal(false);
+  await load();
+};
+
+const handleDeleteSticky = (sticky: GroupSticky) => {
+  Alert.alert(
+    'Delete sticky?',
+    'This removes the sticky from the group info page.',
+    [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          await deleteGroupSticky(sticky.id);
+          await load();
+        },
+      },
+    ]
+  );
+};
 
   const handleRemoveMember = (member: BEGroupMember) => {
     if (!npub) return;
@@ -229,43 +288,63 @@ export default function GroupDetailScreen() {
 
       {/* Tab bar */}
       <View style={s.tabRow}>
-        {(['timeline', 'gallery', 'members'] as Tab[]).map(t => (
+        {(['stickies', 'gallery', 'members'] as Tab[]).map(t => (
           <TouchableOpacity
             key={t}
             style={[s.tabBtn, tab === t && s.tabBtnActive]}
             onPress={() => setTab(t)}
           >
             <Text style={[s.tabText, tab === t && s.tabTextActive]}>
-              {t === 'timeline' ? 'Posts' : t === 'gallery' ? 'Gallery' : `Members (${members.length})`}
+              {t === 'stickies' ? `Stickies (${stickies.length})` : t === 'gallery' ? 'Gallery' : `Members (${members.length})`}
             </Text>
           </TouchableOpacity>
         ))}
       </View>
 
-      {/* Timeline tab */}
-      {tab === 'timeline' && (
-        <ScrollView
-          contentContainerStyle={s.timelineContainer}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#c9973a" />}
-        >
-          {group.status === 'archived' && (
-            <View style={s.archivedBanner}>
-              <Text style={s.archivedBannerText}>
-                📦 This group is archived. No new posts can be added.
-              </Text>
-            </View>
-          )}
-          <View style={s.empty}>
-            <Text style={s.emptyIcon}>📸</Text>
-            <Text style={s.emptyText}>No posts yet</Text>
-            <Text style={s.emptyHint}>
-              {group.status === 'active'
-                ? 'Be the first to post something to this group.'
-                : 'This archived group has no posts.'}
-            </Text>
+    {/* Stickies tab */}
+{tab === 'stickies' && (
+  <ScrollView
+    contentContainerStyle={s.timelineContainer}
+    refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#c9973a" />}
+  >
+    {group.status === 'archived' && (
+      <View style={s.archivedBanner}>
+        <Text style={s.archivedBannerText}>
+          📦 This group is archived. Stickies can still be viewed.
+        </Text>
+      </View>
+    )}
+
+    {stickies.length === 0 ? (
+      <View style={s.empty}>
+        <Text style={s.emptyIcon}>📌</Text>
+        <Text style={s.emptyText}>No stickies yet</Text>
+        <Text style={s.emptyHint}>
+          Admins can add announcements, reminders, or important notes here.
+        </Text>
+      </View>
+    ) : (
+      stickies.map(sticky => (
+        <View key={sticky.id} style={s.stickyCard}>
+          <View style={s.stickyTop}>
+            <Text style={s.stickyTitle}>{sticky.title}</Text>
+            {isAdmin && (
+              <TouchableOpacity onPress={() => handleDeleteSticky(sticky)}>
+                <Text style={s.stickyDelete}>✕</Text>
+              </TouchableOpacity>
+            )}
           </View>
-        </ScrollView>
-      )}
+
+          <Text style={s.stickyBody}>{sticky.body}</Text>
+
+          <Text style={s.stickyMeta}>
+            {formatStickyDate(sticky.createdAt)}
+          </Text>
+        </View>
+      ))
+    )}
+  </ScrollView>
+)}
 
       {/* Gallery tab */}
       {tab === 'gallery' && (
@@ -298,7 +377,19 @@ export default function GroupDetailScreen() {
               </View>
               <View style={s.memberBody}>
                 <Text style={s.memberName}>{item.displayName ?? `${item.npub.slice(0, 12)}…`}</Text>
-                <Text style={s.memberRole}>{item.role}</Text>
+                <View style={[
+  s.roleBadge,
+  item.role === 'owner' && s.roleBadgeOwner,
+  item.role === 'admin' && s.roleBadgeAdmin,
+]}>
+  <Text style={[
+    s.roleBadgeText,
+    item.role === 'owner' && s.roleBadgeTextOwner,
+    item.role === 'admin' && s.roleBadgeTextAdmin,
+  ]}>
+    {item.role === 'owner' ? '👑 Owner' : item.role === 'admin' ? '⭐ Admin' : 'Member'}
+  </Text>
+</View>
               </View>
               {isAdmin && item.npub !== npub && item.role !== 'owner' && (
                 <TouchableOpacity
@@ -332,9 +423,9 @@ export default function GroupDetailScreen() {
           {isMember && (
             <TouchableOpacity
               style={s.adminBtnGold}
-              onPress={() => router.push({ pathname: '/(tabs)/log' } as any)}
+              onPress={() => setShowStickyModal(true)}
             >
-              <Text style={s.adminBtnGoldText}>+ Post to group</Text>
+              <Text style={s.adminBtnGoldText}>+ Sticky</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -344,21 +435,163 @@ export default function GroupDetailScreen() {
       {isMember && !isAdmin && group.status === 'active' && (
         <TouchableOpacity
           style={s.fab}
-          onPress={() => router.push({ pathname: '/(tabs)/log' } as any)}
+          onPress={() => router.push({ pathname: '/group-thread', params: { id: group.id } } as any)}
           activeOpacity={0.85}
         >
           <Text style={s.fabIcon}>+</Text>
         </TouchableOpacity>
       )}
 
+<Modal
+  visible={showStickyModal}
+  transparent
+  animationType="slide"
+  onRequestClose={() => setShowStickyModal(false)}
+>
+  <View style={s.modalOverlay}>
+    <View style={s.modalCard}>
+      <Text style={s.modalTitle}>New Sticky</Text>
+
+      <Text style={s.inputLabel}>TITLE</Text>
+      <TextInput
+        style={s.input}
+        value={stickyTitle}
+        onChangeText={setStickyTitle}
+        placeholder="Practice reminder, team update..."
+        placeholderTextColor="#444"
+      />
+
+      <Text style={s.inputLabel}>MESSAGE</Text>
+      <TextInput
+        style={[s.input, s.inputMulti]}
+        value={stickyBody}
+        onChangeText={setStickyBody}
+        placeholder="Write the announcement..."
+        placeholderTextColor="#444"
+        multiline
+        textAlignVertical="top"
+      />
+
+      <Text style={s.inputLabel}>VISIBILITY</Text>
+
+<View style={s.visibilityBox}>
+  <TouchableOpacity
+    style={[s.visibilityOption, stickyVisibility === 'private' && s.visibilityOptionActive]}
+    onPress={() => setStickyVisibility('private')}
+  >
+    <Text style={s.visibilityIcon}>🔒</Text>
+    <View style={{ flex: 1 }}>
+      <Text style={s.visibilityTitle}>Private</Text>
+      <Text style={s.visibilityHint}>Only this group can see it</Text>
+    </View>
+    <Text style={s.visibilityStatus}>ON</Text>
+  </TouchableOpacity>
+
+  <TouchableOpacity
+    style={[s.visibilityOption, s.visibilityOptionDisabled]}
+    onPress={() => Alert.alert('Coming soon', 'Organization archives will be added later.')}
+  >
+    <Text style={s.visibilityIcon}>🏫</Text>
+    <View style={{ flex: 1 }}>
+      <Text style={s.visibilityTitleDim}>Organization</Text>
+      <Text style={s.visibilityHint}>School, church, or team archive</Text>
+    </View>
+    <Text style={s.visibilitySoon}>Soon</Text>
+  </TouchableOpacity>
+
+  <TouchableOpacity
+    style={[s.visibilityOption, s.visibilityOptionDisabled]}
+    onPress={() => Alert.alert('Coming soon', 'Public relay posting will stay opt-in only.')}
+  >
+    <Text style={s.visibilityIcon}>🌍</Text>
+    <View style={{ flex: 1 }}>
+      <Text style={s.visibilityTitleDim}>Public</Text>
+      <Text style={s.visibilityHint}>Visible outside the group</Text>
+    </View>
+    <Text style={s.visibilitySoon}>Soon</Text>
+  </TouchableOpacity>
+</View>
+
+      <View style={s.modalActions}>
+        <TouchableOpacity style={s.cancelBtn} onPress={() => setShowStickyModal(false)}>
+          <Text style={s.cancelText}>Cancel</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={s.confirmBtn} onPress={handleCreateSticky}>
+          <Text style={s.confirmText}>Post sticky</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  </View>
+</Modal>
+
     </SafeAreaView>
   );
+}
+
+function formatStickyDate(unix: number): string {
+  const date = new Date(unix * 1000);
+  return date.toLocaleDateString([], {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
 }
 
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#111' },
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   loadingText: { color: '#444', fontSize: 15 },
+
+  visibilityBox: {
+  gap: 8,
+  marginTop: 4,
+},
+visibilityOption: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 10,
+  padding: 12,
+  borderRadius: 12,
+  borderWidth: 0.5,
+  borderColor: '#2a2a2a',
+  backgroundColor: '#1a1a1a',
+},
+visibilityOptionActive: {
+  borderColor: '#c9973a',
+  backgroundColor: '#1e1600',
+},
+visibilityOptionDisabled: {
+  opacity: 0.55,
+},
+visibilityIcon: {
+  fontSize: 20,
+},
+visibilityTitle: {
+  color: '#fff',
+  fontSize: 14,
+  fontWeight: '700',
+},
+visibilityTitleDim: {
+  color: '#aaa',
+  fontSize: 14,
+  fontWeight: '700',
+},
+visibilityHint: {
+  color: '#555',
+  fontSize: 11,
+  marginTop: 2,
+},
+visibilityStatus: {
+  color: '#c9973a',
+  fontSize: 11,
+  fontWeight: '800',
+},
+visibilitySoon: {
+  color: '#555',
+  fontSize: 11,
+  fontWeight: '700',
+},
 
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
@@ -373,6 +606,42 @@ const s = StyleSheet.create({
   inviteBtn: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 10, backgroundColor: '#c9973a' },
   inviteBtnText: { color: '#111', fontWeight: '700', fontSize: 13 },
 
+  stickyCard: {
+  backgroundColor: '#1a1a1a',
+  borderWidth: 0.5,
+  borderColor: '#2a2a2a',
+  borderRadius: 14,
+  padding: 14,
+  marginBottom: 12,
+},
+stickyTop: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  gap: 12,
+  marginBottom: 8,
+},
+stickyTitle: {
+  flex: 1,
+  color: '#fff',
+  fontSize: 15,
+  fontWeight: '700',
+},
+stickyDelete: {
+  color: '#555',
+  fontSize: 16,
+  paddingHorizontal: 4,
+},
+stickyBody: {
+  color: '#ccc',
+  fontSize: 14,
+  lineHeight: 20,
+},
+stickyMeta: {
+  color: '#444',
+  fontSize: 11,
+  marginTop: 10,
+},
+  
   // Invite panel
   invitePanel: {
     backgroundColor: '#1a1a1a', borderBottomWidth: 0.5, borderBottomColor: '#2a2a2a',
@@ -420,6 +689,38 @@ const s = StyleSheet.create({
   memberOptions: { padding: 8 },
   memberOptionsText: { fontSize: 20, color: '#444' },
 
+  roleBadge: {
+  alignSelf: 'flex-start',
+  marginTop: 4,
+  paddingHorizontal: 8,
+  paddingVertical: 3,
+  borderRadius: 999,
+  backgroundColor: '#1a1a1a',
+  borderWidth: 0.5,
+  borderColor: '#2a2a2a',
+},
+roleBadgeOwner: {
+  backgroundColor: '#1e1600',
+  borderColor: '#c9973a',
+},
+roleBadgeAdmin: {
+  backgroundColor: '#1a1a1a',
+  borderColor: '#6b5cff',
+},
+roleBadgeText: {
+  color: '#555',
+  fontSize: 10,
+  fontWeight: '700',
+  textTransform: 'uppercase',
+  letterSpacing: 0.5,
+},
+roleBadgeTextOwner: {
+  color: '#c9973a',
+},
+roleBadgeTextAdmin: {
+  color: '#aaa',
+},
+
   // Admin bar
   adminBar: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
@@ -431,6 +732,75 @@ const s = StyleSheet.create({
   adminBtnGold: { flex: 2, padding: 12, borderRadius: 10, backgroundColor: '#c9973a', alignItems: 'center' },
   adminBtnGoldText: { color: '#111', fontWeight: '700', fontSize: 13 },
 
+  modalOverlay: {
+  flex: 1,
+  backgroundColor: 'rgba(0,0,0,0.7)',
+  justifyContent: 'flex-end',
+},
+modalCard: {
+  backgroundColor: '#111',
+  borderTopWidth: 0.5,
+  borderTopColor: '#2a2a2a',
+  padding: 20,
+  borderTopLeftRadius: 18,
+  borderTopRightRadius: 18,
+},
+modalTitle: {
+  color: '#fff',
+  fontSize: 18,
+  fontWeight: '700',
+  marginBottom: 16,
+},
+inputLabel: {
+  fontSize: 11,
+  color: '#444',
+  fontWeight: '600',
+  letterSpacing: 0.8,
+  marginBottom: 6,
+  marginTop: 10,
+},
+input: {
+  borderWidth: 0.5,
+  borderColor: '#2a2a2a',
+  borderRadius: 10,
+  padding: 12,
+  fontSize: 15,
+  color: '#fff',
+  backgroundColor: '#1a1a1a',
+},
+inputMulti: {
+  minHeight: 120,
+},
+modalActions: {
+  flexDirection: 'row',
+  gap: 10,
+  marginTop: 16,
+},
+cancelBtn: {
+  flex: 1,
+  padding: 12,
+  borderRadius: 10,
+  borderWidth: 0.5,
+  borderColor: '#2a2a2a',
+  alignItems: 'center',
+},
+cancelText: {
+  color: '#555',
+  fontSize: 14,
+},
+confirmBtn: {
+  flex: 2,
+  padding: 12,
+  borderRadius: 10,
+  backgroundColor: '#c9973a',
+  alignItems: 'center',
+},
+confirmText: {
+  color: '#111',
+  fontWeight: '700',
+  fontSize: 14,
+},
+  
   // FAB
   fab: {
     position: 'absolute', bottom: 24, right: 24,
