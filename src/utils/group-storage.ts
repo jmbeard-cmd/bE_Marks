@@ -1,6 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
 import {
     fetchGroupByInviteCode,
+    fetchGroupMemberships,
     publishGroup,
     publishGroupMembership,
     type NostrGroupPayload,
@@ -97,6 +98,58 @@ export async function getGroups(): Promise<BEGroup[]> {
     // Active groups first, then by last post
     if (a.status !== b.status) return a.status === 'active' ? -1 : 1;
     return (b.lastPostAt ?? b.updatedAt) - (a.lastPostAt ?? a.updatedAt);
+  });
+}
+
+export async function syncGroupMembersFromRelay(
+  groupId: string,
+  relayUrls: string[],
+): Promise<BEGroupMember[]> {
+  const membershipEvents = await fetchGroupMemberships(groupId, relayUrls);
+  const allMembers = await readMembers();
+  const existingGroupMembers = allMembers.filter(m => m.groupId === groupId);
+
+  const memberMap = new Map<string, BEGroupMember>();
+
+  for (const member of existingGroupMembers) {
+    memberMap.set(member.npub, member);
+  }
+
+  for (const event of membershipEvents) {
+    const npubTag = event.tags.find(tag => tag[0] === 'npub');
+    const roleTag = event.tags.find(tag => tag[0] === 'role');
+
+    const memberNpub = npubTag?.[1];
+    if (!memberNpub) continue;
+
+    const existing = memberMap.get(memberNpub);
+
+    memberMap.set(memberNpub, {
+      id: existing?.id ?? `member_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      groupId,
+      npub: memberNpub,
+      pubkeyHex: existing?.pubkeyHex ?? event.pubkey,
+      displayName: existing?.displayName,
+      avatarUrl: existing?.avatarUrl,
+      role: existing?.role ?? (roleTag?.[1] as MemberRole) ?? 'member',
+      status: 'active',
+      joinedAt: existing?.joinedAt ?? event.created_at,
+    });
+  }
+
+  const mergedGroupMembers = Array.from(memberMap.values());
+
+  const otherMembers = allMembers.filter(m => m.groupId !== groupId);
+
+  await writeMembers([...otherMembers, ...mergedGroupMembers]);
+
+  await updateGroup(groupId, {
+    memberCount: mergedGroupMembers.filter(m => m.status === 'active').length,
+  });
+
+  return mergedGroupMembers.sort((a, b) => {
+    const roleOrder = { owner: 0, admin: 1, member: 2 };
+    return roleOrder[a.role] - roleOrder[b.role];
   });
 }
 

@@ -1,5 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
+import {
+    fetchGroupStickies,
+    getStoredIdentity,
+    publishGroupSticky,
+} from './nostr';
 const GROUP_STICKIES_KEY = 'be_group_stickies_v1';
 
 export type GroupSticky = {
@@ -9,6 +13,7 @@ export type GroupSticky = {
   body: string;
   authorName?: string;
   authorNpub?: string;
+  relayUrl?: string;
   createdAt: number;
   updatedAt: number;
 };
@@ -44,6 +49,7 @@ export async function createGroupSticky(input: {
   body: string;
   authorName?: string;
   authorNpub?: string;
+  relayUrl?: string;
 }): Promise<GroupSticky> {
   const all = await readJson<GroupSticky[]>(GROUP_STICKIES_KEY, []);
   const now = Math.floor(Date.now() / 1000);
@@ -61,6 +67,23 @@ export async function createGroupSticky(input: {
 
   all.push(sticky);
   await writeJson(GROUP_STICKIES_KEY, all);
+    if (input.relayUrl) {
+    const identity = await getStoredIdentity();
+
+    if (identity?.nsec) {
+      publishGroupSticky({
+        stickyId: sticky.id,
+        groupId: sticky.groupId,
+        title: sticky.title,
+        body: sticky.body,
+        authorNpub: sticky.authorNpub,
+        nsec: identity.nsec,
+        relayUrl: input.relayUrl,
+      }).catch(error => {
+        console.warn('[Group Stickies] publish failed:', error);
+      });
+    }
+  }
 
   return sticky;
 }
@@ -71,4 +94,58 @@ export async function deleteGroupSticky(stickyId: string): Promise<void> {
     GROUP_STICKIES_KEY,
     all.filter(sticky => sticky.id !== stickyId)
   );
+}
+
+export async function syncGroupStickiesFromRelay(
+  groupId: string,
+  relayUrl: string,
+): Promise<GroupSticky[]> {
+  const remoteEvents = await fetchGroupStickies(groupId, relayUrl);
+  const all = await readJson<GroupSticky[]>(GROUP_STICKIES_KEY, []);
+
+  const localForGroup = all.filter(sticky => sticky.groupId === groupId);
+  const otherStickies = all.filter(sticky => sticky.groupId !== groupId);
+
+  const stickyMap = new Map<string, GroupSticky>();
+
+  // Keep local first
+  for (const sticky of localForGroup) {
+    stickyMap.set(sticky.id, sticky);
+  }
+
+  // Merge relay stickies
+  for (const event of remoteEvents) {
+    try {
+      const parsed = JSON.parse(event.content || '{}');
+
+      if (!parsed.id || parsed.groupId !== groupId) continue;
+
+      const existing = stickyMap.get(parsed.id);
+
+      const remoteSticky: GroupSticky = {
+        id: parsed.id,
+        groupId: parsed.groupId,
+        title: parsed.title || '',
+        body: parsed.body || '',
+        authorName: parsed.authorName,
+        authorNpub: parsed.authorNpub,
+        createdAt: parsed.createdAt || event.created_at,
+        updatedAt: parsed.updatedAt || event.created_at,
+      };
+
+      if (!existing || remoteSticky.updatedAt >= existing.updatedAt) {
+        stickyMap.set(remoteSticky.id, remoteSticky);
+      }
+    } catch {
+      // ignore bad events
+    }
+  }
+
+  const merged = Array.from(stickyMap.values()).sort(
+    (a, b) => b.updatedAt - a.updatedAt
+  );
+
+  await writeJson(GROUP_STICKIES_KEY, [...otherStickies, ...merged]);
+
+  return merged;
 }

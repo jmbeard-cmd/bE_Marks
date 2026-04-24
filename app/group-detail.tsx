@@ -21,19 +21,20 @@ import {
     createGroupSticky,
     deleteGroupSticky,
     getStickiesForGroup,
-    type GroupSticky,
+syncGroupStickiesFromRelay,
+type GroupSticky,
 } from '../src/utils/group-stickies';
 import {
     archiveGroup,
     getGroupById,
-    getGroupMembers,
     isGroupAdmin,
     isGroupMember,
     regenerateInviteCode,
     removeMember,
+    syncGroupMembersFromRelay,
     updateMemberRole,
     type BEGroup,
-    type BEGroupMember,
+    type BEGroupMember
 } from '../src/utils/group-storage';
 import { useIdentity } from './_layout';
 
@@ -59,15 +60,25 @@ const [stickyVisibility, setStickyVisibility] = useState<'private' | 'organizati
 
   const load = useCallback(async () => {
     if (!id) return;
-    const [g, m, stickyList] = await Promise.all([
-  getGroupById(id),
-  getGroupMembers(id),
-  getStickiesForGroup(id),
-]);
+    const g = await getGroupById(id);
+
+if (!g) return;
 
 setGroup(g);
-setMembers(m);
-setStickies(stickyList);
+
+// ✅ Members (already working)
+const syncedMembers = await syncGroupMembersFromRelay(
+  id,
+  g.relayUrl ? [g.relayUrl] : []
+);
+setMembers(syncedMembers);
+
+// 🔥 THIS is the NEW sticky sync
+const syncedStickies = g.relayUrl
+  ? await syncGroupStickiesFromRelay(id, g.relayUrl)
+  : await getStickiesForGroup(id);
+
+setStickies(syncedStickies);
     if (npub && g) {
       const [admin, member] = await Promise.all([
         isGroupAdmin(id, npub),
@@ -150,11 +161,12 @@ setStickies(stickyList);
   }
 
   await createGroupSticky({
-    groupId: group.id,
-    title,
-    body,
-    authorNpub: npub ?? undefined,
-  });
+  groupId: group.id,
+  title,
+  body,
+  authorNpub: npub ?? undefined,
+  relayUrl: group.relayUrl,
+});
 
   setStickyTitle('');
   setStickyBody('');

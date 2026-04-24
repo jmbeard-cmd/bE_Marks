@@ -550,11 +550,11 @@ export async function publishFamilyMembership(
     });
 
     const tags: string[][] = [
-      ['d', `${membership.familyId}:${membership.memberNpub}`],
-      ['t', `family:${membership.familyId}`],
-      ['p', npubToHex(membership.memberNpub)],
-      ['client', 'bE-Marks'],
-    ];
+  ['d', `${membership.familyId}:${membership.memberNpub}`],
+  ['t', `family:${membership.familyId}`],
+  ['p', npubToHex(membership.memberNpub)],
+  ['client', 'bE-Marks'],
+];
 
     const unsigned: UnsignedEvent = {
       kind: FAMILY_MEMBERSHIP_KIND,
@@ -1015,12 +1015,15 @@ export async function publishGroupMembership(input: {
     const pk = getPublicKey(sk);
 
     const tags: string[][] = [
-      ['d', `${input.groupId}:${input.memberPubkeyHex}`],
-      ['group', input.groupId],
-      ['p', input.memberPubkeyHex],
-      ['action', input.action],
-      ['client', 'bE-Marks'],
-    ];
+  ['d', input.groupId],
+  ['member', input.memberNpub],
+  ['npub', input.memberNpub],
+  ['group', input.groupId],
+  ['p', input.memberPubkeyHex],
+  ['role', input.action === 'join' ? 'member' : 'removed'],
+  ['action', input.action],
+  ['client', 'bE-Marks'],
+];
 
     const unsigned: UnsignedEvent = {
       kind: GROUP_MEMBER_KIND,
@@ -1037,6 +1040,7 @@ export async function publishGroupMembership(input: {
   }
 }
 export const GROUP_MESSAGE_KIND = 30082;
+export const GROUP_STICKY_KIND = 30083;
 
 export interface NostrGroupMessage {
   id: string;
@@ -1105,6 +1109,101 @@ export async function publishGroupMessage(input: {
     return await publishToSpecificRelay(signed, input.relayUrl);
   } catch (e: any) {
     return { success: false, error: e.message };
+  }
+}
+export async function publishGroupSticky(input: {
+  stickyId: string;
+  groupId: string;
+  title: string;
+  body: string;
+  authorNpub?: string;
+  nsec: string;
+  relayUrl: string;
+}): Promise<{ success: boolean; eventId?: string; error?: string }> {
+  try {
+    const decoded = nip19.decode(input.nsec);
+    if (decoded.type !== 'nsec') throw new Error('Invalid nsec');
+
+    const sk = decoded.data as Uint8Array;
+    const pk = getPublicKey(sk);
+    const now = Math.floor(Date.now() / 1000);
+
+    const tags: string[][] = [
+      ['d', input.stickyId],
+      ['t', `group-sticky:${input.groupId}`],
+      ['group', input.groupId],
+      ['client', 'bE-Marks'],
+    ];
+
+    const unsigned: UnsignedEvent = {
+      kind: GROUP_STICKY_KIND,
+      created_at: now,
+      tags,
+      content: JSON.stringify({
+        id: input.stickyId,
+        groupId: input.groupId,
+        title: input.title,
+        body: input.body,
+        authorNpub: input.authorNpub,
+        createdAt: now,
+        updatedAt: now,
+      }),
+      pubkey: pk,
+    };
+
+    const signed = finalizeEvent(unsigned, sk);
+    return await publishToSpecificRelay(signed, input.relayUrl);
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+}
+
+export async function fetchGroupStickies(
+  groupId: string,
+  relayUrl: string,
+): Promise<Event[]> {
+  const pool = new SimplePool();
+
+  try {
+    const events = await pool.querySync([relayUrl], {
+      kinds: [GROUP_STICKY_KIND],
+      '#t': [`group-sticky:${groupId}`],
+      limit: 100,
+    });
+
+    const seen = new Set<string>();
+
+    return events.filter(event => {
+      if (seen.has(event.id)) return false;
+      seen.add(event.id);
+      return true;
+    });
+  } finally {
+    pool.close([relayUrl]);
+  }
+}
+export async function fetchGroupMemberships(
+  groupId: string,
+  relayUrls: string[],
+): Promise<Event[]> {
+  const pool = new SimplePool();
+
+  try {
+    const events = await pool.querySync(relayUrls, {
+      kinds: [GROUP_MEMBER_KIND],
+      '#d': [groupId],
+      limit: 200,
+    });
+
+    // Dedupe by event id
+    const seen = new Set<string>();
+    return events.filter((event) => {
+      if (seen.has(event.id)) return false;
+      seen.add(event.id);
+      return true;
+    });
+  } finally {
+    pool.close(relayUrls);
   }
 }
 
