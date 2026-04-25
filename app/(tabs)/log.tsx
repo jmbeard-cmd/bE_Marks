@@ -32,7 +32,7 @@ export default function LogScreen() {
   const [note, setNote] = useState('');
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
-  const [photoUri, setPhotoUri] = useState<string | undefined>();
+  const [media, setMedia] = useState<{ id: string; uri: string; type: 'image' }[]>([]);
   const [saving, setSaving] = useState(false);
   const [publishToNostr, setPublishToNostr] = useState(true);
   const [shareWithFamily, setShareWithFamily] = useState(false);
@@ -41,25 +41,52 @@ export default function LogScreen() {
   const videoUriRef = useRef<string | undefined>(undefined);
 
   const pickPhoto = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') { Alert.alert('Permission needed', 'Allow photo access in settings.'); return; }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.9,
-      allowsEditing: false,
-    });
-    if (!result.canceled) setPhotoUri(result.assets[0].uri);
-  };
+  const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if (status !== 'granted') {
+    Alert.alert('Permission needed', 'Allow photo access in settings.');
+    return;
+  }
+
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ImagePicker.MediaTypeOptions.Images,
+    quality: 0.9,
+    allowsMultipleSelection: true,
+    selectionLimit: 10,
+  });
+
+  if (!result.canceled) {
+    const newMedia = result.assets.map(a => ({
+      id: `media_${Date.now()}_${Math.random()}`,
+      uri: a.uri,
+      type: 'image' as const,
+    }));
+
+    setMedia(prev => [...prev, ...newMedia]);
+  }
+};
 
   const takePhoto = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') { Alert.alert('Permission needed', 'Allow camera access in settings.'); return; }
-    const result = await ImagePicker.launchCameraAsync({
-      quality: 0.9,
-      allowsEditing: false,
-    });
-    if (!result.canceled) setPhotoUri(result.assets[0].uri);
-  };
+  const { status } = await ImagePicker.requestCameraPermissionsAsync();
+  if (status !== 'granted') {
+    Alert.alert('Permission needed', 'Allow camera access in settings.');
+    return;
+  }
+
+  const result = await ImagePicker.launchCameraAsync({
+    quality: 0.9,
+    allowsEditing: false,
+  });
+
+  if (!result.canceled) {
+    const photo = {
+      id: `media_${Date.now()}`,
+      uri: result.assets[0].uri,
+      type: 'image' as const,
+    };
+
+    setMedia(prev => [...prev, photo]);
+  }
+};
 
   const addTag = (t: string) => {
     const clean = t.trim();
@@ -71,7 +98,7 @@ export default function LogScreen() {
   const removeTag = (t: string) => setTags(prev => prev.filter(x => x !== t));
 
   const handleSave = async () => {
-    if (!title.trim() && !note.trim() && !photoUri) {
+    if (!title.trim() && !note.trim() && media.length === 0) {
       Alert.alert('Nothing to save', 'Add a title, note or photo first.');
       return;
     }
@@ -80,24 +107,27 @@ export default function LogScreen() {
       const fullNote = title.trim() ? `${title.trim()}\n\n${note.trim()}` : note.trim();
 
       // ── Step 1: Upload media FIRST so the URL is ready for the Nostr event ──
-      const {
-        photoUri: uploadedPhoto,
-        videoUri: uploadedVideo,
-        audioUri: uploadedAudio,
-        uploadErrors,
-      } = await uploadMilestoneMedia({
-        photoUri,
-        videoUri: videoUriRef.current,
-        audioUri,
-      });
+      const uploadedMedia = await Promise.all(
+  media.map(async m => {
+    const result = await uploadMilestoneMedia({
+      photoUri: m.uri,
+    });
+
+    return {
+      id: m.id,
+      uri: result.photoUri || m.uri,
+      type: 'image' as const,
+      source: 'r2' as const,
+    };
+  })
+);
+
+const uploadedPhoto = uploadedMedia[0]?.uri;
+const uploadedVideo = undefined;
+const uploadedAudio = audioUri;
 
       // Warn user immediately if any media failed — don't silently drop it
-      if (uploadErrors.length > 0) {
-        Alert.alert(
-          'Media upload issue',
-          `Could not upload: ${uploadErrors.join(', ')}. The milestone will save without that media. Check your connection and try again.`
-        );
-      }
+      
 
       // ── Step 2: Publish to Nostr relay with all media URLs ──
       let nostrEventId: string | undefined;
@@ -124,6 +154,7 @@ export default function LogScreen() {
         note: fullNote,   // store clean note without the URL appended
         tags,
         photoUri: uploadedPhoto,
+        media:  uploadedMedia,
         audioUri: uploadedAudio,
         videoUri: uploadedVideo,
         nostrEventId,
@@ -158,7 +189,7 @@ export default function LogScreen() {
       setTitle('');
       setNote('');
       setTags([]);
-      setPhotoUri(undefined);
+      setMedia([]);
       setAudioUri(undefined);
       setVideoUri(undefined);
       videoUriRef.current = undefined;
@@ -187,33 +218,39 @@ export default function LogScreen() {
         <BEHeader title="Log" />
 
         {/* Photo */}
-        {photoUri ? (
-          <View style={s.photoPreview}>
-            <Image source={{ uri: photoUri }} style={s.photo} resizeMode="cover" />
-            <View style={s.photoActions}>
-              <TouchableOpacity style={s.photoActionBtn} onPress={takePhoto}>
-                <Text style={s.photoActionText}>Retake</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={s.photoActionBtn} onPress={pickPhoto}>
-                <Text style={s.photoActionText}>Change</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={s.photoActionBtn} onPress={() => setPhotoUri(undefined)}>
-                <Text style={[s.photoActionText, { color: '#c00' }]}>Remove</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        ) : (
-          <View style={s.photoRow}>
-            <TouchableOpacity style={s.photoBtn} onPress={takePhoto}>
-              <Text style={s.photoBtnIcon}>📷</Text>
-              <Text style={s.photoBtnText}>Camera</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={s.photoBtn} onPress={pickPhoto}>
-              <Text style={s.photoBtnIcon}>🖼️</Text>
-              <Text style={s.photoBtnText}>Library</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+        {/* Photos */}
+<View style={s.field}>
+  <Text style={s.label}>PHOTOS</Text>
+
+  {media.length > 0 ? (
+    <ScrollView horizontal style={s.photoPreviewRow}>
+      {media.map(item => (
+        <View key={item.id} style={s.multiPhotoWrap}>
+          <Image source={{ uri: item.uri }} style={s.multiPhoto} />
+
+          <TouchableOpacity
+            style={s.removePhotoBtn}
+            onPress={() => setMedia(prev => prev.filter(m => m.id !== item.id))}
+          >
+            <Text style={s.removePhotoText}>✕</Text>
+          </TouchableOpacity>
+        </View>
+      ))}
+    </ScrollView>
+  ) : null}
+
+  <View style={s.photoRow}>
+    <TouchableOpacity style={s.photoBtn} onPress={takePhoto}>
+      <Text style={s.photoBtnIcon}>📷</Text>
+      <Text style={s.photoBtnText}>Camera</Text>
+    </TouchableOpacity>
+
+    <TouchableOpacity style={s.photoBtn} onPress={pickPhoto}>
+      <Text style={s.photoBtnIcon}>🖼️</Text>
+      <Text style={s.photoBtnText}>Library</Text>
+    </TouchableOpacity>
+  </View>
+</View>
 
         {/* Title */}
         <View style={s.field}>
@@ -375,6 +412,35 @@ const s = StyleSheet.create({
   presetChipActive: { backgroundColor: '#c9973a', borderColor: '#c9973a' },
   presetText: { fontSize: 13, color: '#666' },
   presetTextActive: { color: '#111', fontWeight: '600' },
+
+  photoPreviewRow: {
+  marginBottom: 22,
+},
+multiPhotoWrap: {
+  marginRight: 10,
+  position: 'relative',
+},
+multiPhoto: {
+  width: 140,
+  height: 140,
+  borderRadius: 10,
+},
+removePhotoBtn: {
+  position: 'absolute',
+  top: 6,
+  right: 6,
+  backgroundColor: 'rgba(0,0,0,0.7)',
+  width: 26,
+  height: 26,
+  borderRadius: 13,
+  alignItems: 'center',
+  justifyContent: 'center',
+},
+removePhotoText: {
+  color: '#fff',
+  fontSize: 14,
+  fontWeight: '700',
+},
   // Custom tag row
   tagInputRow: { flexDirection: 'row', gap: 8, alignItems: 'center', marginTop: 4 },
   tagInput: { flex: 1, borderWidth: 0.5, borderColor: '#2a2a2a', borderRadius: 8, padding: 10, fontSize: 14, color: '#fff', backgroundColor: '#1a1a1a' },

@@ -3,6 +3,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
     Alert,
+    Dimensions,
     FlatList,
     Image,
     Modal,
@@ -15,14 +16,15 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import ImageZoom from 'react-native-image-pan-zoom';
 import QRCode from 'react-native-qrcode-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
     createGroupSticky,
     deleteGroupSticky,
     getStickiesForGroup,
-syncGroupStickiesFromRelay,
-type GroupSticky,
+    syncGroupStickiesFromRelay,
+    type GroupSticky,
 } from '../src/utils/group-stickies';
 import {
     archiveGroup,
@@ -36,6 +38,7 @@ import {
     type BEGroup,
     type BEGroupMember
 } from '../src/utils/group-storage';
+import { fetchGroupMessages } from '../src/utils/nostr';
 import { useIdentity } from './_layout';
 
 type Tab = 'stickies' | 'gallery' | 'members';
@@ -48,6 +51,8 @@ export default function GroupDetailScreen() {
   const [group, setGroup] = useState<BEGroup | null>(null);
   const [members, setMembers] = useState<BEGroupMember[]>([]);
   const [stickies, setStickies] = useState<GroupSticky[]>([]);
+  const [galleryItems, setGalleryItems] = useState<any[]>([]);
+  const [selectedGalleryImage, setSelectedGalleryImage] = useState<string | null>(null);
 const [showStickyModal, setShowStickyModal] = useState(false);
 const [stickyTitle, setStickyTitle] = useState('');
 const [stickyBody, setStickyBody] = useState('');
@@ -57,6 +62,8 @@ const [stickyVisibility, setStickyVisibility] = useState<'private' | 'organizati
   const [isMember, setIsMember] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const { width, height } = Dimensions.get('window');
+  const ZoomableImage = ImageZoom as any;
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -79,6 +86,25 @@ const syncedStickies = g.relayUrl
   : await getStickiesForGroup(id);
 
 setStickies(syncedStickies);
+// 🔥 GALLERY FROM CHAT IMAGES
+if (g.relayUrl) {
+  try {
+    const events = await fetchGroupMessages(id, g.relayUrl);
+
+    const images = events
+  .filter(event => !!event.imageUrl)
+  .map(event => ({
+    id: event.id,
+    imageUrl: event.imageUrl!,
+    createdAt: event.createdAt,
+  }))
+  .sort((a, b) => b.createdAt - a.createdAt);
+
+    setGalleryItems(images);
+  } catch (e) {
+    console.warn('[Gallery] failed to load images', e);
+  }
+}
     if (npub && g) {
       const [admin, member] = await Promise.all([
         isGroupAdmin(id, npub),
@@ -307,7 +333,11 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
             onPress={() => setTab(t)}
           >
             <Text style={[s.tabText, tab === t && s.tabTextActive]}>
-              {t === 'stickies' ? `Stickies (${stickies.length})` : t === 'gallery' ? 'Gallery' : `Members (${members.length})`}
+              {t === 'stickies'
+  ? `Stickies (${stickies.length})`
+  : t === 'gallery'
+    ? `Gallery (${galleryItems.length})`
+    : `Members (${members.length})`}
             </Text>
           </TouchableOpacity>
         ))}
@@ -360,12 +390,40 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
 
       {/* Gallery tab */}
       {tab === 'gallery' && (
-        <View style={s.empty}>
-          <Text style={s.emptyIcon}>🖼️</Text>
-          <Text style={s.emptyText}>No photos yet</Text>
-          <Text style={s.emptyHint}>Photos posted to this group will appear here.</Text>
-        </View>
-      )}
+  <FlatList
+    data={galleryItems}
+    keyExtractor={(item) => item.id}
+    numColumns={3}
+    contentContainerStyle={{ padding: 8 }}
+    refreshControl={
+      <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#c9973a" />
+    }
+    renderItem={({ item }) => (
+      <View style={{ flex: 1 / 3, padding: 4 }}>
+        <TouchableOpacity onPress={() => setSelectedGalleryImage(item.imageUrl)}>
+  <Image
+    source={{ uri: item.imageUrl }}
+    style={{
+      width: '100%',
+      aspectRatio: 1,
+      borderRadius: 8,
+      backgroundColor: '#222',
+    }}
+  />
+</TouchableOpacity>
+      </View>
+    )}
+    ListEmptyComponent={
+      <View style={s.empty}>
+        <Text style={s.emptyIcon}>🖼️</Text>
+        <Text style={s.emptyText}>No photos yet</Text>
+        <Text style={s.emptyHint}>
+          Photos posted in chat will appear here.
+        </Text>
+      </View>
+    }
+  />
+)}
 
       {/* Members tab */}
       {tab === 'members' && (
@@ -453,6 +511,52 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
           <Text style={s.fabIcon}>+</Text>
         </TouchableOpacity>
       )}
+
+<Modal
+  visible={!!selectedGalleryImage}
+  transparent
+  animationType="fade"
+  onRequestClose={() => setSelectedGalleryImage(null)}
+>
+  <View style={s.imageModalOverlay}>
+    <TouchableOpacity
+      style={s.imageModalClose}
+      onPress={() => setSelectedGalleryImage(null)}
+    >
+      <Text style={s.imageModalCloseText}>✕</Text>
+    </TouchableOpacity>
+
+    <ScrollView
+      horizontal
+      pagingEnabled
+      showsHorizontalScrollIndicator={false}
+      contentOffset={{
+        x:
+          galleryItems.findIndex(i => i.imageUrl === selectedGalleryImage) * width,
+        y: 0,
+      }}
+    >
+      {galleryItems.map((item, index) => (
+        <View key={item.id} style={{ width, height, justifyContent: 'center' }}>
+          <ZoomableImage
+            cropWidth={width}
+            cropHeight={height}
+            imageWidth={width}
+            imageHeight={height}
+            minScale={1}
+            maxScale={4}
+          >
+            <Image
+              source={{ uri: item.imageUrl }}
+              style={s.fullscreenImage}
+              resizeMode="contain"
+            />
+          </ZoomableImage>
+        </View>
+      ))}
+    </ScrollView>
+  </View>
+</Modal>
 
 <Modal
   visible={showStickyModal}
@@ -821,5 +925,32 @@ confirmText: {
     shadowColor: '#c9973a', shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4, shadowRadius: 8, elevation: 8,
   },
+  imageModalOverlay: {
+  flex: 1,
+  backgroundColor: 'rgba(0,0,0,0.95)',
+  alignItems: 'center',
+  justifyContent: 'center',
+},
+imageModalClose: {
+  position: 'absolute',
+  top: 50,
+  right: 24,
+  zIndex: 10,
+  width: 42,
+  height: 42,
+  borderRadius: 21,
+  backgroundColor: '#1a1a1a',
+  alignItems: 'center',
+  justifyContent: 'center',
+},
+imageModalCloseText: {
+  color: '#fff',
+  fontSize: 22,
+  fontWeight: '700',
+},
+fullscreenImage: {
+  width: '100%',
+  height: '85%',
+},
   fabIcon: { fontSize: 30, color: '#111', fontWeight: '300', lineHeight: 34 },
 });

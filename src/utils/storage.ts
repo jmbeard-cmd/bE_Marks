@@ -3,13 +3,21 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const MILESTONES_KEY = 'milestones_v1';
 const FAMILY_KEY = 'family_v1';
 
+export type MarkMedia = {
+  id: string;
+  uri: string;
+  type: 'image' | 'video';
+  source?: 'local' | 'cloud' | 'r2';
+};
+
 export interface Milestone {
   id: string;
   note: string;
   tags: string[];
-  photoUri?: string;
-  audioUri?: string;
-  videoUri?: string;
+  photoUri?: string; // old single-photo support
+media?: MarkMedia[]; // new multi-media support
+audioUri?: string;
+videoUri?: string;
   createdAt: number;
   nostrEventId?: string;
   publishedToRelay: boolean;

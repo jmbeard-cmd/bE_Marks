@@ -12,9 +12,10 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import ImageViewerModal from '../components/ImageViewerModal';
 import { formatDate, getMilestones, updateMilestone, type Milestone } from '../src/utils/storage';
 
 const { width } = Dimensions.get('window');
@@ -65,6 +66,7 @@ export default function MilestoneDetail() {
   const [editTagInput, setEditTagInput] = useState('');
   const [isAddingReflection, setIsAddingReflection] = useState(false);
   const [reflectionText, setReflectionText] = useState('');
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   const audioPlayer = useAudioPlayer(
     milestone?.audioUri ? { uri: milestone.audioUri } : null
@@ -186,8 +188,24 @@ export default function MilestoneDetail() {
 
       <ScrollView contentContainerStyle={s.container} keyboardShouldPersistTaps="handled">
 
-        {/* Photo */}
-        {milestone.photoUri && <MilestonePhoto uri={milestone.photoUri} />}
+        {/* Photos */}
+{milestone.media && milestone.media.length > 0 ? (
+  <ScrollView horizontal style={s.multiPhotoRow}>
+    {milestone.media.map(item => (
+      <TouchableOpacity
+        key={item.id}
+        onPress={() => setSelectedImage(item.uri)}
+        style={s.multiPhotoWrap}
+      >
+        <Image source={{ uri: item.uri }} style={s.multiPhoto} />
+      </TouchableOpacity>
+    ))}
+  </ScrollView>
+) : milestone.photoUri ? (
+  <TouchableOpacity onPress={() => setSelectedImage(milestone.photoUri!)}>
+    <MilestonePhoto uri={milestone.photoUri} />
+  </TouchableOpacity>
+) : null}
 
         <View style={s.content}>
 
@@ -401,6 +419,17 @@ export default function MilestoneDetail() {
 
         </View>
       </ScrollView>
+      <ImageViewerModal
+  selectedUri={selectedImage}
+  onClose={() => setSelectedImage(null)}
+  images={
+    milestone.media && milestone.media.length > 0
+      ? milestone.media.map(m => ({ id: m.id, uri: m.uri }))
+      : milestone.photoUri
+        ? [{ id: 'photo', uri: milestone.photoUri }]
+        : []
+  }
+/>
     </SafeAreaView>
   );
 }
@@ -488,4 +517,43 @@ const s = StyleSheet.create({
   reflectionDelete: { marginTop: 12, alignSelf: 'flex-end' },
   reflectionDeleteText: { fontSize: 12, color: '#2a2a2a' },
   reflectionInputBlock: { marginTop: 4 },
+
+  imageModalOverlay: {
+  flex: 1,
+  backgroundColor: 'rgba(0,0,0,0.95)',
+  alignItems: 'center',
+  justifyContent: 'center',
+},
+imageModalClose: {
+  position: 'absolute',
+  top: 50,
+  right: 24,
+  zIndex: 10,
+  width: 42,
+  height: 42,
+  borderRadius: 21,
+  backgroundColor: '#1a1a1a',
+  alignItems: 'center',
+  justifyContent: 'center',
+},
+imageModalCloseText: {
+  color: '#fff',
+  fontSize: 22,
+  fontWeight: '700',
+},
+fullscreenImage: {
+  width: '100%',
+  height: '100%',
+},
+multiPhotoRow: {
+  marginBottom: 16,
+},
+multiPhotoWrap: {
+  marginRight: 10,
+},
+multiPhoto: {
+  width: 160,
+  height: 160,
+  borderRadius: 10,
+},
 });
