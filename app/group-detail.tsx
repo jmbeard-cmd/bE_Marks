@@ -3,7 +3,6 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
     Alert,
-    Dimensions,
     FlatList,
     Image,
     Modal,
@@ -14,11 +13,11 @@ import {
     Text,
     TextInput,
     TouchableOpacity,
-    View,
+    View
 } from 'react-native';
-import ImageZoom from 'react-native-image-pan-zoom';
 import QRCode from 'react-native-qrcode-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import ImageViewerModal, { ViewerImage } from '../components/ImageViewerModal';
 import {
     createGroupSticky,
     deleteGroupSticky,
@@ -62,8 +61,6 @@ const [stickyVisibility, setStickyVisibility] = useState<'private' | 'organizati
   const [isMember, setIsMember] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const { width, height } = Dimensions.get('window');
-  const ZoomableImage = ImageZoom as any;
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -91,16 +88,17 @@ if (g.relayUrl) {
   try {
     const events = await fetchGroupMessages(id, g.relayUrl);
 
-    const images = events
-  .filter(event => !!event.imageUrl)
+    const mediaItems = events
+  .filter(event => !!(event.mediaUrl || event.imageUrl))
   .map(event => ({
     id: event.id,
-    imageUrl: event.imageUrl!,
+    mediaUrl: event.mediaUrl || event.imageUrl!,
+    mediaType: event.mediaType || (event.imageUrl ? 'image' : 'image'),
     createdAt: event.createdAt,
   }))
   .sort((a, b) => b.createdAt - a.createdAt);
 
-    setGalleryItems(images);
+setGalleryItems(mediaItems);
   } catch (e) {
     console.warn('[Gallery] failed to load images', e);
   }
@@ -125,7 +123,14 @@ if (g.relayUrl) {
 
   const handleShareInvite = async () => {
     if (!group) return;
-    const deepLink = `marksapp://join/${group.inviteCode}`;
+
+const galleryViewerImages: ViewerImage[] = galleryItems
+  .filter(item => !!item.mediaUrl)
+  .map(item => ({
+    id: item.id,
+    uri: item.mediaUrl,
+    type: item.mediaType === 'video' ? 'video' : 'image',
+  }));
     try {
       await Share.share({
         message: `Join "${group.name}" on bE Marks!\n\nInvite code: ${group.inviteCode}\n\nOr tap: ${deepLink}`,
@@ -255,14 +260,22 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
   };
 
   if (!group) return (
-    <SafeAreaView style={s.safe}>
-      <View style={s.loading}>
-        <Text style={s.loadingText}>Loading…</Text>
-      </View>
-    </SafeAreaView>
-  );
+  <SafeAreaView style={s.safe}>
+    <View style={s.loading}>
+      <Text style={s.loadingText}>Loading…</Text>
+    </View>
+  </SafeAreaView>
+);
 
-  const deepLink = `marksapp://join/${group.inviteCode}`;
+const deepLink = `marksapp://join/${group.inviteCode}`;
+
+const galleryViewerImages: ViewerImage[] = galleryItems
+  .filter(item => !!item.mediaUrl)
+  .map(item => ({
+    id: item.id,
+    uri: item.mediaUrl,
+    type: item.mediaType === 'video' ? 'video' : 'image',
+  }));
 
   return (
     <SafeAreaView style={s.safe}>
@@ -400,16 +413,32 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
     }
     renderItem={({ item }) => (
       <View style={{ flex: 1 / 3, padding: 4 }}>
-        <TouchableOpacity onPress={() => setSelectedGalleryImage(item.imageUrl)}>
-  <Image
-    source={{ uri: item.imageUrl }}
-    style={{
-      width: '100%',
-      aspectRatio: 1,
-      borderRadius: 8,
-      backgroundColor: '#222',
-    }}
-  />
+        <TouchableOpacity onPress={() => setSelectedGalleryImage(item.mediaUrl)}>
+  {item.mediaType === 'video' ? (
+    <View
+      style={{
+        width: '100%',
+        aspectRatio: 1,
+        borderRadius: 8,
+        backgroundColor: '#000',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <Text style={{ color: '#c9973a', fontSize: 28, fontWeight: '800' }}>▶</Text>
+      <Text style={{ color: '#777', fontSize: 11, marginTop: 4 }}>Video</Text>
+    </View>
+  ) : (
+    <Image
+      source={{ uri: item.mediaUrl }}
+      style={{
+        width: '100%',
+        aspectRatio: 1,
+        borderRadius: 8,
+        backgroundColor: '#222',
+      }}
+    />
+  )}
 </TouchableOpacity>
       </View>
     )}
@@ -512,51 +541,11 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
         </TouchableOpacity>
       )}
 
-<Modal
-  visible={!!selectedGalleryImage}
-  transparent
-  animationType="fade"
-  onRequestClose={() => setSelectedGalleryImage(null)}
->
-  <View style={s.imageModalOverlay}>
-    <TouchableOpacity
-      style={s.imageModalClose}
-      onPress={() => setSelectedGalleryImage(null)}
-    >
-      <Text style={s.imageModalCloseText}>✕</Text>
-    </TouchableOpacity>
-
-    <ScrollView
-      horizontal
-      pagingEnabled
-      showsHorizontalScrollIndicator={false}
-      contentOffset={{
-        x:
-          galleryItems.findIndex(i => i.imageUrl === selectedGalleryImage) * width,
-        y: 0,
-      }}
-    >
-      {galleryItems.map((item, index) => (
-        <View key={item.id} style={{ width, height, justifyContent: 'center' }}>
-          <ZoomableImage
-            cropWidth={width}
-            cropHeight={height}
-            imageWidth={width}
-            imageHeight={height}
-            minScale={1}
-            maxScale={4}
-          >
-            <Image
-              source={{ uri: item.imageUrl }}
-              style={s.fullscreenImage}
-              resizeMode="contain"
-            />
-          </ZoomableImage>
-        </View>
-      ))}
-    </ScrollView>
-  </View>
-</Modal>
+<ImageViewerModal
+  images={galleryViewerImages}
+  selectedUri={selectedGalleryImage}
+  onClose={() => setSelectedGalleryImage(null)}
+/>
 
 <Modal
   visible={showStickyModal}
@@ -925,32 +914,6 @@ confirmText: {
     shadowColor: '#c9973a', shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4, shadowRadius: 8, elevation: 8,
   },
-  imageModalOverlay: {
-  flex: 1,
-  backgroundColor: 'rgba(0,0,0,0.95)',
-  alignItems: 'center',
-  justifyContent: 'center',
-},
-imageModalClose: {
-  position: 'absolute',
-  top: 50,
-  right: 24,
-  zIndex: 10,
-  width: 42,
-  height: 42,
-  borderRadius: 21,
-  backgroundColor: '#1a1a1a',
-  alignItems: 'center',
-  justifyContent: 'center',
-},
-imageModalCloseText: {
-  color: '#fff',
-  fontSize: 22,
-  fontWeight: '700',
-},
-fullscreenImage: {
-  width: '100%',
-  height: '85%',
-},
+ 
   fabIcon: { fontSize: 30, color: '#111', fontWeight: '300', lineHeight: 34 },
 });

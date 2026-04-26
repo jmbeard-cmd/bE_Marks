@@ -1,9 +1,10 @@
-import React, { useEffect, useRef } from 'react';
+import { useVideoPlayer, VideoView } from 'expo-video';
+import React, { useEffect, useRef, useState } from 'react';
 import {
     Dimensions,
     Image,
     Modal,
-    ScrollView,
+    PanResponder,
     StyleSheet,
     Text,
     TouchableOpacity,
@@ -17,7 +18,59 @@ const ZoomableImage = ImageZoom as any;
 export type ViewerImage = {
   id: string;
   uri: string;
+  type?: 'image' | 'video';
 };
+
+function ViewerVideo({
+  uri,
+  goNext,
+  goPrev,
+  onClose,
+}: {
+  uri: string;
+  goNext: () => void;
+  goPrev: () => void;
+  onClose: () => void;
+}) {
+  const player = useVideoPlayer({ uri }, p => {
+    p.loop = false;
+    p.play();
+  });
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gesture) => {
+        const horizontal = Math.abs(gesture.dx) > 25 && Math.abs(gesture.dx) > Math.abs(gesture.dy);
+        const vertical = Math.abs(gesture.dy) > 35 && Math.abs(gesture.dy) > Math.abs(gesture.dx);
+        return horizontal || vertical;
+      },
+      onPanResponderRelease: (_, gesture) => {
+        if (gesture.dy > 80) {
+          onClose();
+          return;
+        }
+
+        if (gesture.dx < -50) goNext();
+        if (gesture.dx > 50) goPrev();
+      },
+    })
+  ).current;
+
+  return (
+    <View style={s.videoScreen} {...panResponder.panHandlers}>
+      <VideoView
+        key={uri}
+        player={player}
+        style={s.video}
+        contentFit="contain"
+        nativeControls
+      />
+
+      <TouchableOpacity style={s.videoLeftTapZone} onPress={goPrev} />
+      <TouchableOpacity style={s.videoRightTapZone} onPress={goNext} />
+    </View>
+  );
+}
 
 export default function ImageViewerModal({
   images,
@@ -28,24 +81,46 @@ export default function ImageViewerModal({
   selectedUri: string | null;
   onClose: () => void;
 }) {
-  const scrollRef = useRef<ScrollView>(null);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [zoomKey, setZoomKey] = useState(0);
+  const swipeLockedRef = useRef(false);
 
-  const selectedIndex = Math.max(
-    0,
-    images.findIndex(img => img.uri === selectedUri)
-  );
+  const activeMedia = images[activeIndex];
 
   useEffect(() => {
     if (!selectedUri) return;
 
+    const startIndex = images.findIndex(img => img.uri === selectedUri);
+    swipeLockedRef.current = false;
+    setActiveIndex(startIndex >= 0 ? startIndex : 0);
+    setZoomKey(k => k + 1);
+  }, [selectedUri, images]);
+
+  function unlockSwipeSoon() {
     setTimeout(() => {
-      scrollRef.current?.scrollTo({
-        x: selectedIndex * width,
-        y: 0,
-        animated: false,
-      });
-    }, 50);
-  }, [selectedUri, selectedIndex]);
+      swipeLockedRef.current = false;
+    }, 200);
+  }
+
+  function goNext() {
+    if (swipeLockedRef.current) return;
+    if (activeIndex >= images.length - 1) return;
+
+    swipeLockedRef.current = true;
+    setActiveIndex(activeIndex + 1);
+    setZoomKey(k => k + 1);
+    unlockSwipeSoon();
+  }
+
+  function goPrev() {
+    if (swipeLockedRef.current) return;
+    if (activeIndex <= 0) return;
+
+    swipeLockedRef.current = true;
+    setActiveIndex(activeIndex - 1);
+    setZoomKey(k => k + 1);
+    unlockSwipeSoon();
+  }
 
   return (
     <Modal
@@ -62,39 +137,46 @@ export default function ImageViewerModal({
         {images.length > 1 && (
           <View style={s.counter}>
             <Text style={s.counterText}>
-              {selectedIndex + 1} / {images.length}
+              {activeIndex + 1} / {images.length}
             </Text>
           </View>
         )}
 
-        <ScrollView
-          ref={scrollRef}
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          scrollEnabled
-          nestedScrollEnabled
-        >
-          {images.map(img => (
-            <View key={img.id} style={s.page}>
-              <ZoomableImage
-                cropWidth={width}
-                cropHeight={height}
-                imageWidth={width}
-                imageHeight={height}
-                minScale={1}
-                maxScale={4}
-                enableCenterFocus
-              >
-                <Image
-                  source={{ uri: img.uri }}
-                  style={s.image}
-                  resizeMode="contain"
-                />
-              </ZoomableImage>
-            </View>
-          ))}
-        </ScrollView>
+        {activeMedia?.type === 'video' ? (
+          <ViewerVideo
+  key={activeMedia.uri}
+  uri={activeMedia.uri}
+  goNext={goNext}
+  goPrev={goPrev}
+  onClose={onClose}
+/>
+        ) : activeMedia ? (
+          <ZoomableImage
+            key={`${activeMedia.id}-${zoomKey}`}
+            cropWidth={width}
+            cropHeight={height}
+            imageWidth={width}
+            imageHeight={height}
+            minScale={1}
+            maxScale={4}
+            enableCenterFocus
+            panToMove
+            pinchToZoom
+            enableSwipeDown
+            onSwipeDown={onClose}
+            swipeDownThreshold={80}
+            horizontalOuterRangeOffset={(offsetX: number) => {
+              if (offsetX < -45) goNext();
+              if (offsetX > 45) goPrev();
+            }}
+          >
+            <Image
+              source={{ uri: activeMedia.uri }}
+              style={s.image}
+              resizeMode="contain"
+            />
+          </ZoomableImage>
+        ) : null}
       </View>
     </Modal>
   );
@@ -109,7 +191,7 @@ const s = StyleSheet.create({
     position: 'absolute',
     top: 50,
     right: 24,
-    zIndex: 20,
+    zIndex: 30,
     width: 42,
     height: 42,
     borderRadius: 21,
@@ -126,7 +208,7 @@ const s = StyleSheet.create({
     position: 'absolute',
     top: 56,
     alignSelf: 'center',
-    zIndex: 20,
+    zIndex: 30,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 999,
@@ -137,13 +219,50 @@ const s = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
   },
-  page: {
+  image: {
     width,
     height,
+  },
+  videoScreen: {
+    width,
+    height,
+    alignItems: 'center',
     justifyContent: 'center',
   },
-  image: {
-    width: '100%',
-    height: '100%',
+  video: {
+    width,
+    height,
+  },
+  videoLeftTapZone: {
+    position: 'absolute',
+    left: 0,
+    top: 120,
+    bottom: 120,
+    width: 70,
+    zIndex: 25,
+  },
+  videoRightTapZone: {
+    position: 'absolute',
+    right: 0,
+    top: 120,
+    bottom: 120,
+    width: 70,
+    zIndex: 25,
+  },
+  videoPlayBtn: {
+    position: 'absolute',
+    width: 74,
+    height: 74,
+    borderRadius: 37,
+    backgroundColor: 'rgba(201,151,58,0.85)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 20,
+  },
+  videoPlayText: {
+    color: '#111',
+    fontSize: 30,
+    fontWeight: '800',
+    marginLeft: 4,
   },
 });

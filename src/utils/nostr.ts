@@ -1042,6 +1042,8 @@ export async function publishGroupMembership(input: {
 export const GROUP_MESSAGE_KIND = 30082;
 export const GROUP_STICKY_KIND = 30083;
 
+export type NostrGroupMediaType = 'image' | 'video';
+
 export interface NostrGroupMessage {
   id: string;
   groupId: string;
@@ -1049,14 +1051,28 @@ export interface NostrGroupMessage {
   senderNpub?: string;
   senderName?: string;
   text?: string;
+
+  mediaUrl?: string;
+  mediaType?: NostrGroupMediaType;
+  thumbnailUrl?: string;
+
+  // old fallback
   imageUrl?: string;
+
   createdAt: number;
 }
 
 export async function publishGroupMessage(input: {
   groupId: string;
   text?: string;
+
+  mediaUrl?: string;
+  mediaType?: NostrGroupMediaType;
+  thumbnailUrl?: string;
+
+  // old support
   imageUrl?: string;
+
   senderNpub?: string;
   senderName?: string;
   nsec: string;
@@ -1064,8 +1080,10 @@ export async function publishGroupMessage(input: {
 }): Promise<{ success: boolean; eventId?: string; error?: string }> {
   try {
     const trimmedText = input.text?.trim() || '';
+    const mediaUrl = input.mediaUrl || input.imageUrl;
+    const mediaType = input.mediaType || (input.imageUrl ? 'image' : undefined);
 
-    if (!trimmedText && !input.imageUrl) {
+    if (!trimmedText && !mediaUrl) {
       throw new Error('Cannot publish an empty group message');
     }
 
@@ -1082,24 +1100,39 @@ export async function publishGroupMessage(input: {
       ['client', 'bE-Marks'],
     ];
 
-    if (input.imageUrl) {
-      tags.push(['image', input.imageUrl]);
-      tags.push(['url', input.imageUrl]);
-      tags.push(['imeta', `url ${input.imageUrl}`, 'mime image/jpeg']);
+    if (mediaUrl) {
+      tags.push(['url', mediaUrl]);
+
+      if (mediaType === 'video') {
+        tags.push(['video', mediaUrl]);
+        tags.push(['imeta', `url ${mediaUrl}`, 'mime video/mp4']);
+      } else {
+        tags.push(['image', mediaUrl]);
+        tags.push(['imeta', `url ${mediaUrl}`, 'mime image/jpeg']);
+      }
     }
 
+    const now = Math.floor(Date.now() / 1000);
+
     const content = JSON.stringify({
-      groupId: input.groupId,
-      text: trimmedText || undefined,
-      imageUrl: input.imageUrl,
-      senderNpub: input.senderNpub,
-      senderName: input.senderName,
-      createdAt: Math.floor(Date.now() / 1000),
-    });
+  groupId: input.groupId,
+  text: trimmedText || undefined,
+
+  mediaUrl,
+  mediaType,
+  thumbnailUrl: input.thumbnailUrl,
+
+  // old fallback
+  imageUrl: mediaType === 'image' ? mediaUrl : undefined,
+
+  senderNpub: input.senderNpub,
+  senderName: input.senderName,
+  createdAt: now,
+});
 
     const unsigned: UnsignedEvent = {
       kind: GROUP_MESSAGE_KIND,
-      created_at: Math.floor(Date.now() / 1000),
+      created_at: now,
       tags,
       content,
       pubkey: pk,
@@ -1245,15 +1278,18 @@ export function fetchGroupMessages(
             const parsed = JSON.parse(evt.content || '{}');
 
             events.push({
-              id: evt.id,
-              groupId: parsed.groupId || groupId,
-              senderPubkey: evt.pubkey,
-              senderNpub: parsed.senderNpub,
-              senderName: parsed.senderName,
-              text: parsed.text,
-              imageUrl: parsed.imageUrl,
-              createdAt: evt.created_at,
-            });
+  id: evt.id,
+  groupId: parsed.groupId || groupId,
+  senderPubkey: evt.pubkey,
+  senderNpub: parsed.senderNpub,
+  senderName: parsed.senderName,
+  text: parsed.text,
+  mediaUrl: parsed.mediaUrl || parsed.imageUrl,
+  mediaType: parsed.mediaType || (parsed.imageUrl ? 'image' : undefined),
+  thumbnailUrl: parsed.thumbnailUrl,
+  imageUrl: parsed.imageUrl,
+  createdAt: evt.created_at,
+});
           } else if (data[0] === 'EOSE') {
             clearTimeout(timeout);
             ws.close();
@@ -1299,15 +1335,18 @@ export async function subscribeToGroupMessages(input: {
             const parsed = JSON.parse(evt.content || '{}');
 
             input.onMessage({
-              id: evt.id,
-              groupId: parsed.groupId || input.groupId,
-              senderPubkey: evt.pubkey,
-              senderNpub: parsed.senderNpub,
-              senderName: parsed.senderName,
-              text: parsed.text,
-              imageUrl: parsed.imageUrl,
-              createdAt: evt.created_at,
-            });
+  id: evt.id,
+  groupId: parsed.groupId || input.groupId,
+  senderPubkey: evt.pubkey,
+  senderNpub: parsed.senderNpub,
+  senderName: parsed.senderName,
+  text: parsed.text,
+  mediaUrl: parsed.mediaUrl || parsed.imageUrl,
+  mediaType: parsed.mediaType || (parsed.imageUrl ? 'image' : undefined),
+  thumbnailUrl: parsed.thumbnailUrl,
+  imageUrl: parsed.imageUrl,
+  createdAt: evt.created_at,
+});
           } catch {}
         },
       }

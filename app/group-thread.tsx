@@ -1,5 +1,6 @@
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import * as VideoThumbnails from 'expo-video-thumbnails';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -16,6 +17,7 @@ import {
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import ImageViewerModal, { ViewerImage } from '../components/ImageViewerModal';
 import {
     getMessagesForGroup,
     saveRemoteGroupMessage,
@@ -42,8 +44,9 @@ export default function GroupThreadScreen() {
   const [relayUrl, setRelayUrl] = useState('wss://relay.beginningend.com');
   const [draft, setDraft] = useState('');
   const [messages, setMessages] = useState<GroupMessage[]>([]);
-  const [sending, setSending] = useState(false);
-  const [uploadingImage, setUploadingImage] = useState(false);
+const [sending, setSending] = useState(false);
+const [uploadingImage, setUploadingImage] = useState(false);
+const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
 
   const listRef = useRef<FlatList>(null);
 
@@ -51,6 +54,14 @@ export default function GroupThreadScreen() {
     profile?.display_name ||
     profile?.name ||
     (npub ? `${npub.slice(0, 12)}…` : 'You');
+
+    const viewerMedia: ViewerImage[] = messages
+  .filter(message => !!(message.mediaUrl || message.imageUrl))
+  .map(message => ({
+    id: message.id,
+    uri: message.mediaUrl || message.imageUrl!,
+    type: message.mediaType || (message.imageUrl ? 'image' : 'image'),
+  }));
 
   const scrollToBottom = useCallback((animated = true) => {
     listRef.current?.scrollToEnd({ animated });
@@ -76,15 +87,18 @@ export default function GroupThreadScreen() {
         const mine = !!npub && msg.senderNpub === npub;
 
         await saveRemoteGroupMessage({
-          id: `nostr_group_${msg.id}`,
-          groupId,
-          text: msg.text,
-          imageUrl: msg.imageUrl,
-          mine,
-          senderNpub: msg.senderNpub,
-          senderName: msg.senderName,
-          createdAt: msg.createdAt,
-        });
+  id: `nostr_group_${msg.id}`,
+  groupId,
+  text: msg.text,
+  mediaUrl: msg.mediaUrl || msg.imageUrl,
+  mediaType: msg.mediaType || (msg.imageUrl ? 'image' : undefined),
+  thumbnailUrl: msg.thumbnailUrl,
+  imageUrl: msg.imageUrl,
+  mine,
+  senderNpub: msg.senderNpub,
+  senderName: msg.senderName,
+  createdAt: msg.createdAt,
+});
       }
     } catch (e) {
       console.warn('[Groups] Remote fetch error:', e);
@@ -116,15 +130,18 @@ export default function GroupThreadScreen() {
           const mine = !!npub && msg.senderNpub === npub;
 
           await saveRemoteGroupMessage({
-            id: `nostr_group_${msg.id}`,
-            groupId,
-            text: msg.text,
-            imageUrl: msg.imageUrl,
-            mine,
-            senderNpub: msg.senderNpub,
-            senderName: msg.senderName,
-            createdAt: msg.createdAt,
-          });
+  id: `nostr_group_${msg.id}`,
+  groupId,
+  text: msg.text,
+  mediaUrl: msg.mediaUrl || msg.imageUrl,
+  mediaType: msg.mediaType || (msg.imageUrl ? 'image' : undefined),
+  thumbnailUrl: msg.thumbnailUrl,
+  imageUrl: msg.imageUrl,
+  mine,
+  senderNpub: msg.senderNpub,
+  senderName: msg.senderName,
+  createdAt: msg.createdAt,
+});
 
           const next = await getMessagesForGroup(groupId);
           setMessages(next);
@@ -180,64 +197,144 @@ export default function GroupThreadScreen() {
     setSending(false);
   };
 
-  const handlePickImage = async () => {
-    if (!groupId || uploadingImage) return;
+  const handlePickMedia = async () => {
+  if (!groupId || uploadingImage) return;
 
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (permission.status !== 'granted') {
-      Alert.alert('Permission needed', 'Allow photo access to send images.');
+  const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if (permission.status !== 'granted') {
+    Alert.alert('Permission needed', 'Allow media access.');
+    return;
+  }
+
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ImagePicker.MediaTypeOptions.All,
+    quality: 0.9,
+  });
+
+  if (result.canceled || !result.assets?.[0]?.uri) return;
+
+  setUploadingImage(true);
+
+  try {
+    const asset = result.assets[0];
+    const mediaType = asset.type === 'video' ? 'video' : 'image';
+
+    const uploadedUrl = await uploadToR2(
+      asset.uri,
+      mediaType === 'video' ? 'video' : 'photo'
+    );
+
+    if (!uploadedUrl) {
+      Alert.alert('Upload failed', 'Could not upload media.');
+      setUploadingImage(false);
       return;
     }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.9,
-      allowsEditing: false,
-    });
+    let thumbnailUrl: string | undefined;
 
-    if (result.canceled || !result.assets?.[0]?.uri) return;
-
-    setUploadingImage(true);
-
-    try {
-      const uploadedUrl = await uploadToR2(result.assets[0].uri, 'photo');
-
-      if (!uploadedUrl) {
-        Alert.alert('Upload failed', 'Could not upload image.');
-        setUploadingImage(false);
-        return;
-      }
-
-      await sendLocalGroupMessage({
-        groupId,
-        imageUrl: uploadedUrl,
-        mine: true,
-        senderNpub: npub ?? undefined,
-        senderName: myDisplayName,
-      });
-
-      if (nsec) {
-        const result = await publishGroupMessage({
-          groupId,
-          imageUrl: uploadedUrl,
-          senderNpub: npub ?? undefined,
-          senderName: myDisplayName,
-          nsec,
-          relayUrl,
+    if (mediaType === 'video') {
+      try {
+        const thumbnail = await VideoThumbnails.getThumbnailAsync(asset.uri, {
+          time: 1000,
         });
 
-        if (!result.success) {
-          console.warn('[Groups] publishGroupMessage image failed:', result.error);
-        }
+        const uploadedThumbnail = await uploadToR2(thumbnail.uri, 'photo');
+        thumbnailUrl = uploadedThumbnail || undefined;
+      } catch (thumbError) {
+        console.warn('[Groups] thumbnail failed:', thumbError);
       }
-
-      await loadMessages();
-    } catch (error: any) {
-      Alert.alert('Error', error?.message || 'Could not send image.');
     }
 
-    setUploadingImage(false);
-  };
+    await sendLocalGroupMessage({
+      groupId,
+      mediaUrl: uploadedUrl,
+      mediaType,
+      thumbnailUrl,
+      imageUrl: mediaType === 'image' ? uploadedUrl : undefined,
+      mine: true,
+      senderNpub: npub ?? undefined,
+      senderName: myDisplayName,
+    });
+
+    if (nsec) {
+      await publishGroupMessage({
+        groupId,
+        mediaUrl: uploadedUrl,
+        mediaType,
+        thumbnailUrl,
+        imageUrl: mediaType === 'image' ? uploadedUrl : undefined,
+        senderNpub: npub ?? undefined,
+        senderName: myDisplayName,
+        nsec,
+        relayUrl,
+      });
+    }
+
+    await loadMessages();
+  } catch (e: any) {
+    Alert.alert('Error', e?.message || 'Failed to send media.');
+  }
+
+  setUploadingImage(false);
+};
+
+const handleTakePhoto = async () => {
+  if (!groupId || uploadingImage) return;
+
+  const permission = await ImagePicker.requestCameraPermissionsAsync();
+  if (permission.status !== 'granted') {
+    Alert.alert('Permission needed', 'Allow camera access.');
+    return;
+  }
+
+  const result = await ImagePicker.launchCameraAsync({
+    mediaTypes: ImagePicker.MediaTypeOptions.Images,
+    quality: 0.9,
+  });
+
+  if (result.canceled || !result.assets?.[0]?.uri) return;
+
+  setUploadingImage(true);
+
+  try {
+    const uploadedUrl = await uploadToR2(result.assets[0].uri, 'photo');
+
+    if (!uploadedUrl) {
+      Alert.alert('Upload failed', 'Could not upload photo.');
+      setUploadingImage(false);
+      return;
+    }
+
+    await sendLocalGroupMessage({
+      groupId,
+      mediaUrl: uploadedUrl,
+      mediaType: 'image',
+      imageUrl: uploadedUrl,
+      mine: true,
+      senderNpub: npub ?? undefined,
+      senderName: myDisplayName,
+    });
+
+    if (nsec) {
+      await publishGroupMessage({
+        groupId,
+        mediaUrl: uploadedUrl,
+        mediaType: 'image',
+        imageUrl: uploadedUrl,
+        senderNpub: npub ?? undefined,
+        senderName: myDisplayName,
+        nsec,
+        relayUrl,
+      });
+    }
+
+    await loadMessages();
+  } catch (e: any) {
+    Alert.alert('Error', e?.message || 'Could not send photo.');
+  }
+
+  setUploadingImage(false);
+};
 
   const handleBack = () => {
     router.navigate('/(tabs)/groups' as any);
@@ -266,9 +363,34 @@ export default function GroupThreadScreen() {
             </Text>
           )}
 
-          {!!item.imageUrl && (
-            <Image source={{ uri: item.imageUrl }} style={s.messageImage} resizeMode="cover" />
-          )}
+          {!!(item.mediaUrl || item.imageUrl) && (
+  <TouchableOpacity
+    activeOpacity={0.85}
+    onPress={() => setSelectedMediaUri(item.mediaUrl || item.imageUrl || null)}
+  >
+    {item.mediaType === 'video' ? (
+      <View style={s.messageVideo}>
+  {item.thumbnailUrl ? (
+    <Image
+      source={{ uri: item.thumbnailUrl }}
+      style={s.messageVideoThumb}
+      resizeMode="cover"
+    />
+  ) : null}
+
+  <View style={s.messageVideoOverlay}>
+    <Text style={s.messageVideoIcon}>▶</Text>
+  </View>
+</View>
+    ) : (
+      <Image
+        source={{ uri: item.mediaUrl || item.imageUrl }}
+        style={s.messageImage}
+        resizeMode="cover"
+      />
+    )}
+  </TouchableOpacity>
+)}
 
           <Text style={[s.time, item.mine ? s.timeMine : s.timeOther]}>
             {formatMessageTime(item.createdAt)}
@@ -334,7 +456,17 @@ export default function GroupThreadScreen() {
           <View style={s.composer}>
             <TouchableOpacity
               style={[s.attachBtn, uploadingImage && s.attachBtnDim]}
-              onPress={handlePickImage}
+              onPress={() => {
+  Alert.alert(
+    'Add Media',
+    '',
+    [
+      { text: 'Camera Photo', onPress: handleTakePhoto },
+      { text: 'Library (Photo/Video)', onPress: handlePickMedia },
+      { text: 'Cancel', style: 'cancel' },
+    ]
+  );
+}}
               disabled={uploadingImage}
             >
               {uploadingImage ? (
@@ -365,7 +497,13 @@ export default function GroupThreadScreen() {
                 <Text style={s.sendText}>↑</Text>
               )}
             </TouchableOpacity>
-          </View>
+                    </View>
+
+          <ImageViewerModal
+            images={viewerMedia}
+            selectedUri={selectedMediaUri}
+            onClose={() => setSelectedMediaUri(null)}
+          />
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -441,6 +579,32 @@ const s = StyleSheet.create({
     borderRadius: 12,
     marginTop: 4,
   },
+
+  messageVideo: {
+  width: 220,
+  height: 220,
+  borderRadius: 12,
+  marginTop: 4,
+  backgroundColor: '#000',
+  overflow: 'hidden',
+  alignItems: 'center',
+  justifyContent: 'center',
+},
+messageVideoThumb: {
+  width: '100%',
+  height: '100%',
+},
+messageVideoOverlay: {
+  ...StyleSheet.absoluteFillObject,
+  alignItems: 'center',
+  justifyContent: 'center',
+  backgroundColor: 'rgba(0,0,0,0.25)',
+},
+messageVideoIcon: {
+  color: '#c9973a',
+  fontSize: 34,
+  fontWeight: '800',
+},
 
   time: {
     fontSize: 10,

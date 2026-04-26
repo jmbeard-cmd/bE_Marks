@@ -1,6 +1,6 @@
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -17,7 +17,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AudioRecorder from '../../components/AudioRecorder';
 import BEHeader from '../../components/BEHeader';
-import VideoRecorder from '../../components/VideoRecorder';
 import { publishFamilyMilestone, signAndPublish } from '../../src/utils/nostr';
 import { uploadMilestoneMedia } from '../../src/utils/r2';
 import { saveMilestone } from '../../src/utils/storage';
@@ -32,13 +31,11 @@ export default function LogScreen() {
   const [note, setNote] = useState('');
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
-  const [media, setMedia] = useState<{ id: string; uri: string; type: 'image' }[]>([]);
+  const [media, setMedia] = useState<{ id: string; uri: string; type: 'image' | 'video' }[]>([]);
   const [saving, setSaving] = useState(false);
   const [publishToNostr, setPublishToNostr] = useState(true);
   const [shareWithFamily, setShareWithFamily] = useState(false);
   const [audioUri, setAudioUri] = useState<string | undefined>();
-  const [videoUri, setVideoUri] = useState<string | undefined>();
-  const videoUriRef = useRef<string | undefined>(undefined);
 
   const pickPhoto = async () => {
   const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -48,7 +45,7 @@ export default function LogScreen() {
   }
 
   const result = await ImagePicker.launchImageLibraryAsync({
-    mediaTypes: ImagePicker.MediaTypeOptions.Images,
+    mediaTypes: ImagePicker.MediaTypeOptions.All,
     quality: 0.9,
     allowsMultipleSelection: true,
     selectionLimit: 10,
@@ -56,10 +53,10 @@ export default function LogScreen() {
 
   if (!result.canceled) {
     const newMedia = result.assets.map(a => ({
-      id: `media_${Date.now()}_${Math.random()}`,
-      uri: a.uri,
-      type: 'image' as const,
-    }));
+  id: `media_${Date.now()}_${Math.random()}`,
+  uri: a.uri,
+  type: (a.type === 'video' ? 'video' : 'image') as 'image' | 'video',
+}));
 
     setMedia(prev => [...prev, ...newMedia]);
   }
@@ -73,18 +70,21 @@ export default function LogScreen() {
   }
 
   const result = await ImagePicker.launchCameraAsync({
-    quality: 0.9,
-    allowsEditing: false,
-  });
+  mediaTypes: ImagePicker.MediaTypeOptions.All,
+  videoMaxDuration: 60,
+  quality: 0.9,
+});
 
   if (!result.canceled) {
-    const photo = {
-      id: `media_${Date.now()}`,
-      uri: result.assets[0].uri,
-      type: 'image' as const,
-    };
+    const asset = result.assets[0];
 
-    setMedia(prev => [...prev, photo]);
+const mediaItem = {
+  id: `media_${Date.now()}`,
+  uri: asset.uri,
+  type: (asset.type === 'video' ? 'video' : 'image') as 'image' | 'video',
+};
+
+    setMedia(prev => [...prev, mediaItem]);
   }
 };
 
@@ -109,6 +109,15 @@ export default function LogScreen() {
       // ── Step 1: Upload media FIRST so the URL is ready for the Nostr event ──
       const uploadedMedia = await Promise.all(
   media.map(async m => {
+    if (m.type === 'video') {
+      return {
+        id: m.id,
+        uri: m.uri,
+        type: 'video' as const,
+        source: 'local' as const,
+      };
+    }
+
     const result = await uploadMilestoneMedia({
       photoUri: m.uri,
     });
@@ -122,8 +131,8 @@ export default function LogScreen() {
   })
 );
 
-const uploadedPhoto = uploadedMedia[0]?.uri;
-const uploadedVideo = undefined;
+const uploadedPhoto = uploadedMedia.find(m => m.type === 'image')?.uri;
+const uploadedVideo = uploadedMedia.find(m => m.type === 'video')?.uri;
 const uploadedAudio = audioUri;
 
       // Warn user immediately if any media failed — don't silently drop it
@@ -191,8 +200,6 @@ const uploadedAudio = audioUri;
       setTags([]);
       setMedia([]);
       setAudioUri(undefined);
-      setVideoUri(undefined);
-      videoUriRef.current = undefined;
       setShareWithFamily(false);
       setTagInput('');
 
@@ -286,19 +293,6 @@ const uploadedAudio = audioUri;
           <AudioRecorder
             onRecordingComplete={(uri) => setAudioUri(uri || undefined)}
             existingUri={audioUri}
-          />
-        </View>
-
-        {/* Video */}
-        <View style={s.field}>
-          <Text style={s.label}>VIDEO CLIP</Text>
-          <VideoRecorder
-            onVideoComplete={(uri) => {
-              const value = uri || undefined;
-              setVideoUri(value);
-              videoUriRef.current = value;
-            }}
-            existingUri={videoUri}
           />
         </View>
 

@@ -15,7 +15,7 @@ import {
   View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import ImageViewerModal from '../components/ImageViewerModal';
+import ImageViewerModal, { ViewerImage } from '../components/ImageViewerModal';
 import { formatDate, getMilestones, updateMilestone, type Milestone } from '../src/utils/storage';
 
 const { width } = Dimensions.get('window');
@@ -159,6 +159,17 @@ export default function MilestoneDetail() {
   const title = hasTitle ? milestone.note.split('\n\n')[0] : null;
   const body = hasTitle ? milestone.note.split('\n\n').slice(1).join('\n\n') : milestone.note;
 
+  const viewerImages: ViewerImage[] =
+  milestone.media && milestone.media.length > 0
+    ? milestone.media.map(item => ({
+        id: item.id,
+        uri: item.uri,
+        type: item.type,
+      }))
+    : milestone.photoUri
+      ? [{ id: 'legacy-photo', uri: milestone.photoUri, type: 'image' }]
+      : [];
+
   return (
     <SafeAreaView style={s.safe}>
 
@@ -188,7 +199,7 @@ export default function MilestoneDetail() {
 
       <ScrollView contentContainerStyle={s.container} keyboardShouldPersistTaps="handled">
 
-        {/* Photos */}
+        {/* Media */}
 {milestone.media && milestone.media.length > 0 ? (
   <ScrollView horizontal style={s.multiPhotoRow}>
     {milestone.media.map(item => (
@@ -198,6 +209,12 @@ export default function MilestoneDetail() {
         style={s.multiPhotoWrap}
       >
         <Image source={{ uri: item.uri }} style={s.multiPhoto} />
+
+        {item.type === 'video' && (
+          <View style={s.videoBadge}>
+            <Text style={s.videoBadgeText}>▶</Text>
+          </View>
+        )}
       </TouchableOpacity>
     ))}
   </ScrollView>
@@ -308,7 +325,7 @@ export default function MilestoneDetail() {
           )}
 
           {/* Video */}
-          {milestone.videoUri && (
+          {milestone.videoUri && !(milestone.media ?? []).some(item => item.type === 'video') && (
             <View style={s.section}>
               <Text style={s.sectionLabel}>VIDEO CLIP</Text>
               <View style={s.videoContainer}>
@@ -420,16 +437,11 @@ export default function MilestoneDetail() {
         </View>
       </ScrollView>
       <ImageViewerModal
+  images={viewerImages}
   selectedUri={selectedImage}
   onClose={() => setSelectedImage(null)}
-  images={
-    milestone.media && milestone.media.length > 0
-      ? milestone.media.map(m => ({ id: m.id, uri: m.uri }))
-      : milestone.photoUri
-        ? [{ id: 'photo', uri: milestone.photoUri }]
-        : []
-  }
 />
+
     </SafeAreaView>
   );
 }
@@ -517,6 +529,23 @@ const s = StyleSheet.create({
   reflectionDelete: { marginTop: 12, alignSelf: 'flex-end' },
   reflectionDeleteText: { fontSize: 12, color: '#2a2a2a' },
   reflectionInputBlock: { marginTop: 4 },
+
+  videoBadge: {
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  alignItems: 'center',
+  justifyContent: 'center',
+  backgroundColor: 'rgba(0,0,0,0.25)',
+  borderRadius: 10,
+},
+videoBadgeText: {
+  color: '#fff',
+  fontSize: 28,
+  fontWeight: '800',
+},
 
   imageModalOverlay: {
   flex: 1,
