@@ -17,6 +17,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ImageViewerModal, { ViewerImage } from '../components/ImageViewerModal';
 import { formatDate, getMilestones, updateMilestone, type Milestone } from '../src/utils/storage';
+import { useIdentity } from './_layout';
 
 const { width } = Dimensions.get('window');
 const PRESET_TAGS = ['Family', 'Faith', 'Career', 'School', 'Travel', 'Health', 'Achievement', 'Personal'];
@@ -56,6 +57,7 @@ function MilestonePhoto({ uri }: { uri: string }) {
 export default function MilestoneDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const { npub } = useIdentity();
   const [milestone, setMilestone] = useState<Milestone | null>(null);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
@@ -96,8 +98,10 @@ export default function MilestoneDetail() {
   const stopAudio = () => { if (!audioPlayer) return; audioPlayer.pause(); setIsAudioPlaying(false); };
 
   const startEditing = () => {
-    if (!milestone) return;
-    const hasTitle = milestone.note?.includes('\n\n');
+  if (!milestone) return;
+  if (milestone.authorNpub && milestone.authorNpub !== npub) return;
+
+  const hasTitle = milestone.note?.includes('\n\n');
     setEditTitle(hasTitle ? milestone.note.split('\n\n')[0] : '');
     setEditNote(hasTitle ? milestone.note.split('\n\n').slice(1).join('\n\n') : milestone.note);
     setEditTags(milestone.tags ?? []);
@@ -156,8 +160,10 @@ export default function MilestoneDetail() {
   );
 
   const hasTitle = milestone.note?.includes('\n\n');
-  const title = hasTitle ? milestone.note.split('\n\n')[0] : null;
-  const body = hasTitle ? milestone.note.split('\n\n').slice(1).join('\n\n') : milestone.note;
+const title = hasTitle ? milestone.note.split('\n\n')[0] : null;
+const body = hasTitle ? milestone.note.split('\n\n').slice(1).join('\n\n') : milestone.note;
+
+const isOwner = !milestone.authorNpub || milestone.authorNpub === npub;
 
   const viewerImages: ViewerImage[] =
   milestone.media && milestone.media.length > 0
@@ -185,11 +191,11 @@ export default function MilestoneDetail() {
           <Text style={s.backText}>← Back</Text>
         </TouchableOpacity>
         <Text style={s.headerDate}>{formatDate(milestone.createdAt)}</Text>
-        {!isEditing && (
-          <TouchableOpacity onPress={startEditing} style={s.editBtn}>
-            <Text style={s.editBtnText}>Edit</Text>
-          </TouchableOpacity>
-        )}
+        {!isEditing && isOwner && (
+  <TouchableOpacity onPress={startEditing} style={s.editBtn}>
+    <Text style={s.editBtnText}>Edit</Text>
+  </TouchableOpacity>
+)}
         {isEditing && (
           <TouchableOpacity onPress={() => setIsEditing(false)} style={s.editBtn}>
             <Text style={[s.editBtnText, { color: '#555' }]}>Cancel</Text>
