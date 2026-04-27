@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ImageViewerModal, { ViewerImage } from '../components/ImageViewerModal';
+import { publishFamilyMilestone } from '../src/utils/nostr';
 import { formatDate, getMilestones, updateMilestone, type Milestone } from '../src/utils/storage';
 import { useIdentity } from './_layout';
 
@@ -57,7 +58,7 @@ function MilestonePhoto({ uri }: { uri: string }) {
 export default function MilestoneDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { npub } = useIdentity();
+  const { npub, nsec, relays } = useIdentity();
   const [milestone, setMilestone] = useState<Milestone | null>(null);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
@@ -128,14 +129,53 @@ export default function MilestoneDetail() {
   };
 
   const saveReflection = async () => {
-    if (!milestone || !reflectionText.trim()) return;
-    const reflection = { text: reflectionText.trim(), createdAt: Math.floor(Date.now() / 1000) };
-    const updatedReflections = [...(milestone.reflections ?? []), reflection];
-    await updateMilestone(milestone.id, { reflections: updatedReflections });
-    setMilestone(prev => prev ? { ...prev, reflections: updatedReflections } : prev);
-    setReflectionText('');
-    setIsAddingReflection(false);
+  if (!milestone || !reflectionText.trim()) return;
+
+  const reflection = {
+    text: reflectionText.trim(),
+    createdAt: Math.floor(Date.now() / 1000),
+    authorNpub: npub ?? undefined,
   };
+
+  const updatedReflections = [...(milestone.reflections ?? []), reflection];
+
+  const updatedMilestone = {
+    ...milestone,
+    reflections: updatedReflections,
+  };
+
+  await updateMilestone(milestone.id, { reflections: updatedReflections });
+
+  setMilestone(updatedMilestone);
+  setReflectionText('');
+  setIsAddingReflection(false);
+
+  if (updatedMilestone.familyId && nsec && npub) {
+    publishFamilyMilestone(
+      {
+        id: updatedMilestone.id,
+        note: updatedMilestone.note,
+        tags: updatedMilestone.tags ?? [],
+        photoUri: updatedMilestone.photoUri,
+        videoUri: updatedMilestone.videoUri,
+        audioUri: updatedMilestone.audioUri,
+        media: updatedMilestone.media ?? [],
+        reflections: updatedReflections,
+        createdAt: updatedMilestone.createdAt,
+        familyId: updatedMilestone.familyId,
+        authorNpub: updatedMilestone.authorNpub ?? npub,
+      },
+      nsec,
+      relays
+    ).then(result => {
+      if (!result.success) {
+        console.warn('[Family Reflection Sync] Failed:', result.error);
+      } else {
+        console.log('[Family Reflection Sync] Published:', result.eventId);
+      }
+    });
+  }
+};
 
   const deleteReflection = async (index: number) => {
     if (!milestone) return;

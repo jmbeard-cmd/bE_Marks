@@ -643,14 +643,15 @@ export async function publishFamilyMilestone(
     tags: string[];
     photoUri?: string;
     videoUri?: string;
-    audioUri?: string;
+        audioUri?: string;
     media?: Array<{
-  id: string;
-  uri: string;
-  type: 'image' | 'video';
-  source?: 'local' | 'cloud' | 'r2';
-  thumbnailUri?: string;
-}>;
+      id: string;
+      uri: string;
+      type: 'image' | 'video';
+      source?: 'local' | 'cloud' | 'r2';
+      thumbnailUri?: string;
+    }>;
+    reflections?: { text: string; createdAt: number; authorNpub?: string }[];
     createdAt: number;
     familyId: string;
     authorNpub: string;
@@ -672,6 +673,7 @@ export async function publishFamilyMilestone(
   videoUri: milestone.videoUri,
   audioUri: milestone.audioUri,
   media: milestone.media ?? [],
+  reflections: milestone.reflections ?? [],
   createdAt: milestone.createdAt,
   authorNpub: milestone.authorNpub,
 });
@@ -685,7 +687,7 @@ export async function publishFamilyMilestone(
 
     const unsigned: UnsignedEvent = {
       kind: FAMILY_MILESTONE_KIND,
-      created_at: milestone.createdAt,
+      created_at: Math.floor(Date.now() / 1000),
       tags: eventTags,
       content,
       pubkey: pk,

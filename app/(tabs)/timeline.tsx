@@ -165,8 +165,7 @@ export default function TimelineScreen() {
       for (const event of remoteEvents) {
         try {
           const data = JSON.parse(event.content);
-          if (data.authorNpub !== npub) {
-            await saveRemoteMilestone({
+          await saveRemoteMilestone({
   id: data.id,
   note: data.note ?? '',
   tags: data.tags ?? [],
@@ -174,14 +173,15 @@ export default function TimelineScreen() {
   videoUri: data.videoUri,
   audioUri: data.audioUri,
   media: Array.isArray(data.media) ? data.media : [],
+  reflections: Array.isArray(data.reflections) ? data.reflections : [],
   createdAt: data.createdAt ?? event.created_at,
   familyId: family.id,
   authorNpub: data.authorNpub,
   publishedToRelay: true,
   nostrEventId: event.id,
 });
-            addedCount++;
-          }
+
+addedCount++;
         } catch {}
       }
       if (addedCount > 0) await load();

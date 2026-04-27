@@ -48,10 +48,35 @@ export async function saveMilestone(m: Omit<Milestone, 'id' | 'createdAt'>): Pro
 
 export async function saveRemoteMilestone(m: Milestone): Promise<void> {
   const all = await getMilestones();
-  const exists = all.some(existing => 
+
+  const existingIndex = all.findIndex(existing =>
     existing.id === m.id || existing.nostrEventId === m.nostrEventId
   );
-  if (exists) return;
+
+  if (existingIndex !== -1) {
+    const existing = all[existingIndex];
+
+    const mergedReflections = [
+      ...(existing.reflections ?? []),
+      ...(m.reflections ?? []),
+    ].filter((reflection, index, arr) => {
+      return index === arr.findIndex(r =>
+        r.text === reflection.text && r.createdAt === reflection.createdAt
+      );
+    });
+
+    all[existingIndex] = {
+      ...existing,
+      ...m,
+      media: (m.media && m.media.length > 0) ? m.media : existing.media ?? [],
+      reflections: mergedReflections,
+    };
+
+    all.sort((a, b) => b.createdAt - a.createdAt);
+    await AsyncStorage.setItem(MILESTONES_KEY, JSON.stringify(all));
+    return;
+  }
+
   all.unshift(m);
   all.sort((a, b) => b.createdAt - a.createdAt);
   await AsyncStorage.setItem(MILESTONES_KEY, JSON.stringify(all));
