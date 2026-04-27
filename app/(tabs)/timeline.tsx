@@ -167,18 +167,19 @@ export default function TimelineScreen() {
           const data = JSON.parse(event.content);
           if (data.authorNpub !== npub) {
             await saveRemoteMilestone({
-              id: data.id,
-              note: data.note ?? '',
-              tags: data.tags ?? [],
-              photoUri: data.photoUri,
-              videoUri: data.videoUri,
-              audioUri: data.audioUri,
-              createdAt: data.createdAt ?? event.created_at,
-              familyId: family.id,
-              authorNpub: data.authorNpub,
-              publishedToRelay: true,
-              nostrEventId: event.id,
-            });
+  id: data.id,
+  note: data.note ?? '',
+  tags: data.tags ?? [],
+  photoUri: data.photoUri,
+  videoUri: data.videoUri,
+  audioUri: data.audioUri,
+  media: Array.isArray(data.media) ? data.media : [],
+  createdAt: data.createdAt ?? event.created_at,
+  familyId: family.id,
+  authorNpub: data.authorNpub,
+  publishedToRelay: true,
+  nostrEventId: event.id,
+});
             addedCount++;
           }
         } catch {}
@@ -232,14 +233,24 @@ export default function TimelineScreen() {
     const hasTitle = item.note?.includes('\n\n');
     const title = hasTitle ? item.note.split('\n\n')[0] : null;
     const body = hasTitle ? item.note.split('\n\n').slice(1).join('\n\n') : item.note;
-    const showPhoto = !!item.photoUri;
-    const showVideoOnly = !item.photoUri && !!item.videoUri;
-    const showAudioOnly = !item.photoUri && !item.videoUri && !!item.audioUri;
+    const firstMedia = item.media?.[0];
+const firstImage = item.media?.find(m => m.type === 'image');
+const firstVideo = item.media?.find(m => m.type === 'video');
+
+const previewImageUri =
+  firstImage?.uri ||
+  firstVideo?.thumbnailUri ||
+  item.photoUri;
+
+const hasVideo = !!firstVideo || !!item.videoUri;
+const showPhoto = !!previewImageUri;
+const showVideoOnly = !previewImageUri && !!item.videoUri;
+const showAudioOnly = !previewImageUri && !item.videoUri && !!item.audioUri;
 
     return (
       <TouchableOpacity
         style={s.item}
-        onPress={() => router.push({ pathname: '/milestone-detail', params: { id: item.id } } as any)}
+       onPress={() => router.push({ pathname: '/mark-detail', params: { id: item.id } } as any)}
         activeOpacity={0.85}
       >
         <View style={s.timelineCol}>
@@ -248,17 +259,32 @@ export default function TimelineScreen() {
         </View>
         <View style={s.card}>
           {showPhoto && (
-            <View style={s.photoWrapper}>
-              <MilestoneImage uri={item.photoUri!} />
-              {/* overlay badges for extra media */}
-              {(item.videoUri || item.audioUri) && (
-                <View style={s.mediaBadgeRow}>
-                  {item.videoUri && <View style={s.mediaBadge}><Text style={s.mediaBadgeIcon}>🎥</Text></View>}
-                  {item.audioUri && <View style={s.mediaBadge}><Text style={s.mediaBadgeIcon}>🎙</Text></View>}
-                </View>
-              )}
-            </View>
-          )}
+  <View style={s.photoWrapper}>
+    <MilestoneImage uri={previewImageUri!} />
+
+    {(hasVideo || item.audioUri || (item.media?.length ?? 0) > 1) && (
+      <View style={s.mediaBadgeRow}>
+        {(item.media?.length ?? 0) > 1 && (
+          <View style={s.mediaBadge}>
+            <Text style={s.mediaBadgeIcon}>{item.media?.length}</Text>
+          </View>
+        )}
+
+        {hasVideo && (
+          <View style={s.mediaBadge}>
+            <Text style={s.mediaBadgeIcon}>🎥</Text>
+          </View>
+        )}
+
+        {item.audioUri && (
+          <View style={s.mediaBadge}>
+            <Text style={s.mediaBadgeIcon}>🎙</Text>
+          </View>
+        )}
+      </View>
+    )}
+  </View>
+)}
           {showVideoOnly && (
             <View style={s.videoThumb}>
               <View style={s.videoPlayCircle}><Text style={s.videoPlayIcon}>▶</Text></View>

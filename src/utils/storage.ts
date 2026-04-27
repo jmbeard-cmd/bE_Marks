@@ -8,6 +8,7 @@ export type MarkMedia = {
   uri: string;
   type: 'image' | 'video';
   source?: 'local' | 'cloud' | 'r2';
+  thumbnailUri?: string;
 };
 
 export interface Milestone {

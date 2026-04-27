@@ -208,7 +208,10 @@ export default function MilestoneDetail() {
         onPress={() => setSelectedImage(item.uri)}
         style={s.multiPhotoWrap}
       >
-        <Image source={{ uri: item.uri }} style={s.multiPhoto} />
+        <Image
+  source={{ uri: item.type === 'video' ? item.thumbnailUri || item.uri : item.uri }}
+  style={s.multiPhoto}
+/>
 
         {item.type === 'video' && (
           <View style={s.videoBadge}>

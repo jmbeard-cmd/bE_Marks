@@ -644,6 +644,13 @@ export async function publishFamilyMilestone(
     photoUri?: string;
     videoUri?: string;
     audioUri?: string;
+    media?: Array<{
+  id: string;
+  uri: string;
+  type: 'image' | 'video';
+  source?: 'local' | 'cloud' | 'r2';
+  thumbnailUri?: string;
+}>;
     createdAt: number;
     familyId: string;
     authorNpub: string;
@@ -658,15 +665,16 @@ export async function publishFamilyMilestone(
     const pk = getPublicKey(sk);
 
     const content = JSON.stringify({
-      id: milestone.id,
-      note: milestone.note,
-      tags: milestone.tags,
-      photoUri: milestone.photoUri,
-      videoUri: milestone.videoUri,
-      audioUri: milestone.audioUri,
-      createdAt: milestone.createdAt,
-      authorNpub: milestone.authorNpub,
-    });
+  id: milestone.id,
+  note: milestone.note,
+  tags: milestone.tags,
+  photoUri: milestone.photoUri,
+  videoUri: milestone.videoUri,
+  audioUri: milestone.audioUri,
+  media: milestone.media ?? [],
+  createdAt: milestone.createdAt,
+  authorNpub: milestone.authorNpub,
+});
 
     const eventTags: string[][] = [
       ['d', milestone.id],

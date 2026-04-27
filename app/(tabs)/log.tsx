@@ -1,5 +1,6 @@
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
+import * as VideoThumbnails from 'expo-video-thumbnails';
 import { useState } from 'react';
 import {
   ActivityIndicator,
@@ -109,24 +110,40 @@ const mediaItem = {
       // ── Step 1: Upload media FIRST so the URL is ready for the Nostr event ──
       const uploadedMedia = await Promise.all(
   media.map(async m => {
+    let thumbnailUri: string | undefined;
+
     if (m.type === 'video') {
-      return {
-        id: m.id,
-        uri: m.uri,
-        type: 'video' as const,
-        source: 'local' as const,
-      };
+      try {
+        const thumb = await VideoThumbnails.getThumbnailAsync(m.uri, {
+          time: 1000,
+        });
+
+        const thumbUpload = await uploadMilestoneMedia({
+          photoUri: thumb.uri,
+        });
+
+        thumbnailUri = thumbUpload.photoUri || thumb.uri;
+      } catch (error) {
+        console.warn('[Mark Video Thumbnail] Failed:', error);
+      }
     }
 
     const result = await uploadMilestoneMedia({
-      photoUri: m.uri,
+      photoUri: m.type === 'image' ? m.uri : undefined,
+      videoUri: m.type === 'video' ? m.uri : undefined,
     });
+
+    const uploadedUri =
+      m.type === 'image'
+        ? result.photoUri || m.uri
+        : result.videoUri || m.uri;
 
     return {
       id: m.id,
-      uri: result.photoUri || m.uri,
-      type: 'image' as const,
-      source: 'r2' as const,
+      uri: uploadedUri,
+      type: m.type,
+      source: uploadedUri.startsWith('http') ? 'r2' as const : 'local' as const,
+      thumbnailUri,
     };
   })
 );
@@ -175,17 +192,18 @@ const uploadedAudio = audioUri;
       // ── Step 5: Publish to family relay if sharing ──
       if (shareWithFamily && family && nsec && npub) {
         publishFamilyMilestone(
-          {
-            id: savedMilestone.id,
-            note: fullNote,
-            tags,
-            photoUri: uploadedPhoto,
-            videoUri: uploadedVideo,
-            audioUri: uploadedAudio,
-            createdAt: savedMilestone.createdAt,
-            familyId: family.id,
-            authorNpub: npub,
-          },
+  {
+    id: savedMilestone.id,
+    note: fullNote,
+    tags,
+    photoUri: uploadedPhoto,
+    videoUri: uploadedVideo,
+    audioUri: uploadedAudio,
+    media: uploadedMedia,
+    createdAt: savedMilestone.createdAt,
+    familyId: family.id,
+    authorNpub: npub,
+  },
           nsec,
           relays
         ).then(result => {
