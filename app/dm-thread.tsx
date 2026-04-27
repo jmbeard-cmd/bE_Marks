@@ -22,14 +22,14 @@ import {
   saveRemoteDMMessage,
   sendLocalDM,
   type DMMessage,
-} from '../../src/utils/dm-storage';
+} from '../src/utils/dm-storage';
 import {
   fetchNostrDMs,
   fetchNostrProfile,
   sendNostrDM,
   subscribeToNostrDMs,
   type NostrProfile,
-} from '../../src/utils/nostr';
+} from '../src/utils/nostr';
 
 export default function DmThreadScreen() {
   const router = useRouter();

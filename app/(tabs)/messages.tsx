@@ -152,7 +152,7 @@ export default function MessagesScreen() {
       closeSheet();
       await loadData();
       router.push({
-        pathname: '/(tabs)/dm-thread',
+        pathname: '/dm-thread',
         params: { id: thread.id, title: thread.title },
       } as any);
     } catch (error: any) {
@@ -275,7 +275,7 @@ export default function MessagesScreen() {
       style={s.card}
       activeOpacity={0.85}
       onPress={() => router.push({
-        pathname: '/(tabs)/dm-thread',
+        pathname: '/dm-thread',
         params: { id: item.id, title: item.title },
       } as any)}
       onLongPress={() => handleDeleteThread(item)}
