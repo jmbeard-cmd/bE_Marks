@@ -1,5 +1,5 @@
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -76,9 +76,45 @@ function applyFilters(milestones: Milestone[], filters: FilterState, npub: strin
 }
 
 // MilestoneImage handles loading states and broken URLs gracefully
-function MilestoneImage({ uri }: { uri: string }) {
+function MilestoneImage({
+  uri,
+  onRatio,
+}: {
+  uri: string;
+  onRatio?: (ratio: number) => void;
+}) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [ratio, setRatio] = useState(4 / 3);
+
+  useEffect(() => {
+    let mounted = true;
+
+    setLoading(true);
+    setError(false);
+
+    Image.getSize(
+      uri,
+      (w, h) => {
+        if (!mounted || !w || !h) return;
+
+        const rawRatio = w / h;
+        const safeRatio = Math.max(0.56, Math.min(rawRatio, 1.8));
+
+        setRatio(safeRatio);
+        onRatio?.(safeRatio);
+      },
+      () => {
+        if (!mounted) return;
+        setError(true);
+        setLoading(false);
+      }
+    );
+
+    return () => {
+      mounted = false;
+    };
+  }, [uri, onRatio]);
 
   if (error) {
     return (
@@ -89,16 +125,22 @@ function MilestoneImage({ uri }: { uri: string }) {
     );
   }
 
+  const imageHeight = ratio < 0.9 ? 420 : ratio > 1.4 ? 190 : 260;
+
   return (
-    <View style={s.imageContainer}>
+    <View style={[s.imageContainer, { height: imageHeight }]}>
       <Image
         source={{ uri }}
         style={s.photo}
         resizeMode="cover"
         onLoadStart={() => setLoading(true)}
         onLoadEnd={() => setLoading(false)}
-        onError={() => { setLoading(false); setError(true); }}
+        onError={() => {
+          setLoading(false);
+          setError(true);
+        }}
       />
+
       {loading && (
         <View style={s.imageLoadingOverlay}>
           <ActivityIndicator size="small" color="#c9973a" />
@@ -275,96 +317,121 @@ export default function TimelineScreen() {
   const filtered = applyFilters(source, filters, npub);
   const activeFilterCount = countActiveFilters(filters);
 
-  const renderItem = ({ item, index }: { item: Milestone; index: number }) => {
+      function TimelineCard({ item, index }: { item: Milestone; index: number }) {
+    const [mediaRatio, setMediaRatio] = useState(1.2);
+
     const hasTitle = item.note?.includes('\n\n');
     const title = hasTitle ? item.note.split('\n\n')[0] : null;
     const body = hasTitle ? item.note.split('\n\n').slice(1).join('\n\n') : item.note;
-    const firstMedia = item.media?.[0];
-const firstImage = item.media?.find(m => m.type === 'image');
-const firstVideo = item.media?.find(m => m.type === 'video');
 
-const previewImageUri =
-  firstImage?.uri ||
-  firstVideo?.thumbnailUri ||
-  item.photoUri;
+    const firstImage = item.media?.find(m => m.type === 'image');
+    const firstVideo = item.media?.find(m => m.type === 'video');
 
-const hasVideo = !!firstVideo || !!item.videoUri;
-const showPhoto = !!previewImageUri;
-const showVideoOnly = !previewImageUri && !!item.videoUri;
-const showAudioOnly = !previewImageUri && !item.videoUri && !!item.audioUri;
+    const previewImageUri =
+      firstImage?.uri ||
+      firstVideo?.thumbnailUri ||
+      item.photoUri;
+
+    const hasVideo = !!firstVideo || !!item.videoUri;
+    const showPhoto = !!previewImageUri;
+    const showVideoOnly = !previewImageUri && !!item.videoUri;
+    const showAudioOnly = !previewImageUri && !item.videoUri && !!item.audioUri;
+
+    const isPortrait = mediaRatio < 0.9;
 
     return (
       <TouchableOpacity
         style={s.item}
-       onPress={() => router.push({ pathname: '/mark-detail', params: { id: item.id } } as any)}
+        onPress={() => router.push({ pathname: '/mark-detail', params: { id: item.id } } as any)}
         activeOpacity={0.85}
       >
         <View style={s.timelineCol}>
           <View style={s.dot} />
           {index < filtered.length - 1 && <View style={s.line} />}
         </View>
-        <View style={s.card}>
-          {showPhoto && (
-  <View style={s.photoWrapper}>
-    <MilestoneImage uri={previewImageUri!} />
 
-    {(hasVideo || item.audioUri || (item.media?.length ?? 0) > 1) && (
-      <View style={s.mediaBadgeRow}>
-        {(item.media?.length ?? 0) > 1 && (
-          <View style={s.mediaBadge}>
-            <Text style={s.mediaBadgeIcon}>{item.media?.length}</Text>
-          </View>
-        )}
+        <View style={s.cardSlot}>
+          <View style={[s.card, isPortrait && s.cardPortrait]}>
+            {showPhoto && (
+              <View style={s.photoWrapper}>
+                <MilestoneImage
+                  uri={previewImageUri!}
+                  onRatio={setMediaRatio}
+                />
 
-        {hasVideo && (
-          <View style={s.mediaBadge}>
-            <Text style={s.mediaBadgeIcon}>🎥</Text>
-          </View>
-        )}
+                {(hasVideo || item.audioUri || (item.media?.length ?? 0) > 1) && (
+                  <View style={s.mediaBadgeRow}>
+                    {(item.media?.length ?? 0) > 1 && (
+                      <View style={s.mediaBadge}>
+                        <Text style={s.mediaBadgeIcon}>{item.media?.length}</Text>
+                      </View>
+                    )}
 
-        {item.audioUri && (
-          <View style={s.mediaBadge}>
-            <Text style={s.mediaBadgeIcon}>🎙</Text>
-          </View>
-        )}
-      </View>
-    )}
-  </View>
-)}
-          {showVideoOnly && (
-            <View style={s.videoThumb}>
-              <View style={s.videoPlayCircle}><Text style={s.videoPlayIcon}>▶</Text></View>
-              <Text style={s.videoThumbLabel}>Video clip</Text>
-            </View>
-          )}
-          {showAudioOnly && (
-            <View style={s.audioThumb}>
-              <Text style={s.audioThumbIcon}>🎙</Text>
-              <Text style={s.audioThumbLabel}>Voice note</Text>
-            </View>
-          )}
-          <View style={s.cardBody}>
-            <Text style={s.date}>{formatDate(item.createdAt)}</Text>
-            {title && <Text style={s.cardTitle}>{title}</Text>}
-            {body ? <Text style={s.note} numberOfLines={title ? 2 : 3}>{body}</Text> : null}
-            {item.tags.length > 0 && (
-              <View style={s.tags}>
-                {item.tags.map(t => <Text key={t} style={s.tag}>{t}</Text>)}
+                    {hasVideo && (
+                      <View style={s.mediaBadge}>
+                        <Text style={s.mediaBadgeIcon}>🎥</Text>
+                      </View>
+                    )}
+
+                    {item.audioUri && (
+                      <View style={s.mediaBadge}>
+                        <Text style={s.mediaBadgeIcon}>🎙</Text>
+                      </View>
+                    )}
+                  </View>
+                )}
               </View>
             )}
-            <View style={s.cardMeta}>
-              {item.publishedToRelay && <Text style={s.relayBadge}>↑ relay</Text>}
-              {item.reflections && item.reflections.length > 0 && (
-                <Text style={s.reflectionBadge}>✦ {item.reflections.length} reflection{item.reflections.length > 1 ? 's' : ''}</Text>
+
+            {showVideoOnly && (
+              <View style={s.videoThumb}>
+                <View style={s.videoPlayCircle}>
+                  <Text style={s.videoPlayIcon}>▶</Text>
+                </View>
+                <Text style={s.videoThumbLabel}>Video clip</Text>
+              </View>
+            )}
+
+            {showAudioOnly && (
+              <View style={s.audioThumb}>
+                <Text style={s.audioThumbIcon}>🎙</Text>
+                <Text style={s.audioThumbLabel}>Voice note</Text>
+              </View>
+            )}
+
+            <View style={s.cardBody}>
+              <Text style={s.date}>{formatDate(item.createdAt)}</Text>
+              {title && <Text style={s.cardTitle}>{title}</Text>}
+              {body ? <Text style={s.note} numberOfLines={title ? 2 : 3}>{body}</Text> : null}
+
+              {item.tags.length > 0 && (
+                <View style={s.tags}>
+                  {item.tags.map(t => <Text key={t} style={s.tag}>{t}</Text>)}
+                </View>
               )}
-              {item.authorNpub && item.authorNpub !== npub && (
-                <Text style={s.authorBadge}>👤 {item.authorNpub.slice(0, 8)}…</Text>
-              )}
+
+              <View style={s.cardMeta}>
+                {item.publishedToRelay && <Text style={s.relayBadge}>↑ relay</Text>}
+
+                {item.reflections && item.reflections.length > 0 && (
+                  <Text style={s.reflectionBadge}>
+                    ✦ {item.reflections.length} reflection{item.reflections.length > 1 ? 's' : ''}
+                  </Text>
+                )}
+
+                {item.authorNpub && item.authorNpub !== npub && (
+                  <Text style={s.authorBadge}>👤 {item.authorNpub.slice(0, 8)}…</Text>
+                )}
+              </View>
             </View>
           </View>
         </View>
       </TouchableOpacity>
     );
+  }
+
+  const renderItem = ({ item, index }: { item: Milestone; index: number }) => {
+    return <TimelineCard item={item} index={index} />;
   };
 
   return (
@@ -551,18 +618,73 @@ const s = StyleSheet.create({
   timelineCol: { alignItems: 'center', width: 12, paddingTop: 4 },
   dot: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#c9973a' },
   line: { flex: 1, width: 1, backgroundColor: '#222', marginTop: 4 },
-  card: { flex: 1, borderRadius: 12, borderWidth: 0.5, borderColor: '#222', backgroundColor: '#1a1a1a', overflow: 'hidden' },
+    cardSlot: { flex: 1, alignItems: 'stretch' },
+  card: {
+    width: '100%',
+    borderRadius: 12,
+    borderWidth: 0.5,
+    borderColor: '#222',
+    backgroundColor: '#1a1a1a',
+    overflow: 'hidden',
+  },
+      cardPortrait: {
+    width: width * 0.58,
+    maxWidth: 280,
+    alignSelf: 'center',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
   // Image rendering
-  photoWrapper: { position: 'relative' },
-  imageContainer: { width: '100%', height: 180, backgroundColor: '#0d0d0d' },
-  photo: { width: '100%', height: 180 },
-  imageLoadingOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0d0d0d' },
-  imageFallback: { width: '100%', height: 72, backgroundColor: '#0d0d0d', alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8, borderBottomWidth: 0.5, borderBottomColor: '#1e1e1e' },
+    // Image rendering
+  photoWrapper: { position: 'relative', backgroundColor: '#0d0d0d' },
+    imageContainer: {
+    width: '100%',
+    backgroundColor: '#0d0d0d',
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#222',
+    overflow: 'hidden',
+  },
+  photo: {
+    width: '100%',
+    height: '100%',
+  },
+  imageLoadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0d0d0d',
+  },
+  imageFallback: {
+    width: '100%',
+    height: 96,
+    backgroundColor: '#0d0d0d',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#1e1e1e',
+  },
   imageFallbackIcon: { fontSize: 16 },
   imageFallbackText: { fontSize: 12, color: '#444' },
-  mediaBadgeRow: { position: 'absolute', bottom: 8, right: 8, flexDirection: 'row', gap: 4 },
-  mediaBadge: { backgroundColor: 'rgba(0,0,0,0.65)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 20 },
-  mediaBadgeIcon: { fontSize: 12 },
+      mediaBadgeRow: {
+    position: 'absolute',
+    bottom: 10,
+    right: 10,
+    flexDirection: 'row',
+    gap: 6,
+  },
+  mediaBadge: {
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 18,
+    minWidth: 34,
+    alignItems: 'center',
+  },
+  mediaBadgeIcon: {
+    fontSize: 14,
+  },
   videoThumb: { width: '100%', height: 120, backgroundColor: '#0d0d0d', alignItems: 'center', justifyContent: 'center', gap: 8, borderBottomWidth: 0.5, borderBottomColor: '#222' },
   videoPlayCircle: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(201,151,58,0.85)', alignItems: 'center', justifyContent: 'center' },
   videoPlayIcon: { fontSize: 16, color: '#111', marginLeft: 3 },
