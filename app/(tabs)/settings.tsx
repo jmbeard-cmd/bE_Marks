@@ -28,7 +28,11 @@ import {
   publishRelayList
 } from '../../src/utils/nostr';
 import { uploadToR2 } from '../../src/utils/r2';
-import { generateFamilyId, upsertFamilyMember } from '../../src/utils/storage';
+import {
+  generateFamilyId,
+  upsertFamilyMember,
+  type FamilyRelayMode,
+} from '../../src/utils/storage';
 import { useIdentity } from '../_layout';
 
 export default function SettingsScreen() {
@@ -51,7 +55,11 @@ export default function SettingsScreen() {
   const [newRelay, setNewRelay] = useState('');
   const [localRelays, setLocalRelays] = useState<string[]>([]);
   const [loadingRelays, setLoadingRelays] = useState(false);
-  const [savingRelays, setSavingRelays] = useState(false);
+    const [savingRelays, setSavingRelays] = useState(false);
+
+  const [editingFamilyRelay, setEditingFamilyRelay] = useState(false);
+  const [familyRelayMode, setFamilyRelayMode] = useState<FamilyRelayMode>('default');
+  const [familyRelayUrl, setFamilyRelayUrl] = useState('');
 
   const [showNsec, setShowNsec] = useState(false);
   const [nsecValue, setNsecValue] = useState('');
@@ -210,7 +218,7 @@ export default function SettingsScreen() {
   });
 };
 
-  const saveRelays = async () => {
+    const saveRelays = async () => {
     if (!nsec) { Alert.alert('No key', 'Cannot publish without a private key.'); return; }
     setSavingRelays(true);
     const result = await publishRelayList(localRelays, nsec);
@@ -222,6 +230,39 @@ export default function SettingsScreen() {
       Alert.alert('Error', result.error || 'Could not publish relay list.');
     }
     setSavingRelays(false);
+  };
+
+  const openFamilyRelayEditor = () => {
+    if (!family) return;
+
+    setFamilyRelayMode(family.relayMode ?? 'default');
+    setFamilyRelayUrl(family.relayUrl ?? '');
+    setEditingFamilyRelay(true);
+  };
+
+  const saveFamilyRelaySettings = async () => {
+    if (!family) return;
+
+    const trimmedUrl = familyRelayUrl.trim();
+
+    if ((familyRelayMode === 'custom' || familyRelayMode === 'both') && !trimmedUrl) {
+      Alert.alert('Relay required', 'Enter your family relay URL.');
+      return;
+    }
+
+    if (trimmedUrl && !trimmedUrl.startsWith('wss://') && !trimmedUrl.startsWith('ws://')) {
+      Alert.alert('Invalid relay', 'Relay URL must start with wss:// or ws://');
+      return;
+    }
+
+    await setFamily({
+      ...family,
+      relayMode: familyRelayMode,
+      relayUrl: trimmedUrl || undefined,
+    });
+
+    setEditingFamilyRelay(false);
+    Alert.alert('Saved', 'Family Timeline Relay settings updated.');
   };
 
   const handleBackupKey = () => {
@@ -599,7 +640,7 @@ const handleJoinFamily = async () => {
             )}
           </View>
 
-          {/* ── FAMILY ── */}
+                    {/* ── FAMILY ── */}
           <View style={s.section}>
             <Text style={s.sectionLabel}>FAMILY</Text>
             {family ? (
@@ -609,6 +650,111 @@ const handleJoinFamily = async () => {
                   <Text style={s.familyCode}>Code: {family.id}</Text>
                   <Text style={s.familyRole}>{family.role === 'admin' ? 'Admin' : 'Member'}</Text>
                 </View>
+
+                <View style={s.familyRelayCard}>
+                  <View style={s.familyRelayHeader}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.familyRelayTitle}>Family Timeline Relay</Text>
+                      <Text style={s.familyRelayHint}>
+                        Choose where family-only Marks are saved and synced.
+                      </Text>
+                    </View>
+
+                    {!editingFamilyRelay && (
+                      <TouchableOpacity onPress={openFamilyRelayEditor}>
+                        <Text style={s.sectionAction}>Manage</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+
+                  {!editingFamilyRelay ? (
+                    <View style={s.familyRelaySummary}>
+                      <Text style={s.familyRelaySummaryLabel}>Current setting</Text>
+                      <Text style={s.familyRelaySummaryValue}>
+                        {(family.relayMode ?? 'default') === 'default'
+                          ? 'bE Relay'
+                          : family.relayMode === 'custom'
+                            ? 'My Family Relay'
+                            : 'Both'}
+                      </Text>
+
+                      <Text style={s.familyRelayUrlText} numberOfLines={1}>
+                        {(family.relayMode ?? 'default') === 'default'
+                          ? DEFAULT_RELAY
+                          : family.relayUrl || DEFAULT_RELAY}
+                      </Text>
+                    </View>
+                  ) : (
+                    <View style={s.editBlock}>
+                      <Text style={s.inputLabel}>WHERE SHOULD FAMILY MARKS SAVE?</Text>
+
+                      <TouchableOpacity
+                        style={[
+                          s.familyRelayOption,
+                          familyRelayMode === 'default' && s.familyRelayOptionActive,
+                        ]}
+                        onPress={() => setFamilyRelayMode('default')}
+                        activeOpacity={0.85}
+                      >
+                        <Text style={s.familyRelayOptionTitle}>bE Relay</Text>
+                        <Text style={s.familyRelayOptionHint}>Easiest setup. Works automatically.</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[
+                          s.familyRelayOption,
+                          familyRelayMode === 'custom' && s.familyRelayOptionActive,
+                        ]}
+                        onPress={() => setFamilyRelayMode('custom')}
+                        activeOpacity={0.85}
+                      >
+                        <Text style={s.familyRelayOptionTitle}>My Family Relay</Text>
+                        <Text style={s.familyRelayOptionHint}>Use your own private family relay.</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[
+                          s.familyRelayOption,
+                          familyRelayMode === 'both' && s.familyRelayOptionActive,
+                        ]}
+                        onPress={() => setFamilyRelayMode('both')}
+                        activeOpacity={0.85}
+                      >
+                        <Text style={s.familyRelayOptionTitle}>Both</Text>
+                        <Text style={s.familyRelayOptionHint}>Save to bE and your family relay.</Text>
+                      </TouchableOpacity>
+
+                      {(familyRelayMode === 'custom' || familyRelayMode === 'both') && (
+                        <>
+                          <Text style={[s.inputLabel, { marginTop: 12 }]}>FAMILY RELAY URL</Text>
+                          <TextInput
+                            style={s.input}
+                            value={familyRelayUrl}
+                            onChangeText={setFamilyRelayUrl}
+                            placeholder="wss://relay.yourfamily.com"
+                            placeholderTextColor="#444"
+                            autoCapitalize="none"
+                            keyboardType="url"
+                          />
+                        </>
+                      )}
+
+                      <View style={s.inputActions}>
+                        <TouchableOpacity
+                          style={s.cancelBtn}
+                          onPress={() => setEditingFamilyRelay(false)}
+                        >
+                          <Text style={s.cancelText}>Cancel</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity style={s.confirmBtn} onPress={saveFamilyRelaySettings}>
+                          <Text style={s.confirmText}>Save</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  )}
+                </View>
+
                 {family.role === 'admin' && (
                   <TouchableOpacity style={s.shareCodeBtn} onPress={async () => {
                     await Clipboard.setStringAsync(family.id);
@@ -668,6 +814,7 @@ const handleJoinFamily = async () => {
               </>
             )}
           </View>
+
 
           {/* ── APP ── */}
           <View style={s.section}>
@@ -790,7 +937,77 @@ relayPickerStatusOn: {
   familyCard: { padding: 16, borderRadius: 10, borderWidth: 0.5, borderColor: '#c9973a33', backgroundColor: '#1e1600', marginBottom: 10 },
   familyName: { fontSize: 16, color: '#fff', fontWeight: '600', marginBottom: 4 },
   familyCode: { fontSize: 13, color: '#c9973a', fontFamily: 'monospace' },
-  familyRole: { fontSize: 11, color: '#444', marginTop: 4, textTransform: 'uppercase', letterSpacing: 0.6 },
+    familyRole: { fontSize: 11, color: '#444', marginTop: 4, textTransform: 'uppercase', letterSpacing: 0.6 },
+  familyRelayCard: {
+    padding: 14,
+    borderRadius: 10,
+    borderWidth: 0.5,
+    borderColor: '#2a2a2a',
+    backgroundColor: '#1a1a1a',
+    marginBottom: 10,
+  },
+  familyRelayHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginBottom: 10,
+  },
+  familyRelayTitle: {
+    fontSize: 15,
+    color: '#fff',
+    fontWeight: '600',
+    marginBottom: 3,
+  },
+  familyRelayHint: {
+    fontSize: 12,
+    color: '#555',
+    lineHeight: 17,
+  },
+  familyRelaySummary: {
+    paddingTop: 8,
+    borderTopWidth: 0.5,
+    borderTopColor: '#242424',
+  },
+  familyRelaySummaryLabel: {
+    fontSize: 11,
+    color: '#444',
+    marginBottom: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  familyRelaySummaryValue: {
+    fontSize: 14,
+    color: '#c9973a',
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  familyRelayUrlText: {
+    fontSize: 11,
+    color: '#555',
+    fontFamily: 'monospace',
+  },
+  familyRelayOption: {
+    padding: 12,
+    borderRadius: 9,
+    borderWidth: 0.5,
+    borderColor: '#2a2a2a',
+    backgroundColor: '#111',
+    marginBottom: 8,
+  },
+  familyRelayOptionActive: {
+    borderColor: '#c9973a',
+    backgroundColor: '#1e1600',
+  },
+  familyRelayOptionTitle: {
+    fontSize: 14,
+    color: '#fff',
+    fontWeight: '600',
+    marginBottom: 3,
+  },
+  familyRelayOptionHint: {
+    fontSize: 12,
+    color: '#555',
+  },
   shareCodeBtn: { padding: 12, borderRadius: 8, borderWidth: 0.5, borderColor: '#c9973a', alignItems: 'center', marginBottom: 8 },
   shareCodeText: { fontSize: 14, color: '#c9973a', fontWeight: '500' },
   leaveBtn: { padding: 12, borderRadius: 8, borderWidth: 0.5, borderColor: '#2a2a2a', alignItems: 'center' },

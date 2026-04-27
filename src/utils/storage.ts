@@ -28,11 +28,15 @@ videoUri?: string;
   authorNpub?: string;
 }
 
+export type FamilyRelayMode = 'default' | 'custom' | 'both';
+
 export interface Family {
   id: string;
   name: string;
   createdAt: number;
   role: 'admin' | 'member';
+  relayMode?: FamilyRelayMode;
+  relayUrl?: string;
 }
 
 export type FamilyMemberRole = 'admin' | 'member';
@@ -123,7 +127,13 @@ export async function deleteMilestone(id: string): Promise<void> {
 }
 
 export async function saveFamily(family: Family): Promise<void> {
-  await AsyncStorage.setItem(FAMILY_KEY, JSON.stringify(family));
+  const normalized: Family = {
+    ...family,
+    relayMode: family.relayMode ?? 'default',
+    relayUrl: family.relayUrl?.trim() || undefined,
+  };
+
+  await AsyncStorage.setItem(FAMILY_KEY, JSON.stringify(normalized));
 }
 
 export async function getFamily(): Promise<Family | null> {
