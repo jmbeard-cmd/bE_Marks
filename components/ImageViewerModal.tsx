@@ -1,14 +1,14 @@
 import { useVideoPlayer, VideoView } from 'expo-video';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-    Dimensions,
-    Image,
-    Modal,
-    PanResponder,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Dimensions,
+  Image,
+  Modal,
+  PanResponder,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import ImageZoom from 'react-native-image-pan-zoom';
 
@@ -19,19 +19,24 @@ export type ViewerImage = {
   id: string;
   uri: string;
   type?: 'image' | 'video';
+  thumbnailUrl?: string;
 };
 
 function ViewerVideo({
   uri,
+  thumbnailUrl,
   goNext,
   goPrev,
   onClose,
 }: {
   uri: string;
+  thumbnailUrl?: string;
   goNext: () => void;
   goPrev: () => void;
   onClose: () => void;
 }) {
+  const [ready, setReady] = useState(false);
+
   const player = useVideoPlayer({ uri }, p => {
     p.loop = false;
     p.play();
@@ -58,12 +63,34 @@ function ViewerVideo({
 
   return (
     <View style={s.videoScreen} {...panResponder.panHandlers}>
+      
+      {!!thumbnailUrl && !ready && (
+        <Image
+          source={{ uri: thumbnailUrl }}
+          style={s.videoThumbnail}
+          resizeMode="contain"
+        />
+      )}
+
+      {!thumbnailUrl && !ready && (
+        <View style={s.videoFallback}>
+          <Text style={{ color: '#777' }}>Loading video...</Text>
+        </View>
+      )}
+
       <VideoView
         key={uri}
         player={player}
-        style={s.video}
+        style={[
+          s.video,
+          !ready && { opacity: 0 },
+        ]}
         contentFit="contain"
         nativeControls
+        surfaceType="textureView"
+        onFirstFrameRender={() => {
+          setReady(true);
+        }}
       />
 
       <TouchableOpacity style={s.videoLeftTapZone} onPress={goPrev} />
@@ -144,12 +171,13 @@ export default function ImageViewerModal({
 
         {activeMedia?.type === 'video' ? (
           <ViewerVideo
-  key={activeMedia.uri}
-  uri={activeMedia.uri}
-  goNext={goNext}
-  goPrev={goPrev}
-  onClose={onClose}
-/>
+            key={activeMedia.uri}
+            uri={activeMedia.uri}
+            thumbnailUrl={activeMedia.thumbnailUrl}
+            goNext={goNext}
+            goPrev={goPrev}
+            onClose={onClose}
+          />
         ) : activeMedia ? (
           <ZoomableImage
             key={`${activeMedia.id}-${zoomKey}`}
@@ -187,6 +215,19 @@ const s = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000',
   },
+  videoThumbnail: {
+  position: 'absolute',
+  width,
+  height,
+  zIndex: 1,
+},
+videoFallback: {
+  position: 'absolute',
+  width,
+  height,
+  alignItems: 'center',
+  justifyContent: 'center',
+},
   closeBtn: {
     position: 'absolute',
     top: 50,
@@ -228,10 +269,47 @@ const s = StyleSheet.create({
     height,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: '#000',
+  },
+  videoLoadingFallback: {
+    position: 'absolute',
+    width,
+    height,
+    zIndex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  videoLoadingText: {
+    color: '#777',
+    fontSize: 13,
+    marginTop: 10,
+    fontWeight: '600',
   },
   video: {
     width,
     height,
+    zIndex: 2,
+  },
+  videoHidden: {
+    opacity: 0,
+  },
+  videoLoadingBadge: {
+    position: 'absolute',
+    bottom: 64,
+    alignSelf: 'center',
+    zIndex: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#c9973a',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+  },
+  videoLoadingBadgeText: {
+    color: '#111',
+    fontSize: 12,
+    fontWeight: '800',
   },
   videoLeftTapZone: {
     position: 'absolute',
@@ -248,21 +326,5 @@ const s = StyleSheet.create({
     bottom: 120,
     width: 70,
     zIndex: 25,
-  },
-  videoPlayBtn: {
-    position: 'absolute',
-    width: 74,
-    height: 74,
-    borderRadius: 37,
-    backgroundColor: 'rgba(201,151,58,0.85)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 20,
-  },
-  videoPlayText: {
-    color: '#111',
-    fontSize: 30,
-    fontWeight: '800',
-    marginLeft: 4,
   },
 });

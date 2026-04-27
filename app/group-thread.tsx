@@ -3,32 +3,32 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    Image,
-    Keyboard,
-    KeyboardAvoidingView,
-    Platform,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Image,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ImageViewerModal, { ViewerImage } from '../components/ImageViewerModal';
 import {
-    getMessagesForGroup,
-    saveRemoteGroupMessage,
-    sendLocalGroupMessage,
-    type GroupMessage,
+  getMessagesForGroup,
+  saveRemoteGroupMessage,
+  sendLocalGroupMessage,
+  type GroupMessage,
 } from '../src/utils/group-messages';
 import { getGroupById } from '../src/utils/group-storage';
 import {
-    fetchGroupMessages,
-    publishGroupMessage,
-    subscribeToGroupMessages,
+  fetchGroupMessages,
+  publishGroupMessage,
+  subscribeToGroupMessages,
 } from '../src/utils/nostr';
 import { uploadToR2 } from '../src/utils/r2';
 import { useIdentity } from './_layout';
@@ -57,11 +57,20 @@ const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
 
     const viewerMedia: ViewerImage[] = messages
   .filter(message => !!(message.mediaUrl || message.imageUrl))
-  .map(message => ({
-    id: message.id,
-    uri: message.mediaUrl || message.imageUrl!,
-    type: message.mediaType || (message.imageUrl ? 'image' : 'image'),
-  }));
+  .map(message => {
+    const item: ViewerImage = {
+      id: message.id,
+      uri: message.mediaUrl || message.imageUrl!,
+      type: message.mediaType || (message.imageUrl ? 'image' : 'image'),
+      thumbnailUrl: message.thumbnailUrl,
+    };
+
+    if (item.type === 'video') {
+      console.log('[Gallery Debug] viewerMedia video item:', item);
+    }
+
+    return item;
+  });
 
   const scrollToBottom = useCallback((animated = true) => {
     listRef.current?.scrollToEnd({ animated });
@@ -219,8 +228,10 @@ const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
     const asset = result.assets[0];
     const mediaType = asset.type === 'video' ? 'video' : 'image';
 
+        const uploadUri = asset.uri;
+
     const uploadedUrl = await uploadToR2(
-      asset.uri,
+      uploadUri,
       mediaType === 'video' ? 'video' : 'photo'
     );
 
@@ -234,7 +245,7 @@ const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
 
     if (mediaType === 'video') {
       try {
-        const thumbnail = await VideoThumbnails.getThumbnailAsync(asset.uri, {
+        const thumbnail = await VideoThumbnails.getThumbnailAsync(uploadUri, {
           time: 1000,
         });
 

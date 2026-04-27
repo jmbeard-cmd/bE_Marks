@@ -2,40 +2,40 @@ import * as Clipboard from 'expo-clipboard';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
-    Alert,
-    FlatList,
-    Image,
-    Modal,
-    RefreshControl,
-    ScrollView,
-    Share,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+  Alert,
+  FlatList,
+  Image,
+  Modal,
+  RefreshControl,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ImageViewerModal, { ViewerImage } from '../components/ImageViewerModal';
 import {
-    createGroupSticky,
-    deleteGroupSticky,
-    getStickiesForGroup,
-    syncGroupStickiesFromRelay,
-    type GroupSticky,
+  createGroupSticky,
+  deleteGroupSticky,
+  getStickiesForGroup,
+  syncGroupStickiesFromRelay,
+  type GroupSticky,
 } from '../src/utils/group-stickies';
 import {
-    archiveGroup,
-    getGroupById,
-    isGroupAdmin,
-    isGroupMember,
-    regenerateInviteCode,
-    removeMember,
-    syncGroupMembersFromRelay,
-    updateMemberRole,
-    type BEGroup,
-    type BEGroupMember
+  archiveGroup,
+  getGroupById,
+  isGroupAdmin,
+  isGroupMember,
+  regenerateInviteCode,
+  removeMember,
+  syncGroupMembersFromRelay,
+  updateMemberRole,
+  type BEGroup,
+  type BEGroupMember
 } from '../src/utils/group-storage';
 import { fetchGroupMessages } from '../src/utils/nostr';
 import { useIdentity } from './_layout';
@@ -94,6 +94,7 @@ if (g.relayUrl) {
     id: event.id,
     mediaUrl: event.mediaUrl || event.imageUrl!,
     mediaType: event.mediaType || (event.imageUrl ? 'image' : 'image'),
+    thumbnailUrl: event.thumbnailUrl,
     createdAt: event.createdAt,
   }))
   .sort((a, b) => b.createdAt - a.createdAt);
@@ -275,6 +276,7 @@ const galleryViewerImages: ViewerImage[] = galleryItems
     id: item.id,
     uri: item.mediaUrl,
     type: item.mediaType === 'video' ? 'video' : 'image',
+    thumbnailUrl: item.thumbnailUrl,
   }));
 
   return (
@@ -414,7 +416,7 @@ const galleryViewerImages: ViewerImage[] = galleryItems
     renderItem={({ item }) => (
       <View style={{ flex: 1 / 3, padding: 4 }}>
         <TouchableOpacity onPress={() => setSelectedGalleryImage(item.mediaUrl)}>
-  {item.mediaType === 'video' ? (
+    {item.mediaType === 'video' ? (
     <View
       style={{
         width: '100%',
@@ -423,10 +425,33 @@ const galleryViewerImages: ViewerImage[] = galleryItems
         backgroundColor: '#000',
         alignItems: 'center',
         justifyContent: 'center',
+        overflow: 'hidden',
       }}
     >
-      <Text style={{ color: '#c9973a', fontSize: 28, fontWeight: '800' }}>▶</Text>
-      <Text style={{ color: '#777', fontSize: 11, marginTop: 4 }}>Video</Text>
+      {item.thumbnailUrl ? (
+        <Image
+          source={{ uri: item.thumbnailUrl }}
+          style={{
+            width: '100%',
+            height: '100%',
+            borderRadius: 8,
+          }}
+          resizeMode="cover"
+        />
+      ) : null}
+
+      <View
+        style={{
+          position: 'absolute',
+          width: '100%',
+          height: '100%',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: 'rgba(0,0,0,0.25)',
+        }}
+      >
+        <Text style={{ color: '#c9973a', fontSize: 28, fontWeight: '800' }}>▶</Text>
+      </View>
     </View>
   ) : (
     <Image

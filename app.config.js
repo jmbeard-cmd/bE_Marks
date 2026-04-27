@@ -36,7 +36,7 @@ export default {
       output: "single",
       favicon: "./assets/images/favicon.png",
     },
-    plugins: [
+        plugins: [
       "expo-router",
       [
         "expo-splash-screen",
@@ -49,20 +49,21 @@ export default {
       ],
       "expo-secure-store",
       "expo-video",
+      "react-native-compressor",
       [
         "expo-contacts",
         {
-          contactsPermission: "Allow bE Marks to access your contacts to start encrypted conversations."
-        }
+          contactsPermission: "Allow bE Marks to access your contacts to start encrypted conversations.",
+        },
       ],
-[
-  "expo-notifications",
-  {
-    icon: "./assets/images/icon.png",
-    color: "#c9973a",
-    sounds: []
-  }
-],
+      [
+        "expo-notifications",
+        {
+          icon: "./assets/images/icon.png",
+          color: "#c9973a",
+          sounds: [],
+        },
+      ],
     ],
     experiments: {
       typedRoutes: true,
