@@ -1,28 +1,28 @@
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
 import {
-    Alert,
-    Animated,
-    FlatList,
-    KeyboardAvoidingView,
-    Modal,
-    PanResponder,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+  Alert,
+  Animated,
+  FlatList,
+  KeyboardAvoidingView,
+  Modal,
+  PanResponder,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import BEHeader from '../../components/BEHeader';
 import {
-    createGroup,
-    getActiveGroups,
-    getArchivedGroups,
-    joinGroupByCode,
-    type BEGroup
+  createGroup,
+  getActiveGroups,
+  getArchivedGroups,
+  joinGroupByCode,
+  type BEGroup
 } from '../../src/utils/group-storage';
 import { DEFAULT_RELAY, npubToHex } from '../../src/utils/nostr';
 import { useIdentity } from '../_layout';
@@ -198,8 +198,13 @@ export default function GroupsScreen() {
           </Text>
           <Text style={s.cardTime}>{formatGroupTime(item.lastPostAt)}</Text>
         </View>
-        <View style={s.cardMid}>
+                <View style={s.cardMid}>
           {item.season && <Text style={s.seasonBadge}>{item.season}</Text>}
+
+          <Text style={s.memberBadge}>
+            {item.memberCount ?? 0} member{(item.memberCount ?? 0) !== 1 ? 's' : ''}
+          </Text>
+
           {item.status === 'archived' && <Text style={s.archivedBadge}>Archived</Text>}
         </View>
         <Text style={s.cardPreview} numberOfLines={1}>
@@ -430,6 +435,7 @@ const s = StyleSheet.create({
   cardTime: { color: '#444', fontSize: 11 },
   cardMid: { flexDirection: 'row', gap: 6, marginBottom: 4 },
   seasonBadge: { fontSize: 10, color: '#c9973a', backgroundColor: '#1e1600', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 10, borderWidth: 0.5, borderColor: '#3a2800' },
+    memberBadge: { fontSize: 10, color: '#aaa', backgroundColor: '#111', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 10, borderWidth: 0.5, borderColor: '#2a2a2a' },
   archivedBadge: { fontSize: 10, color: '#444', backgroundColor: '#1a1a1a', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 10, borderWidth: 0.5, borderColor: '#2a2a2a' },
   cardPreview: { color: '#555', fontSize: 13 },
 

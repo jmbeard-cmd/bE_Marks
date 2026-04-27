@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const MILESTONES_KEY = 'milestones_v1';
 const FAMILY_KEY = 'family_v1';
+const FAMILY_MEMBERS_KEY = 'family_members_v1';
 
 export type MarkMedia = {
   id: string;
@@ -32,6 +33,16 @@ export interface Family {
   name: string;
   createdAt: number;
   role: 'admin' | 'member';
+}
+
+export interface FamilyMember {
+  id: string;
+  familyId: string;
+  npub: string;
+  displayName?: string;
+  role: 'admin' | 'member';
+  joinedAt: number;
+  status: 'active' | 'removed';
 }
 
 export async function saveMilestone(m: Omit<Milestone, 'id' | 'createdAt'>): Promise<Milestone> {
