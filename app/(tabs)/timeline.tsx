@@ -197,11 +197,15 @@ addedCount++;
   }, [load]));
 
   const onRefresh = async () => {
-    setRefreshing(true);
-    await load();
-    if (tab === 'family') await syncFamilyMilestones();
-    setRefreshing(false);
-  };
+  setRefreshing(true);
+
+  if (family) {
+    await syncFamilyMilestones();
+  }
+
+  await load();
+  setRefreshing(false);
+};
 
   const openDrawer = () => { setPendingFilters(filters); setShowFilterDrawer(true); };
   const applyDrawer = () => { setFilters(pendingFilters); setShowFilterDrawer(false); };

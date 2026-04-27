@@ -65,12 +65,19 @@ export async function saveRemoteMilestone(m: Milestone): Promise<void> {
       );
     });
 
-    all[existingIndex] = {
-      ...existing,
-      ...m,
-      media: (m.media && m.media.length > 0) ? m.media : existing.media ?? [],
-      reflections: mergedReflections,
-    };
+    const mergedMedia = [
+  ...(existing.media ?? []),
+  ...(m.media ?? []),
+].filter((media, index, arr) => {
+  return index === arr.findIndex(x => x.id === media.id);
+});
+
+all[existingIndex] = {
+  ...existing,
+  ...m,
+  media: mergedMedia.length > 0 ? mergedMedia : existing.media ?? [],
+  reflections: mergedReflections,
+};
 
     all.sort((a, b) => b.createdAt - a.createdAt);
     await AsyncStorage.setItem(MILESTONES_KEY, JSON.stringify(all));
