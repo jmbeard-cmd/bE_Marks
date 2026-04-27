@@ -209,7 +209,7 @@ console.log('[DM THREAD] current threadId:', threadId);
     setSending(false);
   };
 
-  const handleBack = () => {
+ const handleBack = () => {
   if (router.canGoBack()) {
     router.back();
   } else {

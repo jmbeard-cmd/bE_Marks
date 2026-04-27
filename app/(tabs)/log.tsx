@@ -34,7 +34,9 @@ export default function LogScreen() {
   const [tagInput, setTagInput] = useState('');
   const [media, setMedia] = useState<{ id: string; uri: string; type: 'image' | 'video' }[]>([]);
   const [saving, setSaving] = useState(false);
-  const [publishToNostr, setPublishToNostr] = useState(true);
+const [saveStatus, setSaveStatus] = useState('');
+const [progress, setProgress] = useState(0);
+const [publishToNostr, setPublishToNostr] = useState(true);
   const [shareWithFamily, setShareWithFamily] = useState(false);
   const [audioUri, setAudioUri] = useState<string | undefined>();
 
@@ -65,31 +67,63 @@ export default function LogScreen() {
 
   const takePhoto = async () => {
   const { status } = await ImagePicker.requestCameraPermissionsAsync();
+
   if (status !== 'granted') {
     Alert.alert('Permission needed', 'Allow camera access in settings.');
     return;
   }
 
   const result = await ImagePicker.launchCameraAsync({
-  mediaTypes: ImagePicker.MediaTypeOptions.All,
-  videoMaxDuration: 60,
-  quality: 0.9,
-});
+    mediaTypes: ImagePicker.MediaTypeOptions.All,
+    videoMaxDuration: 60,
+    quality: 0.85,
+    videoQuality: ImagePicker.UIImagePickerControllerQualityType.Medium,
+    allowsEditing: false,
+  });
 
   if (!result.canceled) {
     const asset = result.assets[0];
 
-const mediaItem = {
-  id: `media_${Date.now()}`,
-  uri: asset.uri,
-  type: (asset.type === 'video' ? 'video' : 'image') as 'image' | 'video',
-};
+    const mediaItem = {
+      id: `media_${Date.now()}_${Math.random()}`,
+      uri: asset.uri,
+      type: (asset.type === 'video' ? 'video' : 'image') as 'image' | 'video',
+    };
 
     setMedia(prev => [...prev, mediaItem]);
   }
 };
 
-  const addTag = (t: string) => {
+const recordVideo = async () => {
+  const { status } = await ImagePicker.requestCameraPermissionsAsync();
+
+  if (status !== 'granted') {
+    Alert.alert('Permission needed', 'Allow camera access in settings.');
+    return;
+  }
+
+  const result = await ImagePicker.launchCameraAsync({
+    mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+    videoMaxDuration: 60,
+    quality: 0.85,
+    videoQuality: ImagePicker.UIImagePickerControllerQualityType.Medium,
+    allowsEditing: false,
+  });
+
+  if (!result.canceled) {
+    const asset = result.assets[0];
+
+    const mediaItem = {
+      id: `media_${Date.now()}_${Math.random()}`,
+      uri: asset.uri,
+      type: 'video' as const,
+    };
+
+    setMedia(prev => [...prev, mediaItem]);
+  }
+};
+
+const addTag = (t: string) => {
     const clean = t.trim();
     if (!clean || tags.includes(clean)) return;
     setTags(prev => [...prev, clean]);
@@ -104,11 +138,17 @@ const mediaItem = {
       return;
     }
     setSaving(true);
-    try {
+setProgress(0);
+setSaveStatus('Preparing your Mark...');
+try {
       const fullNote = title.trim() ? `${title.trim()}\n\n${note.trim()}` : note.trim();
 
       // ── Step 1: Upload media FIRST so the URL is ready for the Nostr event ──
-      const uploadedMedia = await Promise.all(
+      setSaveStatus('Uploading media...');
+      let completed = 0;
+const total = media.length || 1;
+
+const uploadedMedia = await Promise.all(
   media.map(async m => {
     let thumbnailUri: string | undefined;
 
@@ -138,7 +178,10 @@ const mediaItem = {
         ? result.photoUri || m.uri
         : result.videoUri || m.uri;
 
-    return {
+    completed++;
+setProgress(Math.floor((completed / total) * 60)); // upload = 0–60%
+        
+return {
       id: m.id,
       uri: uploadedUri,
       type: m.type,
@@ -159,6 +202,8 @@ const uploadedAudio = audioUri;
       let nostrEventId: string | undefined;
       let published = false;
 
+      setSaveStatus('Publishing to relay...');
+      setProgress(70);
       if (publishToNostr && nsec) {
         const result = await signAndPublish({
           note: fullNote,
@@ -176,6 +221,8 @@ const uploadedAudio = audioUri;
       }
 
       // ── Step 4: Save to local storage ──
+      setSaveStatus('Saving Mark...');
+      setProgress(85);
       const savedMilestone = await saveMilestone({
         note: fullNote,   // store clean note without the URL appended
         tags,
@@ -190,6 +237,8 @@ const uploadedAudio = audioUri;
       });
 
       // ── Step 5: Publish to family relay if sharing ──
+      setSaveStatus('Sharing with family...');
+      setProgress(95);
       if (shareWithFamily && family && nsec && npub) {
         publishFamilyMilestone(
   {
@@ -221,6 +270,8 @@ const uploadedAudio = audioUri;
       setShareWithFamily(false);
       setTagInput('');
 
+      setProgress(100);
+
       Alert.alert(
         '✓ Saved',
         published ? 'Published to your relay.' : 'Saved locally.',
@@ -230,6 +281,8 @@ const uploadedAudio = audioUri;
       Alert.alert('Error', e.message);
     }
     setSaving(false);
+setSaveStatus('');
+setProgress(0);
   };
 
   return (
@@ -265,16 +318,21 @@ const uploadedAudio = audioUri;
   ) : null}
 
   <View style={s.photoRow}>
-    <TouchableOpacity style={s.photoBtn} onPress={takePhoto}>
-      <Text style={s.photoBtnIcon}>📷</Text>
-      <Text style={s.photoBtnText}>Camera</Text>
-    </TouchableOpacity>
+  <TouchableOpacity style={s.photoBtn} onPress={takePhoto}>
+    <Text style={s.photoBtnIcon}>📷</Text>
+    <Text style={s.photoBtnText}>Take Photo</Text>
+  </TouchableOpacity>
 
-    <TouchableOpacity style={s.photoBtn} onPress={pickPhoto}>
-      <Text style={s.photoBtnIcon}>🖼️</Text>
-      <Text style={s.photoBtnText}>Library</Text>
-    </TouchableOpacity>
-  </View>
+  <TouchableOpacity style={s.photoBtn} onPress={recordVideo}>
+    <Text style={s.photoBtnIcon}>🎥</Text>
+    <Text style={s.photoBtnText}>Record Video</Text>
+  </TouchableOpacity>
+
+  <TouchableOpacity style={s.photoBtn} onPress={pickPhoto}>
+    <Text style={s.photoBtnIcon}>🖼️</Text>
+    <Text style={s.photoBtnText}>Library</Text>
+  </TouchableOpacity>
+</View>
 </View>
 
         {/* Title */}
@@ -391,13 +449,33 @@ const uploadedAudio = audioUri;
         )}
 
         {/* Save */}
-        <TouchableOpacity style={s.saveBtn} onPress={handleSave} disabled={saving}>
-          {saving
-            ? <ActivityIndicator color="#111" />
-            : <Text style={s.saveBtnText}>Save milestone</Text>}
+                <TouchableOpacity style={[s.saveBtn, saving && s.saveBtnSaving]} onPress={handleSave} disabled={saving}>
+          {saving ? (
+            <View style={s.savingRow}>
+              <ActivityIndicator color="#111" />
+              <Text style={s.saveBtnText}>{saveStatus || 'Saving...'}</Text>
+            </View>
+          ) : (
+            <Text style={s.saveBtnText}>Save Mark</Text>
+          )}
         </TouchableOpacity>
 
       </ScrollView>
+
+      {saving && (
+        <View style={s.savingOverlay}>
+          <View style={s.savingCard}>
+            <ActivityIndicator color="#c9973a" />
+            <Text style={s.savingTitle}>{saveStatus || 'Saving Mark...'}</Text>
+
+            <View style={s.progressWrap}>
+              <View style={[s.progressBar, { width: `${progress}%` }]} />
+            </View>
+
+            <Text style={s.progressText}>{progress}%</Text>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
     </KeyboardAvoidingView>
   );
@@ -409,7 +487,7 @@ const s = StyleSheet.create({
   photoRow: { flexDirection: 'row', gap: 10, marginBottom: 22 },
   photoBtn: { flex: 1, height: 90, borderRadius: 10, borderWidth: 0.5, borderColor: '#2a2a2a', backgroundColor: '#1a1a1a', alignItems: 'center', justifyContent: 'center', gap: 6 },
   photoBtnIcon: { fontSize: 24 },
-  photoBtnText: { fontSize: 13, color: '#888', fontWeight: '500' },
+  photoBtnText: { fontSize: 12, color: '#888', fontWeight: '500', textAlign: 'center' },
   photoPreview: { marginBottom: 22, borderRadius: 10, overflow: 'hidden', borderWidth: 0.5, borderColor: '#2a2a2a' },
   photo: { width: '100%', height: 220 },
   photoActions: { flexDirection: 'row', justifyContent: 'center', gap: 20, paddingVertical: 10, backgroundColor: '#1a1a1a' },
@@ -453,6 +531,45 @@ removePhotoText: {
   fontSize: 14,
   fontWeight: '700',
 },
+progressWrap: {
+  height: 6,
+  backgroundColor: '#222',
+  borderRadius: 4,
+  overflow: 'hidden',
+  marginBottom: 10,
+},
+progressBar: {
+  height: '100%',
+  backgroundColor: '#c9973a',
+},
+savingOverlay: {
+  ...StyleSheet.absoluteFillObject,
+  backgroundColor: 'rgba(0,0,0,0.65)',
+  alignItems: 'center',
+  justifyContent: 'center',
+  paddingHorizontal: 28,
+},
+savingCard: {
+  width: '100%',
+  borderRadius: 18,
+  backgroundColor: '#1a1a1a',
+  borderWidth: 0.5,
+  borderColor: '#2a2a2a',
+  padding: 20,
+  alignItems: 'center',
+},
+savingTitle: {
+  color: '#fff',
+  fontSize: 15,
+  fontWeight: '700',
+  marginTop: 12,
+  marginBottom: 14,
+},
+progressText: {
+  color: '#888',
+  fontSize: 12,
+  fontWeight: '600',
+},
   // Custom tag row
   tagInputRow: { flexDirection: 'row', gap: 8, alignItems: 'center', marginTop: 4 },
   tagInput: { flex: 1, borderWidth: 0.5, borderColor: '#2a2a2a', borderRadius: 8, padding: 10, fontSize: 14, color: '#fff', backgroundColor: '#1a1a1a' },
@@ -470,5 +587,7 @@ removePhotoText: {
   toggleThumb: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#fff' },
   toggleThumbOn: { alignSelf: 'flex-end' },
   saveBtn: { backgroundColor: '#c9973a', borderRadius: 10, padding: 16, alignItems: 'center', marginTop: 4 },
+saveBtnSaving: { opacity: 0.85 },
+savingRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   saveBtnText: { color: '#111', fontSize: 15, fontWeight: '700', letterSpacing: 0.2 },
 });
