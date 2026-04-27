@@ -266,7 +266,7 @@ console.log('[DM THREAD] current threadId:', threadId);
       <KeyboardAvoidingView
   style={{ flex: 1 }}
   behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-  keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+  keyboardVerticalOffset={0}
 >
         <View style={s.container}>
           <View style={s.header}>
@@ -497,15 +497,17 @@ const s = StyleSheet.create({
     lineHeight: 17,
   },
 
-  composer: {
-  borderTopWidth: 0.5,
-  borderTopColor: '#222',
-  paddingHorizontal: 12,
-  paddingTop: 10,
-  paddingBottom: Platform.OS === 'ios' ? 24 : 12,
-  flexDirection: 'row',
-  alignItems: 'flex-end',
-},
+      composer: {
+    borderTopWidth: 0.5,
+    borderTopColor: '#222',
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: Platform.OS === 'ios' ? 24 : 4,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 10,
+    backgroundColor: '#000',
+  },
   input: {
     flex: 1,
     backgroundColor: '#1a1a1a',

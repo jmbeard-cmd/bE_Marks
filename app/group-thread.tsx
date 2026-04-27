@@ -414,10 +414,10 @@ const handleTakePhoto = async () => {
   return (
     <SafeAreaView style={s.safe}>
       <KeyboardAvoidingView
-        style={s.safe}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 64}
-      >
+  style={s.safe}
+  behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+  keyboardVerticalOffset={0}
+>
         <View style={s.container}>
           <View style={s.header}>
             <TouchableOpacity
@@ -635,14 +635,16 @@ messageVideoIcon: {
   emptyText: { color: '#fff', fontSize: 16, fontWeight: '600', marginBottom: 6 },
   emptyHint: { color: '#555', fontSize: 13, textAlign: 'center' },
 
-  composer: {
+      composer: {
     borderTopWidth: 0.5,
     borderTopColor: '#222',
-    padding: 12,
-    paddingBottom: Platform.OS === 'android' ? 16 : 12,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: Platform.OS === 'ios' ? 12 : 4,
     flexDirection: 'row',
     gap: 10,
     alignItems: 'flex-end',
+    backgroundColor: '#111',
   },
   attachBtn: {
     width: 42,

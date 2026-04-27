@@ -1,5 +1,5 @@
 import { useVideoPlayer, VideoView } from 'expo-video';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Dimensions,
   Image,
@@ -112,7 +112,27 @@ export default function ImageViewerModal({
   const [zoomKey, setZoomKey] = useState(0);
   const swipeLockedRef = useRef(false);
 
-  const activeMedia = images[activeIndex];
+    const activeMedia = images[activeIndex];
+
+  const preloadTargets = useMemo(() => {
+    return [
+      images[activeIndex - 1],
+      images[activeIndex],
+      images[activeIndex + 1],
+    ].filter(Boolean);
+  }, [images, activeIndex]);
+
+  useEffect(() => {
+    preloadTargets.forEach(item => {
+      if (!item) return;
+
+      if (item.type === 'video') {
+        if (item.thumbnailUrl) Image.prefetch(item.thumbnailUrl);
+      } else if (item.uri) {
+        Image.prefetch(item.uri);
+      }
+    });
+  }, [preloadTargets]);
 
   useEffect(() => {
     if (!selectedUri) return;
@@ -270,20 +290,6 @@ videoFallback: {
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#000',
-  },
-  videoLoadingFallback: {
-    position: 'absolute',
-    width,
-    height,
-    zIndex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  videoLoadingText: {
-    color: '#777',
-    fontSize: 13,
-    marginTop: 10,
-    fontWeight: '600',
   },
   video: {
     width,
