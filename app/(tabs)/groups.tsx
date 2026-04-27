@@ -182,6 +182,14 @@ export default function GroupsScreen() {
     setJoining(false);
   };
 
+  function getRelayLabel(group: BEGroup): { text: string; type: 'default' | 'custom' | 'both' } {
+  const mode = group.relayMode ?? 'default';
+
+  if (mode === 'custom') return { text: 'Private Relay', type: 'custom' };
+  if (mode === 'both') return { text: 'bE + Private', type: 'both' };
+  return { text: 'bE Relay', type: 'default' };
+}
+  
   const renderGroup = ({ item }: { item: BEGroup }) => (
     <TouchableOpacity
       style={[s.card, item.status === 'archived' && s.cardArchived]}
@@ -199,14 +207,30 @@ export default function GroupsScreen() {
           <Text style={s.cardTime}>{formatGroupTime(item.lastPostAt)}</Text>
         </View>
                 <View style={s.cardMid}>
-          {item.season && <Text style={s.seasonBadge}>{item.season}</Text>}
+  {item.season && <Text style={s.seasonBadge}>{item.season}</Text>}
 
-          <Text style={s.memberBadge}>
-            {item.memberCount ?? 0} member{(item.memberCount ?? 0) !== 1 ? 's' : ''}
-          </Text>
+  <Text style={s.memberBadge}>
+    {item.memberCount ?? 0} member{(item.memberCount ?? 0) !== 1 ? 's' : ''}
+  </Text>
 
-          {item.status === 'archived' && <Text style={s.archivedBadge}>Archived</Text>}
-        </View>
+  {/* 🔥 Relay badge */}
+  {(() => {
+    const relay = getRelayLabel(item);
+    return (
+      <Text
+        style={[
+          s.relayBadge,
+          relay.type === 'custom' && s.relayBadgeCustom,
+          relay.type === 'both' && s.relayBadgeBoth,
+        ]}
+      >
+        {relay.text}
+      </Text>
+    );
+  })()}
+
+  {item.status === 'archived' && <Text style={s.archivedBadge}>Archived</Text>}
+</View>
         <Text style={s.cardPreview} numberOfLines={1}>
           {item.lastPostPreview || `${item.memberCount} member${item.memberCount !== 1 ? 's' : ''}`}
         </Text>
@@ -437,6 +461,29 @@ const s = StyleSheet.create({
   seasonBadge: { fontSize: 10, color: '#c9973a', backgroundColor: '#1e1600', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 10, borderWidth: 0.5, borderColor: '#3a2800' },
     memberBadge: { fontSize: 10, color: '#aaa', backgroundColor: '#111', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 10, borderWidth: 0.5, borderColor: '#2a2a2a' },
   archivedBadge: { fontSize: 10, color: '#444', backgroundColor: '#1a1a1a', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 10, borderWidth: 0.5, borderColor: '#2a2a2a' },
+
+relayBadge: {
+  fontSize: 10,
+  color: '#aaa',
+  backgroundColor: '#111',
+  paddingHorizontal: 7,
+  paddingVertical: 2,
+  borderRadius: 10,
+  borderWidth: 0.5,
+  borderColor: '#2a2a2a',
+},
+
+relayBadgeCustom: {
+  color: '#6b5cff',
+  borderColor: '#6b5cff33',
+  backgroundColor: '#151433',
+},
+
+relayBadgeBoth: {
+  color: '#c9973a',
+  borderColor: '#c9973a55',
+  backgroundColor: '#1e1600',
+},
   cardPreview: { color: '#555', fontSize: 13 },
 
   // Archived section
