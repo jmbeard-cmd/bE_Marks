@@ -194,54 +194,58 @@ export default function GroupsScreen() {
   return { text: 'bE', icon: '●', type: 'default' };
 }
   
-  const renderGroup = ({ item }: { item: BEGroup }) => (
-    <TouchableOpacity
-      style={[s.card, item.status === 'archived' && s.cardArchived]}
-      activeOpacity={0.85}
-      onPress={() => router.push({ pathname: '/group-thread', params: { id: item.id } } as any)}
-    >
-      <View style={[s.groupIcon, item.status === 'archived' && s.groupIconArchived]}>
-        <Text style={s.groupIconText}>{getGroupIcon(item)}</Text>
-      </View>
-      <View style={s.cardBody}>
-        <View style={s.cardTop}>
-          <Text style={[s.groupName, item.status === 'archived' && s.groupNameArchived]} numberOfLines={1}>
-            {item.name}
-          </Text>
-          <Text style={s.cardTime}>{formatGroupTime(item.lastPostAt)}</Text>
+    const renderGroup = ({ item }: { item: BEGroup }) => {
+    const relay = getRelayLabel(item);
+    const preview =
+      item.lastPostPreview ||
+      `${item.memberCount ?? 0} member${(item.memberCount ?? 0) !== 1 ? 's' : ''}`;
+
+    return (
+      <TouchableOpacity
+        style={[s.card, item.status === 'archived' && s.cardArchived]}
+        activeOpacity={0.88}
+        onPress={() => router.push({ pathname: '/group-thread', params: { id: item.id } } as any)}
+      >
+        <View style={[s.groupIcon, item.status === 'archived' && s.groupIconArchived]}>
+          <Text style={s.groupIconText}>{getGroupIcon(item)}</Text>
         </View>
-                <View style={s.cardMid}>
-  {item.season && <Text style={s.seasonBadge}>{item.season}</Text>}
 
-  <Text style={s.memberBadge}>
-    {item.memberCount ?? 0} member{(item.memberCount ?? 0) !== 1 ? 's' : ''}
-  </Text>
+        <View style={s.cardBody}>
+          <View style={s.cardTop}>
+            <Text style={[s.groupName, item.status === 'archived' && s.groupNameArchived]} numberOfLines={1}>
+              {item.name}
+            </Text>
+            {!!item.lastPostAt && <Text style={s.cardTime}>{formatGroupTime(item.lastPostAt)}</Text>}
+          </View>
 
-  {/* 🔥 Relay badge */}
-  {(() => {
-  const relay = getRelayLabel(item);
-  return (
-    <View
-      style={[
-        s.relayBadge,
-        relay.type === 'custom' && s.relayBadgeCustom,
-        relay.type === 'both' && s.relayBadgeBoth,
-      ]}
-    >
-      <Text style={s.relayBadgeIcon}>{relay.icon}</Text>
-      <Text style={s.relayBadgeText}>{relay.text}</Text>
-    </View>
-  );
-})()}
+          <Text style={s.cardPreview} numberOfLines={1}>
+            {preview}
+          </Text>
 
-  {item.status === 'archived' && <Text style={s.archivedBadge}>Archived</Text>}
-</View>
-        <Text style={s.cardPreview} numberOfLines={1}>
-          {item.lastPostPreview || `${item.memberCount} member${item.memberCount !== 1 ? 's' : ''}`}
-        </Text>
-      </View>
-    </TouchableOpacity>
-  );
+          <View style={s.cardMetaRow}>
+            {item.season && <Text style={s.seasonBadge}>{item.season}</Text>}
+
+            <Text style={s.memberBadge}>
+              {item.memberCount ?? 0} member{(item.memberCount ?? 0) !== 1 ? 's' : ''}
+            </Text>
+
+            <View
+              style={[
+                s.relayBadge,
+                relay.type === 'custom' && s.relayBadgeCustom,
+                relay.type === 'both' && s.relayBadgeBoth,
+              ]}
+            >
+              <Text style={s.relayBadgeIcon}>{relay.icon}</Text>
+              <Text style={s.relayBadgeText}>{relay.text}</Text>
+            </View>
+
+            {item.status === 'archived' && <Text style={s.archivedBadge}>Archived</Text>}
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   const SPORTS = ['softball', 'baseball', 'basketball', 'football', 'volleyball',
     'track', 'soccer', 'wrestling', 'golf', 'tennis', 'cheer', 'band', 'choir',
@@ -443,64 +447,139 @@ const s = StyleSheet.create({
   emptyBtnOutline: { borderWidth: 0.5, borderColor: '#c9973a', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12, width: '100%', alignItems: 'center' },
   emptyBtnOutlineText: { color: '#c9973a', fontWeight: '600', fontSize: 14 },
 
-  // Group card
+    // Group card
   card: {
-    flexDirection: 'row', gap: 12, alignItems: 'center',
-    backgroundColor: '#1a1a1a', borderWidth: 0.5, borderColor: '#222',
-    borderRadius: 14, padding: 14, marginBottom: 10,
+    flexDirection: 'row',
+    gap: 13,
+    alignItems: 'center',
+    backgroundColor: '#181818',
+    borderWidth: 0.5,
+    borderColor: '#252525',
+    borderRadius: 18,
+    padding: 15,
+    marginBottom: 12,
   },
-  cardArchived: { opacity: 0.6 },
+  cardArchived: {
+    opacity: 0.58,
+  },
   groupIcon: {
-    width: 48, height: 48, borderRadius: 24,
-    backgroundColor: '#2a1e00', alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: '#c9973a33',
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#211800',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 0.5,
+    borderColor: '#c9973a33',
   },
-  groupIconArchived: { backgroundColor: '#1a1a1a', borderColor: '#2a2a2a' },
-  groupIconText: { fontSize: 22 },
-  cardBody: { flex: 1 },
-  cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 },
-  groupName: { color: '#fff', fontSize: 15, fontWeight: '600', flex: 1, marginRight: 8 },
-  groupNameArchived: { color: '#555' },
-  cardTime: { color: '#444', fontSize: 11 },
-  cardMid: { flexDirection: 'row', gap: 6, marginBottom: 4 },
-  seasonBadge: { fontSize: 10, color: '#c9973a', backgroundColor: '#1e1600', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 10, borderWidth: 0.5, borderColor: '#3a2800' },
-    memberBadge: { fontSize: 10, color: '#aaa', backgroundColor: '#111', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 10, borderWidth: 0.5, borderColor: '#2a2a2a' },
-  archivedBadge: { fontSize: 10, color: '#444', backgroundColor: '#1a1a1a', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 10, borderWidth: 0.5, borderColor: '#2a2a2a' },
-
-relayBadge: {
-  flexDirection: 'row',
-  alignItems: 'center',
-  gap: 4,
-  paddingHorizontal: 8,
-  paddingVertical: 3,
-  borderRadius: 999,
-  borderWidth: 0.5,
-  borderColor: '#2a2a2a',
-  backgroundColor: '#121212',
-},
-
-relayBadgeIcon: {
-  fontSize: 8,
-  color: '#777',
-},
-
-relayBadgeText: {
-  fontSize: 10,
-  color: '#888',
-  fontWeight: '600',
-  letterSpacing: 0.3,
-},
-
-relayBadgeCustom: {
-  borderColor: '#6b5cff33',
-  backgroundColor: '#151433',
-},
-
-relayBadgeBoth: {
-  borderColor: '#c9973a44',
-  backgroundColor: '#1e1600',
-},
-  cardPreview: { color: '#555', fontSize: 13 },
+  groupIconArchived: {
+    backgroundColor: '#171717',
+    borderColor: '#2a2a2a',
+  },
+  groupIconText: {
+    fontSize: 22,
+  },
+  cardBody: {
+    flex: 1,
+    minWidth: 0,
+  },
+  cardTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+    gap: 8,
+  },
+  groupName: {
+    color: '#f4f4f4',
+    fontSize: 16,
+    fontWeight: '700',
+    flex: 1,
+    letterSpacing: -0.2,
+  },
+  groupNameArchived: {
+    color: '#666',
+  },
+  cardTime: {
+    color: '#555',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  cardPreview: {
+    color: '#777',
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: 9,
+  },
+  cardMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  seasonBadge: {
+    fontSize: 10,
+    color: '#c9973a',
+    backgroundColor: '#1e1600',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    borderWidth: 0.5,
+    borderColor: '#3a2800',
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+  memberBadge: {
+    fontSize: 10,
+    color: '#999',
+    backgroundColor: '#111',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    borderWidth: 0.5,
+    borderColor: '#2a2a2a',
+    fontWeight: '600',
+  },
+  archivedBadge: {
+    fontSize: 10,
+    color: '#555',
+    backgroundColor: '#151515',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    borderWidth: 0.5,
+    borderColor: '#2a2a2a',
+    fontWeight: '600',
+  },
+  relayBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    borderWidth: 0.5,
+    borderColor: '#2a2a2a',
+    backgroundColor: '#111',
+  },
+  relayBadgeIcon: {
+    fontSize: 8,
+    color: '#777',
+  },
+  relayBadgeText: {
+    fontSize: 10,
+    color: '#888',
+    fontWeight: '700',
+    letterSpacing: 0.25,
+  },
+  relayBadgeCustom: {
+    borderColor: '#6b5cff33',
+    backgroundColor: '#151433',
+  },
+  relayBadgeBoth: {
+    borderColor: '#c9973a44',
+    backgroundColor: '#1e1600',
+  },
 
   // Archived section
   archivedSection: { marginTop: 8 },
