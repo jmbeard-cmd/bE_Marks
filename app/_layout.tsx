@@ -106,7 +106,12 @@ export default function RootLayout() {
       relays, setRelays,
     }}>
       <StatusBar style="light" />
-      <Stack screenOptions={{ headerShown: false } as any}>
+      <Stack
+  screenOptions={{
+    headerShown: false,
+    contentStyle: { backgroundColor: '#000' },
+  } as any}
+>
   {/* DEFAULT APP FLOW */}
   <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
 

@@ -210,7 +210,11 @@ console.log('[DM THREAD] current threadId:', threadId);
   };
 
   const handleBack = () => {
-  router.replace('/(tabs)/messages' as any);
+  if (router.canGoBack()) {
+    router.back();
+  } else {
+    router.replace('/(tabs)/messages' as any);
+  }
 };
 
   const displayName = contactProfile?.display_name || contactProfile?.name || title;
@@ -385,7 +389,7 @@ function formatDividerDate(unixSecs: number): string {
 }
 
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#111' },
+  safe: { flex: 1, backgroundColor: '#000' },
   container: { flex: 1 },
 
   header: {

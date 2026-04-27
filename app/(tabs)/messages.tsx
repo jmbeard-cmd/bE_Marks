@@ -614,7 +614,7 @@ export default function MessagesScreen() {
 }
 
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#111' },
+  safe: { flex: 1, backgroundColor: '#000' },
   list: { padding: 20, paddingBottom: 110 },
   listEmpty: { flexGrow: 1 },
   swipeHint: { textAlign: 'center', fontSize: 11, color: '#2a2a2a', paddingBottom: 8 },
