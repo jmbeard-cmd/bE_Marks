@@ -32,6 +32,17 @@ import {
 } from '../src/utils/nostr';
 import { uploadToR2 } from '../src/utils/r2';
 import { useIdentity } from './_layout';
+type PendingUploadMessage = {
+  id: string;
+  groupId: string;
+  text?: string;
+  mediaType: 'image' | 'video';
+  mine: true;
+  senderName?: string;
+  createdAt: number;
+  pending: true;
+  pendingLabel: string;
+};
 
 export default function GroupThreadScreen() {
   const router = useRouter();
@@ -47,6 +58,8 @@ export default function GroupThreadScreen() {
   const [messages, setMessages] = useState<GroupMessage[]>([]);
 const [sending, setSending] = useState(false);
 const [uploadingImage, setUploadingImage] = useState(false);
+const [uploadStatus, setUploadStatus] = useState<string | null>(null);
+const [pendingUploads, setPendingUploads] = useState<PendingUploadMessage[]>([]);
 const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
 
   const listRef = useRef<FlatList>(null);
@@ -68,6 +81,11 @@ const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
 
     return item;
   });
+
+    const visibleMessages = useMemo(
+    () => [...messages, ...pendingUploads].sort((a, b) => a.createdAt - b.createdAt),
+    [messages, pendingUploads]
+  );
 
   const scrollToBottom = useCallback((animated = true) => {
     listRef.current?.scrollToEnd({ animated });
@@ -173,6 +191,7 @@ const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
     Keyboard.dismiss();
 
     try {
+      setUploadStatus('Posting...');
       await sendLocalGroupMessage({
         groupId,
         text,
@@ -197,6 +216,7 @@ const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
       }
 
       await loadMessages();
+      setUploadStatus(null);
     } catch (error: any) {
       Alert.alert('Error', error?.message || 'Could not send message.');
     }
@@ -204,88 +224,122 @@ const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
     setSending(false);
   };
 
-  const handlePickMedia = async () => {
-  if (!groupId || uploadingImage) return;
+    const handlePickMedia = async () => {
+    if (!groupId || uploadingImage) return;
 
-  const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-  if (permission.status !== 'granted') {
-    Alert.alert('Permission needed', 'Allow media access.');
-    return;
-  }
-
-  const result = await ImagePicker.launchImageLibraryAsync({
-    mediaTypes: ImagePicker.MediaTypeOptions.All,
-    quality: 0.9,
-  });
-
-  if (result.canceled || !result.assets?.[0]?.uri) return;
-
-  setUploadingImage(true);
-
-  try {
-    const asset = result.assets[0];
-    const mediaType = asset.type === 'video' ? 'video' : 'image';
-
-        const uploadUri = asset.uri;
-
-    const uploadedUrl = await uploadToR2(
-      uploadUri,
-      mediaType === 'video' ? 'video' : 'photo'
-    );
-
-    if (!uploadedUrl) {
-      Alert.alert('Upload failed', 'Could not upload media.');
-      setUploadingImage(false);
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (permission.status !== 'granted') {
+      Alert.alert('Permission needed', 'Allow media access.');
       return;
     }
 
-    let thumbnailUrl: string | undefined;
-
-    if (mediaType === 'video') {
-      try {
-        const thumbnail = await VideoThumbnails.getThumbnailAsync(uploadUri, {
-          time: 1000,
-        });
-
-        const uploadedThumbnail = await uploadToR2(thumbnail.uri, 'photo');
-        thumbnailUrl = uploadedThumbnail || undefined;
-      } catch (thumbError) {
-        console.warn('[Groups] thumbnail failed:', thumbError);
-      }
-    }
-
-    await sendLocalGroupMessage({
-      groupId,
-      mediaUrl: uploadedUrl,
-      mediaType,
-      thumbnailUrl,
-      imageUrl: mediaType === 'image' ? uploadedUrl : undefined,
-      mine: true,
-      senderNpub: npub ?? undefined,
-      senderName: myDisplayName,
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.All,
+      quality: 0.9,
     });
 
-    if (nsec) {
-      await publishGroupMessage({
+    if (result.canceled || !result.assets?.[0]?.uri) return;
+
+        setUploadingImage(true);
+    setUploadStatus('Preparing media...');
+
+    const pendingId = `pending_upload_${Date.now()}`;
+    const pendingMediaType = result.assets[0].type === 'video' ? 'video' : 'image';
+
+    setPendingUploads(prev => [
+      ...prev,
+      {
+        id: pendingId,
+        groupId,
+        mediaType: pendingMediaType,
+        mine: true,
+        senderName: myDisplayName,
+        createdAt: Math.floor(Date.now() / 1000),
+        pending: true,
+        pendingLabel: pendingMediaType === 'video'
+          ? 'Uploading video…'
+          : 'Uploading photo…',
+      },
+    ]);
+
+    setTimeout(() => scrollToBottom(true), 50);
+
+    try {
+      const asset = result.assets[0];
+      const mediaType = asset.type === 'video' ? 'video' : 'image';
+      const uploadUri = asset.uri;
+
+      setUploadStatus('Uploading...');
+
+      const uploadedUrl = await uploadToR2(
+        uploadUri,
+        mediaType === 'video' ? 'video' : 'photo'
+      );
+
+      if (!uploadedUrl) {
+        Alert.alert('Upload failed', 'Could not upload media.');
+        setUploadStatus(null);
+        setUploadingImage(false);
+        return;
+      }
+
+      let thumbnailUrl: string | undefined;
+
+      if (mediaType === 'video') {
+        try {
+          setUploadStatus('Creating thumbnail...');
+
+          const thumbnail = await VideoThumbnails.getThumbnailAsync(uploadUri, {
+            time: 1000,
+          });
+
+          setUploadStatus('Uploading thumbnail...');
+
+          const uploadedThumbnail = await uploadToR2(thumbnail.uri, 'photo');
+          thumbnailUrl = uploadedThumbnail || undefined;
+        } catch (thumbError) {
+          console.warn('[Groups] thumbnail failed:', thumbError);
+        }
+      }
+
+      setUploadStatus('Posting...');
+
+      await sendLocalGroupMessage({
         groupId,
         mediaUrl: uploadedUrl,
         mediaType,
         thumbnailUrl,
         imageUrl: mediaType === 'image' ? uploadedUrl : undefined,
+        mine: true,
         senderNpub: npub ?? undefined,
         senderName: myDisplayName,
-        nsec,
-        relayUrl,
       });
+
+      if (nsec) {
+        await publishGroupMessage({
+          groupId,
+          mediaUrl: uploadedUrl,
+          mediaType,
+          thumbnailUrl,
+          imageUrl: mediaType === 'image' ? uploadedUrl : undefined,
+          senderNpub: npub ?? undefined,
+          senderName: myDisplayName,
+          nsec,
+          relayUrl,
+        });
+      }
+
+            setPendingUploads(prev => prev.filter(item => item.id !== pendingId));
+      await loadMessages();
+      setUploadStatus(null);
+    } catch (e: any) {
+            setPendingUploads(prev => prev.filter(item => item.id !== pendingId));
+      Alert.alert('Error', e?.message || 'Failed to send media.');
+      setUploadStatus(null);
     }
 
-    await loadMessages();
-  } catch (e: any) {
-    Alert.alert('Error', e?.message || 'Failed to send media.');
-  }
-
-  setUploadingImage(false);
-};
+    setUploadingImage(false);
+  };
 
 const handleTakePhoto = async () => {
   if (!groupId || uploadingImage) return;
@@ -296,23 +350,33 @@ const handleTakePhoto = async () => {
     return;
   }
 
+  setUploadingImage(true);
+  setUploadStatus('Opening camera...');
+
   const result = await ImagePicker.launchCameraAsync({
     mediaTypes: ImagePicker.MediaTypeOptions.Images,
     quality: 0.9,
   });
 
-  if (result.canceled || !result.assets?.[0]?.uri) return;
-
-  setUploadingImage(true);
+  if (result.canceled || !result.assets?.[0]?.uri) {
+    setUploadStatus(null);
+    setUploadingImage(false);
+    return;
+  }
 
   try {
+    setUploadStatus('Uploading...');
+
     const uploadedUrl = await uploadToR2(result.assets[0].uri, 'photo');
 
     if (!uploadedUrl) {
       Alert.alert('Upload failed', 'Could not upload photo.');
+      setUploadStatus(null);
       setUploadingImage(false);
       return;
     }
+
+    setUploadStatus('Posting...');
 
     await sendLocalGroupMessage({
       groupId,
@@ -338,8 +402,10 @@ const handleTakePhoto = async () => {
     }
 
     await loadMessages();
+    setUploadStatus(null);
   } catch (e: any) {
     Alert.alert('Error', e?.message || 'Could not send photo.');
+    setUploadStatus(null);
   }
 
   setUploadingImage(false);
@@ -353,9 +419,15 @@ const handleTakePhoto = async () => {
     router.push({ pathname: '/group-detail', params: { id: groupId } } as any);
   };
 
-  const renderMessage = ({ item, index }: { item: GroupMessage; index: number }) => {
-    const prevMsg = index > 0 ? messages[index - 1] : null;
+      const renderMessage = ({ item, index }: { item: GroupMessage | PendingUploadMessage; index: number }) => {
+    const prevMsg = index > 0 ? visibleMessages[index - 1] : null;
     const showName = !item.mine && (!prevMsg || prevMsg.senderName !== item.senderName);
+
+    const isPending = 'pending' in item && item.pending;
+    const mediaUrl = 'mediaUrl' in item ? item.mediaUrl : undefined;
+    const imageUrl = 'imageUrl' in item ? item.imageUrl : undefined;
+    const thumbnailUrl = 'thumbnailUrl' in item ? item.thumbnailUrl : undefined;
+    const mediaType = item.mediaType;
 
     return (
       <View style={[s.row, item.mine ? s.rowMine : s.rowOther]}>
@@ -366,40 +438,49 @@ const handleTakePhoto = async () => {
             </Text>
           )}
 
-          {!!item.text && (
+          {isPending && (
+            <View style={s.pendingMediaBox}>
+              <ActivityIndicator size="small" color="#c9973a" />
+              <Text style={s.pendingMediaText}>
+                {item.pendingLabel}
+              </Text>
+            </View>
+          )}
+
+          {!isPending && !!item.text && (
             <Text style={[s.messageText, item.mine ? s.messageTextMine : s.messageTextOther]}>
               {item.text}
             </Text>
           )}
 
-          {!!(item.mediaUrl || item.imageUrl) && (
-  <TouchableOpacity
-    activeOpacity={0.85}
-    onPress={() => setSelectedMediaUri(item.mediaUrl || item.imageUrl || null)}
-  >
-    {item.mediaType === 'video' ? (
-      <View style={s.messageVideo}>
-  {item.thumbnailUrl ? (
-    <Image
-      source={{ uri: item.thumbnailUrl }}
-      style={s.messageVideoThumb}
-      resizeMode="cover"
-    />
-  ) : null}
+          {!isPending && !!(mediaUrl || imageUrl) && (
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => setSelectedMediaUri(mediaUrl || imageUrl || null)}
+            >
+              {mediaType === 'video' ? (
+                <View style={s.messageVideo}>
+                  {thumbnailUrl ? (
+                    <Image
+                      source={{ uri: thumbnailUrl }}
+                      style={s.messageVideoThumb}
+                      resizeMode="cover"
+                    />
+                  ) : null}
 
-  <View style={s.messageVideoOverlay}>
-    <Text style={s.messageVideoIcon}>▶</Text>
-  </View>
-</View>
-    ) : (
-      <Image
-        source={{ uri: item.mediaUrl || item.imageUrl }}
-        style={s.messageImage}
-        resizeMode="cover"
-      />
-    )}
-  </TouchableOpacity>
-)}
+                  <View style={s.messageVideoOverlay}>
+                    <Text style={s.messageVideoIcon}>▶</Text>
+                  </View>
+                </View>
+              ) : (
+                <Image
+                  source={{ uri: mediaUrl || imageUrl }}
+                  style={s.messageImage}
+                  resizeMode="cover"
+                />
+              )}
+            </TouchableOpacity>
+          )}
 
           <Text style={[s.time, item.mine ? s.timeMine : s.timeOther]}>
             {formatMessageTime(item.createdAt)}
@@ -444,7 +525,7 @@ const handleTakePhoto = async () => {
 
           <FlatList
             ref={listRef}
-            data={messages}
+                        data={visibleMessages}
             keyExtractor={item => item.id}
             contentContainerStyle={s.list}
             keyboardShouldPersistTaps="handled"
@@ -465,6 +546,12 @@ const handleTakePhoto = async () => {
             renderItem={renderMessage}
           />
 
+          {uploadStatus && (
+  <View style={s.uploadBanner}>
+    <Text style={s.uploadText}>{uploadStatus}</Text>
+  </View>
+)}
+
           <View style={s.composer}>
             <TouchableOpacity
               style={[s.attachBtn, uploadingImage && s.attachBtnDim]}
@@ -482,10 +569,10 @@ const handleTakePhoto = async () => {
               disabled={uploadingImage}
             >
               {uploadingImage ? (
-                <ActivityIndicator size="small" color="#c9973a" />
-              ) : (
-                <Text style={s.attachText}>＋</Text>
-              )}
+  <ActivityIndicator size="small" color="#c9973a" />
+) : (
+  <Text style={s.attachText}>＋</Text>
+)}
             </TouchableOpacity>
 
                                     <TextInput
@@ -550,6 +637,20 @@ const s = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
   },
+  uploadBanner: {
+  paddingVertical: 6,
+  paddingHorizontal: 12,
+  backgroundColor: '#1a1a1a',
+  borderTopWidth: 0.5,
+  borderTopColor: '#2a2a2a',
+},
+
+uploadText: {
+  color: '#c9973a',
+  fontSize: 12,
+  textAlign: 'center',
+  fontWeight: '600',
+},
   backBtn: { width: 60 },
   backText: { color: '#c9973a', fontSize: 14, fontWeight: '600' },
   headerCenter: { flex: 1, alignItems: 'center' },
@@ -595,6 +696,23 @@ const s = StyleSheet.create({
   messageTextMine: { color: '#111' },
   messageTextOther: { color: '#eee' },
 
+   pendingMediaBox: {
+    width: 220,
+    height: 120,
+    borderRadius: 12,
+    marginTop: 4,
+    backgroundColor: '#111',
+    borderWidth: 0.5,
+    borderColor: '#2a2a2a',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  pendingMediaText: {
+    color: '#c9973a',
+    fontSize: 13,
+    fontWeight: '700',
+  },
   messageImage: {
     width: 220,
     height: 220,
