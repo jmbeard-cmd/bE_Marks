@@ -66,10 +66,6 @@ const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
       thumbnailUrl: message.thumbnailUrl,
     };
 
-    if (item.type === 'video') {
-      console.log('[Gallery Debug] viewerMedia video item:', item);
-    }
-
     return item;
   });
 
@@ -453,7 +449,10 @@ const handleTakePhoto = async () => {
             contentContainerStyle={s.list}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-            onContentSizeChange={() => scrollToBottom(false)}
+                        onContentSizeChange={() => {
+              scrollToBottom(false);
+              setTimeout(() => scrollToBottom(true), 75);
+            }}
             ListEmptyComponent={
               <View style={s.empty}>
                 <Text style={s.emptyIcon}>👥</Text>

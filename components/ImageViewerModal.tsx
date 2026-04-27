@@ -1,5 +1,5 @@
 import { useVideoPlayer, VideoView } from 'expo-video';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Dimensions,
   Image,
@@ -8,7 +8,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
+  View,
 } from 'react-native';
 import ImageZoom from 'react-native-image-pan-zoom';
 
@@ -37,6 +37,10 @@ function ViewerVideo({
 }) {
   const [ready, setReady] = useState(false);
 
+  useEffect(() => {
+    setReady(false);
+  }, [uri]);
+
   const player = useVideoPlayer({ uri }, p => {
     p.loop = false;
     p.play();
@@ -45,8 +49,14 @@ function ViewerVideo({
   const panResponder = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_, gesture) => {
-        const horizontal = Math.abs(gesture.dx) > 25 && Math.abs(gesture.dx) > Math.abs(gesture.dy);
-        const vertical = Math.abs(gesture.dy) > 35 && Math.abs(gesture.dy) > Math.abs(gesture.dx);
+        const horizontal =
+          Math.abs(gesture.dx) > 25 &&
+          Math.abs(gesture.dx) > Math.abs(gesture.dy);
+
+        const vertical =
+          Math.abs(gesture.dy) > 35 &&
+          Math.abs(gesture.dy) > Math.abs(gesture.dx);
+
         return horizontal || vertical;
       },
       onPanResponderRelease: (_, gesture) => {
@@ -63,7 +73,6 @@ function ViewerVideo({
 
   return (
     <View style={s.videoScreen} {...panResponder.panHandlers}>
-      
       {!!thumbnailUrl && !ready && (
         <Image
           source={{ uri: thumbnailUrl }}
@@ -74,23 +83,16 @@ function ViewerVideo({
 
       {!thumbnailUrl && !ready && (
         <View style={s.videoFallback}>
-          <Text style={{ color: '#777' }}>Loading video...</Text>
+          <Text style={s.videoFallbackText}>Loading video...</Text>
         </View>
       )}
 
       <VideoView
-        key={uri}
         player={player}
-        style={[
-          s.video,
-          !ready && { opacity: 0 },
-        ]}
+        style={[s.video, !ready && { opacity: 0 }]}
         contentFit="contain"
         nativeControls
-        surfaceType="textureView"
-        onFirstFrameRender={() => {
-          setReady(true);
-        }}
+        onFirstFrameRender={() => setReady(true)}
       />
 
       <TouchableOpacity style={s.videoLeftTapZone} onPress={goPrev} />
@@ -110,37 +112,24 @@ export default function ImageViewerModal({
 }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [zoomKey, setZoomKey] = useState(0);
+  const [modalSeedUri, setModalSeedUri] = useState<string | null>(null);
   const swipeLockedRef = useRef(false);
 
-    const activeMedia = images[activeIndex];
-
-  const preloadTargets = useMemo(() => {
-    return [
-      images[activeIndex - 1],
-      images[activeIndex],
-      images[activeIndex + 1],
-    ].filter(Boolean);
-  }, [images, activeIndex]);
+  const activeMedia = images[activeIndex];
 
   useEffect(() => {
-    preloadTargets.forEach(item => {
-      if (!item) return;
-
-      if (item.type === 'video') {
-        if (item.thumbnailUrl) Image.prefetch(item.thumbnailUrl);
-      } else if (item.uri) {
-        Image.prefetch(item.uri);
-      }
-    });
-  }, [preloadTargets]);
-
-  useEffect(() => {
-    if (!selectedUri) return;
+    if (!selectedUri) {
+      setModalSeedUri(null);
+      swipeLockedRef.current = false;
+      return;
+    }
 
     const startIndex = images.findIndex(img => img.uri === selectedUri);
+
     swipeLockedRef.current = false;
     setActiveIndex(startIndex >= 0 ? startIndex : 0);
     setZoomKey(k => k + 1);
+    setModalSeedUri(selectedUri);
   }, [selectedUri, images]);
 
   function unlockSwipeSoon() {
@@ -169,19 +158,30 @@ export default function ImageViewerModal({
     unlockSwipeSoon();
   }
 
+  function handleClose() {
+    swipeLockedRef.current = false;
+    setModalSeedUri(null);
+    onClose();
+  }
+
+  const contentReady =
+    !!selectedUri &&
+    modalSeedUri === selectedUri &&
+    !!activeMedia;
+
   return (
     <Modal
       visible={!!selectedUri}
       transparent
       animationType="fade"
-      onRequestClose={onClose}
+      onRequestClose={handleClose}
     >
       <View style={s.overlay}>
-        <TouchableOpacity style={s.closeBtn} onPress={onClose}>
+        <TouchableOpacity style={s.closeBtn} onPress={handleClose}>
           <Text style={s.closeText}>✕</Text>
         </TouchableOpacity>
 
-        {images.length > 1 && (
+        {contentReady && images.length > 1 && (
           <View style={s.counter}>
             <Text style={s.counterText}>
               {activeIndex + 1} / {images.length}
@@ -189,16 +189,16 @@ export default function ImageViewerModal({
           </View>
         )}
 
-        {activeMedia?.type === 'video' ? (
+        {contentReady && activeMedia?.type === 'video' ? (
           <ViewerVideo
             key={activeMedia.uri}
             uri={activeMedia.uri}
             thumbnailUrl={activeMedia.thumbnailUrl}
             goNext={goNext}
             goPrev={goPrev}
-            onClose={onClose}
+            onClose={handleClose}
           />
-        ) : activeMedia ? (
+        ) : contentReady && activeMedia ? (
           <ZoomableImage
             key={`${activeMedia.id}-${zoomKey}`}
             cropWidth={width}
@@ -211,7 +211,7 @@ export default function ImageViewerModal({
             panToMove
             pinchToZoom
             enableSwipeDown
-            onSwipeDown={onClose}
+            onSwipeDown={handleClose}
             swipeDownThreshold={80}
             horizontalOuterRangeOffset={(offsetX: number) => {
               if (offsetX < -45) goNext();
@@ -235,19 +235,6 @@ const s = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000',
   },
-  videoThumbnail: {
-  position: 'absolute',
-  width,
-  height,
-  zIndex: 1,
-},
-videoFallback: {
-  position: 'absolute',
-  width,
-  height,
-  alignItems: 'center',
-  justifyContent: 'center',
-},
   closeBtn: {
     position: 'absolute',
     top: 50,
@@ -291,31 +278,27 @@ videoFallback: {
     justifyContent: 'center',
     backgroundColor: '#000',
   },
+  videoThumbnail: {
+    position: 'absolute',
+    width,
+    height,
+    zIndex: 1,
+  },
+  videoFallback: {
+    position: 'absolute',
+    width,
+    height,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  videoFallbackText: {
+    color: '#777',
+    fontSize: 13,
+  },
   video: {
     width,
     height,
     zIndex: 2,
-  },
-  videoHidden: {
-    opacity: 0,
-  },
-  videoLoadingBadge: {
-    position: 'absolute',
-    bottom: 64,
-    alignSelf: 'center',
-    zIndex: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#c9973a',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
-  },
-  videoLoadingBadgeText: {
-    color: '#111',
-    fontSize: 12,
-    fontWeight: '800',
   },
   videoLeftTapZone: {
     position: 'absolute',

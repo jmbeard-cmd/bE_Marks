@@ -125,13 +125,6 @@ setGalleryItems(mediaItems);
   const handleShareInvite = async () => {
     if (!group) return;
 
-const galleryViewerImages: ViewerImage[] = galleryItems
-  .filter(item => !!item.mediaUrl)
-  .map(item => ({
-    id: item.id,
-    uri: item.mediaUrl,
-    type: item.mediaType === 'video' ? 'video' : 'image',
-  }));
     try {
       await Share.share({
         message: `Join "${group.name}" on bE Marks!\n\nInvite code: ${group.inviteCode}\n\nOr tap: ${deepLink}`,
@@ -470,10 +463,10 @@ const galleryViewerImages: ViewerImage[] = galleryItems
     ListEmptyComponent={
       <View style={s.empty}>
         <Text style={s.emptyIcon}>🖼️</Text>
-        <Text style={s.emptyText}>No photos yet</Text>
+        <Text style={s.emptyText}>No media yet</Text>
         <Text style={s.emptyHint}>
-          Photos posted in chat will appear here.
-        </Text>
+  Photos and videos posted in chat will appear here.
+</Text>
       </View>
     }
   />
