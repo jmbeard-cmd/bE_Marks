@@ -182,12 +182,16 @@ export default function GroupsScreen() {
     setJoining(false);
   };
 
-  function getRelayLabel(group: BEGroup): { text: string; type: 'default' | 'custom' | 'both' } {
+  function getRelayLabel(group: BEGroup): {
+  text: string;
+  icon: string;
+  type: 'default' | 'custom' | 'both';
+} {
   const mode = group.relayMode ?? 'default';
 
-  if (mode === 'custom') return { text: 'Private Relay', type: 'custom' };
-  if (mode === 'both') return { text: 'bE + Private', type: 'both' };
-  return { text: 'bE Relay', type: 'default' };
+  if (mode === 'custom') return { text: 'Private', icon: '◆', type: 'custom' };
+  if (mode === 'both') return { text: 'Both', icon: '↔', type: 'both' };
+  return { text: 'bE', icon: '●', type: 'default' };
 }
   
   const renderGroup = ({ item }: { item: BEGroup }) => (
@@ -215,19 +219,20 @@ export default function GroupsScreen() {
 
   {/* 🔥 Relay badge */}
   {(() => {
-    const relay = getRelayLabel(item);
-    return (
-      <Text
-        style={[
-          s.relayBadge,
-          relay.type === 'custom' && s.relayBadgeCustom,
-          relay.type === 'both' && s.relayBadgeBoth,
-        ]}
-      >
-        {relay.text}
-      </Text>
-    );
-  })()}
+  const relay = getRelayLabel(item);
+  return (
+    <View
+      style={[
+        s.relayBadge,
+        relay.type === 'custom' && s.relayBadgeCustom,
+        relay.type === 'both' && s.relayBadgeBoth,
+      ]}
+    >
+      <Text style={s.relayBadgeIcon}>{relay.icon}</Text>
+      <Text style={s.relayBadgeText}>{relay.text}</Text>
+    </View>
+  );
+})()}
 
   {item.status === 'archived' && <Text style={s.archivedBadge}>Archived</Text>}
 </View>
@@ -463,25 +468,36 @@ const s = StyleSheet.create({
   archivedBadge: { fontSize: 10, color: '#444', backgroundColor: '#1a1a1a', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 10, borderWidth: 0.5, borderColor: '#2a2a2a' },
 
 relayBadge: {
-  fontSize: 10,
-  color: '#aaa',
-  backgroundColor: '#111',
-  paddingHorizontal: 7,
-  paddingVertical: 2,
-  borderRadius: 10,
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 4,
+  paddingHorizontal: 8,
+  paddingVertical: 3,
+  borderRadius: 999,
   borderWidth: 0.5,
   borderColor: '#2a2a2a',
+  backgroundColor: '#121212',
+},
+
+relayBadgeIcon: {
+  fontSize: 8,
+  color: '#777',
+},
+
+relayBadgeText: {
+  fontSize: 10,
+  color: '#888',
+  fontWeight: '600',
+  letterSpacing: 0.3,
 },
 
 relayBadgeCustom: {
-  color: '#6b5cff',
   borderColor: '#6b5cff33',
   backgroundColor: '#151433',
 },
 
 relayBadgeBoth: {
-  color: '#c9973a',
-  borderColor: '#c9973a55',
+  borderColor: '#c9973a44',
   backgroundColor: '#1e1600',
 },
   cardPreview: { color: '#555', fontSize: 13 },
