@@ -47,6 +47,7 @@ export default function DmThreadScreen() {
   const threadId = useMemo(() => params.id || '', [params.id]);
   const title = useMemo(() => params.title || 'Conversation', [params.title]);
 
+
   const scrollToBottom = useCallback((animated = true) => {
     listRef.current?.scrollToEnd({ animated });
   }, []);
@@ -259,10 +260,10 @@ console.log('[DM THREAD] current threadId:', threadId);
   return (
     <SafeAreaView style={s.safe}>
       <KeyboardAvoidingView
-        style={s.safe}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 64}
-      >
+  style={{ flex: 1 }}
+  behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+  keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+>
         <View style={s.container}>
           <View style={s.header}>
             <TouchableOpacity
@@ -302,6 +303,7 @@ console.log('[DM THREAD] current threadId:', threadId);
           <FlatList
             ref={listRef}
             data={messages}
+            contentInsetAdjustmentBehavior="always"
             keyExtractor={item => item.id}
             contentContainerStyle={s.list}
             keyboardShouldPersistTaps="handled"
@@ -492,14 +494,14 @@ const s = StyleSheet.create({
   },
 
   composer: {
-    borderTopWidth: 0.5,
-    borderTopColor: '#222',
-    padding: 12,
-    paddingBottom: Platform.OS === 'android' ? 16 : 12,
-    flexDirection: 'row',
-    gap: 10,
-    alignItems: 'flex-end',
-  },
+  borderTopWidth: 0.5,
+  borderTopColor: '#222',
+  paddingHorizontal: 12,
+  paddingTop: 10,
+  paddingBottom: Platform.OS === 'ios' ? 24 : 12,
+  flexDirection: 'row',
+  alignItems: 'flex-end',
+},
   input: {
     flex: 1,
     backgroundColor: '#1a1a1a',
