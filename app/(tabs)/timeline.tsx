@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import BEHeader from '../../components/BEHeader';
-import { fetchFamilyMilestones } from '../../src/utils/nostr';
+import { DEFAULT_RELAY, fetchFamilyMembers, fetchFamilyMilestones } from '../../src/utils/nostr';
 import {
   formatDate,
   getFamilyMemberCount,
@@ -25,6 +25,7 @@ import {
   getMilestones,
   saveRemoteMilestone,
   setLastFamilyCheck,
+  upsertFamilyMember,
   type Milestone,
 } from '../../src/utils/storage';
 import { useIdentity } from '../_layout';
@@ -169,39 +170,66 @@ export default function TimelineScreen() {
     setFamilyMemberCount(0);
   }, [family, npub]);
 
-  const syncFamilyMilestones = useCallback(async () => {
+    const syncFamilyMilestones = useCallback(async () => {
     if (!family || !npub) return;
+
     setSyncing(true);
+
     try {
+      const relayUrl = DEFAULT_RELAY;
+
+      const remoteMembers = await fetchFamilyMembers(family.id, relayUrl);
+
+      for (const member of remoteMembers) {
+        if (!member.memberNpub) continue;
+
+        await upsertFamilyMember({
+          familyId: family.id,
+          npub: member.memberNpub,
+          displayName: member.familyName || 'Member',
+          role: member.role === 'admin' ? 'admin' : 'member',
+          joinedAt: member.joinedAt,
+          status: 'active',
+        });
+      }
+
       const remoteEvents = await fetchFamilyMilestones(family.id);
-      const local = await getMilestones();
       let addedCount = 0;
+
       for (const event of remoteEvents) {
         try {
           const data = JSON.parse(event.content);
-          await saveRemoteMilestone({
-  id: data.id,
-  note: data.note ?? '',
-  tags: data.tags ?? [],
-  photoUri: data.photoUri,
-  videoUri: data.videoUri,
-  audioUri: data.audioUri,
-  media: Array.isArray(data.media) ? data.media : [],
-  reflections: Array.isArray(data.reflections) ? data.reflections : [],
-  createdAt: data.createdAt ?? event.created_at,
-  familyId: family.id,
-  authorNpub: data.authorNpub,
-  publishedToRelay: true,
-  nostrEventId: event.id,
-});
 
-addedCount++;
+          await saveRemoteMilestone({
+            id: data.id,
+            note: data.note ?? '',
+            tags: data.tags ?? [],
+            photoUri: data.photoUri,
+            videoUri: data.videoUri,
+            audioUri: data.audioUri,
+            media: Array.isArray(data.media) ? data.media : [],
+            reflections: Array.isArray(data.reflections) ? data.reflections : [],
+            createdAt: data.createdAt ?? event.created_at,
+            familyId: family.id,
+            authorNpub: data.authorNpub,
+            publishedToRelay: true,
+            nostrEventId: event.id,
+          });
+
+          addedCount++;
         } catch {}
       }
-      if (addedCount > 0) await load();
+
+      if (addedCount > 0) {
+        await load();
+      } else {
+        const memberCount = await getFamilyMemberCount(family.id);
+        setFamilyMemberCount(memberCount);
+      }
     } catch (e) {
       console.warn('[Family Sync] Fetch error:', e);
     }
+
     setSyncing(false);
   }, [family, npub, load]);
 
