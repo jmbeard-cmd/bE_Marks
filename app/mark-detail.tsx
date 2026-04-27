@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ImageViewerModal, { ViewerImage } from '../components/ImageViewerModal';
-import { publishFamilyMilestone } from '../src/utils/nostr';
+import { fetchNostrProfile, publishFamilyMilestone, type NostrProfile } from '../src/utils/nostr';
 import { formatDate, getMilestones, updateMilestone, type Milestone } from '../src/utils/storage';
 import { useIdentity } from './_layout';
 
@@ -70,6 +70,7 @@ export default function MilestoneDetail() {
   const [isAddingReflection, setIsAddingReflection] = useState(false);
   const [reflectionText, setReflectionText] = useState('');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [reflectionProfiles, setReflectionProfiles] = useState<Record<string, NostrProfile>>({});
 
   const audioPlayer = useAudioPlayer(
     milestone?.audioUri ? { uri: milestone.audioUri } : null
@@ -86,6 +87,31 @@ export default function MilestoneDetail() {
       if (found) setMilestone(found);
     });
   }, [id]);
+
+  useEffect(() => {
+  if (!milestone?.reflections?.length) return;
+
+  const authors = Array.from(
+    new Set(
+      milestone.reflections
+        .map(r => r.authorNpub)
+        .filter(Boolean)
+    )
+  ) as string[];
+
+  authors.forEach(async authorNpub => {
+    if (reflectionProfiles[authorNpub]) return;
+
+    const profile = await fetchNostrProfile(authorNpub);
+
+    if (profile) {
+      setReflectionProfiles(prev => ({
+        ...prev,
+        [authorNpub]: profile,
+      }));
+    }
+  });
+}, [milestone?.reflections]);
 
   useEffect(() => {
     if (!audioPlayer) return;
@@ -127,6 +153,16 @@ export default function MilestoneDetail() {
     setMilestone(prev => prev ? { ...prev, note: newNote, tags: editTags } : prev);
     setIsEditing(false);
   };
+const getReflectionAuthorLabel = (authorNpub?: string) => {
+  if (!authorNpub) return 'Family member';
+
+  const profile = reflectionProfiles[authorNpub];
+  const name = profile?.display_name || profile?.name;
+
+  if (name) return name;
+
+  return `${authorNpub.slice(0, 10)}…`;
+};
 
   const saveReflection = async () => {
   if (!milestone || !reflectionText.trim()) return;
@@ -437,15 +473,37 @@ const isOwner = !milestone.authorNpub || milestone.authorNpub === npub;
               </Text>
             )}
 
-            {(milestone.reflections ?? []).map((r, i) => (
-              <View key={i} style={s.reflectionCard}>
-                <Text style={s.reflectionDate}>{formatDate(r.createdAt)}</Text>
-                <Text style={s.reflectionText}>{r.text}</Text>
-                <TouchableOpacity onPress={() => deleteReflection(i)} style={s.reflectionDelete}>
-                  <Text style={s.reflectionDeleteText}>Delete</Text>
-                </TouchableOpacity>
-              </View>
-            ))}
+            {(milestone.reflections ?? []).map((r, i) => {
+  const profile = r.authorNpub ? reflectionProfiles[r.authorNpub] : null;
+  const authorName = getReflectionAuthorLabel(r.authorNpub);
+
+  return (
+    <View key={i} style={s.reflectionCard}>
+      <View style={s.reflectionAuthorRow}>
+        {profile?.picture ? (
+          <Image source={{ uri: profile.picture }} style={s.reflectionAuthorAvatar} />
+        ) : (
+          <View style={s.reflectionAuthorFallback}>
+            <Text style={s.reflectionAuthorLetter}>
+              {authorName.charAt(0).toUpperCase()}
+            </Text>
+          </View>
+        )}
+
+        <View style={{ flex: 1 }}>
+          <Text style={s.reflectionAuthorName}>{authorName}</Text>
+          <Text style={s.reflectionDate}>{formatDate(r.createdAt)}</Text>
+        </View>
+      </View>
+
+      <Text style={s.reflectionText}>{r.text}</Text>
+
+      <TouchableOpacity onPress={() => deleteReflection(i)} style={s.reflectionDelete}>
+        <Text style={s.reflectionDeleteText}>Delete</Text>
+      </TouchableOpacity>
+    </View>
+  );
+})}
 
             {isAddingReflection && (
               <View style={s.reflectionInputBlock}>
@@ -572,6 +630,35 @@ const s = StyleSheet.create({
   reflectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   addReflectionBtn: { fontSize: 13, color: '#c9973a', fontWeight: '600' },
   reflectionEmpty: { fontSize: 14, color: '#333', fontStyle: 'italic', lineHeight: 22 },
+  reflectionAuthorRow: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 10,
+  marginBottom: 8,
+},
+reflectionAuthorAvatar: {
+  width: 34,
+  height: 34,
+  borderRadius: 17,
+},
+reflectionAuthorFallback: {
+  width: 34,
+  height: 34,
+  borderRadius: 17,
+  backgroundColor: '#2a2a2a',
+  alignItems: 'center',
+  justifyContent: 'center',
+},
+reflectionAuthorLetter: {
+  color: '#c9973a',
+  fontSize: 13,
+  fontWeight: '700',
+},
+reflectionAuthorName: {
+  color: '#eee',
+  fontSize: 13,
+  fontWeight: '700',
+},
   reflectionCard: { backgroundColor: '#1a1a1a', borderRadius: 12, padding: 16, marginBottom: 10, borderWidth: 0.5, borderColor: '#2a2a2a' },
   reflectionDate: { fontSize: 10, color: '#555', marginBottom: 8, fontWeight: '600', letterSpacing: 0.6 },
   reflectionText: { fontSize: 15, color: '#aaa', lineHeight: 24 },

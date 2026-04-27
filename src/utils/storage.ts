@@ -22,7 +22,7 @@ videoUri?: string;
   createdAt: number;
   nostrEventId?: string;
   publishedToRelay: boolean;
-  reflections?: { text: string; createdAt: number }[];
+  reflections?: { text: string; createdAt: number; authorNpub?: string }[];
   familyId?: string;
   authorNpub?: string;
 }
