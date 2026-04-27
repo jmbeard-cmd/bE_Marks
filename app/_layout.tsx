@@ -4,7 +4,13 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import 'react-native-get-random-values';
 import { startDMService, stopDMService } from '../src/utils/dm-service';
 import { fetchNostrProfile, getStoredIdentity, type NostrProfile } from '../src/utils/nostr';
-import { getFamily, leaveFamily, saveFamily, type Family } from '../src/utils/storage';
+import {
+  getFamily,
+  leaveFamily,
+  saveFamily,
+  upsertFamilyMember,
+  type Family,
+} from '../src/utils/storage';
 
 interface IdentityContextType {
   npub: string | null;
@@ -51,14 +57,26 @@ export default function RootLayout() {
   const router = useRouter() as any;
   const segments = useSegments() as any;
 
-  useEffect(() => {
-    Promise.all([getStoredIdentity(), getFamily()]).then(([id, fam]) => {
+    useEffect(() => {
+    Promise.all([getStoredIdentity(), getFamily()]).then(async ([id, fam]) => {
       if (id) {
         setNpub(id.npub);
         setNsec(id.nsec);
+
+        if (fam) {
+          await upsertFamilyMember({
+            familyId: fam.id,
+            npub: id.npub,
+            displayName: 'You',
+            role: fam.role === 'admin' ? 'admin' : 'member',
+            status: 'active',
+          });
+        }
+
         // Start background DM listener on app launch if already signed in
         startDMService();
       }
+
       if (fam) setFamilyState(fam);
       setReady(true);
     });
@@ -92,9 +110,26 @@ export default function RootLayout() {
     stopDMService();
   };
 
-  const setFamily = async (f: Family | null) => {
-    if (f) { await saveFamily(f); setFamilyState(f); }
-    else { await leaveFamily(); setFamilyState(null); }
+      const setFamily = async (f: Family | null) => {
+    if (f) {
+      await saveFamily(f);
+      setFamilyState(f);
+
+      if (npub) {
+        await upsertFamilyMember({
+          familyId: f.id,
+          npub,
+          displayName: profile?.name || 'You',
+          role: f.role === 'admin' ? 'admin' : 'member',
+          status: 'active',
+        });
+      }
+
+      return;
+    }
+
+    await leaveFamily();
+    setFamilyState(null);
   };
 
   return (

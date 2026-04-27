@@ -35,12 +35,14 @@ export interface Family {
   role: 'admin' | 'member';
 }
 
+export type FamilyMemberRole = 'admin' | 'member';
+
 export interface FamilyMember {
   id: string;
   familyId: string;
   npub: string;
   displayName?: string;
-  role: 'admin' | 'member';
+  role: FamilyMemberRole;
   joinedAt: number;
   status: 'active' | 'removed';
 }
@@ -131,7 +133,105 @@ export async function getFamily(): Promise<Family | null> {
 }
 
 export async function leaveFamily(): Promise<void> {
+  const family = await getFamily();
+
   await AsyncStorage.removeItem(FAMILY_KEY);
+
+  if (family?.id) {
+    const members = await readFamilyMembers();
+    const filtered = members.filter(member => member.familyId !== family.id);
+    await writeFamilyMembers(filtered);
+  }
+}
+
+async function readFamilyMembers(): Promise<FamilyMember[]> {
+  const raw = await AsyncStorage.getItem(FAMILY_MEMBERS_KEY);
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+async function writeFamilyMembers(members: FamilyMember[]): Promise<void> {
+  await AsyncStorage.setItem(FAMILY_MEMBERS_KEY, JSON.stringify(members));
+}
+
+export async function getFamilyMembers(familyId: string): Promise<FamilyMember[]> {
+  const members = await readFamilyMembers();
+
+  return members
+    .filter(member => member.familyId === familyId && member.status === 'active')
+    .sort((a, b) => {
+      if (a.role !== b.role) return a.role === 'admin' ? -1 : 1;
+      return a.joinedAt - b.joinedAt;
+    });
+}
+
+export async function getFamilyMemberCount(familyId: string): Promise<number> {
+  const members = await getFamilyMembers(familyId);
+  return members.length;
+}
+
+export async function upsertFamilyMember(input: {
+  familyId: string;
+  npub: string;
+  displayName?: string;
+  role?: FamilyMemberRole;
+  joinedAt?: number;
+  status?: 'active' | 'removed';
+}): Promise<FamilyMember> {
+  const members = await readFamilyMembers();
+
+  const normalizedNpub = input.npub.trim();
+  const existingIndex = members.findIndex(member =>
+    member.familyId === input.familyId && member.npub === normalizedNpub
+  );
+
+  const nextMember: FamilyMember = {
+    id:
+      existingIndex >= 0
+        ? members[existingIndex].id
+        : `${input.familyId}-${normalizedNpub}`,
+    familyId: input.familyId,
+    npub: normalizedNpub,
+    displayName: input.displayName?.trim() || members[existingIndex]?.displayName,
+    role: input.role ?? members[existingIndex]?.role ?? 'member',
+    joinedAt: input.joinedAt ?? members[existingIndex]?.joinedAt ?? Math.floor(Date.now() / 1000),
+    status: input.status ?? 'active',
+  };
+
+  if (existingIndex >= 0) {
+    members[existingIndex] = {
+      ...members[existingIndex],
+      ...nextMember,
+    };
+  } else {
+    members.push(nextMember);
+  }
+
+  await writeFamilyMembers(members);
+  return nextMember;
+}
+
+export async function removeFamilyMember(familyId: string, npub: string): Promise<void> {
+  const members = await readFamilyMembers();
+
+  const nextMembers = members.map(member => {
+    if (member.familyId === familyId && member.npub === npub) {
+      return {
+        ...member,
+        status: 'removed' as const,
+      };
+    }
+
+    return member;
+  });
+
+  await writeFamilyMembers(nextMembers);
 }
 
 export function generateFamilyId(): string {

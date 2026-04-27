@@ -20,6 +20,7 @@ import BEHeader from '../../components/BEHeader';
 import { fetchFamilyMilestones } from '../../src/utils/nostr';
 import {
   formatDate,
+  getFamilyMemberCount,
   getLastFamilyCheck,
   getMilestones,
   saveRemoteMilestone,
@@ -111,7 +112,8 @@ export default function TimelineScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [tab, setTab] = useState<'mine' | 'family'>('mine');
-  const [newFamilyCount, setNewFamilyCount] = useState(0);
+    const [newFamilyCount, setNewFamilyCount] = useState(0);
+  const [familyMemberCount, setFamilyMemberCount] = useState(0);
   const [showBanner, setShowBanner] = useState(false);
   const [showFilterDrawer, setShowFilterDrawer] = useState(false);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
@@ -143,16 +145,28 @@ export default function TimelineScreen() {
   const router = useRouter();
   const { npub, family } = useIdentity();
 
-  const load = useCallback(async () => {
+    const load = useCallback(async () => {
     const all = await getMilestones();
     setMilestones(all);
+
     if (family) {
+      const memberCount = await getFamilyMemberCount(family.id);
+      setFamilyMemberCount(memberCount);
+
       const lastCheck = await getLastFamilyCheck(family.id);
       const familyMilestones = all.filter(m => m.familyId === family.id);
       const newOnes = familyMilestones.filter(m => m.authorNpub !== npub && m.createdAt > lastCheck);
-      if (newOnes.length > 0) { setNewFamilyCount(newOnes.length); setShowBanner(true); }
+
+      if (newOnes.length > 0) {
+        setNewFamilyCount(newOnes.length);
+        setShowBanner(true);
+      }
+
       await setLastFamilyCheck(family.id, Math.floor(Date.now() / 1000));
+      return;
     }
+
+    setFamilyMemberCount(0);
   }, [family, npub]);
 
   const syncFamilyMilestones = useCallback(async () => {
@@ -353,7 +367,9 @@ const showAudioOnly = !previewImageUri && !item.videoUri && !!item.audioUri;
           onPress={() => { setTab('family'); setShowBanner(false); setFilters(DEFAULT_FILTERS); syncFamilyMilestones(); }}
         >
           <View style={s.tabLabelRow}>
-            <Text style={[s.tabText, tab === 'family' && s.tabTextActive]}>{family ? family.name : 'Family'}</Text>
+                        <Text style={[s.tabText, tab === 'family' && s.tabTextActive]}>
+              {family ? `${family.name} (${familyMemberCount})` : 'Family'}
+            </Text>
             {showBanner && newFamilyCount > 0 && <View style={s.tabBadge}><Text style={s.tabBadgeText}>{newFamilyCount}</Text></View>}
             {syncing && tab === 'family' && <ActivityIndicator size="small" color="#c9973a" style={{ marginLeft: 4 }} />}
           </View>

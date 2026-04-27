@@ -28,7 +28,7 @@ import {
   publishRelayList
 } from '../../src/utils/nostr';
 import { uploadToR2 } from '../../src/utils/r2';
-import { generateFamilyId } from '../../src/utils/storage';
+import { generateFamilyId, upsertFamilyMember } from '../../src/utils/storage';
 import { useIdentity } from '../_layout';
 
 export default function SettingsScreen() {
@@ -326,8 +326,9 @@ const handleJoinFamily = async () => {
     return;
   }
 
-  // First, try to find an existing family name from relay
+  // Fetch existing members from relay
   const existingMembers = await fetchFamilyMembers(code, relays[0] || DEFAULT_RELAY);
+
   const existingFamilyName =
     existingMembers.find(m => m.familyName && m.familyName.trim())?.familyName?.trim() || 'Family';
 
@@ -338,6 +339,7 @@ const handleJoinFamily = async () => {
     role: 'member' as const,
   };
 
+  // Publish your membership
   const publishResult = await publishFamilyMembership(
     {
       familyId: joined.id,
@@ -355,13 +357,37 @@ const handleJoinFamily = async () => {
     return;
   }
 
+  // ✅ SAVE ALL EXISTING MEMBERS LOCALLY
+  for (const member of existingMembers) {
+    if (!member.memberNpub) continue;
+
+    await upsertFamilyMember({
+      familyId: joined.id,
+      npub: member.memberNpub,
+            displayName: member.familyName || 'Member',
+      role: member.role === 'admin' ? 'admin' : 'member',
+      joinedAt: member.joinedAt,
+      status: 'active',
+    });
+  }
+
+  // ✅ ENSURE YOU ARE INCLUDED (critical)
+  await upsertFamilyMember({
+    familyId: joined.id,
+    npub,
+    displayName: profile?.name || 'You',
+    role: 'member',
+    status: 'active',
+  });
+
   await setFamily(joined);
+
   setJoinCode('');
   setShowJoinFamily(false);
 
   Alert.alert(
     'Joined!',
-    `You've joined ${joined.name}. Your membership was published to Nostr.`
+    `You've joined ${joined.name}. Your membership was saved and published.`
   );
 };
 
