@@ -1,10 +1,10 @@
 import * as SecureStore from 'expo-secure-store';
 import {
-    fetchGroupByInviteCode,
-    fetchGroupMemberships,
-    publishGroup,
-    publishGroupMembership,
-    type NostrGroupPayload,
+  fetchGroupByInviteCode,
+  fetchGroupMemberships,
+  publishGroup,
+  publishGroupMembership,
+  type NostrGroupPayload,
 } from './nostr';
 
 const GROUPS_KEY = 'be_groups_v1';
@@ -15,6 +15,7 @@ const MEMBERS_KEY = 'be_group_members_v1';
 export type GroupStatus = 'active' | 'archived';
 export type MemberRole = 'owner' | 'admin' | 'member';
 export type MemberStatus = 'active' | 'removed';
+export type GroupRelayMode = 'default' | 'custom' | 'both';
 
 export type BEGroup = {
   id: string;
@@ -31,9 +32,14 @@ export type BEGroup = {
   updatedAt: number;
   lastPostAt?: number;
   lastPostPreview?: string;
+
+  // Nostr relay routing
+  relayUrl: string;
+  relayMode?: GroupRelayMode;
+
   // Nostr
   nostrEventId?: string;
-  relayUrl: string;
+
   // Counts (cached locally)
   memberCount: number;
   postCount: number;

@@ -33,11 +33,13 @@ import {
   regenerateInviteCode,
   removeMember,
   syncGroupMembersFromRelay,
+  updateGroup,
   updateMemberRole,
   type BEGroup,
-  type BEGroupMember
+  type BEGroupMember,
+  type GroupRelayMode,
 } from '../src/utils/group-storage';
-import { fetchGroupMessages } from '../src/utils/nostr';
+import { DEFAULT_RELAY, fetchGroupMessages } from '../src/utils/nostr';
 import { useIdentity } from './_layout';
 
 type Tab = 'stickies' | 'gallery' | 'members';
@@ -59,8 +61,12 @@ const [stickyVisibility, setStickyVisibility] = useState<'private' | 'organizati
   const [tab, setTab] = useState<Tab>('stickies');
   const [isAdmin, setIsAdmin] = useState(false);
   const [isMember, setIsMember] = useState(false);
-  const [showInvite, setShowInvite] = useState(false);
+    const [showInvite, setShowInvite] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+
+  const [editingGroupRelay, setEditingGroupRelay] = useState(false);
+  const [groupRelayMode, setGroupRelayMode] = useState<GroupRelayMode>('default');
+  const [groupRelayUrl, setGroupRelayUrl] = useState('');
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -116,10 +122,44 @@ setGalleryItems(mediaItems);
 
   useEffect(() => { load(); }, [load]);
 
-  const onRefresh = async () => {
+    const onRefresh = async () => {
     setRefreshing(true);
     await load();
     setRefreshing(false);
+  };
+
+  const openGroupRelayEditor = () => {
+    if (!group) return;
+
+    setGroupRelayMode(group.relayMode ?? 'default');
+    setGroupRelayUrl(group.relayMode === 'default' ? '' : group.relayUrl ?? '');
+    setEditingGroupRelay(true);
+  };
+
+  const saveGroupRelaySettings = async () => {
+    if (!group) return;
+
+    const trimmedUrl = groupRelayUrl.trim();
+
+    if ((groupRelayMode === 'custom' || groupRelayMode === 'both') && !trimmedUrl) {
+      Alert.alert('Relay required', 'Enter the group or school relay URL.');
+      return;
+    }
+
+    if (trimmedUrl && !trimmedUrl.startsWith('wss://') && !trimmedUrl.startsWith('ws://')) {
+      Alert.alert('Invalid relay', 'Relay URL must start with wss:// or ws://');
+      return;
+    }
+
+    await updateGroup(group.id, {
+      relayMode: groupRelayMode,
+      relayUrl: groupRelayMode === 'default' ? DEFAULT_RELAY : trimmedUrl,
+    });
+
+    setEditingGroupRelay(false);
+    await load();
+
+    Alert.alert('Saved', 'Group relay settings updated.');
   };
 
   const handleShareInvite = async () => {
@@ -357,6 +397,106 @@ const galleryViewerImages: ViewerImage[] = galleryItems
     contentContainerStyle={s.timelineContainer}
     refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#c9973a" />}
   >
+    {isAdmin && (
+      <View style={s.groupRelayCard}>
+        <View style={s.groupRelayHeader}>
+          <View style={{ flex: 1 }}>
+            <Text style={s.groupRelayTitle}>Group Relay</Text>
+            <Text style={s.groupRelayHint}>
+              Choose where this group’s messages, media, and stickies are saved.
+            </Text>
+          </View>
+
+          {!editingGroupRelay && (
+            <TouchableOpacity onPress={openGroupRelayEditor}>
+              <Text style={s.groupRelayManage}>Manage</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {!editingGroupRelay ? (
+          <View style={s.groupRelaySummary}>
+            <Text style={s.groupRelaySummaryLabel}>Current setting</Text>
+            <Text style={s.groupRelaySummaryValue}>
+              {(group.relayMode ?? 'default') === 'default'
+                ? 'bE Relay'
+                : group.relayMode === 'custom'
+                  ? 'Group Relay'
+                  : 'Both'}
+            </Text>
+            <Text style={s.groupRelayUrlText} numberOfLines={1}>
+              {group.relayUrl || DEFAULT_RELAY}
+            </Text>
+          </View>
+        ) : (
+          <View>
+            <Text style={s.inputLabel}>WHERE SHOULD THIS GROUP SAVE?</Text>
+
+            <TouchableOpacity
+              style={[
+                s.groupRelayOption,
+                groupRelayMode === 'default' && s.groupRelayOptionActive,
+              ]}
+              onPress={() => setGroupRelayMode('default')}
+              activeOpacity={0.85}
+            >
+              <Text style={s.groupRelayOptionTitle}>bE Relay</Text>
+              <Text style={s.groupRelayOptionHint}>Easiest setup. Works automatically.</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                s.groupRelayOption,
+                groupRelayMode === 'custom' && s.groupRelayOptionActive,
+              ]}
+              onPress={() => setGroupRelayMode('custom')}
+              activeOpacity={0.85}
+            >
+              <Text style={s.groupRelayOptionTitle}>Group / School Relay</Text>
+              <Text style={s.groupRelayOptionHint}>Use a private relay for this group.</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                s.groupRelayOption,
+                groupRelayMode === 'both' && s.groupRelayOptionActive,
+              ]}
+              onPress={() => setGroupRelayMode('both')}
+              activeOpacity={0.85}
+            >
+              <Text style={s.groupRelayOptionTitle}>Both</Text>
+              <Text style={s.groupRelayOptionHint}>Save to bE and the group relay.</Text>
+            </TouchableOpacity>
+
+            {(groupRelayMode === 'custom' || groupRelayMode === 'both') && (
+              <>
+                <Text style={s.inputLabel}>GROUP RELAY URL</Text>
+                <TextInput
+                  style={s.input}
+                  value={groupRelayUrl}
+                  onChangeText={setGroupRelayUrl}
+                  placeholder="wss://relay.school.org"
+                  placeholderTextColor="#444"
+                  autoCapitalize="none"
+                  keyboardType="url"
+                />
+              </>
+            )}
+
+            <View style={s.modalActions}>
+              <TouchableOpacity style={s.cancelBtn} onPress={() => setEditingGroupRelay(false)}>
+                <Text style={s.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={s.confirmBtn} onPress={saveGroupRelaySettings}>
+                <Text style={s.confirmText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+      </View>
+    )}
+
     {group.status === 'archived' && (
       <View style={s.archivedBanner}>
         <Text style={s.archivedBannerText}>
@@ -759,10 +899,87 @@ stickyBody: {
   fontSize: 14,
   lineHeight: 20,
 },
-stickyMeta: {
+  stickyMeta: {
   color: '#444',
   fontSize: 11,
   marginTop: 10,
+},
+
+groupRelayCard: {
+  padding: 14,
+  borderRadius: 14,
+  borderWidth: 0.5,
+  borderColor: '#2a2a2a',
+  backgroundColor: '#1a1a1a',
+  marginBottom: 14,
+},
+groupRelayHeader: {
+  flexDirection: 'row',
+  alignItems: 'flex-start',
+  gap: 12,
+  marginBottom: 10,
+},
+groupRelayTitle: {
+  color: '#fff',
+  fontSize: 15,
+  fontWeight: '700',
+  marginBottom: 3,
+},
+groupRelayHint: {
+  color: '#555',
+  fontSize: 12,
+  lineHeight: 17,
+},
+groupRelayManage: {
+  color: '#c9973a',
+  fontSize: 13,
+  fontWeight: '700',
+},
+groupRelaySummary: {
+  paddingTop: 8,
+  borderTopWidth: 0.5,
+  borderTopColor: '#242424',
+},
+groupRelaySummaryLabel: {
+  fontSize: 10,
+  color: '#444',
+  fontWeight: '700',
+  letterSpacing: 0.7,
+  textTransform: 'uppercase',
+  marginBottom: 4,
+},
+groupRelaySummaryValue: {
+  color: '#c9973a',
+  fontSize: 14,
+  fontWeight: '700',
+  marginBottom: 4,
+},
+groupRelayUrlText: {
+  color: '#555',
+  fontSize: 11,
+  fontFamily: 'monospace',
+},
+groupRelayOption: {
+  padding: 12,
+  borderRadius: 12,
+  borderWidth: 0.5,
+  borderColor: '#2a2a2a',
+  backgroundColor: '#111',
+  marginBottom: 8,
+},
+groupRelayOptionActive: {
+  borderColor: '#c9973a',
+  backgroundColor: '#1e1600',
+},
+groupRelayOptionTitle: {
+  color: '#fff',
+  fontSize: 14,
+  fontWeight: '700',
+  marginBottom: 3,
+},
+groupRelayOptionHint: {
+  color: '#555',
+  fontSize: 12,
 },
   
   // Invite panel
