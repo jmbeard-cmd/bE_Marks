@@ -36,6 +36,7 @@ export default function DmThreadScreen() {
   const params = useLocalSearchParams<{ id?: string; title?: string }>();
 
   const [draft, setDraft] = useState('');
+    const [inputHeight, setInputHeight] = useState(40);
   const [messages, setMessages] = useState<DMMessage[]>([]);
   const [sending, setSending] = useState(false);
   const [hasPubkey, setHasPubkey] = useState(false);
@@ -116,7 +117,7 @@ export default function DmThreadScreen() {
       });
   }, [threadId, scrollToBottom]);
 
-  useFocusEffect(
+    useFocusEffect(
     useCallback(() => {
       setMessages([]);
       setContactProfile(null);
@@ -124,7 +125,8 @@ export default function DmThreadScreen() {
 
       loadMessages();
       loadContactProfile();
-    }, [loadMessages, loadContactProfile])
+
+    }, [loadMessages, loadContactProfile, scrollToBottom])
   );
 
   useEffect(() => {
@@ -172,6 +174,7 @@ console.log('[DM THREAD] current threadId:', threadId);
 
     setSending(true);
     setDraft('');
+        setInputHeight(40);
     Keyboard.dismiss();
 
     try {
@@ -312,7 +315,10 @@ console.log('[DM THREAD] current threadId:', threadId);
             contentContainerStyle={s.list}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-            onContentSizeChange={() => scrollToBottom(false)}
+            onContentSizeChange={() => {
+  scrollToBottom(false); // first snap
+  setTimeout(() => scrollToBottom(true), 50); // 🔥 correction pass
+}}
             ListEmptyComponent={
               <View style={s.empty}>
                 <Text style={s.emptyIcon}>✉️</Text>
@@ -333,14 +339,24 @@ console.log('[DM THREAD] current threadId:', threadId);
           />
 
           <View style={s.composer}>
-            <TextInput
-              style={s.input}
+                                    <TextInput
+              style={[
+                s.input,
+                { height: Math.max(40, Math.min(120, inputHeight)) },
+              ]}
               placeholder={`Message ${displayName}…`}
               placeholderTextColor="#444"
               value={draft}
               onChangeText={setDraft}
               multiline
               maxLength={2000}
+              textAlignVertical="top"
+              onFocus={() => {
+                setTimeout(() => scrollToBottom(true), 250);
+              }}
+              onContentSizeChange={(e) => {
+                setInputHeight(e.nativeEvent.contentSize.height);
+              }}
             />
 
             <TouchableOpacity

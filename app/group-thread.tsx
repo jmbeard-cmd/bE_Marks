@@ -43,6 +43,7 @@ export default function GroupThreadScreen() {
   const [groupName, setGroupName] = useState('Group');
   const [relayUrl, setRelayUrl] = useState('wss://relay.beginningend.com');
   const [draft, setDraft] = useState('');
+    const [inputHeight, setInputHeight] = useState(40);
   const [messages, setMessages] = useState<GroupMessage[]>([]);
 const [sending, setSending] = useState(false);
 const [uploadingImage, setUploadingImage] = useState(false);
@@ -172,6 +173,7 @@ const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
 
     setSending(true);
     setDraft('');
+        setInputHeight(40);
     Keyboard.dismiss();
 
     try {
@@ -487,14 +489,24 @@ const handleTakePhoto = async () => {
               )}
             </TouchableOpacity>
 
-            <TextInput
-              style={s.input}
+                                    <TextInput
+              style={[
+                s.input,
+                { height: Math.max(40, Math.min(120, inputHeight)) },
+              ]}
               placeholder={`Message ${groupName}…`}
               placeholderTextColor="#444"
               value={draft}
               onChangeText={setDraft}
               multiline
               maxLength={2000}
+              textAlignVertical="top"
+              onFocus={() => {
+                setTimeout(() => scrollToBottom(true), 250);
+              }}
+              onContentSizeChange={(e) => {
+                setInputHeight(e.nativeEvent.contentSize.height);
+              }}
             />
 
             <TouchableOpacity
