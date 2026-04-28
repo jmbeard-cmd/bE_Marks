@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -49,6 +50,66 @@ import { uploadToR2 } from '../src/utils/r2';
 import { useIdentity } from './_layout';
 
 type Tab = 'stickies' | 'gallery' | 'members';
+const GROUP_LOCAL_GALLERY_KEY = 'be_group_local_gallery_v1';
+
+type LocalGalleryItem = {
+  id: string;
+  groupId: string;
+  mediaUrl: string;
+  mediaType: 'image' | 'video';
+  thumbnailUrl?: string;
+  createdAt: number;
+  source: 'highlight';
+};
+
+async function readLocalGalleryItems(): Promise<LocalGalleryItem[]> {
+  try {
+    const raw = await AsyncStorage.getItem(GROUP_LOCAL_GALLERY_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function saveHighlightMediaToLocalGallery(groupId: string, sticky: GroupSticky): Promise<LocalGalleryItem[]> {
+  const media = (sticky as any).media;
+
+  if (!media) return [];
+
+  const mediaItems = Array.isArray(media) ? media : [media];
+
+  const validItems = mediaItems
+    .filter(item => !!(item.mediaUrl || item.uri))
+    .map(item => {
+      const mediaUrl = item.mediaUrl || item.uri;
+      const mediaType: 'image' | 'video' =
+        item.mediaType === 'video' || item.type === 'video' ? 'video' : 'image';
+
+      return {
+        id: `highlight_gallery_${sticky.id}_${mediaUrl}`,
+        groupId,
+        mediaUrl,
+        mediaType,
+        thumbnailUrl: item.thumbnailUrl || item.thumbnailUri,
+        createdAt: Math.floor(Date.now() / 1000),
+        source: 'highlight' as const,
+      };
+    });
+
+  if (validItems.length === 0) return [];
+
+  const existing = await readLocalGalleryItems();
+  const existingIds = new Set(existing.map(item => item.id));
+
+  const merged = [
+    ...existing,
+    ...validItems.filter(item => !existingIds.has(item.id)),
+  ];
+
+  await AsyncStorage.setItem(GROUP_LOCAL_GALLERY_KEY, JSON.stringify(merged));
+
+  return validItems;
+}
 
 export default function GroupDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -101,26 +162,44 @@ const syncedStickies = g.relayUrl
   : await getStickiesForGroup(id);
 
 setStickies(syncedStickies);
-// 🔥 GALLERY FROM CHAT IMAGES
-if (g.relayUrl) {
-  try {
+// 🔥 GALLERY FROM CHAT IMAGES + LOCAL SAVED HIGHLIGHT MEDIA
+try {
+  let chatMediaItems: any[] = [];
+
+  if (g.relayUrl) {
     const events = await fetchGroupMessages(id, g.relayUrl);
 
-    const mediaItems = events
-  .filter(event => !!(event.mediaUrl || event.imageUrl))
-  .map(event => ({
-    id: event.id,
-    mediaUrl: event.mediaUrl || event.imageUrl!,
-    mediaType: event.mediaType || (event.imageUrl ? 'image' : 'image'),
-    thumbnailUrl: event.thumbnailUrl,
-    createdAt: event.createdAt,
-  }))
-  .sort((a, b) => b.createdAt - a.createdAt);
-
-setGalleryItems(mediaItems);
-  } catch (e) {
-    console.warn('[Gallery] failed to load images', e);
+    chatMediaItems = events
+      .filter(event => !!(event.mediaUrl || event.imageUrl))
+      .map(event => ({
+        id: event.id,
+        mediaUrl: event.mediaUrl || event.imageUrl!,
+        mediaType: event.mediaType || (event.imageUrl ? 'image' : 'image'),
+        thumbnailUrl: event.thumbnailUrl,
+        createdAt: event.createdAt,
+        source: 'chat',
+      }));
   }
+
+  const localGalleryItems = await readLocalGalleryItems();
+
+  const savedHighlightItems = localGalleryItems.filter(
+    item => item.groupId === id
+  );
+
+  const galleryMap = new Map<string, any>();
+
+  [...chatMediaItems, ...savedHighlightItems].forEach(item => {
+    galleryMap.set(item.id, item);
+  });
+
+  const mediaItems = Array.from(galleryMap.values()).sort(
+    (a, b) => b.createdAt - a.createdAt
+  );
+
+  setGalleryItems(mediaItems);
+} catch (e) {
+  console.warn('[Gallery] failed to load media', e);
 }
     if (npub && g) {
       const [admin, member] = await Promise.all([
@@ -354,13 +433,40 @@ setGalleryItems(mediaItems);
 };
 
 const handleDeleteSticky = (sticky: GroupSticky) => {
+  const media = (sticky as any).media;
+  const mediaItems = media ? (Array.isArray(media) ? media : [media]) : [];
+  const hasMedia = mediaItems.some(item => !!(item.mediaUrl || item.uri));
+
+  if (!hasMedia || !group) {
+    Alert.alert(
+      'Delete highlight?',
+      'This removes the highlight from this device. Relay deletion will be handled later.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            await hideGroupSticky(sticky.id);
+
+            setStickies(current =>
+              current.filter(item => item.id !== sticky.id)
+            );
+          },
+        },
+      ]
+    );
+
+    return;
+  }
+
   Alert.alert(
     'Delete highlight?',
-    'This removes the highlight from this device. Relay deletion will be handled later.',
+    'This highlight has media. Do you want to keep the media in Gallery?',
     [
       { text: 'Cancel', style: 'cancel' },
       {
-        text: 'Delete',
+        text: 'Delete only',
         style: 'destructive',
         onPress: async () => {
           await hideGroupSticky(sticky.id);
@@ -368,6 +474,32 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
           setStickies(current =>
             current.filter(item => item.id !== sticky.id)
           );
+        },
+      },
+      {
+        text: 'Delete + Save media',
+        onPress: async () => {
+          const savedItems = await saveHighlightMediaToLocalGallery(group.id, sticky);
+
+          await hideGroupSticky(sticky.id);
+
+          setStickies(current =>
+            current.filter(item => item.id !== sticky.id)
+          );
+
+          if (savedItems.length > 0) {
+            setGalleryItems(current => {
+              const galleryMap = new Map<string, any>();
+
+              [...current, ...savedItems].forEach(item => {
+                galleryMap.set(item.id, item);
+              });
+
+              return Array.from(galleryMap.values()).sort(
+                (a, b) => b.createdAt - a.createdAt
+              );
+            });
+          }
         },
       },
     ]
@@ -419,14 +551,45 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
 
 const deepLink = `marksapp://join/${group.inviteCode}`;
 
-const galleryViewerImages: ViewerImage[] = galleryItems
-  .filter(item => !!item.mediaUrl)
-  .map(item => ({
-    id: item.id,
-    uri: item.mediaUrl,
-    type: item.mediaType === 'video' ? 'video' : 'image',
-    thumbnailUrl: item.thumbnailUrl,
-  }));
+const highlightViewerImages: ViewerImage[] = stickies
+  .flatMap(sticky => {
+    const media = (sticky as any).media;
+
+    if (!media) return [];
+
+    const mediaItems = Array.isArray(media) ? media : [media];
+
+    return mediaItems
+      .filter(item => !!(item.mediaUrl || item.uri))
+      .map(item => {
+        const viewerType: 'image' | 'video' =
+          item.mediaType === 'video' || item.type === 'video' ? 'video' : 'image';
+
+        return {
+          id: `${sticky.id}_${item.mediaUrl || item.uri}`,
+          uri: item.mediaUrl || item.uri,
+          type: viewerType,
+          thumbnailUrl: item.thumbnailUrl || item.thumbnailUri,
+        };
+      });
+  });
+
+const galleryViewerImages: ViewerImage[] = [
+  ...galleryItems
+    .filter(item => !!item.mediaUrl)
+    .map(item => {
+      const viewerType: 'image' | 'video' =
+        item.mediaType === 'video' ? 'video' : 'image';
+
+      return {
+        id: item.id,
+        uri: item.mediaUrl,
+        type: viewerType,
+        thumbnailUrl: item.thumbnailUrl,
+      };
+    }),
+  ...highlightViewerImages,
+];
 
   return (
     <SafeAreaView style={s.safe}>
