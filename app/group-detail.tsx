@@ -140,6 +140,7 @@ const [selectedHighlightMediaList, setSelectedHighlightMediaList] = useState<
 >([]);
 const [highlightPosting, setHighlightPosting] = useState(false);
 const [highlightUploadStatus, setHighlightUploadStatus] = useState<string | null>(null);
+const [highlightProgress, setHighlightProgress] = useState(0);
   const [tab, setTab] = useState<Tab>('stickies');
   const [isAdmin, setIsAdmin] = useState(false);
   const [isMember, setIsMember] = useState(false);
@@ -376,6 +377,7 @@ setSelectedHighlightMedia(newItems[0] ?? null);
   setHighlightUploadStatus(
     mediaToUpload.length > 0 ? 'Preparing media...' : 'Posting highlight...'
   );
+  setHighlightProgress(0);
 
   try {
     const uploadedHighlightMedia: {
@@ -385,47 +387,57 @@ setSelectedHighlightMedia(newItems[0] ?? null);
       imageUrl?: string;
     }[] = [];
 
-    for (let i = 0; i < mediaToUpload.length; i++) {
-      const item = mediaToUpload[i];
+    const totalSteps = mediaToUpload.length * 2; // upload + thumbnail
+let currentStep = 0;
 
-      setHighlightUploadStatus(`Uploading ${i + 1} of ${mediaToUpload.length}...`);
+for (let i = 0; i < mediaToUpload.length; i++) {
+  const item = mediaToUpload[i];
 
-      const uploadedUrl = await uploadToR2(
-        item.uri,
-        item.type === 'video' ? 'video' : 'photo'
-      );
+  setHighlightUploadStatus(`Uploading ${i + 1} of ${mediaToUpload.length}...`);
 
-      if (!uploadedUrl) {
-        console.warn('[Highlight upload] skipped failed item:', item.uri);
-        continue;
-      }
+  const uploadedUrl = await uploadToR2(
+    item.uri,
+    item.type === 'video' ? 'video' : 'photo'
+  );
 
-      let thumbnailUrl: string | undefined;
+  currentStep++;
+  setHighlightProgress(currentStep / totalSteps);
 
-      if (item.type === 'video') {
-        try {
-          setHighlightUploadStatus(`Creating thumbnail ${i + 1} of ${mediaToUpload.length}...`);
+  if (!uploadedUrl) {
+    console.warn('[Highlight upload] skipped failed item:', item.uri);
+    continue;
+  }
 
-          const thumbnail = await VideoThumbnails.getThumbnailAsync(item.uri, {
-            time: 1000,
-          });
+  let thumbnailUrl: string | undefined;
 
-          setHighlightUploadStatus(`Uploading thumbnail ${i + 1} of ${mediaToUpload.length}...`);
+  if (item.type === 'video') {
+    try {
+      setHighlightUploadStatus(`Creating thumbnail ${i + 1}...`);
 
-          const uploadedThumbnail = await uploadToR2(thumbnail.uri, 'photo');
-          thumbnailUrl = uploadedThumbnail || undefined;
-        } catch (thumbError) {
-          console.warn('[Highlight thumbnail] failed:', thumbError);
-        }
-      }
-
-      uploadedHighlightMedia.push({
-        mediaUrl: uploadedUrl,
-        mediaType: item.type,
-        thumbnailUrl,
-        imageUrl: item.type === 'image' ? uploadedUrl : undefined,
+      const thumbnail = await VideoThumbnails.getThumbnailAsync(item.uri, {
+        time: 1000,
       });
+
+      setHighlightUploadStatus(`Uploading thumbnail ${i + 1}...`);
+
+      const uploadedThumbnail = await uploadToR2(thumbnail.uri, 'photo');
+      thumbnailUrl = uploadedThumbnail || undefined;
+
+      currentStep++;
+      setHighlightProgress(currentStep / totalSteps);
+
+    } catch (thumbError) {
+      console.warn('[Highlight thumbnail] failed:', thumbError);
     }
+  }
+
+  uploadedHighlightMedia.push({
+    mediaUrl: uploadedUrl,
+    mediaType: item.type,
+    thumbnailUrl,
+    imageUrl: item.type === 'image' ? uploadedUrl : undefined,
+  });
+}
 
     setHighlightUploadStatus('Posting highlight...');
 
@@ -1192,9 +1204,42 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
   </TouchableOpacity>
 </View>
 
-            {highlightUploadStatus && (
-        <Text style={s.highlightUploadStatus}>{highlightUploadStatus}</Text>
-      )}
+      {highlightUploadStatus && (
+  <View style={{ marginTop: 12 }}>
+    <Text style={s.highlightUploadStatus}>
+      {highlightUploadStatus}
+    </Text>
+
+    <View
+      style={{
+        height: 6,
+        backgroundColor: '#2a2a2a',
+        borderRadius: 999,
+        marginTop: 8,
+        overflow: 'hidden',
+      }}
+    >
+      <View
+        style={{
+          width: `${Math.max(highlightProgress * 100, 5)}%`,
+          height: '100%',
+          backgroundColor: '#c9973a',
+        }}
+      />
+    </View>
+
+    <Text
+      style={{
+        color: '#555',
+        fontSize: 11,
+        textAlign: 'center',
+        marginTop: 4,
+      }}
+    >
+      {Math.round(highlightProgress * 100)}%
+    </Text>
+  </View>
+)}
 
       <View style={s.modalActions}>
                 <TouchableOpacity
