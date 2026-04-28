@@ -382,7 +382,7 @@ const galleryViewerImages: ViewerImage[] = galleryItems
           >
             <Text style={[s.tabText, tab === t && s.tabTextActive]}>
               {t === 'stickies'
-  ? `Stickies (${stickies.length})`
+  ? `Highlights (${stickies.length})`
   : t === 'gallery'
     ? `Gallery (${galleryItems.length})`
     : `Members (${members.length})`}
@@ -403,7 +403,7 @@ const galleryViewerImages: ViewerImage[] = galleryItems
           <View style={{ flex: 1 }}>
             <Text style={s.groupRelayTitle}>Group Relay</Text>
             <Text style={s.groupRelayHint}>
-              Choose where this group’s messages, media, and stickies are saved.
+              Choose where this group’s messages, media, and highlights are saved.
             </Text>
           </View>
 
@@ -500,7 +500,7 @@ const galleryViewerImages: ViewerImage[] = galleryItems
     {group.status === 'archived' && (
       <View style={s.archivedBanner}>
         <Text style={s.archivedBannerText}>
-          📦 This group is archived. Stickies can still be viewed.
+          📦 This group is archived. Highlights can still be viewed.
         </Text>
       </View>
     )}
@@ -508,10 +508,10 @@ const galleryViewerImages: ViewerImage[] = galleryItems
     {stickies.length === 0 ? (
       <View style={s.empty}>
         <Text style={s.emptyIcon}>📌</Text>
-        <Text style={s.emptyText}>No stickies yet</Text>
-        <Text style={s.emptyHint}>
-          Admins can add announcements, reminders, or important notes here.
-        </Text>
+        <Text style={s.emptyText}>No highlights yet</Text>
+<Text style={s.emptyHint}>
+  Admins can add highlights, reminders, or important notes here.
+</Text>
       </View>
     ) : (
       stickies.map(sticky => (
@@ -675,14 +675,16 @@ const galleryViewerImages: ViewerImage[] = galleryItems
       {isAdmin && group.status === 'active' && (
         <View style={s.adminBar}>
           <TouchableOpacity style={s.adminBtn} onPress={handleArchive}>
-            <Text style={s.adminBtnText}>📦 Archive season</Text>
-          </TouchableOpacity>
+  <Text style={s.adminBtnText} numberOfLines={1}>
+    📦 Archive
+  </Text>
+</TouchableOpacity>
           {isMember && (
             <TouchableOpacity
               style={s.adminBtnGold}
               onPress={() => setShowStickyModal(true)}
             >
-              <Text style={s.adminBtnGoldText}>+ Sticky</Text>
+              <Text style={s.adminBtnGoldText}>+ Highlight</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -713,14 +715,14 @@ const galleryViewerImages: ViewerImage[] = galleryItems
 >
   <View style={s.modalOverlay}>
     <View style={s.modalCard}>
-      <Text style={s.modalTitle}>New Sticky</Text>
+      <Text style={s.modalTitle}>New Highlight</Text>
 
       <Text style={s.inputLabel}>TITLE</Text>
       <TextInput
         style={s.input}
         value={stickyTitle}
         onChangeText={setStickyTitle}
-        placeholder="Practice reminder, team update..."
+        placeholder="Practice reminder, team highlight..."
         placeholderTextColor="#444"
       />
 
@@ -729,7 +731,7 @@ const galleryViewerImages: ViewerImage[] = galleryItems
         style={[s.input, s.inputMulti]}
         value={stickyBody}
         onChangeText={setStickyBody}
-        placeholder="Write the announcement..."
+        placeholder="Write the highlight..."
         placeholderTextColor="#444"
         multiline
         textAlignVertical="top"
@@ -781,7 +783,7 @@ const galleryViewerImages: ViewerImage[] = galleryItems
         </TouchableOpacity>
 
         <TouchableOpacity style={s.confirmBtn} onPress={handleCreateSticky}>
-          <Text style={s.confirmText}>Post sticky</Text>
+          <Text style={s.confirmText}>Post highlight</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -856,131 +858,145 @@ visibilitySoon: {
   fontWeight: '700',
 },
 
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingVertical: 12,
-    borderBottomWidth: 0.5, borderBottomColor: '#222',
+    header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#242424',
+    backgroundColor: '#111',
   },
-  backBtn: { width: 50 },
-  backText: { color: '#c9973a', fontSize: 14, fontWeight: '600' },
-  headerCenter: { flex: 1, alignItems: 'center' },
-  headerTitle: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  headerSub: { color: '#555', fontSize: 11, marginTop: 1 },
-  inviteBtn: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 10, backgroundColor: '#c9973a' },
-  inviteBtnText: { color: '#111', fontWeight: '700', fontSize: 13 },
-
-  stickyCard: {
-  backgroundColor: '#1a1a1a',
-  borderWidth: 0.5,
-  borderColor: '#2a2a2a',
-  borderRadius: 14,
-  padding: 14,
-  marginBottom: 12,
-},
-stickyTop: {
-  flexDirection: 'row',
-  justifyContent: 'space-between',
-  gap: 12,
-  marginBottom: 8,
-},
-stickyTitle: {
-  flex: 1,
-  color: '#fff',
-  fontSize: 15,
-  fontWeight: '700',
-},
-stickyDelete: {
-  color: '#555',
-  fontSize: 16,
-  paddingHorizontal: 4,
-},
-stickyBody: {
-  color: '#ccc',
-  fontSize: 14,
-  lineHeight: 20,
-},
+  backBtn: { width: 58 },
+  backText: { color: '#c9973a', fontSize: 14, fontWeight: '700' },
+  headerCenter: { flex: 1, alignItems: 'center', paddingHorizontal: 8 },
+  headerTitle: { color: '#f4f4f4', fontSize: 16, fontWeight: '800', letterSpacing: -0.2 },
+  headerSub: { color: '#666', fontSize: 11, marginTop: 2, fontWeight: '600' },
+  inviteBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: '#c9973a',
+  },
+  inviteBtnText: { color: '#111', fontWeight: '800', fontSize: 13 },
+    stickyCard: {
+    backgroundColor: '#181818',
+    borderWidth: 0.5,
+    borderColor: '#252525',
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 13,
+  },
+  stickyTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 9,
+  },
+  stickyTitle: {
+    flex: 1,
+    color: '#f4f4f4',
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+  },
+  stickyDelete: {
+    color: '#555',
+    fontSize: 16,
+    paddingHorizontal: 4,
+    fontWeight: '700',
+  },
+  stickyBody: {
+    color: '#bdbdbd',
+    fontSize: 14,
+    lineHeight: 21,
+  },
   stickyMeta: {
-  color: '#444',
-  fontSize: 11,
-  marginTop: 10,
-},
+    color: '#555',
+    fontSize: 11,
+    marginTop: 12,
+    fontWeight: '600',
+  },
 
-groupRelayCard: {
-  padding: 14,
-  borderRadius: 14,
-  borderWidth: 0.5,
-  borderColor: '#2a2a2a',
-  backgroundColor: '#1a1a1a',
-  marginBottom: 14,
-},
-groupRelayHeader: {
-  flexDirection: 'row',
-  alignItems: 'flex-start',
-  gap: 12,
-  marginBottom: 10,
-},
-groupRelayTitle: {
-  color: '#fff',
-  fontSize: 15,
-  fontWeight: '700',
-  marginBottom: 3,
-},
-groupRelayHint: {
-  color: '#555',
-  fontSize: 12,
-  lineHeight: 17,
-},
-groupRelayManage: {
-  color: '#c9973a',
-  fontSize: 13,
-  fontWeight: '700',
-},
-groupRelaySummary: {
-  paddingTop: 8,
-  borderTopWidth: 0.5,
-  borderTopColor: '#242424',
-},
-groupRelaySummaryLabel: {
-  fontSize: 10,
-  color: '#444',
-  fontWeight: '700',
-  letterSpacing: 0.7,
-  textTransform: 'uppercase',
-  marginBottom: 4,
-},
-groupRelaySummaryValue: {
-  color: '#c9973a',
-  fontSize: 14,
-  fontWeight: '700',
-  marginBottom: 4,
-},
-groupRelayUrlText: {
-  color: '#555',
-  fontSize: 11,
-  fontFamily: 'monospace',
-},
-groupRelayOption: {
-  padding: 12,
-  borderRadius: 12,
-  borderWidth: 0.5,
-  borderColor: '#2a2a2a',
-  backgroundColor: '#111',
-  marginBottom: 8,
-},
-groupRelayOptionActive: {
-  borderColor: '#c9973a',
-  backgroundColor: '#1e1600',
-},
-groupRelayOptionTitle: {
-  color: '#fff',
-  fontSize: 14,
-  fontWeight: '700',
-  marginBottom: 3,
-},
-groupRelayOptionHint: {
-  color: '#555',
-  fontSize: 12,
-},
+  groupRelayCard: {
+    padding: 16,
+    borderRadius: 18,
+    borderWidth: 0.5,
+    borderColor: '#252525',
+    backgroundColor: '#181818',
+    marginBottom: 16,
+  },
+  groupRelayHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginBottom: 12,
+  },
+  groupRelayTitle: {
+    color: '#f4f4f4',
+    fontSize: 16,
+    fontWeight: '800',
+    marginBottom: 4,
+    letterSpacing: -0.2,
+  },
+  groupRelayHint: {
+    color: '#666',
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  groupRelayManage: {
+    color: '#c9973a',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  groupRelaySummary: {
+    paddingTop: 10,
+    borderTopWidth: 0.5,
+    borderTopColor: '#282828',
+  },
+  groupRelaySummaryLabel: {
+    fontSize: 10,
+    color: '#555',
+    fontWeight: '800',
+    letterSpacing: 0.7,
+    textTransform: 'uppercase',
+    marginBottom: 5,
+  },
+  groupRelaySummaryValue: {
+    color: '#c9973a',
+    fontSize: 14,
+    fontWeight: '800',
+    marginBottom: 5,
+  },
+  groupRelayUrlText: {
+    color: '#666',
+    fontSize: 11,
+    fontFamily: 'monospace',
+  },
+  groupRelayOption: {
+    padding: 13,
+    borderRadius: 14,
+    borderWidth: 0.5,
+    borderColor: '#2a2a2a',
+    backgroundColor: '#111',
+    marginBottom: 9,
+  },
+  groupRelayOptionActive: {
+    borderColor: '#c9973a66',
+    backgroundColor: '#1e1600',
+  },
+  groupRelayOptionTitle: {
+    color: '#f4f4f4',
+    fontSize: 14,
+    fontWeight: '800',
+    marginBottom: 3,
+  },
+  groupRelayOptionHint: {
+    color: '#666',
+    fontSize: 12,
+    lineHeight: 17,
+  },
   
   // Invite panel
   invitePanel: {
@@ -998,12 +1014,33 @@ groupRelayOptionHint: {
   qrBlock: { padding: 8, backgroundColor: '#1a1a1a', borderRadius: 12, borderWidth: 0.5, borderColor: '#2a2a2a' },
   inviteMeta: { fontSize: 11, color: '#444', marginTop: 10, lineHeight: 16 },
 
-  // Tabs
-  tabRow: { flexDirection: 'row', borderBottomWidth: 0.5, borderBottomColor: '#1e1e1e' },
-  tabBtn: { flex: 1, paddingVertical: 12, alignItems: 'center' },
-  tabBtnActive: { borderBottomWidth: 2, borderBottomColor: '#c9973a' },
-  tabText: { fontSize: 12, color: '#444', fontWeight: '500' },
-  tabTextActive: { color: '#c9973a', fontWeight: '700' },
+    // Tabs
+  tabRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#1e1e1e',
+    backgroundColor: '#111',
+    paddingHorizontal: 12,
+  },
+  tabBtn: {
+    flex: 1,
+    paddingVertical: 13,
+    alignItems: 'center',
+  },
+  tabBtnActive: {
+    borderBottomWidth: 2,
+    borderBottomColor: '#c9973a',
+  },
+  tabText: {
+    fontSize: 12,
+    color: '#555',
+    fontWeight: '700',
+    letterSpacing: 0.1,
+  },
+  tabTextActive: {
+    color: '#c9973a',
+    fontWeight: '800',
+  },
 
   // Timeline
   timelineContainer: { padding: 20, paddingBottom: 100 },
@@ -1061,16 +1098,55 @@ roleBadgeTextAdmin: {
   color: '#aaa',
 },
 
-  // Admin bar
+    // Admin bar
   adminBar: {
-    position: 'absolute', bottom: 0, left: 0, right: 0,
-    flexDirection: 'row', gap: 10, padding: 16,
-    backgroundColor: '#111', borderTopWidth: 0.5, borderTopColor: '#222',
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 18,
+    backgroundColor: '#111',
+    borderTopWidth: 0.5,
+    borderTopColor: '#222',
   },
-  adminBtn: { flex: 1, padding: 12, borderRadius: 10, borderWidth: 0.5, borderColor: '#2a2a2a', alignItems: 'center' },
-  adminBtnText: { color: '#555', fontSize: 13, fontWeight: '500' },
-  adminBtnGold: { flex: 2, padding: 12, borderRadius: 10, backgroundColor: '#c9973a', alignItems: 'center' },
-  adminBtnGoldText: { color: '#111', fontWeight: '700', fontSize: 13 },
+  adminBtn: {
+    flex: 1,
+    minHeight: 48,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    borderRadius: 999,
+    borderWidth: 0.5,
+    borderColor: '#2a2a2a',
+    backgroundColor: '#151515',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  adminBtnText: {
+  color: '#666',
+  fontSize: 13,
+  fontWeight: '800',
+  textAlign: 'center',
+  lineHeight: 16,
+},
+  adminBtnGold: {
+    flex: 1.5,
+    minHeight: 48,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderRadius: 999,
+    backgroundColor: '#c9973a',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  adminBtnGoldText: {
+    color: '#111',
+    fontWeight: '900',
+    fontSize: 14,
+  },
 
   modalOverlay: {
   flex: 1,
