@@ -24,6 +24,7 @@ import {
 import QRCode from 'react-native-qrcode-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ImageViewerModal, { ViewerImage } from '../components/ImageViewerModal';
+import MediaCollage from '../components/MediaCollage';
 import {
   createGroupSticky,
   getStickiesForGroup,
@@ -121,6 +122,7 @@ export default function GroupDetailScreen() {
   const [stickies, setStickies] = useState<GroupSticky[]>([]);
   const [galleryItems, setGalleryItems] = useState<any[]>([]);
   const [selectedGalleryImage, setSelectedGalleryImage] = useState<string | null>(null);
+  const [activeViewerImages, setActiveViewerImages] = useState<ViewerImage[]>([]);
 const [showStickyModal, setShowStickyModal] = useState(false);
 const [stickyTitle, setStickyTitle] = useState('');
 const [stickyBody, setStickyBody] = useState('');
@@ -129,6 +131,13 @@ const [selectedHighlightMedia, setSelectedHighlightMedia] = useState<{
   uri: string;
   type: 'image' | 'video';
 } | null>(null);
+
+const [selectedHighlightMediaList, setSelectedHighlightMediaList] = useState<
+  {
+    uri: string;
+    type: 'image' | 'video';
+  }[]
+>([]);
 const [highlightPosting, setHighlightPosting] = useState(false);
 const [highlightUploadStatus, setHighlightUploadStatus] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('stickies');
@@ -319,21 +328,26 @@ try {
       allowsEditing: false,
       quality: 0.9,
       videoQuality: ImagePicker.UIImagePickerControllerQualityType.Medium,
+      allowsMultipleSelection: true,
+      selectionLimit: 5, // adjust later if needed
     });
 
     if (result.canceled || !result.assets?.length) return;
 
-    const asset = result.assets[0];
+    const newItems: {
+  uri: string;
+  type: 'image' | 'video';
+}[] = result.assets
+  .filter(asset => !!asset.uri)
+  .map(asset => ({
+    uri: asset.uri,
+    type: asset.type === 'video' ? 'video' : 'image',
+  }));
 
-    if (!asset.uri) {
-      Alert.alert('Media error', 'Could not read the selected media.');
-      return;
-    }
+setSelectedHighlightMediaList(prev => [...prev, ...newItems]);
 
-    setSelectedHighlightMedia({
-      uri: asset.uri,
-      type: asset.type === 'video' ? 'video' : 'image',
-    });
+setSelectedHighlightMedia(newItems[0] ?? null);
+
   } catch (e) {
     console.warn('[Highlight media picker] failed', e);
     Alert.alert('Media error', 'Could not open your photo library.');
@@ -347,49 +361,56 @@ try {
   const body = stickyBody.trim() || '';
 
   if (!title) {
-  Alert.alert('Missing title', 'Add a title for the highlight.');
-  return;
-}
+    Alert.alert('Missing title', 'Add a title for the highlight.');
+    return;
+  }
+
+  const mediaToUpload =
+    selectedHighlightMediaList.length > 0
+      ? selectedHighlightMediaList
+      : selectedHighlightMedia
+        ? [selectedHighlightMedia]
+        : [];
 
   setHighlightPosting(true);
-  setHighlightUploadStatus(selectedHighlightMedia ? 'Preparing media...' : 'Posting highlight...');
+  setHighlightUploadStatus(
+    mediaToUpload.length > 0 ? 'Preparing media...' : 'Posting highlight...'
+  );
 
   try {
-    let uploadedHighlightMedia:
-      | {
-          mediaUrl: string;
-          mediaType: 'image' | 'video';
-          thumbnailUrl?: string;
-          imageUrl?: string;
-        }
-      | undefined;
+    const uploadedHighlightMedia: {
+      mediaUrl: string;
+      mediaType: 'image' | 'video';
+      thumbnailUrl?: string;
+      imageUrl?: string;
+    }[] = [];
 
-    if (selectedHighlightMedia) {
-      setHighlightUploadStatus('Uploading media...');
+    for (let i = 0; i < mediaToUpload.length; i++) {
+      const item = mediaToUpload[i];
+
+      setHighlightUploadStatus(`Uploading ${i + 1} of ${mediaToUpload.length}...`);
 
       const uploadedUrl = await uploadToR2(
-        selectedHighlightMedia.uri,
-        selectedHighlightMedia.type === 'video' ? 'video' : 'photo'
+        item.uri,
+        item.type === 'video' ? 'video' : 'photo'
       );
 
       if (!uploadedUrl) {
-        Alert.alert('Upload failed', 'Could not upload highlight media.');
-        setHighlightPosting(false);
-        setHighlightUploadStatus(null);
-        return;
+        console.warn('[Highlight upload] skipped failed item:', item.uri);
+        continue;
       }
 
       let thumbnailUrl: string | undefined;
 
-      if (selectedHighlightMedia.type === 'video') {
+      if (item.type === 'video') {
         try {
-          setHighlightUploadStatus('Creating video thumbnail...');
+          setHighlightUploadStatus(`Creating thumbnail ${i + 1} of ${mediaToUpload.length}...`);
 
-          const thumbnail = await VideoThumbnails.getThumbnailAsync(selectedHighlightMedia.uri, {
+          const thumbnail = await VideoThumbnails.getThumbnailAsync(item.uri, {
             time: 1000,
           });
 
-          setHighlightUploadStatus('Uploading thumbnail...');
+          setHighlightUploadStatus(`Uploading thumbnail ${i + 1} of ${mediaToUpload.length}...`);
 
           const uploadedThumbnail = await uploadToR2(thumbnail.uri, 'photo');
           thumbnailUrl = uploadedThumbnail || undefined;
@@ -398,12 +419,12 @@ try {
         }
       }
 
-      uploadedHighlightMedia = {
+      uploadedHighlightMedia.push({
         mediaUrl: uploadedUrl,
-        mediaType: selectedHighlightMedia.type,
+        mediaType: item.type,
         thumbnailUrl,
-        imageUrl: selectedHighlightMedia.type === 'image' ? uploadedUrl : undefined,
-      };
+        imageUrl: item.type === 'image' ? uploadedUrl : undefined,
+      });
     }
 
     setHighlightUploadStatus('Posting highlight...');
@@ -421,7 +442,9 @@ try {
     setStickyBody('');
     setStickyVisibility('private');
     setSelectedHighlightMedia(null);
+    setSelectedHighlightMediaList([]);
     setShowStickyModal(false);
+
     await load();
   } catch (e: any) {
     console.warn('[Highlight create] failed', e);
@@ -430,6 +453,35 @@ try {
 
   setHighlightPosting(false);
   setHighlightUploadStatus(null);
+};
+
+const openViewerForSticky = (sticky: GroupSticky, startIndex: number) => {
+  const media = (sticky as any).media;
+  const mediaItems = media ? (Array.isArray(media) ? media : [media]) : [];
+
+  const visualItems = mediaItems.filter(item => {
+    const mediaType = item.mediaType || item.type;
+    return mediaType === 'image' || mediaType === 'video';
+  });
+
+  const images: ViewerImage[] = visualItems
+    .filter(item => !!(item.mediaUrl || item.uri))
+    .map((item, index) => {
+      const viewerType: 'image' | 'video' =
+        item.mediaType === 'video' || item.type === 'video' ? 'video' : 'image';
+
+      return {
+        id: `${sticky.id}_${index}`,
+        uri: item.mediaUrl || item.uri,
+        type: viewerType,
+        thumbnailUrl: item.thumbnailUrl || item.thumbnailUri,
+      };
+    });
+
+    if (images.length === 0) return;
+
+  setActiveViewerImages(images);
+  setSelectedGalleryImage(images[startIndex]?.uri ?? null);
 };
 
 const handleDeleteSticky = (sticky: GroupSticky) => {
@@ -590,6 +642,25 @@ const galleryViewerImages: ViewerImage[] = [
     }),
   ...highlightViewerImages,
 ];
+
+const openViewerForGalleryItem = (mediaUrl: string) => {
+  const galleryOnlyViewerImages: ViewerImage[] = galleryItems
+    .filter(item => !!item.mediaUrl)
+    .map(item => {
+      const viewerType: 'image' | 'video' =
+        item.mediaType === 'video' ? 'video' : 'image';
+
+      return {
+        id: item.id,
+        uri: item.mediaUrl,
+        type: viewerType,
+        thumbnailUrl: item.thumbnailUrl,
+      };
+    });
+
+  setActiveViewerImages(galleryOnlyViewerImages);
+  setSelectedGalleryImage(mediaUrl);
+};
 
   return (
     <SafeAreaView style={s.safe}>
@@ -817,54 +888,10 @@ const galleryViewerImages: ViewerImage[] = [
 ) : null}
 
 {getStickyMediaItems(sticky).length > 0 && (
-  <View style={s.highlightCollageWrap}>
-    {getStickyMediaItems(sticky).slice(0, 4).map((item, index) => {
-      const mediaUrl = getStickyMediaUrl(item);
-      const thumbnailUrl = getStickyThumbnailUrl(item);
-      const mediaType = getStickyMediaType(item);
-      const totalMedia = getStickyMediaItems(sticky).length;
-
-      if (!mediaUrl) return null;
-
-      const tileStyle =
-        totalMedia === 1
-          ? s.highlightCollageTileOne
-          : totalMedia === 2
-            ? s.highlightCollageTileTwo
-            : totalMedia === 3 && index === 0
-              ? s.highlightCollageTileThreeLarge
-              : totalMedia === 3
-                ? s.highlightCollageTileThreeSmall
-                : s.highlightCollageTileFour;
-
-      return (
-        <TouchableOpacity
-          key={`${sticky.id}_${mediaUrl}_${index}`}
-          activeOpacity={0.9}
-          onPress={() => setSelectedGalleryImage(mediaUrl)}
-          style={tileStyle}
-        >
-          <Image
-            source={{ uri: mediaType === 'video' ? thumbnailUrl || mediaUrl : mediaUrl }}
-            style={s.highlightCollageImage}
-            resizeMode="cover"
-          />
-
-          {mediaType === 'video' && (
-            <View style={s.highlightCollageVideoOverlay}>
-              <Text style={s.highlightCollagePlay}>▶</Text>
-            </View>
-          )}
-
-          {index === 3 && totalMedia > 4 && (
-            <View style={s.highlightMoreOverlay}>
-              <Text style={s.highlightMoreText}>+{totalMedia - 4}</Text>
-            </View>
-          )}
-        </TouchableOpacity>
-      );
-    })}
-  </View>
+  <MediaCollage
+    media={getStickyMediaItems(sticky)}
+    onPressMedia={(index) => openViewerForSticky(sticky, index)}
+  />
 )}
 
 <Text style={s.stickyMeta}>
@@ -888,7 +915,7 @@ const galleryViewerImages: ViewerImage[] = [
     }
     renderItem={({ item }) => (
       <View style={{ flex: 1 / 3, padding: 4 }}>
-        <TouchableOpacity onPress={() => setSelectedGalleryImage(item.mediaUrl)}>
+        <TouchableOpacity onPress={() => openViewerForGalleryItem(item.mediaUrl)}>
     {item.mediaType === 'video' ? (
     <View
       style={{
@@ -1042,9 +1069,12 @@ const galleryViewerImages: ViewerImage[] = [
       )}
 
 <ImageViewerModal
-  images={galleryViewerImages}
+  images={activeViewerImages.length > 0 ? activeViewerImages : galleryViewerImages}
   selectedUri={selectedGalleryImage}
-  onClose={() => setSelectedGalleryImage(null)}
+  onClose={() => {
+    setSelectedGalleryImage(null);
+    setActiveViewerImages([]);
+  }}
 />
 
 <Modal
@@ -1086,37 +1116,41 @@ const galleryViewerImages: ViewerImage[] = [
 
       <Text style={s.inputLabel}>MEDIA</Text>
 
-      {selectedHighlightMedia ? (
-        <View style={s.highlightMediaPreviewWrap}>
-          <Image
-            source={{ uri: selectedHighlightMedia.uri }}
-            style={s.highlightMediaPreview}
-            resizeMode="cover"
-          />
+      {selectedHighlightMediaList.length > 0 ? (
+  <View>
+    <MediaCollage
+      media={selectedHighlightMediaList}
+      onPressMedia={() => {}}
+    />
 
-          {selectedHighlightMedia.type === 'video' && (
-            <View style={s.highlightVideoBadge}>
-              <Text style={s.highlightVideoBadgeText}>▶ Video</Text>
-            </View>
-          )}
+    <TouchableOpacity
+      style={s.highlightRemoveMediaBtn}
+      onPress={() => {
+        setSelectedHighlightMediaList([]);
+        setSelectedHighlightMedia(null);
+      }}
+    >
+      <Text style={s.highlightRemoveMediaText}>Remove all media</Text>
+    </TouchableOpacity>
 
-          <TouchableOpacity
-            style={s.highlightRemoveMediaBtn}
-            onPress={() => setSelectedHighlightMedia(null)}
-          >
-            <Text style={s.highlightRemoveMediaText}>Remove</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <TouchableOpacity
-          style={s.highlightAddMediaBtn}
-          onPress={handlePickHighlightMedia}
-          activeOpacity={0.85}
-        >
-          <Text style={s.highlightAddMediaText}>+ Add photo or video</Text>
-          <Text style={s.highlightAddMediaHint}>Preview only for now — no upload yet</Text>
-        </TouchableOpacity>
-      )}
+    <TouchableOpacity
+      style={[s.highlightAddMediaBtn, { marginTop: 10 }]}
+      onPress={handlePickHighlightMedia}
+      activeOpacity={0.85}
+    >
+      <Text style={s.highlightAddMediaText}>+ Add more media</Text>
+    </TouchableOpacity>
+  </View>
+) : (
+  <TouchableOpacity
+    style={s.highlightAddMediaBtn}
+    onPress={handlePickHighlightMedia}
+    activeOpacity={0.85}
+  >
+    <Text style={s.highlightAddMediaText}>+ Add photo or video</Text>
+    <Text style={s.highlightAddMediaHint}>Select up to 5 items</Text>
+  </TouchableOpacity>
+)}
 
       <Text style={s.inputLabel}>VISIBILITY</Text>
 
@@ -1192,18 +1226,6 @@ function getStickyMediaItems(sticky: GroupSticky): any[] {
   if (!media) return [];
 
   return Array.isArray(media) ? media : [media];
-}
-
-function getStickyMediaUrl(item: any): string | null {
-  return item?.mediaUrl || item?.uri || null;
-}
-
-function getStickyMediaType(item: any): 'image' | 'video' {
-  return item?.mediaType === 'video' || item?.type === 'video' ? 'video' : 'image';
-}
-
-function getStickyThumbnailUrl(item: any): string | undefined {
-  return item?.thumbnailUrl || item?.thumbnailUri;
 }
 
 function formatStickyDate(unix: number): string {
