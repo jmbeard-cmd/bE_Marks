@@ -327,8 +327,8 @@ try {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.All,
       allowsEditing: false,
-      quality: 0.9,
-      videoQuality: ImagePicker.UIImagePickerControllerQualityType.Medium,
+      quality: 0.75,
+videoQuality: ImagePicker.UIImagePickerControllerQualityType.Low,
       allowsMultipleSelection: true,
       selectionLimit: 5, // adjust later if needed
     });
