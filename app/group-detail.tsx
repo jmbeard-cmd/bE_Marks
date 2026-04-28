@@ -1,11 +1,16 @@
 import * as Clipboard from 'expo-clipboard';
+import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import * as VideoThumbnails from 'expo-video-thumbnails';
 import { useCallback, useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
   Image,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   RefreshControl,
   ScrollView,
   Share,
@@ -20,10 +25,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import ImageViewerModal, { ViewerImage } from '../components/ImageViewerModal';
 import {
   createGroupSticky,
-  deleteGroupSticky,
   getStickiesForGroup,
+  hideGroupSticky,
   syncGroupStickiesFromRelay,
-  type GroupSticky,
+  type GroupSticky
 } from '../src/utils/group-stickies';
 import {
   archiveGroup,
@@ -40,6 +45,7 @@ import {
   type GroupRelayMode,
 } from '../src/utils/group-storage';
 import { DEFAULT_RELAY, fetchGroupMessages } from '../src/utils/nostr';
+import { uploadToR2 } from '../src/utils/r2';
 import { useIdentity } from './_layout';
 
 type Tab = 'stickies' | 'gallery' | 'members';
@@ -58,6 +64,12 @@ const [showStickyModal, setShowStickyModal] = useState(false);
 const [stickyTitle, setStickyTitle] = useState('');
 const [stickyBody, setStickyBody] = useState('');
 const [stickyVisibility, setStickyVisibility] = useState<'private' | 'organization' | 'public'>('private');
+const [selectedHighlightMedia, setSelectedHighlightMedia] = useState<{
+  uri: string;
+  type: 'image' | 'video';
+} | null>(null);
+const [highlightPosting, setHighlightPosting] = useState(false);
+const [highlightUploadStatus, setHighlightUploadStatus] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('stickies');
   const [isAdmin, setIsAdmin] = useState(false);
   const [isMember, setIsMember] = useState(false);
@@ -214,44 +226,148 @@ setGalleryItems(mediaItems);
     );
   };
 
+  const handlePickHighlightMedia = async () => {
+  try {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (!permission.granted) {
+      Alert.alert('Permission needed', 'Allow photo library access to add media to a highlight.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.All,
+      allowsEditing: false,
+      quality: 0.9,
+      videoQuality: ImagePicker.UIImagePickerControllerQualityType.Medium,
+    });
+
+    if (result.canceled || !result.assets?.length) return;
+
+    const asset = result.assets[0];
+
+    if (!asset.uri) {
+      Alert.alert('Media error', 'Could not read the selected media.');
+      return;
+    }
+
+    setSelectedHighlightMedia({
+      uri: asset.uri,
+      type: asset.type === 'video' ? 'video' : 'image',
+    });
+  } catch (e) {
+    console.warn('[Highlight media picker] failed', e);
+    Alert.alert('Media error', 'Could not open your photo library.');
+  }
+};
+  
   const handleCreateSticky = async () => {
-  if (!group) return;
+  if (!group || highlightPosting) return;
 
   const title = stickyTitle.trim();
-  const body = stickyBody.trim();
+  const body = stickyBody.trim() || '';
 
-  if (!title || !body) {
-    Alert.alert('Missing info', 'Add a title and message for the sticky.');
-    return;
+  if (!title) {
+  Alert.alert('Missing title', 'Add a title for the highlight.');
+  return;
+}
+
+  setHighlightPosting(true);
+  setHighlightUploadStatus(selectedHighlightMedia ? 'Preparing media...' : 'Posting highlight...');
+
+  try {
+    let uploadedHighlightMedia:
+      | {
+          mediaUrl: string;
+          mediaType: 'image' | 'video';
+          thumbnailUrl?: string;
+          imageUrl?: string;
+        }
+      | undefined;
+
+    if (selectedHighlightMedia) {
+      setHighlightUploadStatus('Uploading media...');
+
+      const uploadedUrl = await uploadToR2(
+        selectedHighlightMedia.uri,
+        selectedHighlightMedia.type === 'video' ? 'video' : 'photo'
+      );
+
+      if (!uploadedUrl) {
+        Alert.alert('Upload failed', 'Could not upload highlight media.');
+        setHighlightPosting(false);
+        setHighlightUploadStatus(null);
+        return;
+      }
+
+      let thumbnailUrl: string | undefined;
+
+      if (selectedHighlightMedia.type === 'video') {
+        try {
+          setHighlightUploadStatus('Creating video thumbnail...');
+
+          const thumbnail = await VideoThumbnails.getThumbnailAsync(selectedHighlightMedia.uri, {
+            time: 1000,
+          });
+
+          setHighlightUploadStatus('Uploading thumbnail...');
+
+          const uploadedThumbnail = await uploadToR2(thumbnail.uri, 'photo');
+          thumbnailUrl = uploadedThumbnail || undefined;
+        } catch (thumbError) {
+          console.warn('[Highlight thumbnail] failed:', thumbError);
+        }
+      }
+
+      uploadedHighlightMedia = {
+        mediaUrl: uploadedUrl,
+        mediaType: selectedHighlightMedia.type,
+        thumbnailUrl,
+        imageUrl: selectedHighlightMedia.type === 'image' ? uploadedUrl : undefined,
+      };
+    }
+
+    setHighlightUploadStatus('Posting highlight...');
+
+    await createGroupSticky({
+      groupId: group.id,
+      title,
+      body,
+      authorNpub: npub ?? undefined,
+      relayUrl: group.relayUrl,
+      media: uploadedHighlightMedia,
+    } as any);
+
+    setStickyTitle('');
+    setStickyBody('');
+    setStickyVisibility('private');
+    setSelectedHighlightMedia(null);
+    setShowStickyModal(false);
+    await load();
+  } catch (e: any) {
+    console.warn('[Highlight create] failed', e);
+    Alert.alert('Error', e?.message || 'Could not post highlight.');
   }
 
-  await createGroupSticky({
-  groupId: group.id,
-  title,
-  body,
-  authorNpub: npub ?? undefined,
-  relayUrl: group.relayUrl,
-});
-
-  setStickyTitle('');
-  setStickyBody('');
-  setStickyVisibility('private');
-  setShowStickyModal(false);
-  await load();
+  setHighlightPosting(false);
+  setHighlightUploadStatus(null);
 };
 
 const handleDeleteSticky = (sticky: GroupSticky) => {
   Alert.alert(
-    'Delete sticky?',
-    'This removes the sticky from the group info page.',
+    'Delete highlight?',
+    'This removes the highlight from this device. Relay deletion will be handled later.',
     [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',
         style: 'destructive',
         onPress: async () => {
-          await deleteGroupSticky(sticky.id);
-          await load();
+          await hideGroupSticky(sticky.id);
+
+          setStickies(current =>
+            current.filter(item => item.id !== sticky.id)
+          );
         },
       },
     ]
@@ -488,9 +604,17 @@ const galleryViewerImages: ViewerImage[] = galleryItems
                 <Text style={s.cancelText}>Cancel</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity style={s.confirmBtn} onPress={saveGroupRelaySettings}>
-                <Text style={s.confirmText}>Save</Text>
-              </TouchableOpacity>
+                      <TouchableOpacity
+          style={[s.confirmBtn, highlightPosting && s.confirmBtnDisabled]}
+          onPress={handleCreateSticky}
+          disabled={highlightPosting}
+        >
+          {highlightPosting ? (
+            <ActivityIndicator size="small" color="#111" />
+          ) : (
+            <Text style={s.confirmText}>Post highlight</Text>
+          )}
+        </TouchableOpacity>
             </View>
           </View>
         )}
@@ -525,11 +649,45 @@ const galleryViewerImages: ViewerImage[] = galleryItems
             )}
           </View>
 
-          <Text style={s.stickyBody}>{sticky.body}</Text>
+          {sticky.body ? (
+  <Text style={s.stickyBody}>{sticky.body}</Text>
+) : null}
 
-          <Text style={s.stickyMeta}>
-            {formatStickyDate(sticky.createdAt)}
-          </Text>
+{(sticky as any).media?.mediaUrl && (
+  <TouchableOpacity
+    activeOpacity={0.9}
+    onPress={() => setSelectedGalleryImage((sticky as any).media.mediaUrl)}
+    style={s.highlightMediaWrap}
+  >
+    {(sticky as any).media.mediaType === 'video' ? (
+      <View style={s.highlightVideoWrap}>
+        {(sticky as any).media.thumbnailUrl ? (
+          <Image
+            source={{ uri: (sticky as any).media.thumbnailUrl }}
+            style={s.highlightMedia}
+            resizeMode="cover"
+          />
+        ) : (
+          <View style={[s.highlightMedia, { backgroundColor: '#000' }]} />
+        )}
+
+        <View style={s.highlightVideoOverlay}>
+          <Text style={s.highlightVideoPlay}>▶</Text>
+        </View>
+      </View>
+    ) : (
+      <Image
+        source={{ uri: (sticky as any).media.mediaUrl }}
+        style={s.highlightMedia}
+        resizeMode="cover"
+      />
+    )}
+  </TouchableOpacity>
+)}
+
+<Text style={s.stickyMeta}>
+  {formatStickyDate(sticky.createdAt)}
+</Text>
         </View>
       ))
     )}
@@ -713,8 +871,15 @@ const galleryViewerImages: ViewerImage[] = galleryItems
   animationType="slide"
   onRequestClose={() => setShowStickyModal(false)}
 >
-  <View style={s.modalOverlay}>
-    <View style={s.modalCard}>
+    <KeyboardAvoidingView
+    style={s.modalOverlay}
+    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+  >
+    <ScrollView
+      keyboardShouldPersistTaps="handled"
+      contentContainerStyle={s.modalScrollContent}
+    >
+      <View style={s.modalCard}>
       <Text style={s.modalTitle}>New Highlight</Text>
 
       <Text style={s.inputLabel}>TITLE</Text>
@@ -726,7 +891,7 @@ const galleryViewerImages: ViewerImage[] = galleryItems
         placeholderTextColor="#444"
       />
 
-      <Text style={s.inputLabel}>MESSAGE</Text>
+            <Text style={s.inputLabel}>MESSAGE</Text>
       <TextInput
         style={[s.input, s.inputMulti]}
         value={stickyBody}
@@ -736,6 +901,40 @@ const galleryViewerImages: ViewerImage[] = galleryItems
         multiline
         textAlignVertical="top"
       />
+
+      <Text style={s.inputLabel}>MEDIA</Text>
+
+      {selectedHighlightMedia ? (
+        <View style={s.highlightMediaPreviewWrap}>
+          <Image
+            source={{ uri: selectedHighlightMedia.uri }}
+            style={s.highlightMediaPreview}
+            resizeMode="cover"
+          />
+
+          {selectedHighlightMedia.type === 'video' && (
+            <View style={s.highlightVideoBadge}>
+              <Text style={s.highlightVideoBadgeText}>▶ Video</Text>
+            </View>
+          )}
+
+          <TouchableOpacity
+            style={s.highlightRemoveMediaBtn}
+            onPress={() => setSelectedHighlightMedia(null)}
+          >
+            <Text style={s.highlightRemoveMediaText}>Remove</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <TouchableOpacity
+          style={s.highlightAddMediaBtn}
+          onPress={handlePickHighlightMedia}
+          activeOpacity={0.85}
+        >
+          <Text style={s.highlightAddMediaText}>+ Add photo or video</Text>
+          <Text style={s.highlightAddMediaHint}>Preview only for now — no upload yet</Text>
+        </TouchableOpacity>
+      )}
 
       <Text style={s.inputLabel}>VISIBILITY</Text>
 
@@ -777,8 +976,18 @@ const galleryViewerImages: ViewerImage[] = galleryItems
   </TouchableOpacity>
 </View>
 
+            {highlightUploadStatus && (
+        <Text style={s.highlightUploadStatus}>{highlightUploadStatus}</Text>
+      )}
+
       <View style={s.modalActions}>
-        <TouchableOpacity style={s.cancelBtn} onPress={() => setShowStickyModal(false)}>
+                <TouchableOpacity
+          style={s.cancelBtn}
+          onPress={() => {
+            setSelectedHighlightMedia(null);
+            setShowStickyModal(false);
+          }}
+        >
           <Text style={s.cancelText}>Cancel</Text>
         </TouchableOpacity>
 
@@ -786,8 +995,9 @@ const galleryViewerImages: ViewerImage[] = galleryItems
           <Text style={s.confirmText}>Post highlight</Text>
         </TouchableOpacity>
       </View>
-    </View>
-  </View>
+          </View>
+    </ScrollView>
+  </KeyboardAvoidingView>
 </Modal>
 
     </SafeAreaView>
@@ -888,6 +1098,40 @@ visibilitySoon: {
     padding: 16,
     marginBottom: 13,
   },
+  highlightMediaWrap: {
+  marginTop: 12,
+  borderRadius: 12,
+  overflow: 'hidden',
+  borderWidth: 0.5,
+  borderColor: '#2a2a2a',
+},
+
+highlightMedia: {
+  width: '100%',
+  height: 180,
+  backgroundColor: '#000',
+},
+
+highlightVideoWrap: {
+  position: 'relative',
+},
+
+highlightVideoOverlay: {
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  alignItems: 'center',
+  justifyContent: 'center',
+  backgroundColor: 'rgba(0,0,0,0.25)',
+},
+
+highlightVideoPlay: {
+  color: '#c9973a',
+  fontSize: 28,
+  fontWeight: '800',
+},
   stickyTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1147,7 +1391,10 @@ roleBadgeTextAdmin: {
     fontWeight: '900',
     fontSize: 14,
   },
-
+modalScrollContent: {
+  flexGrow: 1,
+  justifyContent: 'flex-end',
+},
   modalOverlay: {
   flex: 1,
   backgroundColor: 'rgba(0,0,0,0.7)',
@@ -1166,6 +1413,16 @@ modalTitle: {
   fontSize: 18,
   fontWeight: '700',
   marginBottom: 16,
+},
+highlightUploadStatus: {
+  color: '#c9973a',
+  fontSize: 12,
+  fontWeight: '700',
+  marginTop: 12,
+  textAlign: 'center',
+},
+confirmBtnDisabled: {
+  opacity: 0.65,
 },
 inputLabel: {
   fontSize: 11,
@@ -1217,7 +1474,61 @@ confirmText: {
   fontSize: 14,
 },
   
-  // FAB
+highlightAddMediaBtn: {
+  borderWidth: 0.5,
+  borderColor: '#2a2a2a',
+  borderRadius: 12,
+  padding: 14,
+  backgroundColor: '#181818',
+  alignItems: 'center',
+},
+highlightAddMediaText: {
+  color: '#c9973a',
+  fontSize: 14,
+  fontWeight: '800',
+},
+highlightAddMediaHint: {
+  color: '#555',
+  fontSize: 11,
+  marginTop: 4,
+},
+highlightMediaPreviewWrap: {
+  borderRadius: 14,
+  overflow: 'hidden',
+  borderWidth: 0.5,
+  borderColor: '#2a2a2a',
+  backgroundColor: '#181818',
+},
+highlightMediaPreview: {
+  width: '100%',
+  height: 180,
+  backgroundColor: '#000',
+},
+highlightVideoBadge: {
+  position: 'absolute',
+  top: 10,
+  left: 10,
+  paddingHorizontal: 10,
+  paddingVertical: 6,
+  borderRadius: 999,
+  backgroundColor: 'rgba(0,0,0,0.7)',
+},
+highlightVideoBadgeText: {
+  color: '#c9973a',
+  fontSize: 12,
+  fontWeight: '800',
+},
+highlightRemoveMediaBtn: {
+  padding: 11,
+  alignItems: 'center',
+  backgroundColor: '#111',
+},
+highlightRemoveMediaText: {
+  color: '#c44',
+  fontSize: 13,
+  fontWeight: '800',
+},  
+// FAB
   fab: {
     position: 'absolute', bottom: 24, right: 24,
     width: 56, height: 56, borderRadius: 28,

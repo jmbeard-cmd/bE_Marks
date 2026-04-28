@@ -5,6 +5,7 @@ import {
   publishGroupSticky,
 } from './nostr';
 const GROUP_STICKIES_KEY = 'be_group_stickies_v1';
+const GROUP_HIDDEN_STICKIES_KEY = 'be_group_hidden_stickies_v1';
 
 export type GroupStickyMedia = {
   id: string;
@@ -46,9 +47,11 @@ async function writeJson<T>(key: string, value: T): Promise<void> {
 
 export async function getStickiesForGroup(groupId: string): Promise<GroupSticky[]> {
   const all = await readJson<GroupSticky[]>(GROUP_STICKIES_KEY, []);
+  const hiddenIds = await readJson<string[]>(GROUP_HIDDEN_STICKIES_KEY, []);
 
   return all
     .filter(sticky => sticky.groupId === groupId)
+    .filter(sticky => !hiddenIds.includes(sticky.id))
     .sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
@@ -110,33 +113,46 @@ export async function deleteGroupSticky(stickyId: string): Promise<void> {
   );
 }
 
+export async function hideGroupSticky(stickyId: string): Promise<void> {
+  const hiddenIds = await readJson<string[]>(GROUP_HIDDEN_STICKIES_KEY, []);
+
+  if (!hiddenIds.includes(stickyId)) {
+    await writeJson(GROUP_HIDDEN_STICKIES_KEY, [...hiddenIds, stickyId]);
+  }
+
+  await deleteGroupSticky(stickyId);
+}
+
 export async function syncGroupStickiesFromRelay(
   groupId: string,
   relayUrl: string,
 ): Promise<GroupSticky[]> {
   const remoteEvents = await fetchGroupStickies(groupId, relayUrl);
   const all = await readJson<GroupSticky[]>(GROUP_STICKIES_KEY, []);
+  const hiddenIds = await readJson<string[]>(GROUP_HIDDEN_STICKIES_KEY, []);
 
-  const localForGroup = all.filter(sticky => sticky.groupId === groupId);
+  const localForGroup = all
+    .filter(sticky => sticky.groupId === groupId)
+    .filter(sticky => !hiddenIds.includes(sticky.id));
+
   const otherStickies = all.filter(sticky => sticky.groupId !== groupId);
 
   const stickyMap = new Map<string, GroupSticky>();
 
-  // Keep local first
   for (const sticky of localForGroup) {
     stickyMap.set(sticky.id, sticky);
   }
 
-  // Merge relay stickies
   for (const event of remoteEvents) {
     try {
       const parsed = JSON.parse(event.content || '{}');
 
       if (!parsed.id || parsed.groupId !== groupId) continue;
+      if (hiddenIds.includes(parsed.id)) continue;
 
       const existing = stickyMap.get(parsed.id);
 
-            const remoteSticky: GroupSticky = {
+      const remoteSticky: GroupSticky = {
         id: parsed.id,
         groupId: parsed.groupId,
         title: parsed.title || '',
