@@ -1,6 +1,7 @@
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { createContext, useContext, useEffect, useState } from 'react';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-get-random-values';
 import { startDMService, stopDMService } from '../src/utils/dm-service';
 import { fetchNostrProfile, getStoredIdentity, type NostrProfile } from '../src/utils/nostr';
@@ -133,6 +134,7 @@ export default function RootLayout() {
   };
 
   return (
+  <GestureHandlerRootView style={{ flex: 1 }}>
     <IdentityContext.Provider value={{
       npub, nsec, setIdentity, clearIdentity: clear,
       useAmber, setUseAmber,
@@ -158,7 +160,8 @@ export default function RootLayout() {
   <Stack.Screen name="mark-detail" options={{ headerShown: false, animation: 'slide_from_right' }} />
   <Stack.Screen name="group-thread" options={{ headerShown: false, animation: 'slide_from_right' }} />
   <Stack.Screen name="group-detail" options={{ headerShown: false, animation: 'slide_from_right' }} />
-</Stack>
+    </Stack>
     </IdentityContext.Provider>
-  );
+  </GestureHandlerRootView>
+);
 }
