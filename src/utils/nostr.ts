@@ -207,7 +207,7 @@ export async function fetchNostrDMs(input?: {
       setTimeout(() => {
         try { sub.close(); } catch {}
         resolve();
-      }, 3000);
+      }, 1200);
     });
 
     const messages: NostrDMMessage[] = [];

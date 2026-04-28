@@ -49,9 +49,11 @@ export default function DmThreadScreen() {
   const title = useMemo(() => params.title || 'Conversation', [params.title]);
 
 
-  const scrollToBottom = useCallback((animated = true) => {
+  const scrollToBottom = useCallback((animated = false) => {
+  requestAnimationFrame(() => {
     listRef.current?.scrollToEnd({ animated });
-  }, []);
+  });
+}, []);
 
   const loadContactProfile = useCallback(async () => {
     setContactProfile(null);
@@ -151,12 +153,19 @@ console.log('[DM THREAD] current threadId:', threadId);
             createdAt: msg.createdAt,
           };
 
-          saveRemoteDMMessage(converted).then(async () => {
-            console.log('[DM THREAD] saved remote message:', converted);
-            const next = await getMessagesForThread(threadId);
-            setMessages(next);
-            setTimeout(() => scrollToBottom(true), 50);
-          });
+          setMessages(prev => {
+  const exists = prev.some(m => m.id === converted.id);
+  if (exists) return prev;
+
+  const next = [...prev, converted].sort((a, b) => a.createdAt - b.createdAt);
+  return next;
+});
+
+scrollToBottom(true);
+
+saveRemoteDMMessage(converted).catch(e => {
+  console.warn('[DM THREAD] failed to save live message:', e);
+});
         },
       });
     }
@@ -315,10 +324,7 @@ console.log('[DM THREAD] current threadId:', threadId);
             contentContainerStyle={s.list}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-            onContentSizeChange={() => {
-  scrollToBottom(false); // first snap
-  setTimeout(() => scrollToBottom(true), 50); // 🔥 correction pass
-}}
+            onContentSizeChange={() => scrollToBottom(false)}
             ListEmptyComponent={
               <View style={s.empty}>
                 <Text style={s.emptyIcon}>✉️</Text>
