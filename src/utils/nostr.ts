@@ -1159,6 +1159,13 @@ export async function publishGroupSticky(input: {
   groupId: string;
   title: string;
   body: string;
+  media?: Array<{
+    id: string;
+    uri: string;
+    type: 'image' | 'video' | 'file';
+    name?: string;
+    thumbnailUri?: string;
+  }>;
   authorNpub?: string;
   nsec: string;
   relayUrl: string;
@@ -1178,6 +1185,24 @@ export async function publishGroupSticky(input: {
       ['client', 'bE-Marks'],
     ];
 
+    for (const media of input.media ?? []) {
+      tags.push(['url', media.uri]);
+
+      if (media.type === 'image') {
+        tags.push(['image', media.uri]);
+        tags.push(['imeta', `url ${media.uri}`, 'mime image/jpeg']);
+      }
+
+      if (media.type === 'video') {
+        tags.push(['video', media.uri]);
+        tags.push(['imeta', `url ${media.uri}`, 'mime video/mp4']);
+      }
+
+      if (media.type === 'file') {
+        tags.push(['file', media.uri]);
+      }
+    }
+
     const unsigned: UnsignedEvent = {
       kind: GROUP_STICKY_KIND,
       created_at: now,
@@ -1187,6 +1212,7 @@ export async function publishGroupSticky(input: {
         groupId: input.groupId,
         title: input.title,
         body: input.body,
+        media: input.media ?? [],
         authorNpub: input.authorNpub,
         createdAt: now,
         updatedAt: now,

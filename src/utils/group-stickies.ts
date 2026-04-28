@@ -1,16 +1,25 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-    fetchGroupStickies,
-    getStoredIdentity,
-    publishGroupSticky,
+  fetchGroupStickies,
+  getStoredIdentity,
+  publishGroupSticky,
 } from './nostr';
 const GROUP_STICKIES_KEY = 'be_group_stickies_v1';
+
+export type GroupStickyMedia = {
+  id: string;
+  uri: string;
+  type: 'image' | 'video' | 'file';
+  name?: string;
+  thumbnailUri?: string;
+};
 
 export type GroupSticky = {
   id: string;
   groupId: string;
   title: string;
   body: string;
+  media?: GroupStickyMedia[];
   authorName?: string;
   authorNpub?: string;
   relayUrl?: string;
@@ -47,6 +56,7 @@ export async function createGroupSticky(input: {
   groupId: string;
   title: string;
   body: string;
+  media?: GroupStickyMedia[];
   authorName?: string;
   authorNpub?: string;
   relayUrl?: string;
@@ -59,23 +69,27 @@ export async function createGroupSticky(input: {
     groupId: input.groupId,
     title: input.title.trim(),
     body: input.body.trim(),
+    media: input.media ?? [],
     authorName: input.authorName,
     authorNpub: input.authorNpub,
+    relayUrl: input.relayUrl,
     createdAt: now,
     updatedAt: now,
   };
 
   all.push(sticky);
   await writeJson(GROUP_STICKIES_KEY, all);
-    if (input.relayUrl) {
+
+  if (input.relayUrl) {
     const identity = await getStoredIdentity();
 
     if (identity?.nsec) {
-      publishGroupSticky({
+            publishGroupSticky({
         stickyId: sticky.id,
         groupId: sticky.groupId,
         title: sticky.title,
         body: sticky.body,
+        media: sticky.media ?? [],
         authorNpub: sticky.authorNpub,
         nsec: identity.nsec,
         relayUrl: input.relayUrl,
@@ -122,13 +136,15 @@ export async function syncGroupStickiesFromRelay(
 
       const existing = stickyMap.get(parsed.id);
 
-      const remoteSticky: GroupSticky = {
+            const remoteSticky: GroupSticky = {
         id: parsed.id,
         groupId: parsed.groupId,
         title: parsed.title || '',
         body: parsed.body || '',
+        media: Array.isArray(parsed.media) ? parsed.media : [],
         authorName: parsed.authorName,
         authorNpub: parsed.authorNpub,
+        relayUrl,
         createdAt: parsed.createdAt || event.created_at,
         updatedAt: parsed.updatedAt || event.created_at,
       };
