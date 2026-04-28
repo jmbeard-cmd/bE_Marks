@@ -18,6 +18,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import BEHeader from '../../components/BEHeader';
 import ImageViewerModal, { ViewerImage } from '../../components/ImageViewerModal';
+import MediaCollage from '../../components/MediaCollage';
 import { DEFAULT_RELAY, fetchFamilyMembers, fetchFamilyMilestones } from '../../src/utils/nostr';
 import {
   formatDate,
@@ -257,12 +258,6 @@ function TimelineMediaCollage({
           uri={previewUri}
           type={media.type === 'video' ? 'video' : 'image'}
         />
-
-        {media.type === 'video' && (
-          <View style={s.markCollageVideoOverlay}>
-            <Text style={s.markCollagePlay}>▶</Text>
-          </View>
-        )}
 
         {index === 3 && totalMedia > 4 && (
           <View style={s.markMoreOverlay}>
@@ -567,12 +562,13 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
 
         <View style={s.cardSlot}>
           <View style={[s.card, isPortrait && s.cardPortrait]}>
-                        {(hasVisualMedia || hasAudioOnly) && (
-              <TimelineMediaCollage
-  milestone={item}
-  onPressMedia={(index) => openViewerForMilestone(item, index)}
-/>
-            )}
+          {(hasVisualMedia || hasAudioOnly) && (
+  <MediaCollage
+    media={getMilestoneMediaItems(item)}
+    audioUri={item.audioUri}
+    onPressMedia={(index) => openViewerForMilestone(item, index)}
+  />
+)}
 
             <View style={s.cardBody}>
               <Text style={s.date}>{formatDate(item.createdAt)}</Text>
