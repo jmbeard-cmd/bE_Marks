@@ -816,36 +816,55 @@ const galleryViewerImages: ViewerImage[] = [
   <Text style={s.stickyBody}>{sticky.body}</Text>
 ) : null}
 
-{(sticky as any).media?.mediaUrl && (
-  <TouchableOpacity
-    activeOpacity={0.9}
-    onPress={() => setSelectedGalleryImage((sticky as any).media.mediaUrl)}
-    style={s.highlightMediaWrap}
-  >
-    {(sticky as any).media.mediaType === 'video' ? (
-      <View style={s.highlightVideoWrap}>
-        {(sticky as any).media.thumbnailUrl ? (
+{getStickyMediaItems(sticky).length > 0 && (
+  <View style={s.highlightCollageWrap}>
+    {getStickyMediaItems(sticky).slice(0, 4).map((item, index) => {
+      const mediaUrl = getStickyMediaUrl(item);
+      const thumbnailUrl = getStickyThumbnailUrl(item);
+      const mediaType = getStickyMediaType(item);
+      const totalMedia = getStickyMediaItems(sticky).length;
+
+      if (!mediaUrl) return null;
+
+      const tileStyle =
+        totalMedia === 1
+          ? s.highlightCollageTileOne
+          : totalMedia === 2
+            ? s.highlightCollageTileTwo
+            : totalMedia === 3 && index === 0
+              ? s.highlightCollageTileThreeLarge
+              : totalMedia === 3
+                ? s.highlightCollageTileThreeSmall
+                : s.highlightCollageTileFour;
+
+      return (
+        <TouchableOpacity
+          key={`${sticky.id}_${mediaUrl}_${index}`}
+          activeOpacity={0.9}
+          onPress={() => setSelectedGalleryImage(mediaUrl)}
+          style={tileStyle}
+        >
           <Image
-            source={{ uri: (sticky as any).media.thumbnailUrl }}
-            style={s.highlightMedia}
+            source={{ uri: mediaType === 'video' ? thumbnailUrl || mediaUrl : mediaUrl }}
+            style={s.highlightCollageImage}
             resizeMode="cover"
           />
-        ) : (
-          <View style={[s.highlightMedia, { backgroundColor: '#000' }]} />
-        )}
 
-        <View style={s.highlightVideoOverlay}>
-          <Text style={s.highlightVideoPlay}>▶</Text>
-        </View>
-      </View>
-    ) : (
-      <Image
-        source={{ uri: (sticky as any).media.mediaUrl }}
-        style={s.highlightMedia}
-        resizeMode="cover"
-      />
-    )}
-  </TouchableOpacity>
+          {mediaType === 'video' && (
+            <View style={s.highlightCollageVideoOverlay}>
+              <Text style={s.highlightCollagePlay}>▶</Text>
+            </View>
+          )}
+
+          {index === 3 && totalMedia > 4 && (
+            <View style={s.highlightMoreOverlay}>
+              <Text style={s.highlightMoreText}>+{totalMedia - 4}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      );
+    })}
+  </View>
 )}
 
 <Text style={s.stickyMeta}>
@@ -1167,6 +1186,26 @@ const galleryViewerImages: ViewerImage[] = [
   );
 }
 
+function getStickyMediaItems(sticky: GroupSticky): any[] {
+  const media = (sticky as any).media;
+
+  if (!media) return [];
+
+  return Array.isArray(media) ? media : [media];
+}
+
+function getStickyMediaUrl(item: any): string | null {
+  return item?.mediaUrl || item?.uri || null;
+}
+
+function getStickyMediaType(item: any): 'image' | 'video' {
+  return item?.mediaType === 'video' || item?.type === 'video' ? 'video' : 'image';
+}
+
+function getStickyThumbnailUrl(item: any): string | undefined {
+  return item?.thumbnailUrl || item?.thumbnailUri;
+}
+
 function formatStickyDate(unix: number): string {
   const date = new Date(unix * 1000);
   return date.toLocaleDateString([], {
@@ -1261,6 +1300,82 @@ visibilitySoon: {
     padding: 16,
     marginBottom: 13,
   },
+  highlightCollageWrap: {
+  marginTop: 12,
+  borderRadius: 12,
+  overflow: 'hidden',
+  borderWidth: 0.5,
+  borderColor: '#2a2a2a',
+  backgroundColor: '#000',
+  flexDirection: 'row',
+  flexWrap: 'wrap',
+  height: 220,
+},
+
+highlightCollageTileOne: {
+  width: '100%',
+  height: '100%',
+},
+
+highlightCollageTileTwo: {
+  width: '50%',
+  height: '100%',
+},
+
+highlightCollageTileThreeLarge: {
+  width: '60%',
+  height: '100%',
+},
+
+highlightCollageTileThreeSmall: {
+  width: '40%',
+  height: '50%',
+},
+
+highlightCollageTileFour: {
+  width: '50%',
+  height: '50%',
+},
+
+highlightCollageImage: {
+  width: '100%',
+  height: '100%',
+  backgroundColor: '#000',
+},
+
+highlightCollageVideoOverlay: {
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  alignItems: 'center',
+  justifyContent: 'center',
+  backgroundColor: 'rgba(0,0,0,0.22)',
+},
+
+highlightCollagePlay: {
+  color: '#c9973a',
+  fontSize: 26,
+  fontWeight: '900',
+},
+
+highlightMoreOverlay: {
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  alignItems: 'center',
+  justifyContent: 'center',
+  backgroundColor: 'rgba(0,0,0,0.55)',
+},
+
+highlightMoreText: {
+  color: '#fff',
+  fontSize: 24,
+  fontWeight: '900',
+},
   highlightMediaWrap: {
   marginTop: 12,
   borderRadius: 12,

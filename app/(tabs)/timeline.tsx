@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import BEHeader from '../../components/BEHeader';
+import ImageViewerModal, { ViewerImage } from '../../components/ImageViewerModal';
 import { DEFAULT_RELAY, fetchFamilyMembers, fetchFamilyMilestones } from '../../src/utils/nostr';
 import {
   formatDate,
@@ -150,12 +151,213 @@ function MilestoneImage({
   );
 }
 
+function getMilestoneMediaItems(item: Milestone): any[] {
+  const mediaItems = Array.isArray(item.media) ? [...item.media] : [];
+
+  if (item.photoUri && !mediaItems.some(m => m.uri === item.photoUri)) {
+    mediaItems.push({
+      id: `${item.id}_legacy_photo`,
+      uri: item.photoUri,
+      type: 'image',
+    });
+  }
+
+  if (item.videoUri && !mediaItems.some(m => m.uri === item.videoUri)) {
+    mediaItems.push({
+      id: `${item.id}_legacy_video`,
+      uri: item.videoUri,
+      type: 'video',
+    });
+  }
+
+  return mediaItems;
+}
+
+function getMediaPreviewUri(item: any): string | null {
+  if (!item) return null;
+
+  if (item.type === 'video') {
+    return item.thumbnailUri || item.thumbnailUrl || item.uri || null;
+  }
+
+  if (item.type === 'audio') {
+    return null;
+  }
+
+  return item.uri || item.mediaUrl || null;
+}
+
+function CollageTileImage({
+  uri,
+  type,
+}: {
+  uri: string | null;
+  type: 'image' | 'video';
+}) {
+  const [failed, setFailed] = useState(false);
+
+  if (!uri || failed) {
+    return (
+      <View style={s.markCollageFallback}>
+        <Text style={s.markCollageFallbackIcon}>
+          {type === 'video' ? '▶' : '🖼️'}
+        </Text>
+        <Text style={s.markCollageFallbackText}>
+          {type === 'video' ? 'Video' : 'Image'}
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <Image
+      source={{ uri }}
+      style={s.markCollageImage}
+      resizeMode="cover"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
+function TimelineMediaCollage({
+  milestone,
+  onPressMedia,
+}: {
+  milestone: Milestone;
+  onPressMedia: (index: number) => void;
+}) {
+  const mediaItems = getMilestoneMediaItems(milestone);
+  const visualItems = mediaItems.filter(item => item.type === 'image' || item.type === 'video');
+  const audioItems = milestone.audioUri ? [{ uri: milestone.audioUri, type: 'audio' }] : [];
+
+  if (visualItems.length === 0 && audioItems.length > 0) {
+    return (
+      <View style={s.audioThumb}>
+        <Text style={s.audioThumbIcon}>🎙</Text>
+        <Text style={s.audioThumbLabel}>Voice note</Text>
+      </View>
+    );
+  }
+
+  if (visualItems.length === 0) return null;
+
+  const totalMedia = visualItems.length;
+
+  const renderTile = (media: any, index: number, tileStyle: any) => {
+    const previewUri = getMediaPreviewUri(media);
+
+    return (
+      <TouchableOpacity
+        key={`${milestone.id}_${media.uri}_${index}`}
+        style={tileStyle}
+        activeOpacity={0.8}
+        onPress={() => onPressMedia(index)}
+      >
+        <CollageTileImage
+          uri={previewUri}
+          type={media.type === 'video' ? 'video' : 'image'}
+        />
+
+        {media.type === 'video' && (
+          <View style={s.markCollageVideoOverlay}>
+            <Text style={s.markCollagePlay}>▶</Text>
+          </View>
+        )}
+
+        {index === 3 && totalMedia > 4 && (
+          <View style={s.markMoreOverlay}>
+            <Text style={s.markMoreText}>+{totalMedia - 4}</Text>
+          </View>
+        )}
+      </TouchableOpacity>
+    );
+  };
+
+  if (totalMedia === 1) {
+    return (
+      <View style={s.markCollageWrap}>
+        {renderTile(visualItems[0], 0, s.markCollageTileOne)}
+      </View>
+    );
+  }
+
+  if (totalMedia === 2) {
+    return (
+      <View style={s.markCollageWrap}>
+        {renderTile(visualItems[0], 0, s.markCollageTileTwo)}
+        {renderTile(visualItems[1], 1, s.markCollageTileTwo)}
+      </View>
+    );
+  }
+
+  if (totalMedia === 3) {
+    return (
+      <View style={s.markCollageWrap}>
+        <View style={s.markCollageThreeLeft}>
+          {renderTile(visualItems[0], 0, s.markCollageFill)}
+        </View>
+
+        <View style={s.markCollageThreeRight}>
+          {renderTile(visualItems[1], 1, s.markCollageThreeRightTile)}
+          {renderTile(visualItems[2], 2, s.markCollageThreeRightTile)}
+        </View>
+
+        <View style={s.mediaBadgeRow}>
+          <View style={s.mediaBadge}>
+            <Text style={s.mediaBadgeIcon}>{totalMedia}</Text>
+          </View>
+
+          {visualItems.some(item => item.type === 'video') && (
+            <View style={s.mediaBadge}>
+              <Text style={s.mediaBadgeIcon}>🎥</Text>
+            </View>
+          )}
+
+          {audioItems.length > 0 && (
+            <View style={s.mediaBadge}>
+              <Text style={s.mediaBadgeIcon}>🎙</Text>
+            </View>
+          )}
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={s.markCollageWrap}>
+      {visualItems.slice(0, 4).map((media, index) =>
+        renderTile(media, index, s.markCollageTileFour)
+      )}
+
+      <View style={s.mediaBadgeRow}>
+        <View style={s.mediaBadge}>
+          <Text style={s.mediaBadgeIcon}>{totalMedia}</Text>
+        </View>
+
+        {visualItems.some(item => item.type === 'video') && (
+          <View style={s.mediaBadge}>
+            <Text style={s.mediaBadgeIcon}>🎥</Text>
+          </View>
+        )}
+
+        {audioItems.length > 0 && (
+          <View style={s.mediaBadge}>
+            <Text style={s.mediaBadgeIcon}>🎙</Text>
+          </View>
+        )}
+      </View>
+    </View>
+  );
+}
+
 export default function TimelineScreen() {
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [tab, setTab] = useState<'mine' | 'family'>('mine');
     const [newFamilyCount, setNewFamilyCount] = useState(0);
+  const [viewerImages, setViewerImages] = useState<ViewerImage[]>([]);
+const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
   const [familyMemberCount, setFamilyMemberCount] = useState(0);
   const [showBanner, setShowBanner] = useState(false);
   const [showFilterDrawer, setShowFilterDrawer] = useState(false);
@@ -317,27 +519,40 @@ export default function TimelineScreen() {
   const filtered = applyFilters(source, filters, npub);
   const activeFilterCount = countActiveFilters(filters);
 
-      function TimelineCard({ item, index }: { item: Milestone; index: number }) {
+  function openViewerForMilestone(milestone: Milestone, startIndex: number) {
+  const mediaItems = getMilestoneMediaItems(milestone).filter(
+    m => m.type === 'image' || m.type === 'video'
+  );
+
+  const images: ViewerImage[] = mediaItems.map((m, index) => {
+    const viewerType: 'image' | 'video' = m.type === 'video' ? 'video' : 'image';
+
+    return {
+      id: `${milestone.id}_${index}`,
+      uri: m.uri,
+      type: viewerType,
+      thumbnailUrl: m.thumbnailUri || m.thumbnailUrl,
+    };
+  });
+
+  if (images.length === 0) return;
+
+  setViewerImages(images);
+  setSelectedViewerUri(images[startIndex]?.uri ?? null);
+}  
+  
+  function TimelineCard({ item, index }: { item: Milestone; index: number }) {
     const [mediaRatio, setMediaRatio] = useState(1.2);
 
     const hasTitle = item.note?.includes('\n\n');
     const title = hasTitle ? item.note.split('\n\n')[0] : null;
     const body = hasTitle ? item.note.split('\n\n').slice(1).join('\n\n') : item.note;
 
-    const firstImage = item.media?.find(m => m.type === 'image');
-    const firstVideo = item.media?.find(m => m.type === 'video');
+        const mediaItems = getMilestoneMediaItems(item);
+    const hasVisualMedia = mediaItems.some(m => m.type === 'image' || m.type === 'video');
+    const hasAudioOnly = !hasVisualMedia && mediaItems.some(m => m.type === 'audio');
 
-    const previewImageUri =
-      firstImage?.uri ||
-      firstVideo?.thumbnailUri ||
-      item.photoUri;
-
-    const hasVideo = !!firstVideo || !!item.videoUri;
-    const showPhoto = !!previewImageUri;
-    const showVideoOnly = !previewImageUri && !!item.videoUri;
-    const showAudioOnly = !previewImageUri && !item.videoUri && !!item.audioUri;
-
-    const isPortrait = mediaRatio < 0.9;
+    const isPortrait = false;
 
     return (
       <TouchableOpacity
@@ -352,51 +567,11 @@ export default function TimelineScreen() {
 
         <View style={s.cardSlot}>
           <View style={[s.card, isPortrait && s.cardPortrait]}>
-            {showPhoto && (
-              <View style={s.photoWrapper}>
-                <MilestoneImage
-                  uri={previewImageUri!}
-                  onRatio={setMediaRatio}
-                />
-
-                {(hasVideo || item.audioUri || (item.media?.length ?? 0) > 1) && (
-                  <View style={s.mediaBadgeRow}>
-                    {(item.media?.length ?? 0) > 1 && (
-                      <View style={s.mediaBadge}>
-                        <Text style={s.mediaBadgeIcon}>{item.media?.length}</Text>
-                      </View>
-                    )}
-
-                    {hasVideo && (
-                      <View style={s.mediaBadge}>
-                        <Text style={s.mediaBadgeIcon}>🎥</Text>
-                      </View>
-                    )}
-
-                    {item.audioUri && (
-                      <View style={s.mediaBadge}>
-                        <Text style={s.mediaBadgeIcon}>🎙</Text>
-                      </View>
-                    )}
-                  </View>
-                )}
-              </View>
-            )}
-
-            {showVideoOnly && (
-              <View style={s.videoThumb}>
-                <View style={s.videoPlayCircle}>
-                  <Text style={s.videoPlayIcon}>▶</Text>
-                </View>
-                <Text style={s.videoThumbLabel}>Video clip</Text>
-              </View>
-            )}
-
-            {showAudioOnly && (
-              <View style={s.audioThumb}>
-                <Text style={s.audioThumbIcon}>🎙</Text>
-                <Text style={s.audioThumbLabel}>Voice note</Text>
-              </View>
+                        {(hasVisualMedia || hasAudioOnly) && (
+              <TimelineMediaCollage
+  milestone={item}
+  onPressMedia={(index) => openViewerForMilestone(item, index)}
+/>
             )}
 
             <View style={s.cardBody}>
@@ -580,7 +755,13 @@ export default function TimelineScreen() {
             </TouchableOpacity>
           </Animated.View>
         </TouchableOpacity>
-      </Modal>
+            </Modal>
+
+            <ImageViewerModal
+        images={viewerImages}
+        selectedUri={selectedViewerUri}
+        onClose={() => setSelectedViewerUri(null)}
+      />
     </SafeAreaView>
   );
 }
@@ -624,7 +805,7 @@ const s = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 0.5,
     borderColor: '#222',
-    backgroundColor: '#1a1a1a',
+    backgroundColor: '#0d0d0d',
     overflow: 'hidden',
   },
       cardPortrait: {
@@ -684,6 +865,113 @@ const s = StyleSheet.create({
   },
   mediaBadgeIcon: {
     fontSize: 14,
+  },
+  markCollageThreeLeft: {
+  width: '60%',
+  height: '100%',
+  overflow: 'hidden',
+  backgroundColor: '#0d0d0d',
+},
+
+markCollageThreeRight: {
+  width: '40%',
+  height: '100%',
+  overflow: 'hidden',
+  backgroundColor: '#0d0d0d',
+},
+
+markCollageThreeRightTile: {
+  width: '100%',
+  height: '50%',
+  overflow: 'hidden',
+  backgroundColor: '#0d0d0d',
+},
+
+markCollageFill: {
+  width: '100%',
+  height: '100%',
+  overflow: 'hidden',
+  backgroundColor: '#0d0d0d',
+},
+  markCollageFallback: {
+  width: '100%',
+  height: '100%',
+  backgroundColor: '#111',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 6,
+},
+markCollageFallbackIcon: {
+  color: '#c9973a',
+  fontSize: 24,
+  fontWeight: '900',
+},
+markCollageFallbackText: {
+  color: '#666',
+  fontSize: 12,
+  fontWeight: '700',
+},
+    markCollageWrap: {
+    width: '100%',
+    height: 230,
+    backgroundColor: '#0d0d0d',
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#222',
+    overflow: 'hidden',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    position: 'relative',
+  },
+  markCollageTileOne: {
+    width: '100%',
+    height: '100%',
+  },
+  markCollageTileTwo: {
+    width: '50%',
+    height: '100%',
+  },
+  markCollageTileThreeLarge: {
+    width: '60%',
+    height: '100%',
+  },
+  markCollageTileThreeSmall: {
+  width: '40%',
+  height: '50%',
+  backgroundColor: '#0d0d0d',
+  overflow: 'hidden',
+},
+  markCollageTileFour: {
+  width: '50%',
+  height: '50%',
+  backgroundColor: '#0d0d0d',
+  overflow: 'hidden',
+},
+  markCollageImage: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#000',
+  },
+  markCollageVideoOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.22)',
+  },
+  markCollagePlay: {
+    color: '#c9973a',
+    fontSize: 28,
+    fontWeight: '900',
+  },
+  markMoreOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  markMoreText: {
+    color: '#fff',
+    fontSize: 24,
+    fontWeight: '900',
   },
   videoThumb: { width: '100%', height: 120, backgroundColor: '#0d0d0d', alignItems: 'center', justifyContent: 'center', gap: 8, borderBottomWidth: 0.5, borderBottomColor: '#222' },
   videoPlayCircle: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(201,151,58,0.85)', alignItems: 'center', justifyContent: 'center' },

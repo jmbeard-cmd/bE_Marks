@@ -87,16 +87,18 @@ function ViewerVideo({
         </View>
       )}
 
-      <VideoView
+            <VideoView
         player={player}
         style={[s.video, !ready && { opacity: 0 }]}
         contentFit="contain"
-        nativeControls
+        nativeControls={false}
         onFirstFrameRender={() => setReady(true)}
       />
 
-      <TouchableOpacity style={s.videoLeftTapZone} onPress={goPrev} />
-      <TouchableOpacity style={s.videoRightTapZone} onPress={goNext} />
+            <View style={s.videoGestureLayer} {...panResponder.panHandlers}>
+        <TouchableOpacity style={s.videoLeftTapZone} onPress={goPrev} />
+        <TouchableOpacity style={s.videoRightTapZone} onPress={goNext} />
+      </View>
     </View>
   );
 }
@@ -271,6 +273,10 @@ const s = StyleSheet.create({
     width,
     height,
   },
+    videoGestureLayer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 25,
+  },
   videoScreen: {
     width,
     height,
@@ -300,13 +306,12 @@ const s = StyleSheet.create({
     height,
     zIndex: 2,
   },
-  videoLeftTapZone: {
+    videoLeftTapZone: {
     position: 'absolute',
     left: 0,
     top: 120,
     bottom: 120,
     width: 70,
-    zIndex: 25,
   },
   videoRightTapZone: {
     position: 'absolute',
@@ -314,6 +319,5 @@ const s = StyleSheet.create({
     top: 120,
     bottom: 120,
     width: 70,
-    zIndex: 25,
   },
 });
