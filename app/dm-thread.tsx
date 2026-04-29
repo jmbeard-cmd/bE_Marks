@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
-  Image,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -19,171 +18,86 @@ import {
   getDMThreadById,
   getMessagesForThread,
   markThreadRead,
-  saveRemoteDMMessage,
   sendLocalDM,
   type DMMessage,
 } from '../src/utils/dm-storage';
-import {
-  fetchNostrDMs,
-  fetchNostrProfile,
-  sendNostrDM,
-  subscribeToNostrDMs,
-  type NostrProfile,
-} from '../src/utils/nostr';
+import { sendNostrDM } from '../src/utils/nostr';
 
 export default function DmThreadScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string; title?: string }>();
 
   const [draft, setDraft] = useState('');
-    const [inputHeight, setInputHeight] = useState(40);
+  const [inputHeight, setInputHeight] = useState(40);
   const [messages, setMessages] = useState<DMMessage[]>([]);
   const [sending, setSending] = useState(false);
   const [hasPubkey, setHasPubkey] = useState(false);
-  const [contactProfile, setContactProfile] = useState<NostrProfile | null>(null);
-  const [profileLoading, setProfileLoading] = useState(false);
 
-  const listRef = useRef<FlatList>(null);
+  const listRef = useRef<FlatList<DMMessage>>(null);
+  const leavingRef = useRef(false);
 
   const threadId = useMemo(() => params.id || '', [params.id]);
   const title = useMemo(() => params.title || 'Conversation', [params.title]);
 
-
   const scrollToBottom = useCallback((animated = false) => {
-  requestAnimationFrame(() => {
-    listRef.current?.scrollToEnd({ animated });
-  });
-}, []);
+    if (leavingRef.current) return;
 
-  const loadContactProfile = useCallback(async () => {
-    setContactProfile(null);
-    setProfileLoading(false);
+    requestAnimationFrame(() => {
+      if (leavingRef.current) return;
+      listRef.current?.scrollToEnd({ animated });
+    });
+  }, []);
 
-    if (!threadId) return;
+  const loadLocalThread = useCallback(async () => {
+    if (!threadId || leavingRef.current) return;
 
-    const thread = await getDMThreadById(threadId);
+    const [localMessages, thread] = await Promise.all([
+      getMessagesForThread(threadId),
+      getDMThreadById(threadId),
+    ]);
 
-    if (!thread?.participantNpub) {
-      setContactProfile(null);
-      return;
-    }
+    if (leavingRef.current) return;
 
-    setProfileLoading(true);
-
-    try {
-      const profile = await fetchNostrProfile(thread.participantNpub);
-      const stillCurrentThread = await getDMThreadById(threadId);
-
-      if (stillCurrentThread?.participantNpub === thread.participantNpub) {
-        setContactProfile(profile);
-      }
-    } catch {
-      setContactProfile(null);
-    }
-
-    setProfileLoading(false);
-  }, [threadId]);
-
-  const loadMessages = useCallback(async () => {
-    if (!threadId) return;
-
-    const localMessages = await getMessagesForThread(threadId);
     setMessages(localMessages);
-    setTimeout(() => scrollToBottom(false), 50);
-
-    const thread = await getDMThreadById(threadId);
     setHasPubkey(!!thread?.participantPubkey);
 
-    await markThreadRead(threadId);
+    requestAnimationFrame(() => scrollToBottom(false));
 
-    if (!thread?.participantPubkey) return;
-
-    fetchNostrDMs({ withPubkey: thread.participantPubkey })
-      .then(async remoteMessages => {
-        for (const msg of remoteMessages) {
-          await saveRemoteDMMessage({
-            id: `nostr_${msg.id}`,
-            threadId,
-            text: msg.content,
-            mine: msg.isMine,
-            createdAt: msg.createdAt,
-          });
-        }
-
-        const merged = await getMessagesForThread(threadId);
-        setMessages(merged);
-        setTimeout(() => scrollToBottom(false), 50);
-      })
-      .catch(e => {
-        console.warn('[DM] Remote fetch error:', e);
-      });
+    markThreadRead(threadId).catch(e => {
+      console.warn('[DM THREAD] markThreadRead failed:', e);
+    });
   }, [threadId, scrollToBottom]);
 
-    useFocusEffect(
+  useFocusEffect(
     useCallback(() => {
-      setMessages([]);
-      setContactProfile(null);
-      setHasPubkey(false);
+      leavingRef.current = false;
+      loadLocalThread();
 
-      loadMessages();
-      loadContactProfile();
-
-    }, [loadMessages, loadContactProfile, scrollToBottom])
+      return () => {
+        leavingRef.current = true;
+      };
+    }, [loadLocalThread])
   );
 
   useEffect(() => {
-    if (!threadId) return;
+  if (!threadId) return;
 
-    let unsubscribe: (() => void) | undefined;
-
-    async function startLiveDMs() {
-      const thread = await getDMThreadById(threadId);
-      if (!thread?.participantPubkey) return;
-
-      unsubscribe = await subscribeToNostrDMs({
-        withPubkey: thread.participantPubkey,
-        onMessage: msg => {
-          console.log('[DM THREAD] live message received:', msg);
-console.log('[DM THREAD] current threadId:', threadId);
-          const converted: DMMessage = {
-            id: `nostr_${msg.id}`,
-            threadId,
-            text: msg.content,
-            mine: msg.isMine,
-            createdAt: msg.createdAt,
-          };
-
-          setMessages(prev => {
-  const exists = prev.some(m => m.id === converted.id);
-  if (exists) return prev;
-
-  const next = [...prev, converted].sort((a, b) => a.createdAt - b.createdAt);
-  return next;
-});
-
-scrollToBottom(true);
-
-saveRemoteDMMessage(converted).catch(e => {
-  console.warn('[DM THREAD] failed to save live message:', e);
-});
-        },
-      });
+  const interval = setInterval(() => {
+    if (!leavingRef.current) {
+      loadLocalThread();
     }
+  }, 1000);
 
-    startLiveDMs();
-
-    return () => {
-      if (unsubscribe) unsubscribe();
-    };
-  }, [threadId, scrollToBottom]);
+  return () => clearInterval(interval);
+}, [threadId, loadLocalThread]);
 
   const handleSend = async () => {
     const text = draft.trim();
-    if (!text || !threadId || sending) return;
+    if (!text || !threadId || sending || leavingRef.current) return;
 
     setSending(true);
     setDraft('');
-        setInputHeight(40);
+    setInputHeight(40);
     Keyboard.dismiss();
 
     try {
@@ -193,22 +107,29 @@ saveRemoteDMMessage(converted).catch(e => {
         mine: true,
       });
 
-      setMessages(prev => {
-        const exists = prev.some(m => m.id === localMessage.id);
-        if (exists) return prev;
+      if (!leavingRef.current) {
+        setMessages(prev => {
+          const exists = prev.some(m => m.id === localMessage.id);
+          if (exists) return prev;
 
-        const next = [...prev, localMessage].sort((a, b) => a.createdAt - b.createdAt);
-        setTimeout(() => scrollToBottom(true), 50);
-        return next;
-      });
+          const next = [...prev, localMessage].sort((a, b) => a.createdAt - b.createdAt);
+          requestAnimationFrame(() => scrollToBottom(true));
+          return next;
+        });
+      }
 
       const thread = await getDMThreadById(threadId);
 
       if (thread?.participantPubkey) {
-        sendNostrDM({
-          toPubkey: thread.participantPubkey,
-          content: text,
-        }).then(result => {
+  console.log('[DM THREAD SEND] threadId:', threadId);
+  console.log('[DM THREAD SEND] title:', thread.title);
+  console.log('[DM THREAD SEND] participantPubkey:', thread.participantPubkey);
+  console.log('[DM THREAD SEND] participantNpub:', thread.participantNpub);
+
+  sendNostrDM({
+    toPubkey: thread.participantPubkey,
+    content: text,
+  }).then(result => {
           if (!result.success) {
             console.warn('[DM] Nostr send failed:', result.error);
           }
@@ -216,28 +137,32 @@ saveRemoteDMMessage(converted).catch(e => {
       }
     } catch (err) {
       console.error('[DM] Send error:', err);
+    } finally {
+      if (!leavingRef.current) {
+        setSending(false);
+      }
     }
-
-    setSending(false);
   };
 
- const handleBack = () => {
-  if (router.canGoBack()) {
-    router.back();
-  } else {
-    router.replace('/(tabs)/messages' as any);
-  }
-};
+  const handleBack = () => {
+    leavingRef.current = true;
+    Keyboard.dismiss();
 
-  const displayName = contactProfile?.display_name || contactProfile?.name || title;
-  const avatarLetter = displayName[0]?.toUpperCase() || '?';
+    requestAnimationFrame(() => {
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace('/(tabs)/messages' as any);
+      }
+    });
+  };
 
   const renderMessage = ({ item, index }: { item: DMMessage; index: number }) => {
     const prevMsg = index > 0 ? messages[index - 1] : null;
     const showDateDivider = !prevMsg || !isSameDay(item.createdAt, prevMsg.createdAt);
 
     return (
-      <>
+      <View>
         {showDateDivider && (
           <View style={s.dateDivider}>
             <View style={s.dateDividerLine} />
@@ -247,18 +172,6 @@ saveRemoteDMMessage(converted).catch(e => {
         )}
 
         <View style={[s.row, item.mine ? s.rowMine : s.rowOther]}>
-          {!item.mine && (
-            <View style={s.msgAvatar}>
-              {contactProfile?.picture ? (
-                <Image source={{ uri: contactProfile.picture }} style={s.msgAvatarImg} />
-              ) : (
-                <View style={s.msgAvatarFallback}>
-                  <Text style={s.msgAvatarLetter}>{avatarLetter}</Text>
-                </View>
-              )}
-            </View>
-          )}
-
           <View style={[s.bubble, item.mine ? s.bubbleMine : s.bubbleOther]}>
             <Text style={[s.messageText, item.mine ? s.messageTextMine : s.messageTextOther]}>
               {item.text}
@@ -269,48 +182,30 @@ saveRemoteDMMessage(converted).catch(e => {
             </Text>
           </View>
         </View>
-      </>
+      </View>
     );
   };
 
   return (
     <SafeAreaView style={s.safe}>
       <KeyboardAvoidingView
-  style={{ flex: 1 }}
-  behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-  keyboardVerticalOffset={0}
->
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={0}
+      >
         <View style={s.container}>
           <View style={s.header}>
             <TouchableOpacity
               onPress={handleBack}
               style={s.backBtn}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             >
               <Text style={s.backText}>← Back</Text>
             </TouchableOpacity>
 
             <View style={s.headerCenter}>
-              <View style={s.headerAvatar}>
-                {contactProfile?.picture ? (
-                  <Image source={{ uri: contactProfile.picture }} style={s.headerAvatarImg} />
-                ) : (
-                  <View style={s.headerAvatarFallback}>
-                    {profileLoading ? (
-                      <ActivityIndicator size="small" color="#c9973a" />
-                    ) : (
-                      <Text style={s.headerAvatarLetter}>{avatarLetter}</Text>
-                    )}
-                  </View>
-                )}
-              </View>
-
-              <View>
-                <Text style={s.headerTitle} numberOfLines={1}>{displayName}</Text>
-                {hasPubkey && (
-                  <Text style={s.headerSub}>🔒 End-to-end encrypted</Text>
-                )}
-              </View>
+              <Text style={s.headerTitle} numberOfLines={1}>{title}</Text>
+              {hasPubkey && <Text style={s.headerSub}>🔒 End-to-end encrypted</Text>}
             </View>
 
             <View style={{ width: 60 }} />
@@ -319,38 +214,31 @@ saveRemoteDMMessage(converted).catch(e => {
           <FlatList
             ref={listRef}
             data={messages}
-            contentInsetAdjustmentBehavior="always"
             keyExtractor={item => item.id}
             contentContainerStyle={s.list}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+            removeClippedSubviews
+            initialNumToRender={18}
+            maxToRenderPerBatch={18}
+            windowSize={7}
             onContentSizeChange={() => scrollToBottom(false)}
             ListEmptyComponent={
               <View style={s.empty}>
                 <Text style={s.emptyIcon}>✉️</Text>
                 <Text style={s.emptyText}>No messages yet</Text>
                 <Text style={s.emptyHint}>
-                  {hasPubkey
-                    ? `Send ${displayName} a message below.`
-                    : 'Send the first message below.'}
+                  {hasPubkey ? `Send ${title} a message below.` : 'Send the first message below.'}
                 </Text>
-                {!hasPubkey && (
-                  <Text style={s.emptyLocalNote}>
-                    No Nostr address — messages are stored locally only.
-                  </Text>
-                )}
               </View>
             }
             renderItem={renderMessage}
           />
 
           <View style={s.composer}>
-                                    <TextInput
-              style={[
-                s.input,
-                { height: Math.max(40, Math.min(120, inputHeight)) },
-              ]}
-              placeholder={`Message ${displayName}…`}
+            <TextInput
+              style={[s.input, { height: Math.max(40, Math.min(120, inputHeight)) }]}
+              placeholder={`Message ${title}…`}
               placeholderTextColor="#444"
               value={draft}
               onChangeText={setDraft}
@@ -358,9 +246,9 @@ saveRemoteDMMessage(converted).catch(e => {
               maxLength={2000}
               textAlignVertical="top"
               onFocus={() => {
-                setTimeout(() => scrollToBottom(true), 250);
+                setTimeout(() => scrollToBottom(true), 200);
               }}
-              onContentSizeChange={(e) => {
+              onContentSizeChange={e => {
                 setInputHeight(e.nativeEvent.contentSize.height);
               }}
             />
@@ -387,20 +275,22 @@ function isSameDay(a: number, b: number): boolean {
   const da = new Date(a * 1000);
   const db = new Date(b * 1000);
 
-  return da.getFullYear() === db.getFullYear()
+  return (
+    da.getFullYear() === db.getFullYear()
     && da.getMonth() === db.getMonth()
-    && da.getDate() === db.getDate();
+    && da.getDate() === db.getDate()
+  );
 }
 
 function formatDividerDate(unixSecs: number): string {
   const date = new Date(unixSecs * 1000);
   const now = new Date();
-  const isToday = date.toDateString() === now.toDateString();
+
+  if (date.toDateString() === now.toDateString()) return 'Today';
 
   const yesterday = new Date(now);
   yesterday.setDate(now.getDate() - 1);
 
-  if (isToday) return 'Today';
   if (date.toDateString() === yesterday.toDateString()) return 'Yesterday';
 
   return date.toLocaleDateString([], {
@@ -427,24 +317,11 @@ const s = StyleSheet.create({
   backText: { color: '#c9973a', fontSize: 14, fontWeight: '600' },
   headerCenter: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-  },
-  headerAvatar: { width: 36, height: 36 },
-  headerAvatarImg: { width: 36, height: 36, borderRadius: 18 },
-  headerAvatarFallback: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#2a2a2a',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerAvatarLetter: { color: '#c9973a', fontWeight: '700', fontSize: 15 },
-  headerTitle: { color: '#fff', fontSize: 15, fontWeight: '700', maxWidth: 160 },
-  headerSub: { color: '#555', fontSize: 10, marginTop: 1 },
+  headerTitle: { color: '#fff', fontSize: 15, fontWeight: '700', maxWidth: 220 },
+  headerSub: { color: '#555', fontSize: 10, marginTop: 2 },
 
   list: { padding: 16, paddingBottom: 8, flexGrow: 1 },
 
@@ -461,22 +338,9 @@ const s = StyleSheet.create({
     marginBottom: 6,
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: 8,
   },
   rowMine: { justifyContent: 'flex-end' },
   rowOther: { justifyContent: 'flex-start' },
-
-  msgAvatar: { width: 28, height: 28, marginBottom: 2 },
-  msgAvatarImg: { width: 28, height: 28, borderRadius: 14 },
-  msgAvatarFallback: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#2a2a2a',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  msgAvatarLetter: { color: '#c9973a', fontWeight: '700', fontSize: 11 },
 
   bubble: {
     maxWidth: '75%',
@@ -511,15 +375,8 @@ const s = StyleSheet.create({
   emptyIcon: { fontSize: 36, marginBottom: 14 },
   emptyText: { color: '#fff', fontSize: 16, fontWeight: '600', marginBottom: 6 },
   emptyHint: { color: '#555', fontSize: 13, textAlign: 'center' },
-  emptyLocalNote: {
-    color: '#3a3a3a',
-    fontSize: 11,
-    textAlign: 'center',
-    marginTop: 16,
-    lineHeight: 17,
-  },
 
-      composer: {
+  composer: {
     borderTopWidth: 0.5,
     borderTopColor: '#222',
     paddingHorizontal: 12,

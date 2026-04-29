@@ -60,7 +60,9 @@ export default function RootLayout() {
 
     useEffect(() => {
     Promise.all([getStoredIdentity(), getFamily()]).then(async ([id, fam]) => {
+      console.log('[LAYOUT] checking identity + starting DM service');
       if (id) {
+        console.log('[LAYOUT] identity found, starting DM service');
         setNpub(id.npub);
         setNsec(id.nsec);
 
@@ -75,7 +77,8 @@ export default function RootLayout() {
         }
 
         // Start background DM listener on app launch if already signed in
-        startDMService();
+        console.log('[LAYOUT] calling startDMService');
+startDMService();
       }
 
       if (fam) setFamilyState(fam);

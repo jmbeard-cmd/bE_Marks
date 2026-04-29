@@ -30,7 +30,6 @@ async function readJson<T>(key: string, fallback: T): Promise<T> {
       return JSON.parse(asyncRaw) as T;
     }
 
-    // One-time fallback: read old SecureStore data if it exists
     const secureRaw = await SecureStore.getItemAsync(key);
 
     if (secureRaw) {
@@ -164,17 +163,6 @@ export async function saveRemoteDMMessage(input: {
 
   const existsById = allMessages.some(message => message.id === input.id);
   if (existsById) return;
-
-  const existsByContent = allMessages.some(message => {
-    const sameThread = message.threadId === input.threadId;
-    const sameMine = message.mine === input.mine;
-    const sameText = message.text === input.text;
-    const closeInTime = Math.abs(message.createdAt - input.createdAt) <= 10;
-
-    return sameThread && sameMine && sameText && closeInTime;
-  });
-
-  if (existsByContent) return;
 
   allMessages.push({
     id: input.id,

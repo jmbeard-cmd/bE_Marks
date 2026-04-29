@@ -1,5 +1,5 @@
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   FlatList,
@@ -63,6 +63,14 @@ export default function MessagesScreen() {
       loadData();
     }, [loadData])
   );
+
+  useEffect(() => {
+  const timer = setInterval(() => {
+    loadData();
+  }, 1000);
+
+  return () => clearInterval(timer);
+}, [loadData]);
 
   const filteredThreads = useMemo(() => {
     const q = search.trim().toLowerCase();

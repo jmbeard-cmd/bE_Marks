@@ -112,40 +112,63 @@ export async function sendNostrDM(input: {
     const myPubkey = getPublicKey(sk);
 
     // Use provided relays or fall back to all fast relays
-    const relayUrls = input.relayUrls && input.relayUrls.length > 0
-      ? input.relayUrls
-      : FAST_RELAYS;
+    const relayUrls = ['wss://relay.beginningend.com'];
 
     const recipients = [
       { publicKey: input.toPubkey, relayUrl: relayUrls[0] },
       { publicKey: myPubkey, relayUrl: relayUrls[0] }, // self-copy for cross-device sync
     ];
 
-    const wrappedEvents = nip17.wrapManyEvents(
-      sk,
-      recipients,
-      trimmed,
-      input.subject,
-      input.replyToEventId ? { eventId: input.replyToEventId } : undefined
-    );
+    const recipient = recipients[0];
+
+if (!recipient?.publicKey) {
+  throw new Error('Missing recipient pubkey');
+}
+
+const wrappedEvent = nip17.wrapEvent(
+  sk,
+  recipient,
+  trimmed,
+  input.subject,
+  input.replyToEventId ? { eventId: input.replyToEventId } : undefined
+);
+
+const wrappedEvents = [wrappedEvent];
+
+console.log('[DM SEND] myPubkey:', myPubkey.slice(0, 16));
+console.log('[DM SEND] toPubkey:', input.toPubkey.slice(0, 16));
+console.log('[DM SEND] wrapped event id:', wrappedEvent.id);
+console.log('[DM SEND] wrapped event p tags:', wrappedEvent.tags.filter(tag => tag[0] === 'p'));
 
     const pool = new SimplePool();
 
     // Publish each wrapped event to ALL relays simultaneously
     // Promise.any resolves as soon as ONE relay accepts it
     const publishResults = await Promise.all(
-      wrappedEvents.map(async (evt) => {
-        const pubs = pool.publish(relayUrls, evt);
-        await Promise.any(pubs);
-        return evt.id;
-      })
-    );
+  wrappedEvents.map(async (evt) => {
+    const pubs = pool.publish(relayUrls, evt);
+
+    const results = await Promise.allSettled(pubs);
+
+    const success = results.find(r => r.status === 'fulfilled');
+
+    if (!success) {
+      console.warn('[DM SEND] all relays rejected event:', evt.id);
+      return null;
+    }
+
+    return evt.id;
+  })
+);
+
+const successfulIds = publishResults.filter((id): id is string => typeof id === 'string');
+console.log('[DM SEND] successful event ids:', successfulIds);
 
     return {
-      success: true,
-      threadPubkey: input.toPubkey,
-      eventIds: publishResults,
-    };
+  success: successfulIds.length > 0,
+  threadPubkey: input.toPubkey,
+  eventIds: successfulIds,
+};
   } catch (e: any) {
     return {
       success: false,
@@ -154,7 +177,58 @@ export async function sendNostrDM(input: {
   }
 }
 
-// ─── Fetch DMs (multi-relay, faster timeout) ──────────────────────
+// ─── DM Receive Helpers ───────────────────────────────────────────
+
+type RawRelayMessage = any[];
+
+function getRelayLabel(relayUrl: string): string {
+  return relayUrl.replace('wss://', '').replace('ws://', '');
+}
+
+function buildDMMessageFromGiftWrap(
+  wrapped: Event,
+  sk: Uint8Array,
+  myPubkey: string,
+  withPubkey?: string,
+): NostrDMMessage | null {
+  const inner = nip17.unwrapEvent(wrapped, sk);
+
+  if (!inner || inner.kind !== 14) {
+    console.log('[DM RECEIVE] ignored unwrap result; not kind 14:', inner?.kind);
+    return null;
+  }
+
+  const pTag = inner.tags.find((tag: string[]) => tag[0] === 'p');
+  const recipientPubkey = pTag?.[1] || '';
+  const otherPubkey = inner.pubkey === myPubkey ? recipientPubkey : inner.pubkey;
+
+  if (!otherPubkey) {
+    console.log('[DM RECEIVE] ignored inner DM because otherPubkey was empty:', inner.id);
+    return null;
+  }
+
+  if (withPubkey && otherPubkey !== withPubkey) {
+    console.log('[DM RECEIVE] ignored DM for different thread:', {
+      expected: withPubkey.slice(0, 16),
+      actual: otherPubkey.slice(0, 16),
+    });
+    return null;
+  }
+
+  return {
+    id: inner.id,
+    threadPubkey: otherPubkey,
+    senderPubkey: inner.pubkey,
+    recipientPubkey,
+    content: inner.content,
+    createdAt: inner.created_at,
+    isMine: inner.pubkey === myPubkey,
+    rawEvent: wrapped,
+    rawInnerEvent: inner,
+  };
+}
+
+// ─── Fetch DMs (manual WebSocket so AUTH/NOTICE are visible) ──────
 
 export async function fetchNostrDMs(input?: {
   withPubkey?: string;
@@ -176,71 +250,151 @@ export async function fetchNostrDMs(input?: {
       : FAST_RELAYS;
 
     const limit = input?.limit ?? 100;
-    const pool = new SimplePool();
-    const giftWraps: Event[] = [];
-    const seen = new Set<string>();
-
-    await new Promise<void>((resolve) => {
-      const sub = pool.subscribe(
-        relayUrls,
-        {
-          kinds: [1059],
-          '#p': [myPubkey],
-          limit,
-        },
-        {
-          onevent(event) {
-            // Deduplicate across relays
-            if (!seen.has(event.id)) {
-              seen.add(event.id);
-              giftWraps.push(event);
-            }
-          },
-          oneose() {
-            try { sub.close(); } catch {}
-            resolve();
-          },
-        }
-      );
-
-      // Reduced timeout — fast relays respond in <1s
-      setTimeout(() => {
-        try { sub.close(); } catch {}
-        resolve();
-      }, 1200);
-    });
-
+    const seenGiftWraps = new Set<string>();
+    const seenMessages = new Set<string>();
     const messages: NostrDMMessage[] = [];
 
-    for (const wrapped of giftWraps) {
-      try {
-        const inner = nip17.unwrapEvent(wrapped, sk);
-        if (!inner || inner.kind !== 14) continue;
+    console.log('[DM FETCH] starting 1059 fetch');
+    console.log('[DM FETCH] myPubkey:', myPubkey.slice(0, 16));
+    console.log('[DM FETCH] withPubkey:', input?.withPubkey?.slice(0, 16) || 'any');
+    console.log('[DM FETCH] relayUrls:', relayUrls);
 
-        const pTag = inner.tags.find((tag) => tag[0] === 'p');
-        const recipientPubkey = pTag?.[1] || '';
-        const otherPubkey = inner.pubkey === myPubkey ? recipientPubkey : inner.pubkey;
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      let finishedCount = 0;
+      const sockets: WebSocket[] = [];
 
-        if (!otherPubkey) continue;
-        if (input?.withPubkey && otherPubkey !== input.withPubkey) continue;
+      const finishRelay = () => {
+        finishedCount += 1;
+        if (!settled && finishedCount >= relayUrls.length) {
+          settled = true;
+          sockets.forEach((ws) => {
+            try { ws.close(); } catch {}
+          });
+          resolve();
+        }
+      };
 
-        messages.push({
-          id: inner.id,
-          threadPubkey: otherPubkey,
-          senderPubkey: inner.pubkey,
-          recipientPubkey,
-          content: inner.content,
-          createdAt: inner.created_at,
-          isMine: inner.pubkey === myPubkey,
-          rawEvent: wrapped,
-          rawInnerEvent: inner,
+      const timeout = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        console.log('[DM FETCH] timeout; closing sockets');
+        sockets.forEach((ws) => {
+          try { ws.close(); } catch {}
         });
-      } catch {
-        // ignore events we can't decrypt
-      }
-    }
+        resolve();
+      }, 5000);
+
+      relayUrls.forEach((relayUrl) => {
+        const relayLabel = getRelayLabel(relayUrl);
+
+        try {
+          const ws = new WebSocket(relayUrl);
+          sockets.push(ws);
+
+          ws.onopen = () => {
+            const subId = `dm-fetch-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+            const req = [
+              'REQ',
+              subId,
+              {
+                kinds: [1059],
+                '#p': [myPubkey],
+                limit,
+              },
+            ];
+
+            console.log(`[DM FETCH] ${relayLabel} opened; sending REQ:`, JSON.stringify(req));
+            ws.send(JSON.stringify(req));
+          };
+
+          ws.onmessage = (msg) => {
+            try {
+              const data = JSON.parse(String(msg.data)) as RawRelayMessage;
+              const type = data[0];
+
+              if (type === 'AUTH') {
+                console.warn(`[DM FETCH] ${relayLabel} requires NIP-42 AUTH:`, data[1]);
+                return;
+              }
+
+              if (type === 'NOTICE') {
+                console.warn(`[DM FETCH] ${relayLabel} NOTICE:`, data[1]);
+                return;
+              }
+
+              if (type === 'CLOSED') {
+                console.warn(`[DM FETCH] ${relayLabel} CLOSED:`, data[2]);
+                finishRelay();
+                return;
+              }
+
+              if (type === 'EOSE') {
+                console.log(`[DM FETCH] ${relayLabel} EOSE`);
+                finishRelay();
+                return;
+              }
+
+              if (type !== 'EVENT') return;
+
+              const wrapped = data[2] as Event;
+              console.log(`[DM FETCH] raw 1059 from ${relayLabel}:`, {
+                id: wrapped.id,
+                pubkey: wrapped.pubkey?.slice(0, 16),
+                pTags: wrapped.tags?.filter((tag: string[]) => tag[0] === 'p'),
+                created_at: wrapped.created_at,
+              });
+
+              if (seenGiftWraps.has(wrapped.id)) return;
+              seenGiftWraps.add(wrapped.id);
+
+              const message = buildDMMessageFromGiftWrap(
+                wrapped,
+                sk,
+                myPubkey,
+                input?.withPubkey,
+              );
+
+              if (!message) return;
+              if (seenMessages.has(message.id)) return;
+              seenMessages.add(message.id);
+
+              console.log('[DM FETCH] passing decrypted DM to UI/storage:', {
+                id: message.id,
+                threadPubkey: message.threadPubkey.slice(0, 16),
+                senderPubkey: message.senderPubkey.slice(0, 16),
+                isMine: message.isMine,
+              });
+
+              messages.push(message);
+            } catch (error) {
+              console.warn(`[DM FETCH] ${relayLabel} parse/decrypt error:`, error);
+            }
+          };
+
+          ws.onerror = (error) => {
+            console.warn(`[DM FETCH] ${relayLabel} websocket error:`, error);
+            finishRelay();
+          };
+
+          ws.onclose = () => {
+            console.log(`[DM FETCH] ${relayLabel} closed`);
+          };
+        } catch (error) {
+          console.warn(`[DM FETCH] ${relayLabel} setup error:`, error);
+          finishRelay();
+        }
+      });
+
+      const originalResolve = resolve;
+      resolve = () => {
+        clearTimeout(timeout);
+        originalResolve();
+      };
+    });
 
     messages.sort((a, b) => a.createdAt - b.createdAt);
+    console.log('[DM FETCH] complete; messages:', messages.length);
     return messages;
   } catch (e) {
     console.warn('[fetchNostrDMs] error:', e);
@@ -248,7 +402,7 @@ export async function fetchNostrDMs(input?: {
   }
 }
 
-// ─── Subscribe to DMs (used by dm-thread screen) ──────────────────
+// ─── Subscribe to DMs (manual WebSocket so AUTH/NOTICE are visible) ─
 
 export async function subscribeToNostrDMs(
   input: {
@@ -259,63 +413,139 @@ export async function subscribeToNostrDMs(
 ): Promise<() => void> {
   try {
     const identity = await getStoredIdentity();
-    if (!identity?.nsec) throw new Error('Missing nsec in SecureStore');
+    if (!identity?.nsec) throw new Error('Missing nsec');
 
     const decoded = nip19.decode(identity.nsec);
-    if (decoded.type !== 'nsec') throw new Error('Stored nsec is invalid');
+    if (decoded.type !== 'nsec') throw new Error('Invalid nsec');
 
     const sk = decoded.data as Uint8Array;
     const myPubkey = getPublicKey(sk);
 
-    const relayUrls = input.relayUrls && input.relayUrls.length > 0
-      ? input.relayUrls
-      : FAST_RELAYS;
+    const relayUrl = 'wss://relay.beginningend.com';
 
-    const pool = new SimplePool();
+    const ws = new WebSocket(relayUrl);
     const seen = new Set<string>();
 
-    const sub = pool.subscribe(
-      relayUrls,
-      {
-        kinds: [1059],
-        '#p': [myPubkey],
-        since: Math.floor(Date.now() / 1000),
-      },
-      {
-        onevent(wrapped) {
-          try {
-            if (seen.has(wrapped.id)) return;
-            seen.add(wrapped.id);
+    ws.onopen = () => {
+  console.log('[DM LIVE] connected');
 
-            const inner = nip17.unwrapEvent(wrapped, sk);
-            if (!inner || inner.kind !== 14) return;
+  const authEvent = finalizeEvent({
+    kind: 22242,
+    created_at: Math.floor(Date.now() / 1000),
+    tags: [
+      ['relay', relayUrl],
+      ['challenge', ''],
+    ],
+    content: '',
+  }, sk);
 
-            const pTag = inner.tags.find((tag) => tag[0] === 'p');
-            const recipientPubkey = pTag?.[1] || '';
-            const otherPubkey = inner.pubkey === myPubkey ? recipientPubkey : inner.pubkey;
+  ws.send(JSON.stringify(['AUTH', authEvent]));
+  console.log('[DM AUTH] proactive auth sent');
 
-            if (!otherPubkey) return;
-            if (input.withPubkey && otherPubkey !== input.withPubkey) return;
+  // 🔥 WAIT before sending REQ
+  setTimeout(() => {
+    console.log('[DM LIVE] sending REQ after AUTH');
 
-            input.onMessage({
-              id: inner.id,
-              threadPubkey: otherPubkey,
-              senderPubkey: inner.pubkey,
-              recipientPubkey,
-              content: inner.content,
-              createdAt: inner.created_at,
-              isMine: inner.pubkey === myPubkey,
-              rawEvent: wrapped,
-              rawInnerEvent: inner,
-            });
-          } catch {}
-        },
+    ws.send(JSON.stringify([
+  'REQ',
+  'dm-sub',
+  {
+    kinds: [1059],
+    limit: 50,
+  }
+]));
+  }, 300); // <-- key
+};
+
+    ws.onmessage = (msg) => {
+      try {
+        const data = JSON.parse(msg.data);
+
+        // 🔐 HANDLE AUTH
+        if (data[0] === 'AUTH') {
+          console.log('[DM AUTH] challenge received');
+
+          const challenge = data[1];
+
+          const authEvent = finalizeEvent({
+            kind: 22242,
+            created_at: Math.floor(Date.now() / 1000),
+            tags: [
+              ['relay', relayUrl],
+              ['challenge', challenge],
+            ],
+            content: '',
+          }, sk);
+
+          ws.send(JSON.stringify(['AUTH', authEvent]));
+          console.log('[DM AUTH] response sent');
+          return;
+        }
+
+        // 📦 HANDLE EVENT
+        if (data[0] === 'EVENT') {
+          const wrapped = data[2];
+
+const wrapPTag = wrapped.tags?.find((tag: string[]) => tag[0] === 'p');
+const wrapRecipient = wrapPTag?.[1] || '';
+
+if (wrapRecipient.toLowerCase() !== myPubkey.toLowerCase()) {
+  console.log('[DM LIVE] skipped 1059 not addressed to me');
+  return;
+}
+
+if (seen.has(wrapped.id)) return;
+seen.add(wrapped.id);
+
+console.log('[DM LIVE] wrapped event received for me');
+
+          let inner: any = null;
+
+try {
+  inner = nip17.unwrapEvent(wrapped, sk);
+} catch (e) {
+  console.warn('[DM LIVE] unwrap failed, skipping:', e);
+  return;
+}
+          if (!inner || inner.kind !== 14) return;
+
+          const pTag = inner.tags.find((t: string[]) => t[0] === 'p');
+          const recipientPubkey = pTag?.[1] || '';
+
+          const otherPubkey =
+            inner.pubkey === myPubkey
+              ? recipientPubkey
+              : inner.pubkey;
+
+          if (!otherPubkey) return;
+          if (input.withPubkey && otherPubkey !== input.withPubkey) return;
+
+          input.onMessage({
+            id: inner.id,
+            threadPubkey: otherPubkey,
+            senderPubkey: inner.pubkey,
+            recipientPubkey,
+            content: inner.content,
+            createdAt: inner.created_at,
+            isMine: inner.pubkey === myPubkey,
+            rawEvent: wrapped,
+            rawInnerEvent: inner,
+          });
+        }
+
+        if (data[0] === 'EOSE') {
+          console.log('[DM LIVE] EOSE');
+        }
+
+      } catch (e) {
+        console.warn('[DM LIVE] parse error', e);
       }
-    );
+    };
 
     return () => {
-      try { sub.close(); } catch {}
+      try { ws.close(); } catch {}
     };
+
   } catch (e) {
     console.warn('[subscribeToNostrDMs] error:', e);
     return () => {};

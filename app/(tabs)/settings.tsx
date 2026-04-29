@@ -1,6 +1,7 @@
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import * as SecureStore from 'expo-secure-store';
+import { nip19 } from 'nostr-tools';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -37,6 +38,23 @@ import { useIdentity } from '../_layout';
 
 export default function SettingsScreen() {
   const { npub, nsec, useAmber, clearIdentity: clearCtx, family, setFamily, profile, setProfile, relays, setRelays } = useIdentity();
+useEffect(() => {
+  console.log('[SETTINGS] npub:', npub);
+
+  if (!npub) return;
+
+  try {
+    const decoded = nip19.decode(npub);
+
+    if (decoded.type === 'npub') {
+      console.log('[SETTINGS] hex pubkey:', String(decoded.data).slice(0, 16));
+    } else {
+      console.log('[SETTINGS] not an npub:', decoded.type);
+    }
+  } catch (e) {
+    console.log('[SETTINGS] npub decode failed:', e);
+  }
+}, [npub]);
 
   const [showCreateFamily, setShowCreateFamily] = useState(false);
   const [showJoinFamily, setShowJoinFamily] = useState(false);
