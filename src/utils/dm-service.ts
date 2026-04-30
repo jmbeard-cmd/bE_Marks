@@ -1,6 +1,7 @@
 import * as Notifications from 'expo-notifications';
 import { getPublicKey, nip19 } from 'nostr-tools';
 import { AppState, type AppStateStatus } from 'react-native';
+import { emitDMChanged } from './dm-events';
 import {
   createThread,
   getDMThreads,
@@ -171,6 +172,7 @@ const existing = await getMessagesForThread(activeThread.id);
       });
 
       console.log('[DMService] saved incoming DM:', activeThread.id);
+emitDMChanged(activeThread.id);
 
       const senderName = activeThread.title || otherPubkey.slice(0, 8);
       await sendDMNotification(senderName, message.content);

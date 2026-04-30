@@ -1,3 +1,5 @@
+import GroupCalendarTab from '@/components/GroupCalendarTab';
+import { getUpcomingEventsForGroup } from '@/src/utils/group-calendar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
@@ -50,7 +52,7 @@ import { DEFAULT_RELAY, fetchGroupMessages } from '../src/utils/nostr';
 import { uploadToR2 } from '../src/utils/r2';
 import { useIdentity } from './_layout';
 
-type Tab = 'stickies' | 'gallery' | 'members';
+type Tab = 'stickies' | 'calendar' | 'gallery' | 'members';
 const GROUP_LOCAL_GALLERY_KEY = 'be_group_local_gallery_v1';
 
 type LocalGalleryItem = {
@@ -148,8 +150,9 @@ const [highlightProgress, setHighlightProgress] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
 
   const [editingGroupRelay, setEditingGroupRelay] = useState(false);
-  const [groupRelayMode, setGroupRelayMode] = useState<GroupRelayMode>('default');
-  const [groupRelayUrl, setGroupRelayUrl] = useState('');
+const [groupRelayMode, setGroupRelayMode] = useState<GroupRelayMode>('default');
+const [groupRelayUrl, setGroupRelayUrl] = useState('');
+const [upcomingCount, setUpcomingCount] = useState(0);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -172,6 +175,10 @@ const syncedStickies = g.relayUrl
   : await getStickiesForGroup(id);
 
 setStickies(syncedStickies);
+
+setStickies(syncedStickies);
+const upcoming = await getUpcomingEventsForGroup(id);
+setUpcomingCount(upcoming.length);
 // 🔥 GALLERY FROM CHAT IMAGES + LOCAL SAVED HIGHLIGHT MEDIA
 try {
   let chatMediaItems: any[] = [];
@@ -736,22 +743,24 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
 
       {/* Tab bar */}
       <View style={s.tabRow}>
-        {(['stickies', 'gallery', 'members'] as Tab[]).map(t => (
-          <TouchableOpacity
-            key={t}
-            style={[s.tabBtn, tab === t && s.tabBtnActive]}
-            onPress={() => setTab(t)}
-          >
-            <Text style={[s.tabText, tab === t && s.tabTextActive]}>
-              {t === 'stickies'
-  ? `Highlights (${stickies.length})`
-  : t === 'gallery'
-    ? `Gallery (${galleryItems.length})`
-    : `Members (${members.length})`}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+  {(['stickies', 'calendar', 'gallery', 'members'] as Tab[]).map(t => (
+    <TouchableOpacity
+      key={t}
+      style={[s.tabBtn, tab === t && s.tabBtnActive]}
+      onPress={() => setTab(t)}
+    >
+      <Text style={[s.tabText, tab === t && s.tabTextActive]}>
+        {t === 'stickies'
+          ? `Highlights (${stickies.length})`
+          : t === 'calendar'
+            ? `Calendar${upcomingCount > 0 ? ` (${upcomingCount})` : ''}`
+            : t === 'gallery'
+              ? `Gallery (${galleryItems.length})`
+              : `Members (${members.length})`}
+      </Text>
+    </TouchableOpacity>
+  ))}
+</View>
 
     {/* Stickies tab */}
 {tab === 'stickies' && (
@@ -915,7 +924,19 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
   </ScrollView>
 )}
 
-      {/* Gallery tab */}
+{/* Calendar tab */}
+      {tab === 'calendar' && (
+        <GroupCalendarTab
+          group={group}
+          isAdmin={isAdmin}
+          isMember={isMember}
+          npub={npub ?? undefined}
+          displayName={npub ? `${npub.slice(0, 12)}…` : undefined}
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+        />
+      )}
+
       {tab === 'gallery' && (
   <FlatList
     data={galleryItems}

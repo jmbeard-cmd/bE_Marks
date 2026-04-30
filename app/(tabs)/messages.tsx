@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BEContact, getContacts } from '../../src/utils/contacts-storage';
+import { subscribeToDMEvents } from '../../src/utils/dm-events';
 import { createThread, deleteThread, getDMThreads, type DMThread } from '../../src/utils/dm-storage';
 import { normalizeNostrIdentity } from '../../src/utils/nostr-identity';
 
@@ -65,11 +66,9 @@ export default function MessagesScreen() {
   );
 
   useEffect(() => {
-  const timer = setInterval(() => {
+  return subscribeToDMEvents(() => {
     loadData();
-  }, 1000);
-
-  return () => clearInterval(timer);
+  });
 }, [loadData]);
 
   const filteredThreads = useMemo(() => {

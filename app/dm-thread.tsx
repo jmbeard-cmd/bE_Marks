@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { subscribeToDMEvents } from '../src/utils/dm-events';
 import {
   formatDMTime,
   getDMThreadById,
@@ -82,13 +83,11 @@ export default function DmThreadScreen() {
   useEffect(() => {
   if (!threadId) return;
 
-  const interval = setInterval(() => {
-    if (!leavingRef.current) {
+  return subscribeToDMEvents((changedThreadId) => {
+    if (changedThreadId === threadId && !leavingRef.current) {
       loadLocalThread();
     }
-  }, 1000);
-
-  return () => clearInterval(interval);
+  });
 }, [threadId, loadLocalThread]);
 
   const handleSend = async () => {

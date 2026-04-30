@@ -1625,3 +1625,211 @@ export async function subscribeToGroupMessages(input: {
     return () => {};
   }
 }
+
+// ─── Group Calendar (kind 30084) ─────────────────────────────────────────────
+
+export const GROUP_CALENDAR_KIND = 30084;
+export const GROUP_RSVP_KIND     = 30085;
+
+export interface GroupCalendarEventRaw {
+  id:           string;
+  groupId:      string;
+  title:        string;
+  description?: string;
+  location?:    string;
+  eventType:    'timed' | 'allday';
+  startTime:    number;
+  endTime?:     number;
+  startDate?:   string;
+  endDate?:     string;
+  authorNpub?:  string;
+  authorName?:  string;
+  createdAt:    number;
+  updatedAt:    number;
+}
+
+export async function publishGroupCalendarEvent(input: {
+  eventId:      string;
+  groupId:      string;
+  title:        string;
+  description?: string;
+  location?:    string;
+  eventType:    'timed' | 'allday';
+  startTime:    number;
+  endTime?:     number;
+  startDate?:   string;
+  endDate?:     string;
+  authorNpub?:  string;
+  authorName?:  string;
+  nsec:         string;
+  relayUrl:     string;
+}): Promise<{ success: boolean; eventId?: string; error?: string }> {
+  try {
+    const decoded = nip19.decode(input.nsec);
+    if (decoded.type !== 'nsec') throw new Error('Invalid nsec');
+
+    const sk  = decoded.data as Uint8Array;
+    const pk  = getPublicKey(sk);
+    const now = Math.floor(Date.now() / 1000);
+
+    const tags: string[][] = [
+      ['d',      input.eventId],
+      ['t',      `group-cal:${input.groupId}`],
+      ['group',  input.groupId],
+      ['title',  input.title],
+      ['client', 'bE-Marks'],
+    ];
+
+    if (input.description) tags.push(['description', input.description]);
+    if (input.location)    tags.push(['location',    input.location]);
+
+    if (input.eventType === 'allday' && input.startDate) {
+      tags.push(['start', input.startDate]);
+      if (input.endDate) tags.push(['end', input.endDate]);
+    } else {
+      tags.push(['start', String(input.startTime)]);
+      if (input.endTime) tags.push(['end', String(input.endTime)]);
+    }
+
+    tags.push(['event_type', input.eventType]);
+
+    const unsigned: UnsignedEvent = {
+      kind:       GROUP_CALENDAR_KIND,
+      created_at: now,
+      tags,
+      content: JSON.stringify({
+        id:          input.eventId,
+        groupId:     input.groupId,
+        title:       input.title,
+        description: input.description,
+        location:    input.location,
+        eventType:   input.eventType,
+        startTime:   input.startTime,
+        endTime:     input.endTime,
+        startDate:   input.startDate,
+        endDate:     input.endDate,
+        authorNpub:  input.authorNpub,
+        authorName:  input.authorName,
+        createdAt:   now,
+        updatedAt:   now,
+      }),
+      pubkey: pk,
+    };
+
+    const signed = finalizeEvent(unsigned, sk);
+    return await publishToSpecificRelay(signed, input.relayUrl);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    return { success: false, error: msg };
+  }
+}
+
+export function fetchGroupCalendarEvents(
+  groupId:  string,
+  relayUrl: string = DEFAULT_RELAY,
+): Promise<GroupCalendarEventRaw[]> {
+  return new Promise(resolve => {
+    try {
+      const ws     = new WebSocket(relayUrl);
+      const events: GroupCalendarEventRaw[] = [];
+      const seen   = new Set<string>();
+
+      const timeout = setTimeout(() => {
+        ws.close();
+        resolve(events);
+      }, 6000);
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify([
+          'REQ',
+          `group-cal-fetch-${groupId}`,
+          {
+            kinds: [GROUP_CALENDAR_KIND],
+            '#t':  [`group-cal:${groupId}`],
+            limit: 200,
+          },
+        ]));
+      };
+
+      ws.onmessage = (msg) => {
+        try {
+          const data = JSON.parse(msg.data);
+
+          if (data[0] === 'EVENT' && data[2]?.kind === GROUP_CALENDAR_KIND) {
+            const evt = data[2];
+            if (seen.has(evt.id)) return;
+            seen.add(evt.id);
+
+            try {
+              const parsed = JSON.parse(evt.content || '{}') as GroupCalendarEventRaw;
+              if (parsed.id && parsed.groupId === groupId) {
+                events.push(parsed);
+              }
+            } catch {}
+
+          } else if (data[0] === 'EOSE') {
+            clearTimeout(timeout);
+            ws.close();
+            resolve(events);
+          }
+        } catch {}
+      };
+
+      ws.onerror = () => {
+        clearTimeout(timeout);
+        resolve(events);
+      };
+    } catch {
+      resolve([]);
+    }
+  });
+}
+
+export async function publishGroupRSVP(input: {
+  rsvpId:      string;
+  eventId:     string;
+  groupId:     string;
+  status:      'accepted' | 'declined' | 'tentative';
+  note?:       string;
+  authorNpub?: string;
+  nsec:        string;
+  relayUrl:    string;
+}): Promise<{ success: boolean; eventId?: string; error?: string }> {
+  try {
+    const decoded = nip19.decode(input.nsec);
+    if (decoded.type !== 'nsec') throw new Error('Invalid nsec');
+
+    const sk  = decoded.data as Uint8Array;
+    const pk  = getPublicKey(sk);
+    const now = Math.floor(Date.now() / 1000);
+
+    const unsigned: UnsignedEvent = {
+      kind:       GROUP_RSVP_KIND,
+      created_at: now,
+      tags: [
+        ['d',      input.rsvpId],
+        ['t',      `group-rsvp:${input.eventId}`],
+        ['group',  input.groupId],
+        ['event',  input.eventId],
+        ['status', input.status],
+        ['client', 'bE-Marks'],
+      ],
+      content: JSON.stringify({
+        id:         input.rsvpId,
+        eventId:    input.eventId,
+        groupId:    input.groupId,
+        status:     input.status,
+        note:       input.note,
+        authorNpub: input.authorNpub,
+        createdAt:  now,
+      }),
+      pubkey: pk,
+    };
+
+    const signed = finalizeEvent(unsigned, sk);
+    return await publishToSpecificRelay(signed, input.relayUrl);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    return { success: false, error: msg };
+  }
+}
