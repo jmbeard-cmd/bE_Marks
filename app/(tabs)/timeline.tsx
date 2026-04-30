@@ -18,6 +18,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import BEHeader from '../../components/BEHeader';
 import ImageViewerModal, { ViewerImage } from '../../components/ImageViewerModal';
+import { Colors } from '../../src/constants/theme';
 import { DEFAULT_RELAY, fetchFamilyMembers, fetchFamilyMilestones } from '../../src/utils/nostr';
 import {
   formatDate,

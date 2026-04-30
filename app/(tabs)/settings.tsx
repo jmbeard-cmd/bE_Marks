@@ -37,7 +37,7 @@ import {
 import { useIdentity } from '../_layout';
 
 export default function SettingsScreen() {
-  const { npub, nsec, useAmber, clearIdentity: clearCtx, family, setFamily, profile, setProfile, relays, setRelays } = useIdentity();
+  const { npub, nsec, useAmber, clearIdentity: clearCtx, family, setFamily, profile, setProfile, relays, setRelays, themeMode, setThemeMode } = useIdentity();
 useEffect(() => {
   console.log('[SETTINGS] npub:', npub);
 
@@ -835,17 +835,37 @@ const handleJoinFamily = async () => {
 
 
           {/* ── APP ── */}
-          <View style={s.section}>
-            <Text style={s.sectionLabel}>APP</Text>
-            <View style={s.row}>
-              <Text style={s.rowLabel}>Version</Text>
-              <Text style={s.rowValue}>1.3.0</Text>
-            </View>
-            <View style={s.row}>
-              <Text style={s.rowLabel}>Built on</Text>
-              <Text style={s.rowValue}>Nostr + Bitcoin</Text>
-            </View>
-          </View>
+          {/* ── APP ── */}
+<View style={s.section}>
+  <Text style={s.sectionLabel}>APP</Text>
+
+  <View style={s.row}>
+    <View>
+      <Text style={s.rowLabel}>Appearance</Text>
+      <Text style={s.rowHint}>Switch between dark and light mode</Text>
+    </View>
+
+    <TouchableOpacity
+      style={[s.themeToggle, themeMode === 'light' && s.themeToggleOn]}
+      onPress={() => setThemeMode(themeMode === 'dark' ? 'light' : 'dark')}
+      activeOpacity={0.85}
+    >
+      <Text style={[s.themeToggleText, themeMode === 'light' && s.themeToggleTextOn]}>
+        {themeMode === 'dark' ? 'Dark' : 'Light'}
+      </Text>
+    </TouchableOpacity>
+  </View>
+
+  <View style={s.row}>
+    <Text style={s.rowLabel}>Version</Text>
+    <Text style={s.rowValue}>1.3.0</Text>
+  </View>
+
+  <View style={s.row}>
+    <Text style={s.rowLabel}>Built on</Text>
+    <Text style={s.rowValue}>Nostr + Bitcoin</Text>
+  </View>
+</View>
 
           <TouchableOpacity style={s.dangerBtn} onPress={handleLogout}>
             <Text style={s.dangerText}>Remove identity from device</Text>
@@ -872,6 +892,31 @@ const s = StyleSheet.create({
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 0.5, borderBottomColor: '#1e1e1e' },
   rowLabel: { fontSize: 14, color: '#aaa' },
   rowValue: { fontSize: 13, color: '#555', maxWidth: '55%', textAlign: 'right' },
+  rowHint: {
+  fontSize: 11,
+  color: '#555',
+  marginTop: 2,
+},
+themeToggle: {
+  paddingHorizontal: 14,
+  paddingVertical: 7,
+  borderRadius: 999,
+  borderWidth: 0.5,
+  borderColor: '#2a2a2a',
+  backgroundColor: '#1a1a1a',
+},
+themeToggleOn: {
+  borderColor: '#c9973a',
+  backgroundColor: '#c9973a',
+},
+themeToggleText: {
+  fontSize: 12,
+  color: '#c9973a',
+  fontWeight: '700',
+},
+themeToggleTextOn: {
+  color: '#111',
+},
   profileCard: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 14, borderRadius: 10, backgroundColor: '#1a1a1a', borderWidth: 0.5, borderColor: '#2a2a2a', marginBottom: 10 },
   avatar: { width: 52, height: 52, borderRadius: 26, backgroundColor: '#2a2a2a' },
   avatarPlaceholder: { width: 52, height: 52, borderRadius: 26, backgroundColor: '#2a2a2a', alignItems: 'center', justifyContent: 'center' },

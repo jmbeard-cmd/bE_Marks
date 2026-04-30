@@ -1,8 +1,10 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { createContext, useContext, useEffect, useState } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-get-random-values';
+import { Colors } from '../src/constants/theme';
 import { startDMService, stopDMService } from '../src/utils/dm-service';
 import { fetchNostrProfile, getStoredIdentity, type NostrProfile } from '../src/utils/nostr';
 import {
@@ -26,6 +28,9 @@ interface IdentityContextType {
   setProfile: (p: NostrProfile | null) => void;
   relays: string[];
   setRelays: (r: string[]) => void;
+  themeMode: 'dark' | 'light';
+setThemeMode: (mode: 'dark' | 'light') => void;
+theme: typeof Colors.dark;
 }
 
 export const IdentityContext = createContext<IdentityContextType>({
@@ -41,6 +46,9 @@ export const IdentityContext = createContext<IdentityContextType>({
   setProfile: () => {},
   relays: ['wss://relay.beginningend.com'],
   setRelays: () => {},
+  themeMode: 'dark',
+setThemeMode: () => {},
+theme: Colors.dark,
 });
 
 export function useIdentity() {
@@ -57,8 +65,18 @@ export default function RootLayout() {
   const [relays, setRelays] = useState<string[]>(['wss://relay.beginningend.com']);
   const router = useRouter() as any;
   const segments = useSegments() as any;
+  const [themeMode, setThemeModeState] = useState<'dark' | 'light'>('dark');
+  const theme = Colors[themeMode];
 
     useEffect(() => {
+  AsyncStorage.getItem('be_theme_mode').then(saved => {
+    if (saved === 'light' || saved === 'dark') {
+      setThemeModeState(saved);
+    }
+  });
+}, []);
+  
+  useEffect(() => {
     Promise.all([getStoredIdentity(), getFamily()]).then(async ([id, fam]) => {
       console.log('[LAYOUT] checking identity + starting DM service');
       if (id) {
@@ -99,6 +117,11 @@ startDMService();
     if (hasIdentity && inAuth) router.replace('/(tabs)/timeline' as any);
   }, [ready, npub]);
 
+  const setThemeMode = async (mode: 'dark' | 'light') => {
+  setThemeModeState(mode);
+  await AsyncStorage.setItem('be_theme_mode', mode);
+};
+  
   const setIdentity = (p: string, s: string) => {
     setNpub(p);
     setNsec(s);
@@ -139,17 +162,20 @@ startDMService();
   return (
   <GestureHandlerRootView style={{ flex: 1 }}>
     <IdentityContext.Provider value={{
-      npub, nsec, setIdentity, clearIdentity: clear,
-      useAmber, setUseAmber,
-      family, setFamily,
-      profile, setProfile,
-      relays, setRelays,
-    }}>
-      <StatusBar style="light" />
+  npub, nsec, setIdentity, clearIdentity: clear,
+  useAmber, setUseAmber,
+  family, setFamily,
+  profile, setProfile,
+  relays, setRelays,
+  themeMode,
+  setThemeMode,
+  theme,
+}}>
+      <StatusBar style={themeMode === 'dark' ? 'light' : 'dark'} />
       <Stack
   screenOptions={{
     headerShown: false,
-    contentStyle: { backgroundColor: '#000' },
+    contentStyle: { backgroundColor: theme.bg },
   } as any}
 >
   {/* DEFAULT APP FLOW */}
