@@ -10,13 +10,16 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Colors } from '../../src/constants/theme';
 import { BEContact, getContacts } from '../../src/utils/contacts-storage';
 import { subscribeToDMEvents } from '../../src/utils/dm-events';
 import { createThread, deleteThread, getDMThreads, type DMThread } from '../../src/utils/dm-storage';
 import { normalizeNostrIdentity } from '../../src/utils/nostr-identity';
+
+const theme = Colors.dark;
 
 type Sheet = 'none' | 'new';
 
@@ -66,10 +69,10 @@ export default function MessagesScreen() {
   );
 
   useEffect(() => {
-  return subscribeToDMEvents(() => {
-    loadData();
-  });
-}, [loadData]);
+    return subscribeToDMEvents(() => {
+      loadData();
+    });
+  }, [loadData]);
 
   const filteredThreads = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -228,7 +231,7 @@ export default function MessagesScreen() {
           value={search}
           onChangeText={setSearch}
           placeholder="Search conversations"
-          placeholderTextColor="#555"
+          placeholderTextColor={theme.textMuted}
           autoCorrect={false}
         />
       </View>
@@ -326,7 +329,7 @@ export default function MessagesScreen() {
               value={newTitle}
               onChangeText={setNewTitle}
               placeholder="Conversation name"
-              placeholderTextColor="#555"
+              placeholderTextColor={theme.textMuted}
             />
 
             <TextInput
@@ -334,7 +337,7 @@ export default function MessagesScreen() {
               value={newNpub}
               onChangeText={setNewNpub}
               placeholder="npub1… or hex pubkey"
-              placeholderTextColor="#555"
+              placeholderTextColor={theme.textMuted}
               autoCapitalize="none"
               autoCorrect={false}
             />
@@ -371,7 +374,7 @@ export default function MessagesScreen() {
 const s = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: theme.bg,
   },
 
   header: {
@@ -379,20 +382,20 @@ const s = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 14,
     borderBottomWidth: 0.5,
-    borderBottomColor: '#171717',
+    borderBottomColor: theme.surface,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
   headerEyebrow: {
-    color: '#555',
+    color: theme.textMuted,
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 1.2,
     marginBottom: 3,
   },
   headerTitle: {
-    color: '#fff',
+    color: theme.text,
     fontSize: 28,
     fontWeight: '900',
     letterSpacing: -0.8,
@@ -401,12 +404,12 @@ const s = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: '#c9973a',
+    backgroundColor: theme.gold,
     alignItems: 'center',
     justifyContent: 'center',
   },
   headerButtonText: {
-    color: '#111',
+    color: theme.surface,
     fontSize: 24,
     fontWeight: '700',
     marginTop: -2,
@@ -418,21 +421,21 @@ const s = StyleSheet.create({
     marginBottom: 6,
     height: 44,
     borderRadius: 14,
-    backgroundColor: '#111',
+    backgroundColor: theme.surface,
     borderWidth: 0.5,
-    borderColor: '#222',
+    borderColor: theme.border,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 13,
   },
   searchIcon: {
-    color: '#555',
+    color: theme.textMuted,
     fontSize: 18,
     marginRight: 8,
   },
   searchInput: {
     flex: 1,
-    color: '#fff',
+    color: theme.text,
     fontSize: 15,
   },
 
@@ -458,18 +461,18 @@ const s = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: '#171717',
+    backgroundColor: theme.surface,
     borderWidth: 0.5,
-    borderColor: '#292929',
+    borderColor: theme.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarUnread: {
-    borderColor: '#c9973a',
-    backgroundColor: '#221900',
+    borderColor: theme.gold,
+    backgroundColor: theme.raised,
   },
   avatarText: {
-    color: '#c9973a',
+    color: theme.gold,
     fontSize: 17,
     fontWeight: '900',
   },
@@ -477,7 +480,7 @@ const s = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     borderBottomWidth: 0.5,
-    borderBottomColor: '#151515',
+    borderBottomColor: theme.surface,
     paddingBottom: 12,
   },
   threadTop: {
@@ -487,17 +490,17 @@ const s = StyleSheet.create({
   },
   threadTitle: {
     flex: 1,
-    color: '#e8e8e8',
+    color: theme.text,
     fontSize: 16,
     fontWeight: '700',
     marginRight: 8,
   },
   threadTitleUnread: {
-    color: '#fff',
+    color: theme.text,
     fontWeight: '900',
   },
   threadTime: {
-    color: '#555',
+    color: theme.textMuted,
     fontSize: 11,
     fontWeight: '700',
   },
@@ -507,22 +510,22 @@ const s = StyleSheet.create({
   },
   threadPreview: {
     flex: 1,
-    color: '#777',
+    color: theme.textSecondary,
     fontSize: 13,
     marginRight: 8,
   },
   threadPreviewUnread: {
-    color: '#aaa',
+    color: theme.textSecondary,
     fontWeight: '700',
   },
   threadMetaSecure: {
-    color: '#c9973a',
+    color: theme.gold,
     fontSize: 10,
     fontWeight: '700',
     marginTop: 5,
   },
   threadMetaLocal: {
-    color: '#444',
+    color: theme.textMuted,
     fontSize: 10,
     fontWeight: '700',
     marginTop: 5,
@@ -532,12 +535,12 @@ const s = StyleSheet.create({
     height: 22,
     borderRadius: 11,
     paddingHorizontal: 6,
-    backgroundColor: '#c9973a',
+    backgroundColor: theme.gold,
     alignItems: 'center',
     justifyContent: 'center',
   },
   unreadText: {
-    color: '#111',
+    color: theme.surface,
     fontSize: 11,
     fontWeight: '900',
   },
@@ -547,7 +550,7 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
   moreText: {
-    color: '#444',
+    color: theme.textMuted,
     fontSize: 22,
     fontWeight: '900',
   },
@@ -563,26 +566,26 @@ const s = StyleSheet.create({
     marginBottom: 14,
   },
   emptyTitle: {
-    color: '#fff',
+    color: theme.text,
     fontSize: 19,
     fontWeight: '800',
     marginBottom: 8,
   },
   emptyHint: {
-    color: '#666',
+    color: theme.textSecondary,
     fontSize: 13,
     lineHeight: 20,
     textAlign: 'center',
     marginBottom: 20,
   },
   emptyBtn: {
-    backgroundColor: '#c9973a',
+    backgroundColor: theme.gold,
     paddingHorizontal: 18,
     paddingVertical: 12,
     borderRadius: 999,
   },
   emptyBtnText: {
-    color: '#111',
+    color: theme.surface,
     fontSize: 14,
     fontWeight: '900',
   },
@@ -594,12 +597,12 @@ const s = StyleSheet.create({
     width: 58,
     height: 58,
     borderRadius: 29,
-    backgroundColor: '#c9973a',
+    backgroundColor: theme.gold,
     alignItems: 'center',
     justifyContent: 'center',
   },
   fabText: {
-    color: '#111',
+    color: theme.surface,
     fontSize: 26,
     fontWeight: '800',
     marginTop: -2,
@@ -611,14 +614,14 @@ const s = StyleSheet.create({
   },
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    backgroundColor: `${theme.bg}8C`,
   },
   sheet: {
-    backgroundColor: '#111',
+    backgroundColor: theme.surface,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     borderTopWidth: 0.5,
-    borderTopColor: '#292929',
+    borderTopColor: theme.border,
     paddingHorizontal: 20,
     paddingBottom: 34,
   },
@@ -626,7 +629,7 @@ const s = StyleSheet.create({
     width: 38,
     height: 4,
     borderRadius: 2,
-    backgroundColor: '#333',
+    backgroundColor: theme.border,
     alignSelf: 'center',
     marginTop: 12,
     marginBottom: 18,
@@ -638,13 +641,13 @@ const s = StyleSheet.create({
     marginBottom: 16,
   },
   sheetTitle: {
-    color: '#fff',
+    color: theme.text,
     fontSize: 22,
     fontWeight: '900',
     letterSpacing: -0.4,
   },
   sheetHint: {
-    color: '#666',
+    color: theme.textSecondary,
     fontSize: 12,
     marginTop: 3,
   },
@@ -652,18 +655,18 @@ const s = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: '#1b1b1b',
+    backgroundColor: theme.raised,
     alignItems: 'center',
     justifyContent: 'center',
   },
   closeText: {
-    color: '#777',
+    color: theme.textSecondary,
     fontSize: 14,
     fontWeight: '800',
   },
 
   sectionLabel: {
-    color: '#555',
+    color: theme.textMuted,
     fontSize: 10,
     fontWeight: '900',
     letterSpacing: 1,
@@ -688,50 +691,50 @@ const s = StyleSheet.create({
     width: 54,
     height: 54,
     borderRadius: 27,
-    backgroundColor: '#1d1d1d',
+    backgroundColor: theme.raised,
     borderWidth: 0.5,
-    borderColor: '#2a2a2a',
+    borderColor: theme.border,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 7,
   },
   contactAvatarText: {
-    color: '#c9973a',
+    color: theme.gold,
     fontSize: 15,
     fontWeight: '900',
   },
   contactName: {
-    color: '#ddd',
+    color: theme.text,
     fontSize: 11,
     fontWeight: '700',
     textAlign: 'center',
     maxWidth: 72,
   },
   contactSecure: {
-    color: '#c9973a',
+    color: theme.gold,
     fontSize: 10,
     marginTop: 3,
   },
   contactLocal: {
-    color: '#444',
+    color: theme.textMuted,
     fontSize: 10,
     marginTop: 3,
     fontWeight: '700',
   },
 
   input: {
-    backgroundColor: '#1a1a1a',
+    backgroundColor: theme.raised,
     borderWidth: 0.5,
-    borderColor: '#292929',
+    borderColor: theme.border,
     borderRadius: 13,
     paddingHorizontal: 14,
     paddingVertical: 13,
-    color: '#fff',
+    color: theme.text,
     fontSize: 15,
     marginBottom: 9,
   },
   inputHelp: {
-    color: '#555',
+    color: theme.textMuted,
     fontSize: 11,
     lineHeight: 16,
     marginBottom: 12,
@@ -745,19 +748,19 @@ const s = StyleSheet.create({
     flex: 1,
     borderRadius: 13,
     borderWidth: 0.5,
-    borderColor: '#2a2a2a',
+    borderColor: theme.border,
     paddingVertical: 13,
     alignItems: 'center',
   },
   cancelText: {
-    color: '#666',
+    color: theme.textSecondary,
     fontSize: 14,
     fontWeight: '800',
   },
   confirmBtn: {
     flex: 1.8,
     borderRadius: 13,
-    backgroundColor: '#c9973a',
+    backgroundColor: theme.gold,
     paddingVertical: 13,
     alignItems: 'center',
   },
@@ -765,7 +768,7 @@ const s = StyleSheet.create({
     opacity: 0.6,
   },
   confirmText: {
-    color: '#111',
+    color: theme.surface,
     fontSize: 14,
     fontWeight: '900',
   },

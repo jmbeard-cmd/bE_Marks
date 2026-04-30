@@ -18,7 +18,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { DEFAULT_RELAYS, RELAY_LABELS } from '../../constants/relays';
+import { DEFAULT_RELAYS, RELAY_LABELS } from '../../src/constants/relays';
 import {
   clearIdentity,
   DEFAULT_RELAY,
