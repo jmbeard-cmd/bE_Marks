@@ -32,7 +32,12 @@ export default function LogScreen() {
   const [note, setNote] = useState('');
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
-  const [media, setMedia] = useState<{ id: string; uri: string; type: 'image' | 'video' }[]>([]);
+  const [media, setMedia] = useState<{
+  id: string;
+  uri: string;
+  type: 'image' | 'video';
+  thumbnailUri?: string;
+}[]>([]);
   const [saving, setSaving] = useState(false);
 const [saveStatus, setSaveStatus] = useState('');
 const [progress, setProgress] = useState(0);
@@ -55,13 +60,32 @@ const [publishToNostr, setPublishToNostr] = useState(true);
   });
 
   if (!result.canceled) {
-    const newMedia = result.assets.map(a => ({
-  id: `media_${Date.now()}_${Math.random()}`,
-  uri: a.uri,
-  type: (a.type === 'video' ? 'video' : 'image') as 'image' | 'video',
-}));
+    const newMedia = await Promise.all(
+  result.assets.map(async a => {
+    const type = (a.type === 'video' ? 'video' : 'image') as 'image' | 'video';
+    let thumbnailUri: string | undefined;
 
-    setMedia(prev => [...prev, ...newMedia]);
+    if (type === 'video') {
+      try {
+        const thumb = await VideoThumbnails.getThumbnailAsync(a.uri, {
+          time: 1000,
+        });
+        thumbnailUri = thumb.uri;
+      } catch (error) {
+        console.warn('[Log Video Preview Thumbnail] Failed:', error);
+      }
+    }
+
+    return {
+      id: `media_${Date.now()}_${Math.random()}`,
+      uri: a.uri,
+      type,
+      thumbnailUri,
+    };
+  })
+);
+
+setMedia(prev => [...prev, ...newMedia]);
   }
 };
 
@@ -84,13 +108,28 @@ const [publishToNostr, setPublishToNostr] = useState(true);
   if (!result.canceled) {
     const asset = result.assets[0];
 
-    const mediaItem = {
-      id: `media_${Date.now()}_${Math.random()}`,
-      uri: asset.uri,
-      type: (asset.type === 'video' ? 'video' : 'image') as 'image' | 'video',
-    };
+    const type = (asset.type === 'video' ? 'video' : 'image') as 'image' | 'video';
+let thumbnailUri: string | undefined;
 
-    setMedia(prev => [...prev, mediaItem]);
+if (type === 'video') {
+  try {
+    const thumb = await VideoThumbnails.getThumbnailAsync(asset.uri, {
+      time: 1000,
+    });
+    thumbnailUri = thumb.uri;
+  } catch (error) {
+    console.warn('[Camera Video Preview Thumbnail] Failed:', error);
+  }
+}
+
+const mediaItem = {
+  id: `media_${Date.now()}_${Math.random()}`,
+  uri: asset.uri,
+  type,
+  thumbnailUri,
+};
+
+setMedia(prev => [...prev, mediaItem]);
   }
 };
 
@@ -113,13 +152,25 @@ const recordVideo = async () => {
   if (!result.canceled) {
     const asset = result.assets[0];
 
-    const mediaItem = {
-      id: `media_${Date.now()}_${Math.random()}`,
-      uri: asset.uri,
-      type: 'video' as const,
-    };
+    let thumbnailUri: string | undefined;
 
-    setMedia(prev => [...prev, mediaItem]);
+try {
+  const thumb = await VideoThumbnails.getThumbnailAsync(asset.uri, {
+    time: 1000,
+  });
+  thumbnailUri = thumb.uri;
+} catch (error) {
+  console.warn('[Record Video Preview Thumbnail] Failed:', error);
+}
+
+const mediaItem = {
+  id: `media_${Date.now()}_${Math.random()}`,
+  uri: asset.uri,
+  type: 'video' as const,
+  thumbnailUri,
+};
+
+setMedia(prev => [...prev, mediaItem]);
   }
 };
 
@@ -304,7 +355,17 @@ setProgress(0);
     <ScrollView horizontal style={s.photoPreviewRow}>
       {media.map(item => (
         <View key={item.id} style={s.multiPhotoWrap}>
-          <Image source={{ uri: item.uri }} style={s.multiPhoto} />
+          <Image
+  source={{ uri: item.type === 'video' ? item.thumbnailUri || item.uri : item.uri }}
+  style={s.multiPhoto}
+  resizeMode="cover"
+/>
+
+{item.type === 'video' && (
+  <View style={s.videoBadge}>
+    <Text style={s.videoBadgeText}>▶</Text>
+  </View>
+)}
 
           <TouchableOpacity
             style={s.removePhotoBtn}
@@ -514,6 +575,7 @@ multiPhoto: {
   width: 140,
   height: 140,
   borderRadius: 10,
+  backgroundColor: '#000',
 },
 removePhotoBtn: {
   position: 'absolute',
@@ -569,6 +631,22 @@ progressText: {
   color: '#888',
   fontSize: 12,
   fontWeight: '600',
+},
+videoBadge: {
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  alignItems: 'center',
+  justifyContent: 'center',
+  backgroundColor: 'rgba(0,0,0,0.25)',
+  borderRadius: 10,
+},
+videoBadgeText: {
+  color: '#fff',
+  fontSize: 28,
+  fontWeight: '800',
 },
   // Custom tag row
   tagInputRow: { flexDirection: 'row', gap: 8, alignItems: 'center', marginTop: 4 },

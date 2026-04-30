@@ -247,6 +247,7 @@ const isOwner = !milestone.authorNpub || milestone.authorNpub === npub;
         id: item.id,
         uri: item.uri,
         type: item.type,
+        thumbnailUrl: item.thumbnailUri,
       }))
     : milestone.photoUri
       ? [{ id: 'legacy-photo', uri: milestone.photoUri, type: 'image' }]
@@ -293,6 +294,7 @@ const isOwner = !milestone.authorNpub || milestone.authorNpub === npub;
         <Image
   source={{ uri: item.type === 'video' ? item.thumbnailUri || item.uri : item.uri }}
   style={s.multiPhoto}
+  resizeMode="cover"
 />
 
         {item.type === 'video' && (
@@ -720,5 +722,6 @@ multiPhoto: {
   width: 160,
   height: 160,
   borderRadius: 10,
+  backgroundColor: '#000',
 },
 });

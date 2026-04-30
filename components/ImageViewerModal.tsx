@@ -48,31 +48,31 @@ function ViewerVideo({
 
   const panResponder = useRef(
     PanResponder.create({
-      onMoveShouldSetPanResponder: (_, gesture) => {
-        const horizontal =
-          Math.abs(gesture.dx) > 25 &&
-          Math.abs(gesture.dx) > Math.abs(gesture.dy);
-
-        const vertical =
-          Math.abs(gesture.dy) > 35 &&
-          Math.abs(gesture.dy) > Math.abs(gesture.dx);
-
-        return horizontal || vertical;
-      },
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
       onPanResponderRelease: (_, gesture) => {
-        if (gesture.dy > 80) {
+        const absX = Math.abs(gesture.dx);
+        const absY = Math.abs(gesture.dy);
+
+        if (gesture.dy > 70 && absY > absX) {
           onClose();
           return;
         }
 
-        if (gesture.dx < -50) goNext();
-        if (gesture.dx > 50) goPrev();
+        if (gesture.dx < -55 && absX > absY) {
+          goNext();
+          return;
+        }
+
+        if (gesture.dx > 55 && absX > absY) {
+          goPrev();
+        }
       },
     })
   ).current;
 
   return (
-    <View style={s.videoScreen} {...panResponder.panHandlers}>
+    <View style={s.videoScreen}>
       {!!thumbnailUrl && !ready && (
         <Image
           source={{ uri: thumbnailUrl }}
@@ -87,7 +87,7 @@ function ViewerVideo({
         </View>
       )}
 
-            <VideoView
+      <VideoView
         player={player}
         style={[s.video, !ready && { opacity: 0 }]}
         contentFit="contain"
@@ -95,10 +95,7 @@ function ViewerVideo({
         onFirstFrameRender={() => setReady(true)}
       />
 
-            <View style={s.videoGestureLayer} {...panResponder.panHandlers}>
-        <TouchableOpacity style={s.videoLeftTapZone} onPress={goPrev} />
-        <TouchableOpacity style={s.videoRightTapZone} onPress={goNext} />
-      </View>
+      <View style={s.videoGestureLayer} {...panResponder.panHandlers} />
     </View>
   );
 }
