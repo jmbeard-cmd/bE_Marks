@@ -1,6 +1,7 @@
 import { AudioModule, RecordingPresets, useAudioPlayer, useAudioRecorder } from 'expo-audio';
 import { useEffect, useState } from 'react';
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useIdentity } from '../app/_layout';
 
 interface Props {
   onRecordingComplete: (uri: string) => void;
@@ -8,6 +9,7 @@ interface Props {
 }
 
 export default function AudioRecorder({ onRecordingComplete, existingUri }: Props) {
+  const { theme } = useIdentity();
   const [isRecording, setIsRecording] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
@@ -102,9 +104,9 @@ export default function AudioRecorder({ onRecordingComplete, existingUri }: Prop
   return (
     <View style={s.container}>
       {!audioUri && !isRecording && (
-        <TouchableOpacity style={s.recordBtn} onPress={startRecording}>
+        <TouchableOpacity style={[s.recordBtn, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={startRecording}>
           <Text style={s.recordIcon}>🎤</Text>
-          <Text style={s.recordText}>Record voice note</Text>
+          <Text style={[s.recordText, { color: theme.text }]}>Record voice note</Text>
         </TouchableOpacity>
       )}
 
@@ -118,14 +120,14 @@ export default function AudioRecorder({ onRecordingComplete, existingUri }: Prop
       {audioUri && !isRecording && (
         <View style={s.playbackRow}>
           <TouchableOpacity
-            style={s.playBtn}
+            style={[s.playBtn, { backgroundColor: theme.surface, borderColor: theme.border }]}
             onPress={isPlaying ? stopAudio : playAudio}
           >
             <Text style={s.playIcon}>{isPlaying ? '⏹' : '▶'}</Text>
-            <Text style={s.playText}>{isPlaying ? 'Stop' : 'Play voice note'}</Text>
+            <Text style={[s.playText, { color: theme.gold }]}>{isPlaying ? 'Stop' : 'Play voice note'}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={s.deleteBtn} onPress={deleteAudio}>
-            <Text style={s.deleteText}>Remove</Text>
+            <Text style={[s.deleteText, { color: theme.textMuted }]}>Remove</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -142,9 +144,9 @@ const s = StyleSheet.create({
   recordingDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#c9973a' },
   recordingText: { fontSize: 13, color: '#c9973a', fontWeight: '500' },
   playbackRow: { flexDirection: 'row', gap: 10, alignItems: 'center' },
-  playBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 10, borderWidth: 0.5, borderColor: '#2a2a2a', backgroundColor: '#1a1a1a' },
+  playBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 10, borderWidth: 0.5 },
   playIcon: { fontSize: 16 },
   playText: { fontSize: 14, color: '#c9973a', fontWeight: '500' },
   deleteBtn: { padding: 14 },
-  deleteText: { fontSize: 13, color: '#555' },
+  deleteText: { fontSize: 13 },
 });

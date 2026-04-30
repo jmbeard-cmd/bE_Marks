@@ -26,7 +26,7 @@ import { useIdentity } from '../_layout';
 const PRESET_TAGS = ['Family', 'Faith', 'Career', 'School', 'Travel', 'Health', 'Achievement', 'Personal'];
 
 export default function LogScreen() {
-  const { nsec, npub, family, relays } = useIdentity();
+    const { nsec, npub, family, relays, theme } = useIdentity();
   const router = useRouter();
   const [title, setTitle] = useState('');
   const [note, setNote] = useState('');
@@ -341,7 +341,7 @@ setProgress(0);
       style={{ flex: 1 }}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-    <SafeAreaView style={s.safe}>
+        <SafeAreaView style={[s.safe, { backgroundColor: theme.bg }]}>
       <ScrollView contentContainerStyle={s.container} keyboardShouldPersistTaps="handled">
 
         <BEHeader title="Log" />
@@ -349,7 +349,7 @@ setProgress(0);
         {/* Photo */}
         {/* Photos */}
 <View style={s.field}>
-  <Text style={s.label}>PHOTOS</Text>
+  <Text style={[s.label, { color: theme.textMuted }]}>PHOTOS</Text>
 
   {media.length > 0 ? (
     <ScrollView horizontal style={s.photoPreviewRow}>
@@ -379,30 +379,30 @@ setProgress(0);
   ) : null}
 
   <View style={s.photoRow}>
-  <TouchableOpacity style={s.photoBtn} onPress={takePhoto}>
+  <TouchableOpacity style={[s.photoBtn, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={takePhoto}>
     <Text style={s.photoBtnIcon}>📷</Text>
-    <Text style={s.photoBtnText}>Take Photo</Text>
+    <Text style={[s.photoBtnText, { color: theme.textSecondary }]}>Take Photo</Text>
   </TouchableOpacity>
 
-  <TouchableOpacity style={s.photoBtn} onPress={recordVideo}>
+  <TouchableOpacity style={[s.photoBtn, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={recordVideo}>
     <Text style={s.photoBtnIcon}>🎥</Text>
-    <Text style={s.photoBtnText}>Record Video</Text>
+    <Text style={[s.photoBtnText, { color: theme.textSecondary }]}>Record Video</Text>
   </TouchableOpacity>
 
-  <TouchableOpacity style={s.photoBtn} onPress={pickPhoto}>
+  <TouchableOpacity style={[s.photoBtn, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={pickPhoto}>
     <Text style={s.photoBtnIcon}>🖼️</Text>
-    <Text style={s.photoBtnText}>Library</Text>
+    <Text style={[s.photoBtnText, { color: theme.textSecondary }]}>Library</Text>
   </TouchableOpacity>
 </View>
 </View>
 
         {/* Title */}
         <View style={s.field}>
-          <Text style={s.label}>TITLE</Text>
+          <Text style={[s.label, { color: theme.textMuted }]}>TITLE</Text>
           <TextInput
-            style={s.titleInput}
+  style={[s.titleInput, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]}
             placeholder="Name this milestone..."
-            placeholderTextColor="#444"
+            placeholderTextColor={theme.textMuted}
             value={title}
             onChangeText={setTitle}
             returnKeyType="next"
@@ -411,9 +411,9 @@ setProgress(0);
 
         {/* Note */}
         <View style={s.field}>
-          <Text style={s.label}>NOTE</Text>
+          <Text style={[s.label, { color: theme.textMuted }]}>NOTE</Text>
           <TextInput
-            style={s.textarea}
+  style={[s.textarea, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]}
             placeholder="What happened? How did it feel?"
             placeholderTextColor="#444"
             value={note}
@@ -426,7 +426,7 @@ setProgress(0);
 
         {/* Voice note */}
         <View style={s.field}>
-          <Text style={s.label}>VOICE NOTE</Text>
+          <Text style={[s.label, { color: theme.textMuted }]}>VOICE NOTE</Text>
           <AudioRecorder
             onRecordingComplete={(uri) => setAudioUri(uri || undefined)}
             existingUri={audioUri}
@@ -435,15 +435,23 @@ setProgress(0);
 
         {/* Tags */}
         <View style={s.field}>
-          <Text style={s.label}>TAGS</Text>
+          <Text style={[s.label, { color: theme.textMuted }]}>TAGS</Text>
           <View style={s.presets}>
             {PRESET_TAGS.map(t => (
               <TouchableOpacity
                 key={t}
-                style={[s.presetChip, tags.includes(t) && s.presetChipActive]}
+                style={[
+  s.presetChip,
+  { backgroundColor: theme.surface, borderColor: theme.border },
+  tags.includes(t) && { backgroundColor: theme.gold, borderColor: theme.gold },
+]}
                 onPress={() => tags.includes(t) ? removeTag(t) : addTag(t)}
               >
-                <Text style={[s.presetText, tags.includes(t) && s.presetTextActive]}>{t}</Text>
+                <Text style={[
+  s.presetText,
+  { color: theme.textSecondary },
+  tags.includes(t) && { color: theme.bg, fontWeight: '600' }
+]}>{t}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -451,7 +459,7 @@ setProgress(0);
           {/* Custom tag input with visible + button */}
           <View style={s.tagInputRow}>
             <TextInput
-              style={s.tagInput}
+  style={[s.tagInput, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]}
               placeholder="Custom tag..."
               placeholderTextColor="#444"
               value={tagInput}
@@ -472,8 +480,8 @@ setProgress(0);
           {tags.length > 0 && (
             <View style={s.selectedTags}>
               {tags.map(t => (
-                <TouchableOpacity key={t} style={s.tagChip} onPress={() => removeTag(t)}>
-                  <Text style={s.tagChipText}>{t} ✕</Text>
+                <TouchableOpacity key={t} style={[s.tagChip, { backgroundColor: theme.surface, borderColor: theme.gold }]} onPress={() => removeTag(t)}>
+                  <Text style={[s.tagChipText, { color: theme.gold }]}>{t} ✕</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -481,10 +489,10 @@ setProgress(0);
         </View>
 
         {/* Relay toggle */}
-        <View style={s.relayRow}>
+        <View style={[s.relayRow, { borderColor: theme.border }]}>
           <View>
-            <Text style={s.relayLabel}>Publish to relay</Text>
-            <Text style={s.relayHint}>relay.beginningend.com</Text>
+            <Text style={[s.relayLabel, { color: theme.text }]}>Publish to relay</Text>
+            <Text style={[s.relayHint, { color: theme.textMuted }]}>relay.beginningend.com</Text>
           </View>
           <TouchableOpacity
             style={[s.toggle, publishToNostr && s.toggleOn]}
@@ -495,10 +503,10 @@ setProgress(0);
         </View>
 
         {family && (
-          <View style={s.relayRow}>
+          <View style={[s.relayRow, { borderColor: theme.border }]}>
             <View>
-              <Text style={s.relayLabel}>Share with family</Text>
-              <Text style={s.relayHint}>{family.name}</Text>
+              <Text style={[s.relayLabel, { color: theme.text }]}>Share with family</Text>
+              <Text style={[s.relayHint, { color: theme.textMuted }]}>{family.name}</Text>
             </View>
             <TouchableOpacity
               style={[s.toggle, shareWithFamily && s.toggleOn]}
@@ -514,10 +522,10 @@ setProgress(0);
           {saving ? (
             <View style={s.savingRow}>
               <ActivityIndicator color="#111" />
-              <Text style={s.saveBtnText}>{saveStatus || 'Saving...'}</Text>
+              <Text style={[s.saveBtnText, { color: theme.bg }]}>{saveStatus || 'Saving...'}</Text>
             </View>
           ) : (
-            <Text style={s.saveBtnText}>Save Mark</Text>
+            <Text style={[s.saveBtnText, { color: theme.bg }]}>Save Mark</Text>
           )}
         </TouchableOpacity>
 
@@ -543,23 +551,23 @@ setProgress(0);
 }
 
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#111' },
+  safe: { flex: 1 },
   container: { padding: 20, paddingBottom: 48 },
   photoRow: { flexDirection: 'row', gap: 10, marginBottom: 22 },
-  photoBtn: { flex: 1, height: 90, borderRadius: 10, borderWidth: 0.5, borderColor: '#2a2a2a', backgroundColor: '#1a1a1a', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  photoBtn: { flex: 1, height: 90, borderRadius: 10, borderWidth: 0.5, alignItems: 'center', justifyContent: 'center', gap: 6 },
   photoBtnIcon: { fontSize: 24 },
-  photoBtnText: { fontSize: 12, color: '#888', fontWeight: '500', textAlign: 'center' },
+  photoBtnText: { fontSize: 12, fontWeight: '500', textAlign: 'center' },
   photoPreview: { marginBottom: 22, borderRadius: 10, overflow: 'hidden', borderWidth: 0.5, borderColor: '#2a2a2a' },
   photo: { width: '100%', height: 220 },
   photoActions: { flexDirection: 'row', justifyContent: 'center', gap: 20, paddingVertical: 10, backgroundColor: '#1a1a1a' },
   photoActionBtn: { padding: 4 },
   photoActionText: { fontSize: 13, color: '#888' },
   field: { marginBottom: 22 },
-  label: { fontSize: 11, color: '#444', fontWeight: '600', letterSpacing: 0.6, marginBottom: 8 },
-  titleInput: { borderWidth: 0.5, borderColor: '#2a2a2a', borderRadius: 8, padding: 12, fontSize: 16, color: '#fff', backgroundColor: '#1a1a1a', fontWeight: '500' },
-  textarea: { borderWidth: 0.5, borderColor: '#2a2a2a', borderRadius: 8, padding: 12, fontSize: 15, color: '#fff', backgroundColor: '#1a1a1a', minHeight: 100, lineHeight: 22 },
+  label: { fontSize: 11, fontWeight: '600', letterSpacing: 0.6, marginBottom: 8 },
+  titleInput: { borderWidth: 0.5, borderRadius: 8, padding: 12, fontSize: 16, fontWeight: '500' },
+  textarea: { borderWidth: 0.5, borderRadius: 8, padding: 12, fontSize: 15, minHeight: 100, lineHeight: 22 },
   presets: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginBottom: 10 },
-  presetChip: { paddingHorizontal: 13, paddingVertical: 7, borderRadius: 20, borderWidth: 0.5, borderColor: '#2a2a2a', backgroundColor: '#1a1a1a' },
+  presetChip: { paddingHorizontal: 13, paddingVertical: 7, borderRadius: 20, borderWidth: 0.5 },
   presetChipActive: { backgroundColor: '#c9973a', borderColor: '#c9973a' },
   presetText: { fontSize: 13, color: '#666' },
   presetTextActive: { color: '#111', fontWeight: '600' },
@@ -650,21 +658,21 @@ videoBadgeText: {
 },
   // Custom tag row
   tagInputRow: { flexDirection: 'row', gap: 8, alignItems: 'center', marginTop: 4 },
-  tagInput: { flex: 1, borderWidth: 0.5, borderColor: '#2a2a2a', borderRadius: 8, padding: 10, fontSize: 14, color: '#fff', backgroundColor: '#1a1a1a' },
+  tagInput: { flex: 1, borderWidth: 0.5, borderRadius: 8, padding: 10, fontSize: 14 },
   tagAddBtn: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 8, backgroundColor: '#c9973a' },
   tagAddBtnDim: { opacity: 0.35 },
   tagAddBtnText: { fontSize: 13, color: '#111', fontWeight: '700' },
   selectedTags: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10 },
-  tagChip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, backgroundColor: '#1a1a1a', borderWidth: 0.5, borderColor: '#c9973a' },
+  tagChip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 0.5 },
   tagChipText: { fontSize: 12, color: '#c9973a' },
-  relayRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22, paddingVertical: 12, borderTopWidth: 0.5, borderBottomWidth: 0.5, borderColor: '#1e1e1e' },
-  relayLabel: { fontSize: 14, color: '#aaa', fontWeight: '500' },
-  relayHint: { fontSize: 11, color: '#444', marginTop: 2 },
+  relayRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22, paddingVertical: 12, borderTopWidth: 0.5, borderBottomWidth: 0.5 },
+  relayLabel: { fontSize: 14, fontWeight: '500' },
+  relayHint: { fontSize: 11, marginTop: 2 },
   toggle: { width: 44, height: 24, borderRadius: 12, backgroundColor: '#2a2a2a', justifyContent: 'center', padding: 2 },
   toggleOn: { backgroundColor: '#c9973a' },
   toggleThumb: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#fff' },
   toggleThumbOn: { alignSelf: 'flex-end' },
-  saveBtn: { backgroundColor: '#c9973a', borderRadius: 10, padding: 16, alignItems: 'center', marginTop: 4 },
+  saveBtn: { borderRadius: 10, padding: 16, alignItems: 'center', marginTop: 4 },
 saveBtnSaving: { opacity: 0.85 },
 savingRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   saveBtnText: { color: '#111', fontSize: 15, fontWeight: '700', letterSpacing: 0.2 },

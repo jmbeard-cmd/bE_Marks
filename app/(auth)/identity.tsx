@@ -70,10 +70,10 @@ export default function IdentityScreen() {
         {/* Hero header */}
         <View style={s.hero}>
           <Image
-            source={require('../../assets/images/bE_logo_transparent.png')}
-            style={s.logo}
-            resizeMode="contain"
-          />
+  source={require('../../assets/images/bE_logo_light.png')}
+  style={s.logo}
+  resizeMode="contain"
+/>
           <Text style={s.appName}>Milestones</Text>
           <Text style={s.tagline}>by beginning End</Text>
         </View>

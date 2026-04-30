@@ -463,7 +463,7 @@ const handleJoinFamily = async () => {
         <ScrollView contentContainerStyle={s.container} keyboardShouldPersistTaps="handled">
 
           <View style={s.header}>
-            <Image source={require('../../assets/images/bE_logo_transparent.png')} style={s.logo} resizeMode="contain" />
+            <Image source={require('../../assets/images/bE_logo_light.png')} style={s.logo} resizeMode="contain" />
             <View>
               <Text style={s.appName}>Marks</Text>
               <Text style={s.tagline}>by beginning End</Text>

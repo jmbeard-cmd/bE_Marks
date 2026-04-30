@@ -7,6 +7,8 @@ import {
   Alert,
   Dimensions,
   Image,
+  KeyboardAvoidingView,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -58,7 +60,7 @@ function MilestonePhoto({ uri }: { uri: string }) {
 export default function MilestoneDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { npub, nsec, relays } = useIdentity();
+  const { npub, nsec, relays, theme } = useIdentity();
   const [milestone, setMilestone] = useState<Milestone | null>(null);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
@@ -228,9 +230,9 @@ const getReflectionAuthorLabel = (authorNpub?: string) => {
   };
 
   if (!milestone) return (
-    <SafeAreaView style={s.safe}>
+    <SafeAreaView style={[s.safe, { backgroundColor: theme.bg }]}>
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color="#c9973a" />
+        <ActivityIndicator color={theme.gold} />
       </View>
     </SafeAreaView>
   );
@@ -257,7 +259,7 @@ const isOwner = !milestone.authorNpub || milestone.authorNpub === npub;
     <SafeAreaView style={s.safe}>
 
       {/* Header */}
-      <View style={s.header}>
+      <View style={[s.header, { borderBottomColor: theme.border }]}>
         <TouchableOpacity
           onPress={() => {
             if (router.canGoBack()) router.back();
@@ -265,22 +267,31 @@ const isOwner = !milestone.authorNpub || milestone.authorNpub === npub;
           }}
           style={s.backBtn}
         >
-          <Text style={s.backText}>← Back</Text>
+          <Text style={[s.backText, { color: theme.gold }]}>← Back</Text>
         </TouchableOpacity>
-        <Text style={s.headerDate}>{formatDate(milestone.createdAt)}</Text>
+        <Text style={[s.headerDate, { color: theme.textMuted }]}>{formatDate(milestone.createdAt)}</Text>
         {!isEditing && isOwner && (
   <TouchableOpacity onPress={startEditing} style={s.editBtn}>
-    <Text style={s.editBtnText}>Edit</Text>
+    <Text style={[s.editBtnText, { color: theme.gold }]}>Edit</Text>
   </TouchableOpacity>
 )}
         {isEditing && (
           <TouchableOpacity onPress={() => setIsEditing(false)} style={s.editBtn}>
-            <Text style={[s.editBtnText, { color: '#555' }]}>Cancel</Text>
+            <Text style={[s.editBtnText, { color: theme.textMuted }]}>Cancel</Text>
           </TouchableOpacity>
         )}
       </View>
 
-      <ScrollView contentContainerStyle={s.container} keyboardShouldPersistTaps="handled">
+            <KeyboardAvoidingView
+        style={s.keyboardAvoid}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 24}
+      >
+        <ScrollView
+          contentContainerStyle={s.container}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
 
         {/* Media */}
 {milestone.media && milestone.media.length > 0 ? (
@@ -316,49 +327,49 @@ const isOwner = !milestone.authorNpub || milestone.authorNpub === npub;
           {/* ── Edit mode ── */}
           {isEditing ? (
             <View style={s.editBlock}>
-              <Text style={s.sectionLabel}>TITLE</Text>
-              <TextInput
-                style={s.editInput}
-                value={editTitle}
-                onChangeText={setEditTitle}
-                placeholder="Title..."
-                placeholderTextColor="#444"
-              />
+              <Text style={[s.sectionLabel, { color: theme.textMuted }]}>TITLE</Text>
+  <TextInput
+  style={[s.editInput, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]}
+  value={editTitle}
+  onChangeText={setEditTitle}
+  placeholder="Title..."
+  placeholderTextColor={theme.textMuted}
+/>
 
               <Text style={[s.sectionLabel, { marginTop: 16 }]}>NOTE</Text>
               <TextInput
-                style={[s.editInput, s.editTextarea]}
-                value={editNote}
-                onChangeText={setEditNote}
-                placeholder="Note..."
-                placeholderTextColor="#444"
-                multiline
-                textAlignVertical="top"
-              />
+  style={[s.editInput, s.editTextarea, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]}
+  value={editNote}
+  onChangeText={setEditNote}
+  placeholder="Note..."
+  placeholderTextColor={theme.textMuted}
+  multiline
+  textAlignVertical="top"
+/>
 
               <Text style={[s.sectionLabel, { marginTop: 16 }]}>TAGS</Text>
               <View style={s.presetTagsRow}>
                 {PRESET_TAGS.map(t => (
                   <TouchableOpacity
-                    key={t}
-                    style={[s.presetTag, editTags.includes(t) && s.presetTagActive]}
-                    onPress={() => editTags.includes(t) ? removeEditTag(t) : addEditTag(t)}
-                  >
+  key={t}
+  style={[s.selectedTag, { backgroundColor: theme.surface, borderColor: theme.gold }]}
+  onPress={() => removeEditTag(t)}
+>
                     <Text style={[s.presetTagText, editTags.includes(t) && s.presetTagTextActive]}>{t}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
               <View style={s.tagInputRow}>
-                <TextInput
-                  style={[s.editInput, { flex: 1 }]}
-                  value={editTagInput}
-                  onChangeText={setEditTagInput}
-                  placeholder="Custom tag..."
-                  placeholderTextColor="#444"
-                  returnKeyType="done"
-                  autoCapitalize="words"
-                  onSubmitEditing={() => addEditTag(editTagInput)}
-                />
+               <TextInput
+  style={[s.editInput, { flex: 1, color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]}
+  value={editTagInput}
+  onChangeText={setEditTagInput}
+  placeholder="Custom tag..."
+  placeholderTextColor={theme.textMuted}
+  returnKeyType="done"
+  autoCapitalize="words"
+  onSubmitEditing={() => addEditTag(editTagInput)}
+/>
                 <TouchableOpacity
                   style={[s.tagAddBtn, !editTagInput.trim() && s.tagAddBtnDim]}
                   onPress={() => addEditTag(editTagInput)}
@@ -370,18 +381,22 @@ const isOwner = !milestone.authorNpub || milestone.authorNpub === npub;
               {editTags.length > 0 && (
                 <View style={s.selectedTagsRow}>
                   {editTags.map(t => (
-                    <TouchableOpacity key={t} style={s.selectedTag} onPress={() => removeEditTag(t)}>
-                      <Text style={s.selectedTagText}>{t} ✕</Text>
+                    <TouchableOpacity
+  key={t}
+  style={[s.selectedTag, { backgroundColor: theme.surface, borderColor: theme.gold }]}
+  onPress={() => removeEditTag(t)}
+>
+                      <Text style={[s.selectedTagText, { color: theme.gold }]}>{t} ✕</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
               )}
 
               <View style={s.editActions}>
-                <TouchableOpacity style={s.cancelEditBtn} onPress={() => setIsEditing(false)}>
-                  <Text style={s.cancelEditText}>Cancel</Text>
+                <TouchableOpacity style={[s.cancelEditBtn, { borderColor: theme.border }]} onPress={() => setIsEditing(false)}>
+                  <Text style={[s.cancelEditText, { color: theme.textMuted }]}>Cancel</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={s.saveEditBtn} onPress={saveEdit}>
+                <TouchableOpacity style={[s.saveEditBtn, { backgroundColor: theme.gold }]} onPress={saveEdit}>
                   <Text style={s.saveEditText}>Save changes</Text>
                 </TouchableOpacity>
               </View>
@@ -390,11 +405,11 @@ const isOwner = !milestone.authorNpub || milestone.authorNpub === npub;
           ) : (
             /* ── View mode ── */
             <>
-              {title && <Text style={s.title}>{title}</Text>}
+              {title && <Text style={[s.title, { color: theme.text }]}>{title}</Text>}
               {body ? (
                 <View style={s.section}>
-                  <Text style={s.sectionLabel}>NOTE</Text>
-                  <Text style={s.note}>{body}</Text>
+                  <Text style={[s.sectionLabel, { color: theme.textMuted }]}>NOTE</Text>
+                  <Text style={[s.note, { color: theme.textSecondary }]}>{body}</Text>
                 </View>
               ) : null}
             </>
@@ -403,10 +418,10 @@ const isOwner = !milestone.authorNpub || milestone.authorNpub === npub;
           {/* Audio */}
           {milestone.audioUri && (
             <View style={s.section}>
-              <Text style={s.sectionLabel}>VOICE NOTE</Text>
-              <TouchableOpacity style={s.mediaBtn} onPress={isAudioPlaying ? stopAudio : playAudio}>
-                <Text style={s.mediaBtnIcon}>{isAudioPlaying ? '⏹' : '▶'}</Text>
-                <Text style={s.mediaBtnText}>{isAudioPlaying ? 'Stop playback' : 'Play voice note'}</Text>
+              <Text style={[s.sectionLabel, { color: theme.textMuted }]}>VOICE NOTE</Text>
+              <TouchableOpacity style={[s.mediaBtn, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={isAudioPlaying ? stopAudio : playAudio}>
+                <Text style={[s.mediaBtnIcon, { color: theme.gold }]}>{isAudioPlaying ? '⏹' : '▶'}</Text>
+<Text style={[s.mediaBtnText, { color: theme.gold }]}>{isAudioPlaying ? 'Stop playback' : 'Play voice note'}</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -414,8 +429,8 @@ const isOwner = !milestone.authorNpub || milestone.authorNpub === npub;
           {/* Video */}
           {milestone.videoUri && !(milestone.media ?? []).some(item => item.type === 'video') && (
             <View style={s.section}>
-              <Text style={s.sectionLabel}>VIDEO CLIP</Text>
-              <View style={s.videoContainer}>
+              <Text style={[s.sectionLabel, { color: theme.textMuted }]}>VIDEO CLIP</Text>
+              <View style={[s.videoContainer, { backgroundColor: theme.surface, borderColor: theme.border }]}>
                 <VideoView
                   ref={videoViewRef}
                   player={videoPlayer}
@@ -449,10 +464,10 @@ const isOwner = !milestone.authorNpub || milestone.authorNpub === npub;
           {/* Tags */}
           {milestone.tags.length > 0 && !isEditing && (
             <View style={s.section}>
-              <Text style={s.sectionLabel}>TAGS</Text>
+              <Text style={[s.sectionLabel, { color: theme.textMuted }]}>TAGS</Text>
               <View style={s.tags}>
                 {milestone.tags.map(t => (
-                  <Text key={t} style={s.tag}>{t}</Text>
+                  <Text key={t} style={[s.tag, { color: theme.gold, backgroundColor: theme.surface, borderColor: theme.border }]}>{t}</Text>
                 ))}
               </View>
             </View>
@@ -461,7 +476,7 @@ const isOwner = !milestone.authorNpub || milestone.authorNpub === npub;
           {/* Reflections */}
           <View style={s.section}>
             <View style={s.reflectionHeader}>
-              <Text style={s.sectionLabel}>REFLECTIONS</Text>
+              <Text style={[s.sectionLabel, { color: theme.textMuted }]}>REFLECTIONS</Text>
               {!isAddingReflection && (
                 <TouchableOpacity onPress={() => setIsAddingReflection(true)}>
                   <Text style={s.addReflectionBtn}>+ Add</Text>
@@ -470,7 +485,7 @@ const isOwner = !milestone.authorNpub || milestone.authorNpub === npub;
             </View>
 
             {(milestone.reflections ?? []).length === 0 && !isAddingReflection && (
-              <Text style={s.reflectionEmpty}>
+              <Text style={[s.reflectionEmpty, { color: theme.textSecondary }]}>
                 No reflections yet. Come back later and add one.
               </Text>
             )}
@@ -480,28 +495,28 @@ const isOwner = !milestone.authorNpub || milestone.authorNpub === npub;
   const authorName = getReflectionAuthorLabel(r.authorNpub);
 
   return (
-    <View key={i} style={s.reflectionCard}>
+    <View key={i} style={[s.reflectionCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
       <View style={s.reflectionAuthorRow}>
         {profile?.picture ? (
           <Image source={{ uri: profile.picture }} style={s.reflectionAuthorAvatar} />
         ) : (
-          <View style={s.reflectionAuthorFallback}>
-            <Text style={s.reflectionAuthorLetter}>
+          <View style={[s.reflectionAuthorFallback, { backgroundColor: theme.raised }]}>
+            <Text style={[s.reflectionAuthorLetter, { color: theme.gold }]}>
               {authorName.charAt(0).toUpperCase()}
             </Text>
           </View>
         )}
 
         <View style={{ flex: 1 }}>
-          <Text style={s.reflectionAuthorName}>{authorName}</Text>
-          <Text style={s.reflectionDate}>{formatDate(r.createdAt)}</Text>
+          <Text style={[s.reflectionAuthorName, { color: theme.text }]}>{authorName}</Text>
+          <Text style={[s.reflectionDate, { color: theme.textMuted }]}>{formatDate(r.createdAt)}</Text>
         </View>
       </View>
 
-      <Text style={s.reflectionText}>{r.text}</Text>
+      <Text style={[s.reflectionText, { color: theme.textSecondary }]}>{r.text}</Text>
 
       <TouchableOpacity onPress={() => deleteReflection(i)} style={s.reflectionDelete}>
-        <Text style={s.reflectionDeleteText}>Delete</Text>
+        <Text style={[s.reflectionDeleteText, { color: theme.textMuted }]}>Delete</Text>
       </TouchableOpacity>
     </View>
   );
@@ -510,15 +525,15 @@ const isOwner = !milestone.authorNpub || milestone.authorNpub === npub;
             {isAddingReflection && (
               <View style={s.reflectionInputBlock}>
                 <TextInput
-                  style={[s.editInput, s.editTextarea]}
-                  value={reflectionText}
-                  onChangeText={setReflectionText}
-                  placeholder="Looking back, what do you notice? How have you grown?"
-                  placeholderTextColor="#444"
-                  multiline
-                  textAlignVertical="top"
-                  autoFocus
-                />
+  style={[s.editInput, s.editTextarea, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]}
+  value={reflectionText}
+  onChangeText={setReflectionText}
+  placeholder="Looking back, what do you notice? How have you grown?"
+  placeholderTextColor={theme.textMuted}
+  multiline
+  textAlignVertical="top"
+  autoFocus
+/>
                 <View style={s.editActions}>
                   <TouchableOpacity
                     style={s.cancelEditBtn}
@@ -526,7 +541,7 @@ const isOwner = !milestone.authorNpub || milestone.authorNpub === npub;
                   >
                     <Text style={s.cancelEditText}>Cancel</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={s.saveEditBtn} onPress={saveReflection}>
+                  <TouchableOpacity style={[s.saveEditBtn, { backgroundColor: theme.gold }]} onPress={saveReflection}>
                     <Text style={s.saveEditText}>Save reflection</Text>
                   </TouchableOpacity>
                 </View>
@@ -535,8 +550,8 @@ const isOwner = !milestone.authorNpub || milestone.authorNpub === npub;
           </View>
 
           {/* Relay status */}
-          <View style={[s.section, s.relaySection]}>
-            <Text style={s.relayStatus}>
+          <View style={[s.section, s.relaySection, { borderTopColor: theme.border }]}>
+            <Text style={[s.relayStatus, { color: theme.textMuted }]}>
               {milestone.publishedToRelay
                 ? `↑ Published to relay · ${milestone.nostrEventId?.slice(0, 12)}…`
                 : '· Saved locally only'}
@@ -544,7 +559,9 @@ const isOwner = !milestone.authorNpub || milestone.authorNpub === npub;
           </View>
 
         </View>
-      </ScrollView>
+              </ScrollView>
+      </KeyboardAvoidingView>
+
       <ImageViewerModal
   images={viewerImages}
   selectedUri={selectedImage}
@@ -556,7 +573,7 @@ const isOwner = !milestone.authorNpub || milestone.authorNpub === npub;
 }
 
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#111' },
+  safe: { flex: 1 },
 
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
@@ -569,13 +586,14 @@ const s = StyleSheet.create({
   editBtn: { padding: 4, minWidth: 60, alignItems: 'flex-end' },
   editBtnText: { fontSize: 15, color: '#c9973a', fontWeight: '500' },
 
-  container: { paddingBottom: 60 },
+    keyboardAvoid: { flex: 1 },
+  container: { paddingBottom: 140 },
   content: { padding: 20 },
 
   // Photo
-  photoContainer: { width: '100%', backgroundColor: '#0a0a0a' },
+  photoContainer: { width: '100%' },
   photo: { width: '100%', height: width * 0.75 },
-  photoLoadingOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0a0a0a' },
+  photoLoadingOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
   photoFallback: { width: '100%', height: 80, backgroundColor: '#0a0a0a', alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 },
   photoFallbackIcon: { fontSize: 16 },
   photoFallbackText: { fontSize: 12, color: '#444' },
@@ -585,33 +603,40 @@ const s = StyleSheet.create({
   sectionLabel: { fontSize: 11, color: '#444', fontWeight: '600', letterSpacing: 0.8, marginBottom: 10 },
   note: { fontSize: 16, color: '#aaa', lineHeight: 27 },
 
-  tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
-  tag: { fontSize: 13, color: '#c9973a', backgroundColor: '#1e1600', paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20, borderWidth: 0.5, borderColor: '#3a2800' },
+  tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 5 },
+  tag: {
+  fontSize: 11,
+  paddingHorizontal: 9,
+  paddingVertical: 4,
+  borderRadius: 20,
+  borderWidth: 0.5,
+  lineHeight: 15,
+},
 
   // Audio / media buttons
-  mediaBtn: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 12, borderWidth: 0.5, borderColor: '#2a2a2a', backgroundColor: '#1a1a1a' },
+  mediaBtn: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: 12, borderWidth: 0.5 },
   mediaBtnIcon: { fontSize: 18, color: '#c9973a' },
   mediaBtnText: { fontSize: 14, color: '#c9973a', fontWeight: '500' },
 
   // Video
-  videoContainer: { width: '100%', aspectRatio: 16 / 9, backgroundColor: '#000', borderRadius: 12, overflow: 'hidden', borderWidth: 0.5, borderColor: '#2a2a2a' },
+  videoContainer: { width: '100%', aspectRatio: 16 / 9, borderRadius: 12, overflow: 'hidden', borderWidth: 0.5 },
   video: { width: '100%', height: '100%' },
   videoOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
   playCircle: { width: 60, height: 60, borderRadius: 30, backgroundColor: 'rgba(201,151,58,0.9)', alignItems: 'center', justifyContent: 'center' },
   playCircleIcon: { fontSize: 22, color: '#111', marginLeft: 4 },
 
   // Relay
-  relaySection: { borderTopWidth: 0.5, borderTopColor: '#1e1e1e', paddingTop: 16 },
+  relaySection: { borderTopWidth: 0.5, paddingTop: 16 },
   relayStatus: { fontSize: 12, color: '#333' },
 
   // Edit
   editBlock: { marginBottom: 24 },
-  editInput: { borderWidth: 0.5, borderColor: '#2a2a2a', borderRadius: 10, padding: 12, fontSize: 15, color: '#fff', backgroundColor: '#1a1a1a' },
+  editInput: { borderWidth: 0.5, borderRadius: 10, padding: 12, fontSize: 15 },
   editTextarea: { minHeight: 120, lineHeight: 22, textAlignVertical: 'top' },
   editActions: { flexDirection: 'row', gap: 10, marginTop: 14 },
-  cancelEditBtn: { flex: 1, padding: 13, borderRadius: 10, borderWidth: 0.5, borderColor: '#2a2a2a', alignItems: 'center' },
+ cancelEditBtn: { flex: 1, padding: 13, borderRadius: 10, borderWidth: 0.5, alignItems: 'center' },
   cancelEditText: { fontSize: 14, color: '#555' },
-  saveEditBtn: { flex: 2, padding: 13, borderRadius: 10, backgroundColor: '#c9973a', alignItems: 'center' },
+  saveEditBtn: { flex: 2, padding: 13, borderRadius: 10, alignItems: 'center' },
   saveEditText: { fontSize: 14, color: '#111', fontWeight: '700' },
 
   // Tag editing
@@ -625,13 +650,13 @@ const s = StyleSheet.create({
   presetTagText: { fontSize: 12, color: '#666' },
   presetTagTextActive: { color: '#111', fontWeight: '600' },
   selectedTagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
-  selectedTag: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, backgroundColor: '#1a1a1a', borderWidth: 0.5, borderColor: '#c9973a' },
+  selectedTag: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 0.5 },
   selectedTagText: { fontSize: 12, color: '#c9973a' },
 
   // Reflections
   reflectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   addReflectionBtn: { fontSize: 13, color: '#c9973a', fontWeight: '600' },
-  reflectionEmpty: { fontSize: 14, color: '#333', fontStyle: 'italic', lineHeight: 22 },
+  reflectionEmpty: { fontSize: 14, fontStyle: 'italic', lineHeight: 22 },
   reflectionAuthorRow: {
   flexDirection: 'row',
   alignItems: 'center',
@@ -647,7 +672,6 @@ reflectionAuthorFallback: {
   width: 34,
   height: 34,
   borderRadius: 17,
-  backgroundColor: '#2a2a2a',
   alignItems: 'center',
   justifyContent: 'center',
 },
@@ -661,7 +685,7 @@ reflectionAuthorName: {
   fontSize: 13,
   fontWeight: '700',
 },
-  reflectionCard: { backgroundColor: '#1a1a1a', borderRadius: 12, padding: 16, marginBottom: 10, borderWidth: 0.5, borderColor: '#2a2a2a' },
+  reflectionCard: { borderRadius: 12, padding: 16, marginBottom: 10, borderWidth: 0.5 },
   reflectionDate: { fontSize: 10, color: '#555', marginBottom: 8, fontWeight: '600', letterSpacing: 0.6 },
   reflectionText: { fontSize: 15, color: '#aaa', lineHeight: 24 },
   reflectionDelete: { marginTop: 12, alignSelf: 'flex-end' },
@@ -722,6 +746,5 @@ multiPhoto: {
   width: 160,
   height: 160,
   borderRadius: 10,
-  backgroundColor: '#000',
 },
 });
