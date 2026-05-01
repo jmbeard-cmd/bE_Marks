@@ -46,30 +46,30 @@ function ViewerVideo({
     p.play();
   });
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderRelease: (_, gesture) => {
-        const absX = Math.abs(gesture.dx);
-        const absY = Math.abs(gesture.dy);
+const panResponder = useRef(
+  PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: () => true,
+    onPanResponderRelease: (_, gesture) => {
+      const absX = Math.abs(gesture.dx);
+      const absY = Math.abs(gesture.dy);
 
-        if (gesture.dy > 70 && absY > absX) {
-          onClose();
-          return;
-        }
+      if (gesture.dy > 70 && absY > absX) {
+        onClose();
+        return;
+      }
 
-        if (gesture.dx < -55 && absX > absY) {
-          goNext();
-          return;
-        }
+      if (gesture.dx < -55 && absX > absY) {
+        goNext();
+        return;
+      }
 
-        if (gesture.dx > 55 && absX > absY) {
-          goPrev();
-        }
-      },
-    })
-  ).current;
+      if (gesture.dx > 55 && absX > absY) {
+        goPrev();
+      }
+    },
+  })
+).current;
 
   return (
     <View style={s.videoScreen}>
@@ -112,21 +112,34 @@ export default function ImageViewerModal({
   const [activeIndex, setActiveIndex] = useState(0);
   const [zoomKey, setZoomKey] = useState(0);
   const [modalSeedUri, setModalSeedUri] = useState<string | null>(null);
+  const [isZoomed, setIsZoomed] = useState(false);
+
   const swipeLockedRef = useRef(false);
+  const activeIndexRef = useRef(0);
 
   const activeMedia = images[activeIndex];
 
   useEffect(() => {
+    activeIndexRef.current = activeIndex;
+  }, [activeIndex]);
+
+  useEffect(() => {
     if (!selectedUri) {
       setModalSeedUri(null);
+      setIsZoomed(false);
       swipeLockedRef.current = false;
+      activeIndexRef.current = 0;
       return;
     }
 
     const startIndex = images.findIndex(img => img.uri === selectedUri);
+    const safeIndex = startIndex >= 0 ? startIndex : 0;
 
     swipeLockedRef.current = false;
-    setActiveIndex(startIndex >= 0 ? startIndex : 0);
+    activeIndexRef.current = safeIndex;
+
+    setActiveIndex(safeIndex);
+    setIsZoomed(false);
     setZoomKey(k => k + 1);
     setModalSeedUri(selectedUri);
   }, [selectedUri, images]);
@@ -134,31 +147,49 @@ export default function ImageViewerModal({
   function unlockSwipeSoon() {
     setTimeout(() => {
       swipeLockedRef.current = false;
-    }, 200);
+    }, 180);
   }
 
   function goNext() {
     if (swipeLockedRef.current) return;
-    if (activeIndex >= images.length - 1) return;
+
+    const currentIndex = activeIndexRef.current;
+    if (currentIndex >= images.length - 1) return;
+
+    const nextIndex = currentIndex + 1;
 
     swipeLockedRef.current = true;
-    setActiveIndex(activeIndex + 1);
+    activeIndexRef.current = nextIndex;
+
+    setActiveIndex(nextIndex);
+    setIsZoomed(false);
     setZoomKey(k => k + 1);
+
     unlockSwipeSoon();
   }
 
   function goPrev() {
     if (swipeLockedRef.current) return;
-    if (activeIndex <= 0) return;
+
+    const currentIndex = activeIndexRef.current;
+    if (currentIndex <= 0) return;
+
+    const nextIndex = currentIndex - 1;
 
     swipeLockedRef.current = true;
-    setActiveIndex(activeIndex - 1);
+    activeIndexRef.current = nextIndex;
+
+    setActiveIndex(nextIndex);
+    setIsZoomed(false);
     setZoomKey(k => k + 1);
+
     unlockSwipeSoon();
   }
 
   function handleClose() {
     swipeLockedRef.current = false;
+    activeIndexRef.current = 0;
+    setIsZoomed(false);
     setModalSeedUri(null);
     onClose();
   }
@@ -209,10 +240,16 @@ export default function ImageViewerModal({
             enableCenterFocus
             panToMove
             pinchToZoom
-            enableSwipeDown
+            enableSwipeDown={!isZoomed}
             onSwipeDown={handleClose}
             swipeDownThreshold={80}
+            onMove={(position: any) => {
+              const scale = position?.scale || 1;
+              setIsZoomed(scale > 1.02);
+            }}
             horizontalOuterRangeOffset={(offsetX: number) => {
+              if (isZoomed) return;
+
               if (offsetX < -45) goNext();
               if (offsetX > 45) goPrev();
             }}
@@ -270,7 +307,7 @@ const s = StyleSheet.create({
     width,
     height,
   },
-    videoGestureLayer: {
+  videoGestureLayer: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 25,
   },
@@ -303,7 +340,7 @@ const s = StyleSheet.create({
     height,
     zIndex: 2,
   },
-    videoLeftTapZone: {
+  videoLeftTapZone: {
     position: 'absolute',
     left: 0,
     top: 120,
