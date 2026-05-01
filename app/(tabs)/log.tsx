@@ -184,10 +184,10 @@ const addTag = (t: string) => {
   const removeTag = (t: string) => setTags(prev => prev.filter(x => x !== t));
 
   const handleSave = async () => {
-    if (!title.trim() && !note.trim() && media.length === 0) {
-      Alert.alert('Nothing to save', 'Add a title, note or photo first.');
-      return;
-    }
+    if (!title.trim() && !note.trim() && media.length === 0 && !audioUri) {
+  Alert.alert('Nothing to save', 'Add a title, note, photo, video, or voice note first.');
+  return;
+}
     setSaving(true);
 setProgress(0);
 setSaveStatus('Preparing your Mark...');
@@ -244,7 +244,22 @@ return {
 
 const uploadedPhoto = uploadedMedia.find(m => m.type === 'image')?.uri;
 const uploadedVideo = uploadedMedia.find(m => m.type === 'video')?.uri;
-const uploadedAudio = audioUri;
+
+let uploadedAudio = audioUri;
+
+if (audioUri) {
+  setSaveStatus('Uploading voice note...');
+
+  const audioUpload = await uploadMilestoneMedia({
+    audioUri,
+  });
+
+  uploadedAudio = audioUpload.audioUri || audioUri;
+
+  if (audioUpload.uploadErrors.includes('audio')) {
+    console.warn('[Mark Audio Upload] Failed; saved local audio only');
+  }
+}
 
       // Warn user immediately if any media failed — don't silently drop it
       
