@@ -13,18 +13,24 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import MessageBubble from '../components/MessageBubble';
+import { Colors } from '../src/constants/theme';
 import { subscribeToDMEvents } from '../src/utils/dm-events';
 import {
-  formatDMTime,
   getDMThreadById,
   getMessagesForThread,
   markThreadRead,
   sendLocalDM,
-  type DMMessage,
+  type DMMessage
 } from '../src/utils/dm-storage';
 import { sendNostrDM } from '../src/utils/nostr';
+import { useIdentity } from './_layout';
 
 export default function DmThreadScreen() {
+  const { themeMode } = useIdentity();
+  const theme = themeMode === 'light' ? Colors.light : Colors.dark;
+  const s = useMemo(() => createStyles(theme), [theme]);
+
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string; title?: string }>();
 
@@ -170,17 +176,11 @@ export default function DmThreadScreen() {
           </View>
         )}
 
-        <View style={[s.row, item.mine ? s.rowMine : s.rowOther]}>
-          <View style={[s.bubble, item.mine ? s.bubbleMine : s.bubbleOther]}>
-            <Text style={[s.messageText, item.mine ? s.messageTextMine : s.messageTextOther]}>
-              {item.text}
-            </Text>
-
-            <Text style={[s.time, item.mine ? s.timeMine : s.timeOther]}>
-              {formatDMTime(item.createdAt)}
-            </Text>
-          </View>
-        </View>
+        <MessageBubble
+          item={item}
+          showName={false}
+          s={s}
+        />
       </View>
     );
   };
@@ -238,7 +238,7 @@ export default function DmThreadScreen() {
             <TextInput
               style={[s.input, { height: Math.max(40, Math.min(120, inputHeight)) }]}
               placeholder={`Message ${title}…`}
-              placeholderTextColor="#444"
+              placeholderTextColor={theme.textMuted}
               value={draft}
               onChangeText={setDraft}
               multiline
@@ -299,13 +299,13 @@ function formatDividerDate(unixSecs: number): string {
   });
 }
 
-const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#000' },
+const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
+  safe: { flex: 1, backgroundColor: theme.bg },
   container: { flex: 1 },
 
   header: {
     borderBottomWidth: 0.5,
-    borderBottomColor: '#222',
+    borderBottomColor: theme.border,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -313,14 +313,14 @@ const s = StyleSheet.create({
     paddingVertical: 10,
   },
   backBtn: { width: 60 },
-  backText: { color: '#c9973a', fontSize: 14, fontWeight: '600' },
+  backText: { color: theme.gold, fontSize: 14, fontWeight: '600' },
   headerCenter: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerTitle: { color: '#fff', fontSize: 15, fontWeight: '700', maxWidth: 220 },
-  headerSub: { color: '#555', fontSize: 10, marginTop: 2 },
+  headerTitle: { color: theme.text, fontSize: 15, fontWeight: '700', maxWidth: 220 },
+  headerSub: { color: theme.textMuted, fontSize: 10, marginTop: 2 },
 
   list: { padding: 16, paddingBottom: 8, flexGrow: 1 },
 
@@ -330,8 +330,8 @@ const s = StyleSheet.create({
     gap: 10,
     marginVertical: 16,
   },
-  dateDividerLine: { flex: 1, height: 0.5, backgroundColor: '#222' },
-  dateDividerText: { fontSize: 11, color: '#444', fontWeight: '500' },
+  dateDividerLine: { flex: 1, height: 0.5, backgroundColor: theme.border },
+  dateDividerText: { fontSize: 11, color: theme.textMuted, fontWeight: '500' },
 
   row: {
     marginBottom: 6,
@@ -348,21 +348,21 @@ const s = StyleSheet.create({
     paddingVertical: 10,
   },
   bubbleMine: {
-    backgroundColor: '#c9973a',
-    borderBottomRightRadius: 4,
-  },
+  backgroundColor: theme.gold,
+  borderBottomRightRadius: 4,
+},
   bubbleOther: {
-    backgroundColor: '#1f1f1f',
-    borderWidth: 0.5,
-    borderColor: '#2a2a2a',
-    borderBottomLeftRadius: 4,
-  },
+  backgroundColor: theme.surface,
+  borderWidth: 0.5,
+  borderColor: theme.border,
+  borderBottomLeftRadius: 4,
+},
   messageText: { fontSize: 15, lineHeight: 21 },
   messageTextMine: { color: '#111' },
-  messageTextOther: { color: '#eee' },
+  messageTextOther: { color: theme.text },
   time: { fontSize: 10, marginTop: 5 },
-  timeMine: { color: 'rgba(0,0,0,0.4)', textAlign: 'right' },
-  timeOther: { color: '#555' },
+  timeMine: { color: '#111', textAlign: 'right' },
+  timeOther: { color: theme.textMuted },
 
   empty: {
     flex: 1,
@@ -372,45 +372,45 @@ const s = StyleSheet.create({
     paddingHorizontal: 32,
   },
   emptyIcon: { fontSize: 36, marginBottom: 14 },
-  emptyText: { color: '#fff', fontSize: 16, fontWeight: '600', marginBottom: 6 },
-  emptyHint: { color: '#555', fontSize: 13, textAlign: 'center' },
+  emptyText: { color: theme.text, fontSize: 16, fontWeight: '600', marginBottom: 6 },
+  emptyHint: { color: theme.textMuted, fontSize: 13, textAlign: 'center' },
 
   composer: {
     borderTopWidth: 0.5,
-    borderTopColor: '#222',
+    borderTopColor: theme.border,
     paddingHorizontal: 12,
     paddingTop: 10,
-    paddingBottom: Platform.OS === 'ios' ? 24 : 4,
+    paddingBottom: Platform.OS === 'ios' ? 24 : 6,
     flexDirection: 'row',
     alignItems: 'flex-end',
     gap: 10,
-    backgroundColor: '#000',
+    backgroundColor: theme.bg,
   },
   input: {
     flex: 1,
-    backgroundColor: '#1a1a1a',
+    backgroundColor: theme.surface,
     borderWidth: 0.5,
     borderColor: '#2a2a2a',
     borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 10,
-    color: '#fff',
+    color: theme.text,
     fontSize: 15,
     maxHeight: 120,
     lineHeight: 20,
   },
   sendBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: '#c9973a',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sendBtnDim: { opacity: 0.4 },
+  width: 42,
+  height: 42,
+  borderRadius: 21,
+  backgroundColor: theme.gold,
+  alignItems: 'center',
+  justifyContent: 'center',
+},
+  sendBtnDim: { opacity: 0.35 },
   sendText: {
     fontSize: 20,
-    color: '#111',
+    color: theme.surface,
     fontWeight: '700',
     lineHeight: 22,
   },

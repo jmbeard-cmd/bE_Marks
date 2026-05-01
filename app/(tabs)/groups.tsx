@@ -1,5 +1,5 @@
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import BEHeader from '../../components/BEHeader';
+import { Colors } from '../../src/constants/theme';
 import {
   createGroup,
   getActiveGroups,
@@ -74,7 +75,10 @@ type Sheet = 'none' | 'create' | 'join';
 
 export default function GroupsScreen() {
   const router = useRouter();
-  const { npub, nsec } = useIdentity();
+  const { npub, nsec, themeMode } = useIdentity();
+
+  const theme = themeMode === 'light' ? Colors.light : Colors.dark;
+  const s = useMemo(() => createStyles(theme), [theme]);
 
   const [activeGroups, setActiveGroups] = useState<BEGroup[]>([]);
   const [archivedGroups, setArchivedGroups] = useState<BEGroup[]>([]);
@@ -321,7 +325,7 @@ export default function GroupsScreen() {
                   <TextInput
                     style={s.input}
                     placeholder="e.g. Varsity Softball, NHS, Boys Track…"
-                    placeholderTextColor="#444"
+                    placeholderTextColor={theme.textMuted}
                     value={cgName}
                     onChangeText={setCgName}
                     autoFocus
@@ -432,29 +436,29 @@ export default function GroupsScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#111' },
+const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
+  safe: { flex: 1, backgroundColor: theme.bg },
   list: { padding: 20, paddingBottom: 100 },
   listEmpty: { flexGrow: 1 },
 
   // Empty state
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 60, paddingHorizontal: 32 },
   emptyIcon: { fontSize: 40, marginBottom: 16 },
-  emptyTitle: { color: '#fff', fontSize: 18, fontWeight: '700', marginBottom: 8 },
-  emptyHint: { color: '#555', fontSize: 13, textAlign: 'center', lineHeight: 20, marginBottom: 24 },
-  emptyBtn: { backgroundColor: '#c9973a', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12, marginBottom: 12, width: '100%', alignItems: 'center' },
-  emptyBtnText: { color: '#111', fontWeight: '700', fontSize: 14 },
-  emptyBtnOutline: { borderWidth: 0.5, borderColor: '#c9973a', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12, width: '100%', alignItems: 'center' },
-  emptyBtnOutlineText: { color: '#c9973a', fontWeight: '600', fontSize: 14 },
+  emptyTitle: { color: theme.text, fontSize: 18, fontWeight: '700', marginBottom: 8 },
+  emptyHint: { color: theme.textMuted, fontSize: 13, textAlign: 'center', lineHeight: 20, marginBottom: 24 },
+  emptyBtn: { backgroundColor: theme.gold, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12, marginBottom: 12, width: '100%', alignItems: 'center' },
+  emptyBtnText: { color: theme.surface, fontWeight: '700', fontSize: 14 },
+  emptyBtnOutline: { borderWidth: 0.5, borderColor: theme.gold, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12, width: '100%', alignItems: 'center' },
+  emptyBtnOutlineText: { color: theme.gold, fontWeight: '600', fontSize: 14 },
 
     // Group card
   card: {
     flexDirection: 'row',
     gap: 13,
     alignItems: 'center',
-    backgroundColor: '#181818',
+    backgroundColor: theme.surface,
     borderWidth: 0.5,
-    borderColor: '#252525',
+    borderColor: theme.border,
     borderRadius: 18,
     padding: 15,
     marginBottom: 12,
@@ -466,15 +470,15 @@ const s = StyleSheet.create({
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: '#211800',
+    backgroundColor: theme.raised,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 0.5,
-    borderColor: '#c9973a33',
+    borderColor: theme.gold + '33',
   },
   groupIconArchived: {
-    backgroundColor: '#171717',
-    borderColor: '#2a2a2a',
+    backgroundColor: theme.surface,
+    borderColor: theme.border,
   },
   groupIconText: {
     fontSize: 22,
@@ -491,22 +495,22 @@ const s = StyleSheet.create({
     gap: 8,
   },
   groupName: {
-    color: '#f4f4f4',
+    color: theme.text,
     fontSize: 16,
     fontWeight: '700',
     flex: 1,
     letterSpacing: -0.2,
   },
   groupNameArchived: {
-    color: '#666',
+    color: theme.textMuted,
   },
   cardTime: {
-    color: '#555',
+    color: theme.textMuted,
     fontSize: 11,
     fontWeight: '600',
   },
   cardPreview: {
-    color: '#777',
+    color: theme.textSecondary,
     fontSize: 13,
     lineHeight: 18,
     marginBottom: 9,
@@ -519,39 +523,39 @@ const s = StyleSheet.create({
   },
   seasonBadge: {
     fontSize: 10,
-    color: '#c9973a',
-    backgroundColor: '#1e1600',
+    color: theme.gold,
+    backgroundColor: theme.raised,
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 999,
     borderWidth: 0.5,
-    borderColor: '#3a2800',
+    borderColor: theme.gold + '55',
     fontWeight: '700',
     letterSpacing: 0.2,
   },
   memberBadge: {
     fontSize: 10,
-    color: '#999',
-    backgroundColor: '#111',
+    color: theme.textSecondary,
+    backgroundColor: theme.bg,
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 999,
     borderWidth: 0.5,
-    borderColor: '#2a2a2a',
+    borderColor: theme.border,
     fontWeight: '600',
   },
   archivedBadge: {
     fontSize: 10,
-    color: '#555',
-    backgroundColor: '#151515',
+    color: theme.textMuted,
+    backgroundColor: theme.surface,
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 999,
     borderWidth: 0.5,
-    borderColor: '#2a2a2a',
+    borderColor: theme.border,
     fontWeight: '600',
   },
-  relayBadge: {
+    relayBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
@@ -559,67 +563,69 @@ const s = StyleSheet.create({
     paddingVertical: 3,
     borderRadius: 999,
     borderWidth: 0.5,
-    borderColor: '#2a2a2a',
-    backgroundColor: '#111',
+    borderColor: theme.border,
+    backgroundColor: theme.bg,
   },
   relayBadgeIcon: {
     fontSize: 8,
-    color: '#777',
+    color: theme.textMuted,
   },
   relayBadgeText: {
     fontSize: 10,
-    color: '#888',
+    color: theme.textSecondary,
     fontWeight: '700',
     letterSpacing: 0.25,
   },
   relayBadgeCustom: {
-    borderColor: '#6b5cff33',
-    backgroundColor: '#151433',
+    borderColor: theme.gold + '55',
+    backgroundColor: theme.raised,
   },
   relayBadgeBoth: {
-    borderColor: '#c9973a44',
-    backgroundColor: '#1e1600',
+    borderColor: theme.gold + '55',
+    backgroundColor: theme.raised,
   },
 
   // Archived section
   archivedSection: { marginTop: 8 },
   archivedToggle: { paddingVertical: 12, paddingHorizontal: 4 },
-  archivedToggleText: { color: '#444', fontSize: 13, fontWeight: '500' },
+  archivedToggleText: { color: theme.textMuted, fontSize: 13, fontWeight: '500' },
 
   // FABs
   fabRow: { position: 'absolute', bottom: 24, right: 24, flexDirection: 'row', gap: 12, alignItems: 'center' },
   fabSecondary: {
     paddingHorizontal: 20, paddingVertical: 14, borderRadius: 28,
-    borderWidth: 1.5, borderColor: '#c9973a', backgroundColor: '#111',
+    borderWidth: 1.5, borderColor: theme.gold, backgroundColor: theme.bg,
   },
-  fabSecondaryText: { color: '#c9973a', fontWeight: '700', fontSize: 14 },
+  fabSecondaryText: { color: theme.gold, fontWeight: '700', fontSize: 14 },
   fab: {
     width: 56, height: 56, borderRadius: 28,
-    backgroundColor: '#c9973a', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: theme.gold,
+    
+    alignItems: 'center', justifyContent: 'center',
     shadowColor: '#c9973a', shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4, shadowRadius: 8, elevation: 8,
   },
-  fabIcon: { fontSize: 30, color: '#111', fontWeight: '300', lineHeight: 34 },
+  fabIcon: { fontSize: 30, color: theme.surface, fontWeight: '300', lineHeight: 34 },
 
   // Sheet
   overlay: { flex: 1, justifyContent: 'flex-end' },
   sheet: {
-    backgroundColor: '#1a1a1a', borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    backgroundColor: theme.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24,
     paddingHorizontal: 24, paddingBottom: 40, maxHeight: '90%',
   },
-  sheetHandle: { width: 36, height: 4, backgroundColor: '#333', borderRadius: 2, alignSelf: 'center', marginTop: 12, marginBottom: 20 },
-  sheetTitle: { fontSize: 20, fontWeight: '700', color: '#fff', marginBottom: 6 },
-  sheetHint: { fontSize: 13, color: '#555', lineHeight: 18, marginBottom: 20 },
+  sheetHandle: { width: 36, height: 4, backgroundColor: theme.border, borderRadius: 2, alignSelf: 'center', marginTop: 12, marginBottom: 20 },
+  sheetTitle: { fontSize: 20, fontWeight: '700', color: theme.text, marginBottom: 6 },
+  sheetHint: { fontSize: 13, color: theme.textMuted, lineHeight: 18, marginBottom: 20 },
   sportPills: { marginBottom: 6 },
-  sportPill: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, borderWidth: 0.5, borderColor: '#2a2a2a', backgroundColor: '#111', marginRight: 8 },
-  sportPillActive: { backgroundColor: '#c9973a', borderColor: '#c9973a' },
+  sportPill: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, borderWidth: 0.5, borderColor: '#2a2a2a', backgroundColor: theme.bg, marginRight: 8 },
+  sportPillActive: { backgroundColor: theme.gold, borderColor: '#c9973a' },
   sportPillText: { fontSize: 12, color: '#666' },
   sportPillTextActive: { color: '#111', fontWeight: '600' },
-  inputLabel: { fontSize: 11, color: '#555', fontWeight: '600', letterSpacing: 0.8, marginBottom: 8, marginTop: 12 },
+  inputLabel: { fontSize: 11, color: theme.textMuted, fontWeight: '600', letterSpacing: 0.8, marginBottom: 8, marginTop: 12 },
   input: {
-    backgroundColor: '#111', borderWidth: 0.5, borderColor: '#2a2a2a',
+    backgroundColor: '#111', borderWidth: 0.5, borderColor: theme.border,
     borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13,
-    color: '#fff', fontSize: 15, marginBottom: 4,
+    color: theme.text, fontSize: 15, marginBottom: 4,
   },
   inputMulti: { minHeight: 80, textAlignVertical: 'top', lineHeight: 22 },
   codeInput: { textAlign: 'center', fontSize: 28, fontWeight: '700', letterSpacing: 8 },
@@ -627,7 +633,7 @@ const s = StyleSheet.create({
   sheetActions: { flexDirection: 'row', gap: 10, marginTop: 20 },
   cancelBtn: { flex: 1, padding: 14, borderRadius: 12, borderWidth: 0.5, borderColor: '#2a2a2a', alignItems: 'center' },
   cancelText: { color: '#555', fontSize: 14, fontWeight: '500' },
-  confirmBtn: { flex: 2, padding: 14, borderRadius: 12, backgroundColor: '#c9973a', alignItems: 'center' },
+  confirmBtn: { flex: 2, padding: 14, borderRadius: 12, backgroundColor: theme.gold, alignItems: 'center' },
   confirmBtnDim: { opacity: 0.5 },
-  confirmText: { color: '#111', fontWeight: '700', fontSize: 14 },
+  confirmText: { color: theme.surface, fontWeight: '700', fontSize: 14 },
 });

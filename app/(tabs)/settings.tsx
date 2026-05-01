@@ -37,7 +37,43 @@ import {
 import { useIdentity } from '../_layout';
 
 export default function SettingsScreen() {
-  const { npub, nsec, useAmber, clearIdentity: clearCtx, family, setFamily, profile, setProfile, relays, setRelays, themeMode, setThemeMode } = useIdentity();
+    const {
+    npub,
+    nsec,
+    useAmber,
+    clearIdentity: clearCtx,
+    family,
+    setFamily,
+    profile,
+    setProfile,
+    relays,
+    setRelays,
+    themeMode,
+    setThemeMode,
+  } = useIdentity();
+
+  const theme =
+    themeMode === 'light'
+      ? {
+          bg: '#f7f3ea',
+          surface: '#fffaf0',
+          raised: '#ffffff',
+          border: '#dfd4bf',
+          text: '#1f1a14',
+          textSecondary: '#5f5548',
+          textMuted: '#948875',
+          gold: '#b8872f',
+        }
+      : {
+          bg: '#111111',
+          surface: '#1a1a1a',
+          raised: '#222222',
+          border: '#2a2a2a',
+          text: '#ffffff',
+          textSecondary: '#aaaaaa',
+          textMuted: '#555555',
+          gold: '#c9973a',
+        };
 useEffect(() => {
   console.log('[SETTINGS] npub:', npub);
 
@@ -459,44 +495,61 @@ const handleJoinFamily = async () => {
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <SafeAreaView style={s.safe}>
+      <SafeAreaView style={[s.safe, { backgroundColor: theme.bg }]}>
         <ScrollView contentContainerStyle={s.container} keyboardShouldPersistTaps="handled">
 
-          <View style={s.header}>
-            <Image source={require('../../assets/images/bE_logo_light.png')} style={s.logo} resizeMode="contain" />
+                    <View style={[s.header, { borderBottomColor: theme.border }]}>
+            <Image
+              source={
+                themeMode === 'light'
+                  ? require('../../assets/images/bE_logo_dark.png')
+                  : require('../../assets/images/bE_logo_light.png')
+              }
+              style={s.logo}
+              resizeMode="contain"
+            />
             <View>
-              <Text style={s.appName}>Marks</Text>
-              <Text style={s.tagline}>by beginning End</Text>
+              <Text style={[s.appName, { color: theme.text }]}>Marks</Text>
+              <Text style={[s.tagline, { color: theme.gold }]}>by beginning End</Text>
             </View>
           </View>
 
           {/* ── IDENTITY ── */}
           <View style={s.section}>
-            <Text style={s.sectionLabel}>IDENTITY</Text>
+            <Text style={[s.sectionLabel, { color: theme.textMuted }]}>IDENTITY</Text>
 
-            <View style={s.profileCard}>
+            <View style={[s.profileCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
               {avatarUri ? (
                 <Image source={{ uri: avatarUri }} style={s.avatar} />
               ) : (
-                <View style={s.avatarPlaceholder}>
-                  <Text style={s.avatarInitial}>{displayName ? displayName[0].toUpperCase() : '?'}</Text>
-                </View>
+                <View style={[s.avatarPlaceholder, { backgroundColor: theme.raised }]}>
+  <Text style={[s.avatarInitial, { color: theme.gold }]}>
+    {displayName ? displayName[0].toUpperCase() : '?'}
+  </Text>
+</View>
               )}
               <View style={s.profileInfo}>
-                <Text style={s.profileName}>{displayName || 'No profile found'}</Text>
-                <Text style={s.profileNpub} numberOfLines={1}>{shortNpub}</Text>
+                <Text style={[s.profileName, { color: theme.text }]}>{displayName || 'No profile found'}</Text>
+<Text style={[s.profileNpub, { color: theme.textMuted }]} numberOfLines={1}>{shortNpub}</Text>
               </View>
-              <TouchableOpacity onPress={startEditProfile} style={s.editProfileBtn}>
-                <Text style={s.editProfileBtnText}>Edit</Text>
-              </TouchableOpacity>
+              <TouchableOpacity
+  onPress={startEditProfile}
+  style={[s.editProfileBtn, { borderColor: theme.gold }]}
+>
+  <Text style={[s.editProfileBtnText, { color: theme.gold }]}>Edit</Text>
+</TouchableOpacity>
             </View>
 
             {editingProfile && (
               <View style={s.editBlock}>
 
                 {/* Profile photo picker */}
-                <Text style={s.inputLabel}>PROFILE PHOTO</Text>
-                <TouchableOpacity style={s.photoPicker} onPress={handlePickPhoto} disabled={uploadingPhoto}>
+                <Text style={[s.inputLabel, { color: theme.textMuted }]}>PROFILE PHOTO</Text>
+                <TouchableOpacity
+  style={[s.photoPicker, { backgroundColor: theme.surface, borderColor: theme.border }]}
+  onPress={handlePickPhoto}
+  disabled={uploadingPhoto}
+>
                   {uploadingPhoto ? (
                     <ActivityIndicator color="#c9973a" />
                   ) : editPicture ? (
@@ -507,19 +560,43 @@ const handleJoinFamily = async () => {
                   ) : (
                     <View style={s.photoPickerEmpty}>
                       <Text style={s.photoPickerIcon}>📷</Text>
-                      <Text style={s.photoPickerText}>Add profile photo</Text>
+                      <Text style={[s.photoPickerText, { color: theme.textMuted }]}>Add profile photo</Text>
                     </View>
                   )}
                 </TouchableOpacity>
 
-                <Text style={[s.inputLabel, { marginTop: 12 }]}>NAME</Text>
-                <TextInput style={s.input} value={editName} onChangeText={setEditName} placeholder="username" placeholderTextColor="#444" autoCapitalize="none" />
+                <Text style={[s.inputLabel, { marginTop: 12, color: theme.textMuted }]}>NAME</Text>
+                <TextInput
+  style={[s.input, { backgroundColor: theme.surface, borderColor: theme.border, color: theme.text }]}
+  value={editName}
+  onChangeText={setEditName}
+  placeholder="username"
+  placeholderTextColor={theme.textMuted}
+  autoCapitalize="none"
+/>
 
-                <Text style={[s.inputLabel, { marginTop: 12 }]}>DISPLAY NAME</Text>
-                <TextInput style={s.input} value={editDisplayName} onChangeText={setEditDisplayName} placeholder="Your full name" placeholderTextColor="#444" />
+                <Text style={[s.inputLabel, { marginTop: 12, color: theme.textMuted }]}>DISPLAY NAME</Text>
+                <TextInput
+  style={[s.input, { backgroundColor: theme.surface, borderColor: theme.border, color: theme.text }]}
+  value={editDisplayName}
+  onChangeText={setEditDisplayName}
+  placeholder="Your full name"
+  placeholderTextColor={theme.textMuted}
+/>
 
-                <Text style={[s.inputLabel, { marginTop: 12 }]}>BIO</Text>
-                <TextInput style={[s.input, { minHeight: 80 }]} value={editAbout} onChangeText={setEditAbout} placeholder="Tell your story..." placeholderTextColor="#444" multiline textAlignVertical="top" />
+                <Text style={[s.inputLabel, { marginTop: 12, color: theme.textMuted }]}>BIO</Text>
+                <TextInput
+  style={[
+    s.input,
+    { minHeight: 80, backgroundColor: theme.surface, borderColor: theme.border, color: theme.text }
+  ]}
+  value={editAbout}
+  onChangeText={setEditAbout}
+  placeholder="Tell your story..."
+  placeholderTextColor={theme.textMuted}
+  multiline
+  textAlignVertical="top"
+/>
 
                 <View style={s.inputActions}>
                   <TouchableOpacity style={s.cancelBtn} onPress={() => setEditingProfile(false)}>
@@ -532,28 +609,39 @@ const handleJoinFamily = async () => {
               </View>
             )}
 
-<View style={s.row}>
-  <Text style={s.rowLabel}>Public key (npub)</Text>
+<View style={[s.row, { borderBottomColor: theme.border }]}>
+  <Text style={[s.rowLabel, { color: theme.textSecondary }]}>Public key (npub)</Text>
   <TouchableOpacity onPress={async () => {
     if (npub) {
       await Clipboard.setStringAsync(npub);
       Alert.alert('Copied', 'Your public key has been copied to clipboard. Share it freely — this is your public identity.');
     }
   }}>
-    <Text style={s.rowValue} numberOfLines={1}>{shortNpub}</Text>
+    <Text style={[s.rowValue, { color: theme.textMuted }]} numberOfLines={1}>{shortNpub}</Text>
   </TouchableOpacity>
 </View>
 
-            <View style={s.row}>
-              <Text style={s.rowLabel}>Signer</Text>
-              <Text style={s.rowValue}>{useAmber ? 'Amber (NIP-55)' : 'Built-in'}</Text>
+            <View style={[s.row, { borderBottomColor: theme.border }]}>
+              <Text style={[s.rowLabel, { color: theme.textSecondary }]}>Signer</Text>
+              <Text style={[s.rowValue, { color: theme.textMuted }]}>{useAmber ? 'Amber (NIP-55)' : 'Built-in'}</Text>
             </View>
 
             {!useAmber && (
               <View style={s.backupBlock}>
                 {!showNsec ? (
-                  <TouchableOpacity style={s.backupBtn} onPress={handleBackupKey}>
-                    <Text style={s.backupBtnText}>🔑 Back up your private key</Text>
+                  <TouchableOpacity
+  style={[
+    s.backupBtn,
+    {
+      backgroundColor: theme.surface,
+      borderColor: theme.gold,
+    },
+  ]}
+  onPress={handleBackupKey}
+>
+                    <Text style={[s.backupBtnText, { color: theme.gold }]}>
+  🔑 Back up your private key
+</Text>
                   </TouchableOpacity>
                 ) : (
                   <View style={s.nsecBlock}>
@@ -582,23 +670,23 @@ const handleJoinFamily = async () => {
           {/* ── RELAYS ── */}
           <View style={s.section}>
             <View style={s.sectionHeaderRow}>
-              <Text style={s.sectionLabel}>RELAYS</Text>
+              <Text style={[s.sectionLabel, { color: theme.textMuted }]}>RELAYS</Text>
               {!editingRelays && (
                 <TouchableOpacity onPress={openRelayEditor}>
-                  {loadingRelays ? <ActivityIndicator color="#c9973a" size="small" /> : <Text style={s.sectionAction}>Manage</Text>}
+                  {loadingRelays ? <ActivityIndicator color="#c9973a" size="small" /> : <Text style={[s.sectionAction, { color: theme.gold }]}>Manage</Text>}
                 </TouchableOpacity>
               )}
             </View>
             {!editingRelays ? (
               relays.map(r => (
-                <View key={r} style={s.row}>
-                  <Text style={s.relayUrl} numberOfLines={1}>{r.replace('wss://', '')}</Text>
+                <View key={r} style={[s.row, { borderBottomColor: theme.border }]}>
+                  <Text style={[s.relayUrl, { color: theme.textMuted }]} numberOfLines={1}>{r.replace('wss://', '')}</Text>
                   <View style={s.relayDot} />
                 </View>
               ))
             ) : (
               <View style={s.editBlock}>
-                <Text style={s.inputLabel}>COMMON RELAYS</Text>
+                <Text style={[s.inputLabel, { color: theme.textMuted }]}>COMMON RELAYS</Text>
 
 {DEFAULT_RELAYS.map(r => {
   const selected = localRelays.includes(r);
@@ -606,20 +694,26 @@ const handleJoinFamily = async () => {
   return (
     <TouchableOpacity
       key={r}
-      style={s.relayPickerRow}
+      style={[s.relayPickerRow, { borderBottomColor: theme.border }]}
       onPress={() => togglePresetRelay(r)}
       activeOpacity={0.8}
     >
       <View style={{ flex: 1 }}>
-        <Text style={s.relayPickerName}>
+        <Text style={[s.relayPickerName, { color: theme.text }]}>
           {RELAY_LABELS[r] || r}
         </Text>
-        <Text style={s.relayPickerUrl} numberOfLines={1}>
+        <Text style={[s.relayPickerUrl, { color: theme.textMuted }]} numberOfLines={1}>
           {r}
         </Text>
       </View>
 
-      <Text style={[s.relayPickerStatus, selected && s.relayPickerStatusOn]}>
+      <Text
+  style={[
+    s.relayPickerStatus,
+    { color: theme.textMuted },
+    selected && { color: theme.gold }
+  ]}
+>
         {selected ? 'ON' : 'OFF'}
       </Text>
     </TouchableOpacity>
@@ -628,22 +722,29 @@ const handleJoinFamily = async () => {
 
 {localRelays.filter(r => !DEFAULT_RELAYS.includes(r)).length > 0 && (
   <>
-    <Text style={[s.inputLabel, { marginTop: 16 }]}>CUSTOM RELAYS</Text>
+    <Text style={[s.inputLabel, { marginTop: 16, color: theme.textMuted }]}>CUSTOM RELAYS</Text>
 
     {localRelays.filter(r => !DEFAULT_RELAYS.includes(r)).map(r => (
-      <View key={r} style={s.relayRow}>
-        <Text style={s.relayUrlEdit} numberOfLines={1}>{r}</Text>
+      <View key={r} style={[s.relayRow, { borderBottomColor: theme.border }]}>
+        <Text style={[s.relayUrlEdit, { color: theme.textSecondary }]} numberOfLines={1}>{r}</Text>
         <TouchableOpacity onPress={() => removeRelay(r)}>
-          <Text style={s.relayRemove}>✕</Text>
+          <Text style={[s.relayRemove, { color: theme.textMuted }]}>✕</Text>
         </TouchableOpacity>
       </View>
     ))}
   </>
 )}
                 <View style={s.relayAddRow}>
-                  <TextInput style={[s.input, { flex: 1 }]} value={newRelay} onChangeText={setNewRelay} placeholder="wss://relay.example.com" placeholderTextColor="#444" autoCapitalize="none" keyboardType="url" />
-                  <TouchableOpacity style={s.relayAddBtn} onPress={addRelay}>
-                    <Text style={s.relayAddBtnText}>Add</Text>
+                  <TextInput
+  style={[
+    s.input,
+    { flex: 1, backgroundColor: theme.surface, borderColor: theme.border, color: theme.text }
+  ]} value={newRelay} onChangeText={setNewRelay} placeholder="wss://relay.example.com" placeholderTextColor="#444" autoCapitalize="none" keyboardType="url" />
+                  <TouchableOpacity
+  style={[s.relayAddBtn, { backgroundColor: theme.surface, borderColor: theme.border }]}
+  onPress={addRelay}
+>
+                    <Text style={[s.relayAddBtnText, { color: theme.gold }]}>Add</Text>
                   </TouchableOpacity>
                 </View>
                 <View style={s.inputActions}>
@@ -660,35 +761,46 @@ const handleJoinFamily = async () => {
 
                     {/* ── FAMILY ── */}
           <View style={s.section}>
-            <Text style={s.sectionLabel}>FAMILY</Text>
+            <Text style={[s.sectionLabel, { color: theme.textMuted }]}>FAMILY</Text>
+
             {family ? (
               <>
-                <View style={s.familyCard}>
-                  <Text style={s.familyName}>{family.name}</Text>
-                  <Text style={s.familyCode}>Code: {family.id}</Text>
-                  <Text style={s.familyRole}>{family.role === 'admin' ? 'Admin' : 'Member'}</Text>
+                <View
+  style={[
+    s.familyCard,
+    { backgroundColor: theme.surface, borderColor: theme.gold + '33' }
+  ]}
+>
+                  <Text style={[s.familyName, { color: theme.text }]}>{family.name}</Text>
+                  <Text style={[s.familyCode, { color: theme.gold }]}>Code: {family.id}</Text>
+                  <Text style={[s.familyRole, { color: theme.textMuted }]}>{family.role === 'admin' ? 'Admin' : 'Member'}</Text>
                 </View>
 
-                <View style={s.familyRelayCard}>
+                <View
+  style={[
+    s.familyRelayCard,
+    { backgroundColor: theme.surface, borderColor: theme.border }
+  ]}
+>
                   <View style={s.familyRelayHeader}>
                     <View style={{ flex: 1 }}>
-                      <Text style={s.familyRelayTitle}>Family Timeline Relay</Text>
-                      <Text style={s.familyRelayHint}>
+                      <Text style={[s.familyRelayTitle, { color: theme.text }]}>Family Timeline Relay</Text>
+                      <Text style={[s.familyRelayHint, { color: theme.textMuted }]}>
                         Choose where family-only Marks are saved and synced.
                       </Text>
                     </View>
 
                     {!editingFamilyRelay && (
                       <TouchableOpacity onPress={openFamilyRelayEditor}>
-                        <Text style={s.sectionAction}>Manage</Text>
+                        <Text style={[s.sectionAction, { color: theme.gold }]}>Manage</Text>
                       </TouchableOpacity>
                     )}
                   </View>
 
                   {!editingFamilyRelay ? (
                     <View style={s.familyRelaySummary}>
-                      <Text style={s.familyRelaySummaryLabel}>Current setting</Text>
-                      <Text style={s.familyRelaySummaryValue}>
+                      <Text style={[s.familyRelaySummaryLabel, { color: theme.textMuted }]}>Current setting</Text>
+                      <Text style={[s.familyRelaySummaryValue, { color: theme.gold }]}>
                         {(family.relayMode ?? 'default') === 'default'
                           ? 'bE Relay'
                           : family.relayMode === 'custom'
@@ -696,7 +808,7 @@ const handleJoinFamily = async () => {
                             : 'Both'}
                       </Text>
 
-                      <Text style={s.familyRelayUrlText} numberOfLines={1}>
+                      <Text style={[s.familyRelayUrlText, { color: theme.textMuted }]} numberOfLines={1}>
                         {(family.relayMode ?? 'default') === 'default'
                           ? DEFAULT_RELAY
                           : family.relayUrl || DEFAULT_RELAY}
@@ -704,53 +816,68 @@ const handleJoinFamily = async () => {
                     </View>
                   ) : (
                     <View style={s.editBlock}>
-                      <Text style={s.inputLabel}>WHERE SHOULD FAMILY MARKS SAVE?</Text>
+                      <Text style={[s.inputLabel, { color: theme.textMuted }]}>
+  WHERE SHOULD FAMILY MARKS SAVE?
+</Text>
 
-                      <TouchableOpacity
-                        style={[
-                          s.familyRelayOption,
-                          familyRelayMode === 'default' && s.familyRelayOptionActive,
-                        ]}
-                        onPress={() => setFamilyRelayMode('default')}
+<TouchableOpacity
+  style={[
+    s.familyRelayOption,
+    { backgroundColor: theme.surface, borderColor: theme.border },
+    familyRelayMode === 'custom' && {
+      borderColor: theme.gold,
+    },
+  ]}
+  onPress={() => setFamilyRelayMode('custom')}
                         activeOpacity={0.85}
                       >
-                        <Text style={s.familyRelayOptionTitle}>bE Relay</Text>
-                        <Text style={s.familyRelayOptionHint}>Easiest setup. Works automatically.</Text>
+                        <Text style={[s.familyRelayOptionTitle, { color: theme.text }]}>bE Relay</Text>
+                        <Text style={[s.familyRelayOptionHint, { color: theme.textMuted }]}>
+  Easiest setup. Works automatically.
+</Text>
                       </TouchableOpacity>
 
                       <TouchableOpacity
-                        style={[
-                          s.familyRelayOption,
-                          familyRelayMode === 'custom' && s.familyRelayOptionActive,
-                        ]}
+  style={[
+    s.familyRelayOption,
+    { backgroundColor: theme.surface, borderColor: theme.border },
+    familyRelayMode === 'default' && {
+      borderColor: theme.gold,
+    },
+  ]}
                         onPress={() => setFamilyRelayMode('custom')}
                         activeOpacity={0.85}
                       >
-                        <Text style={s.familyRelayOptionTitle}>My Family Relay</Text>
+                        <Text style={[s.familyRelayOptionTitle, { color: theme.text }]}>My Family Relay</Text>
                         <Text style={s.familyRelayOptionHint}>Use your own private family relay.</Text>
                       </TouchableOpacity>
 
                       <TouchableOpacity
-                        style={[
-                          s.familyRelayOption,
-                          familyRelayMode === 'both' && s.familyRelayOptionActive,
-                        ]}
+  style={[
+    s.familyRelayOption,
+    { backgroundColor: theme.surface, borderColor: theme.border },
+    familyRelayMode === 'both' && {
+      borderColor: theme.gold,
+    },
+  ]}
                         onPress={() => setFamilyRelayMode('both')}
                         activeOpacity={0.85}
                       >
-                        <Text style={s.familyRelayOptionTitle}>Both</Text>
-                        <Text style={s.familyRelayOptionHint}>Save to bE and your family relay.</Text>
+                        <Text style={[s.familyRelayOptionTitle, { color: theme.text }]}>Both</Text>
+                        <Text style={[s.familyRelayOptionHint, { color: theme.textMuted }]}>
+  Save to bE and your family relay.
+</Text>
                       </TouchableOpacity>
 
                       {(familyRelayMode === 'custom' || familyRelayMode === 'both') && (
                         <>
                           <Text style={[s.inputLabel, { marginTop: 12 }]}>FAMILY RELAY URL</Text>
                           <TextInput
-                            style={s.input}
-                            value={familyRelayUrl}
+  style={[s.input, { backgroundColor: theme.surface, borderColor: theme.border, color: theme.text }]}
+  value={familyRelayUrl}
                             onChangeText={setFamilyRelayUrl}
                             placeholder="wss://relay.yourfamily.com"
-                            placeholderTextColor="#444"
+                            placeholderTextColor={theme.textMuted}
                             autoCapitalize="none"
                             keyboardType="url"
                           />
@@ -781,8 +908,19 @@ const handleJoinFamily = async () => {
                     <Text style={s.shareCodeText}>Share family code</Text>
                   </TouchableOpacity>
                 )}
-                <TouchableOpacity style={s.leaveBtn} onPress={handleLeaveFamily}>
-                  <Text style={s.leaveText}>Leave family</Text>
+<TouchableOpacity
+  style={[
+    s.leaveBtn,
+    {
+      backgroundColor: theme.surface,
+borderColor: '#7a1a1a',
+    },
+  ]}
+  onPress={handleLeaveFamily}
+>
+                  <Text style={[s.leaveText, { color: '#b33', fontWeight: '600' }]}>
+  Leave family
+</Text>
                 </TouchableOpacity>
               </>
             ) : (
@@ -833,16 +971,14 @@ const handleJoinFamily = async () => {
             )}
           </View>
 
-
-          {/* ── APP ── */}
           {/* ── APP ── */}
 <View style={s.section}>
-  <Text style={s.sectionLabel}>APP</Text>
+  <Text style={[s.sectionLabel, { color: theme.textMuted }]}>APP</Text>
 
-  <View style={s.row}>
+  <View style={[s.row, { borderBottomColor: theme.border }]}>
     <View>
-      <Text style={s.rowLabel}>Appearance</Text>
-      <Text style={s.rowHint}>Switch between dark and light mode</Text>
+      <Text style={[s.rowLabel, { color: theme.textSecondary }]}>Appearance</Text>
+      <Text style={[s.rowHint, { color: theme.textMuted }]}>Switch between dark and light mode</Text>
     </View>
 
     <TouchableOpacity
@@ -856,19 +992,25 @@ const handleJoinFamily = async () => {
     </TouchableOpacity>
   </View>
 
-  <View style={s.row}>
-    <Text style={s.rowLabel}>Version</Text>
-    <Text style={s.rowValue}>1.3.0</Text>
+  <View style={[s.row, { borderBottomColor: theme.border }]}>
+    <Text style={[s.rowLabel, { color: theme.textSecondary }]}>Version</Text>
+    <Text style={[s.rowValue, { color: theme.textMuted }]}>1.3.0</Text>
   </View>
 
-  <View style={s.row}>
-    <Text style={s.rowLabel}>Built on</Text>
-    <Text style={s.rowValue}>Nostr + Bitcoin</Text>
+  <View style={[s.row, { borderBottomColor: theme.border }]}>
+    <Text style={[s.rowLabel, { color: theme.textSecondary }]}>Built on</Text>
+    <Text style={[s.rowValue, { color: theme.textMuted }]}>Nostr + Bitcoin</Text>
   </View>
 </View>
 
-          <TouchableOpacity style={s.dangerBtn} onPress={handleLogout}>
-            <Text style={s.dangerText}>Remove identity from device</Text>
+          <TouchableOpacity
+  style={[
+    s.dangerBtn,
+    { backgroundColor: theme.surface, borderColor: '#7a1a1a' }
+  ]} onPress={handleLogout}>
+            <Text style={[s.dangerText, { color: '#b33', fontWeight: '600' }]}>
+  Remove identity from device
+</Text>
           </TouchableOpacity>
 
 
@@ -880,7 +1022,7 @@ const handleJoinFamily = async () => {
 
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#111' },
-  container: { padding: 20, paddingBottom: 48 },
+  container: { padding: 20, paddingBottom: 48, },
   header: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 36, paddingBottom: 24, borderBottomWidth: 0.5, borderBottomColor: '#222' },
   logo: { width: 52, height: 52 },
   appName: { fontSize: 20, fontWeight: '700', color: '#fff', letterSpacing: -0.3 },

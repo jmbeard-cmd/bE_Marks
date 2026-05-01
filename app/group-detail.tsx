@@ -5,7 +5,7 @@ import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as VideoThumbnails from 'expo-video-thumbnails';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -27,6 +27,7 @@ import QRCode from 'react-native-qrcode-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ImageViewerModal, { ViewerImage } from '../components/ImageViewerModal';
 import MediaCollage from '../components/MediaCollage';
+import { Colors } from '../src/constants/theme';
 import {
   createGroupSticky,
   getStickiesForGroup,
@@ -117,7 +118,9 @@ async function saveHighlightMediaToLocalGallery(groupId: string, sticky: GroupSt
 export default function GroupDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { npub } = useIdentity();
+  const { npub, themeMode } = useIdentity();
+  const theme = Colors[themeMode];
+  const s = useMemo(() => createStyles(theme), [theme]);
 
   const [group, setGroup] = useState<BEGroup | null>(null);
   const [members, setMembers] = useState<BEGroupMember[]>([]);
@@ -1303,10 +1306,15 @@ function formatStickyDate(unix: number): string {
   });
 }
 
-const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#111' },
-  loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  loadingText: { color: '#444', fontSize: 15 },
+const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
+  safe: { flex: 1, backgroundColor: theme.bg },
+  loading: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.bg,
+  },
+  loadingText: { color: theme.textMuted, fontSize: 15 },
 
   visibilityBox: {
   gap: 8,
@@ -1358,32 +1366,32 @@ visibilitySoon: {
   fontWeight: '700',
 },
 
-    header: {
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 13,
     borderBottomWidth: 0.5,
-    borderBottomColor: '#242424',
-    backgroundColor: '#111',
+    borderBottomColor: theme.border,
+    backgroundColor: theme.bg,
   },
   backBtn: { width: 58 },
-  backText: { color: '#c9973a', fontSize: 14, fontWeight: '700' },
+  backText: { color: theme.gold, fontSize: 14, fontWeight: '700' },
   headerCenter: { flex: 1, alignItems: 'center', paddingHorizontal: 8 },
-  headerTitle: { color: '#f4f4f4', fontSize: 16, fontWeight: '800', letterSpacing: -0.2 },
-  headerSub: { color: '#666', fontSize: 11, marginTop: 2, fontWeight: '600' },
+  headerTitle: { color: theme.text, fontSize: 16, fontWeight: '800', letterSpacing: -0.2 },
+  headerSub: { color: theme.textMuted, fontSize: 11, marginTop: 2, fontWeight: '600' },
   inviteBtn: {
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 999,
-    backgroundColor: '#c9973a',
+    backgroundColor: theme.gold,
   },
-  inviteBtnText: { color: '#111', fontWeight: '800', fontSize: 13 },
+  inviteBtnText: { color: theme.bg, fontWeight: '800', fontSize: 13 },
     stickyCard: {
-    backgroundColor: '#181818',
+    backgroundColor: theme.surface,
     borderWidth: 0.5,
-    borderColor: '#252525',
+    borderColor: theme.border,
     borderRadius: 18,
     padding: 16,
     marginBottom: 13,
@@ -1506,7 +1514,7 @@ highlightVideoPlay: {
   },
   stickyTitle: {
     flex: 1,
-    color: '#f4f4f4',
+    color: theme.text,
     fontSize: 16,
     fontWeight: '800',
     letterSpacing: -0.2,
@@ -1518,12 +1526,12 @@ highlightVideoPlay: {
     fontWeight: '700',
   },
   stickyBody: {
-    color: '#bdbdbd',
+    color: theme.text,
     fontSize: 14,
     lineHeight: 21,
   },
   stickyMeta: {
-    color: '#555',
+    color: theme.textMuted,
     fontSize: 11,
     marginTop: 12,
     fontWeight: '600',
@@ -1533,9 +1541,8 @@ highlightVideoPlay: {
     padding: 16,
     borderRadius: 18,
     borderWidth: 0.5,
-    borderColor: '#252525',
-    backgroundColor: '#181818',
-    marginBottom: 16,
+    borderColor: theme.border,
+    backgroundColor: theme.surface,
   },
   groupRelayHeader: {
     flexDirection: 'row',
@@ -1544,19 +1551,19 @@ highlightVideoPlay: {
     marginBottom: 12,
   },
   groupRelayTitle: {
-    color: '#f4f4f4',
+    color: theme.text,
     fontSize: 16,
     fontWeight: '800',
     marginBottom: 4,
     letterSpacing: -0.2,
   },
   groupRelayHint: {
-    color: '#666',
+    color: theme.textMuted,
     fontSize: 12,
     lineHeight: 18,
   },
   groupRelayManage: {
-    color: '#c9973a',
+    color: theme.gold,
     fontSize: 13,
     fontWeight: '800',
   },
@@ -1567,20 +1574,20 @@ highlightVideoPlay: {
   },
   groupRelaySummaryLabel: {
     fontSize: 10,
-    color: '#555',
+    color: theme.textMuted,
     fontWeight: '800',
     letterSpacing: 0.7,
     textTransform: 'uppercase',
     marginBottom: 5,
   },
   groupRelaySummaryValue: {
-    color: '#c9973a',
+    color: theme.gold,
     fontSize: 14,
     fontWeight: '800',
     marginBottom: 5,
   },
   groupRelayUrlText: {
-    color: '#666',
+    color: theme.textMuted,
     fontSize: 11,
     fontFamily: 'monospace',
   },
@@ -1588,48 +1595,62 @@ highlightVideoPlay: {
     padding: 13,
     borderRadius: 14,
     borderWidth: 0.5,
-    borderColor: '#2a2a2a',
-    backgroundColor: '#111',
-    marginBottom: 9,
+    borderColor: theme.border,
+    backgroundColor: theme.bg,
   },
-  groupRelayOptionActive: {
-    borderColor: '#c9973a66',
-    backgroundColor: '#1e1600',
+   groupRelayOptionActive: {
+    borderColor: theme.gold,
+    backgroundColor: theme.raised,
   },
   groupRelayOptionTitle: {
-    color: '#f4f4f4',
+    color: theme.text,
     fontSize: 14,
     fontWeight: '800',
     marginBottom: 3,
   },
   groupRelayOptionHint: {
-    color: '#666',
+    color: theme.textMuted,
     fontSize: 12,
     lineHeight: 17,
   },
   
   // Invite panel
   invitePanel: {
-    backgroundColor: '#1a1a1a', borderBottomWidth: 0.5, borderBottomColor: '#2a2a2a',
+    backgroundColor: theme.surface,
+    borderBottomWidth: 0.5,
+    borderBottomColor: theme.border,
     padding: 16,
   },
   invitePanelTop: { flexDirection: 'row', gap: 16, alignItems: 'flex-start' },
   inviteCodeBlock: { flex: 1 },
-  inviteCodeLabel: { fontSize: 10, color: '#555', fontWeight: '600', letterSpacing: 0.8, marginBottom: 6 },
-  inviteCode: { fontSize: 32, fontWeight: '700', color: '#c9973a', letterSpacing: 6, marginBottom: 10 },
+  inviteCodeLabel: { fontSize: 10, color: theme.textMuted, fontWeight: '600', letterSpacing: 0.8, marginBottom: 6 },
+  inviteCode: { fontSize: 32, fontWeight: '700', color: theme.gold, letterSpacing: 6, marginBottom: 10 },
   inviteCodeActions: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
-  inviteCodeBtn: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8, borderWidth: 0.5, borderColor: '#2a2a2a', backgroundColor: '#111' },
+  inviteCodeBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    backgroundColor: theme.bg,
+  },
   inviteCodeBtnDanger: { borderColor: '#3a1a1a' },
-  inviteCodeBtnText: { fontSize: 12, color: '#aaa', fontWeight: '500' },
-  qrBlock: { padding: 8, backgroundColor: '#1a1a1a', borderRadius: 12, borderWidth: 0.5, borderColor: '#2a2a2a' },
+  inviteCodeBtnText: { fontSize: 12, color: theme.text, fontWeight: '500' },
+  qrBlock: {
+    padding: 8,
+    backgroundColor: theme.surface,
+    borderRadius: 12,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+  },
   inviteMeta: { fontSize: 11, color: '#444', marginTop: 10, lineHeight: 16 },
 
     // Tabs
   tabRow: {
     flexDirection: 'row',
     borderBottomWidth: 0.5,
-    borderBottomColor: '#1e1e1e',
-    backgroundColor: '#111',
+    borderBottomColor: theme.border,
+    backgroundColor: theme.bg,
     paddingHorizontal: 12,
   },
   tabBtn: {
@@ -1639,52 +1660,65 @@ highlightVideoPlay: {
   },
   tabBtnActive: {
     borderBottomWidth: 2,
-    borderBottomColor: '#c9973a',
+    borderBottomColor: theme.gold,
   },
   tabText: {
     fontSize: 12,
-    color: '#555',
+    color: theme.textMuted,
     fontWeight: '700',
     letterSpacing: 0.1,
   },
   tabTextActive: {
-    color: '#c9973a',
+    color: theme.gold,
     fontWeight: '800',
   },
 
   // Timeline
   timelineContainer: { padding: 20, paddingBottom: 100 },
-  archivedBanner: { backgroundColor: '#1a1a00', borderRadius: 10, padding: 12, marginBottom: 16, borderWidth: 0.5, borderColor: '#3a3a00' },
-  archivedBannerText: { color: '#888', fontSize: 13, textAlign: 'center' },
+  archivedBanner: { backgroundColor: theme.raised, borderRadius: 10, padding: 12, marginBottom: 16, borderWidth: 0.5, borderColor: '#3a3a00' },
+  archivedBannerText: { color: theme.textMuted,fontSize: 13, textAlign: 'center' },
 
   // Empty
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 48 },
   emptyIcon: { fontSize: 36, marginBottom: 12 },
-  emptyText: { fontSize: 17, color: '#555', fontWeight: '500' },
-  emptyHint: { fontSize: 13, color: '#333', marginTop: 6, textAlign: 'center' },
+  emptyText: { fontSize: 17, color: theme.text, fontWeight: '500' },
+  emptyHint: { fontSize: 13, color: theme.textMuted, marginTop: 6, textAlign: 'center' },
 
   // Members
   membersList: { padding: 20, paddingBottom: 100 },
-  memberRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: 0.5, borderBottomColor: '#1e1e1e' },
+memberRow: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 12,
+  paddingVertical: 12,
+  borderBottomWidth: 0.5,
+  borderBottomColor: theme.border,
+},
   memberAvatar: { width: 42, height: 42 },
   memberAvatarImg: { width: 42, height: 42, borderRadius: 21 },
-  memberAvatarFallback: { width: 42, height: 42, borderRadius: 21, backgroundColor: '#2a2a2a', alignItems: 'center', justifyContent: 'center' },
-  memberAvatarLetter: { color: '#c9973a', fontWeight: '700', fontSize: 17 },
+memberAvatarFallback: {
+  width: 42,
+  height: 42,
+  borderRadius: 21,
+  backgroundColor: theme.surface,
+  alignItems: 'center',
+  justifyContent: 'center',
+},
+memberAvatarLetter: { color: theme.gold, fontWeight: '700', fontSize: 17 },
   memberBody: { flex: 1 },
-  memberName: { color: '#fff', fontSize: 15, fontWeight: '500' },
+memberName: { color: theme.text, fontSize: 15, fontWeight: '500' },
   memberRole: { color: '#555', fontSize: 11, marginTop: 2, textTransform: 'capitalize' },
   memberOptions: { padding: 8 },
-  memberOptionsText: { fontSize: 20, color: '#444' },
-
+memberOptionsText: { fontSize: 20, color: theme.textMuted },
   roleBadge: {
   alignSelf: 'flex-start',
   marginTop: 4,
   paddingHorizontal: 8,
   paddingVertical: 3,
   borderRadius: 999,
-  backgroundColor: '#1a1a1a',
+  backgroundColor: theme.surface,
   borderWidth: 0.5,
-  borderColor: '#2a2a2a',
+  borderColor: theme.border,
 },
 roleBadgeOwner: {
   backgroundColor: '#1e1600',
@@ -1695,7 +1729,7 @@ roleBadgeAdmin: {
   borderColor: '#6b5cff',
 },
 roleBadgeText: {
-  color: '#555',
+  color: theme.textMuted,
   fontSize: 10,
   fontWeight: '700',
   textTransform: 'uppercase',
@@ -1719,9 +1753,9 @@ roleBadgeTextAdmin: {
     paddingHorizontal: 20,
     paddingTop: 12,
     paddingBottom: 18,
-    backgroundColor: '#111',
+    backgroundColor: theme.bg,
     borderTopWidth: 0.5,
-    borderTopColor: '#222',
+    borderTopColor: theme.border,
   },
   adminBtn: {
     flex: 1,
@@ -1730,13 +1764,13 @@ roleBadgeTextAdmin: {
     paddingVertical: 11,
     borderRadius: 999,
     borderWidth: 0.5,
-    borderColor: '#2a2a2a',
-    backgroundColor: '#151515',
+    borderColor: theme.border,
+    backgroundColor: theme.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  adminBtnText: {
-  color: '#666',
+adminBtnText: {
+  color: theme.textMuted,
   fontSize: 13,
   fontWeight: '800',
   textAlign: 'center',
@@ -1747,13 +1781,12 @@ roleBadgeTextAdmin: {
     minHeight: 48,
     paddingHorizontal: 14,
     paddingVertical: 11,
-    borderRadius: 999,
-    backgroundColor: '#c9973a',
+    backgroundColor: theme.gold,
     alignItems: 'center',
     justifyContent: 'center',
   },
   adminBtnGoldText: {
-    color: '#111',
+    color: theme.bg,
     fontWeight: '900',
     fontSize: 14,
   },
@@ -1767,15 +1800,15 @@ modalScrollContent: {
   justifyContent: 'flex-end',
 },
 modalCard: {
-  backgroundColor: '#111',
+  backgroundColor: theme.bg,
   borderTopWidth: 0.5,
-  borderTopColor: '#2a2a2a',
+  borderTopColor: theme.border,
   padding: 20,
   borderTopLeftRadius: 18,
   borderTopRightRadius: 18,
 },
 modalTitle: {
-  color: '#fff',
+  color: theme.text,
   fontSize: 18,
   fontWeight: '700',
   marginBottom: 16,
@@ -1792,7 +1825,7 @@ confirmBtnDisabled: {
 },
 inputLabel: {
   fontSize: 11,
-  color: '#444',
+  color: theme.textMuted,
   fontWeight: '600',
   letterSpacing: 0.8,
   marginBottom: 6,
@@ -1800,12 +1833,12 @@ inputLabel: {
 },
 input: {
   borderWidth: 0.5,
-  borderColor: '#2a2a2a',
+  borderColor: theme.border,
   borderRadius: 10,
   padding: 12,
   fontSize: 15,
-  color: '#fff',
-  backgroundColor: '#1a1a1a',
+  color: theme.text,
+  backgroundColor: theme.surface,
 },
 inputMulti: {
   minHeight: 120,
@@ -1824,18 +1857,18 @@ cancelBtn: {
   alignItems: 'center',
 },
 cancelText: {
-  color: '#555',
+  color: theme.textMuted,
   fontSize: 14,
 },
 confirmBtn: {
   flex: 2,
   padding: 12,
   borderRadius: 10,
-  backgroundColor: '#c9973a',
+  backgroundColor: theme.gold,  
   alignItems: 'center',
 },
 confirmText: {
-  color: '#111',
+  color: theme.bg,
   fontWeight: '700',
   fontSize: 14,
 },
@@ -1898,10 +1931,10 @@ highlightRemoveMediaText: {
   fab: {
     position: 'absolute', bottom: 24, right: 24,
     width: 56, height: 56, borderRadius: 28,
-    backgroundColor: '#c9973a', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: theme.gold, alignItems: 'center', justifyContent: 'center',
     shadowColor: '#c9973a', shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4, shadowRadius: 8, elevation: 8,
   },
  
-  fabIcon: { fontSize: 30, color: '#111', fontWeight: '300', lineHeight: 34 },
+  fabIcon: { fontSize: 30, color: theme.bg, fontWeight: '300', lineHeight: 34 },
 });

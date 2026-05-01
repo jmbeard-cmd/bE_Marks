@@ -6,7 +6,6 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
-  Image,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -14,10 +13,12 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ImageViewerModal, { ViewerImage } from '../components/ImageViewerModal';
+import MessageBubble from '../components/MessageBubble';
+import { Colors } from '../src/constants/theme';
 import {
   getMessagesForGroup,
   saveRemoteGroupMessage,
@@ -47,7 +48,9 @@ type PendingUploadMessage = {
 export default function GroupThreadScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string }>();
-  const { npub, nsec, profile } = useIdentity();
+    const { npub, nsec, profile, themeMode } = useIdentity();
+  const theme = Colors[themeMode];
+  const s = useMemo(() => createStyles(theme), [theme]);
 
   const groupId = useMemo(() => params.id || '', [params.id]);
 
@@ -419,74 +422,17 @@ const handleTakePhoto = async () => {
     router.push({ pathname: '/group-detail', params: { id: groupId } } as any);
   };
 
-      const renderMessage = ({ item, index }: { item: GroupMessage | PendingUploadMessage; index: number }) => {
+    const renderMessage = ({ item, index }: { item: GroupMessage | PendingUploadMessage; index: number }) => {
     const prevMsg = index > 0 ? visibleMessages[index - 1] : null;
     const showName = !item.mine && (!prevMsg || prevMsg.senderName !== item.senderName);
 
-    const isPending = 'pending' in item && item.pending;
-    const mediaUrl = 'mediaUrl' in item ? item.mediaUrl : undefined;
-    const imageUrl = 'imageUrl' in item ? item.imageUrl : undefined;
-    const thumbnailUrl = 'thumbnailUrl' in item ? item.thumbnailUrl : undefined;
-    const mediaType = item.mediaType;
-
     return (
-      <View style={[s.row, item.mine ? s.rowMine : s.rowOther]}>
-        <View style={[s.bubble, item.mine ? s.bubbleMine : s.bubbleOther]}>
-          {!item.mine && showName && (
-            <Text style={s.senderName}>
-              {item.senderName || 'Member'}
-            </Text>
-          )}
-
-          {isPending && (
-            <View style={s.pendingMediaBox}>
-              <ActivityIndicator size="small" color="#c9973a" />
-              <Text style={s.pendingMediaText}>
-                {item.pendingLabel}
-              </Text>
-            </View>
-          )}
-
-          {!isPending && !!item.text && (
-            <Text style={[s.messageText, item.mine ? s.messageTextMine : s.messageTextOther]}>
-              {item.text}
-            </Text>
-          )}
-
-          {!isPending && !!(mediaUrl || imageUrl) && (
-            <TouchableOpacity
-              activeOpacity={0.85}
-              onPress={() => setSelectedMediaUri(mediaUrl || imageUrl || null)}
-            >
-              {mediaType === 'video' ? (
-                <View style={s.messageVideo}>
-                  {thumbnailUrl ? (
-                    <Image
-                      source={{ uri: thumbnailUrl }}
-                      style={s.messageVideoThumb}
-                      resizeMode="cover"
-                    />
-                  ) : null}
-
-                  <View style={s.messageVideoOverlay}>
-                    <Text style={s.messageVideoIcon}>▶</Text>
-                  </View>
-                </View>
-              ) : (
-                <Image
-                  source={{ uri: mediaUrl || imageUrl }}
-                  style={s.messageImage}
-                  resizeMode="cover"
-                />
-              )}
-            </TouchableOpacity>
-          )}
-
-          <Text style={[s.time, item.mine ? s.timeMine : s.timeOther]}>
-            {formatMessageTime(item.createdAt)}
-          </Text>
-        </View>
-      </View>
+      <MessageBubble
+        item={item}
+        showName={showName}
+        onPressMedia={(uri) => setSelectedMediaUri(uri)}
+        s={s}
+      />
     );
   };
 
@@ -528,6 +474,7 @@ const handleTakePhoto = async () => {
                         data={visibleMessages}
             keyExtractor={item => item.id}
             contentContainerStyle={s.list}
+            showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
                         onContentSizeChange={() => {
@@ -569,19 +516,23 @@ const handleTakePhoto = async () => {
               disabled={uploadingImage}
             >
               {uploadingImage ? (
-  <ActivityIndicator size="small" color="#c9973a" />
+  <ActivityIndicator size="small" color={theme.gold} />
 ) : (
   <Text style={s.attachText}>＋</Text>
 )}
             </TouchableOpacity>
 
-                                    <TextInput
-              style={[
-                s.input,
-                { height: Math.max(40, Math.min(120, inputHeight)) },
-              ]}
+             <TextInput
+style={[
+  s.input,
+  { 
+    height: Math.max(40, Math.min(120, inputHeight)),
+    color: theme.text,
+    backgroundColor: theme.raised
+  }
+]}
               placeholder={`Message ${groupName}…`}
-              placeholderTextColor="#444"
+              placeholderTextColor={theme.textMuted}
               value={draft}
               onChangeText={setDraft}
               multiline
@@ -601,7 +552,7 @@ const handleTakePhoto = async () => {
               disabled={!draft.trim() || sending}
             >
               {sending ? (
-                <ActivityIndicator size="small" color="#111" />
+                <ActivityIndicator size="small" color={theme.bg} />
               ) : (
                 <Text style={s.sendText}>↑</Text>
               )}
@@ -624,40 +575,41 @@ function formatMessageTime(unix: number): string {
   return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
-const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#111' },
-  container: { flex: 1 },
+const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
+      safe: { flex: 1, backgroundColor: theme.bg },
+  container: { flex: 1, backgroundColor: theme.bg },
 
-  header: {
+   header: {
     borderBottomWidth: 0.5,
-    borderBottomColor: '#222',
+    borderBottomColor: theme.border,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 10,
   },
-  uploadBanner: {
+    uploadBanner: {
   paddingVertical: 6,
   paddingHorizontal: 12,
-  backgroundColor: '#1a1a1a',
+  backgroundColor: theme.surface,
   borderTopWidth: 0.5,
-  borderTopColor: '#2a2a2a',
+  borderTopColor: theme.border,
 },
 
 uploadText: {
-  color: '#c9973a',
+  color: theme.gold,
   fontSize: 12,
   textAlign: 'center',
   fontWeight: '600',
+  letterSpacing: 0.3,
 },
   backBtn: { width: 60 },
-  backText: { color: '#c9973a', fontSize: 14, fontWeight: '600' },
+  backText: { color: theme.gold, fontSize: 14, fontWeight: '600' },
   headerCenter: { flex: 1, alignItems: 'center' },
-  headerTitle: { color: '#fff', fontSize: 15, fontWeight: '700', maxWidth: 180 },
-  headerSub: { color: '#555', fontSize: 10, marginTop: 1 },
+  headerTitle: { color: theme.text, fontSize: 15, fontWeight: '700', maxWidth: 180 },
+  headerSub: { color: theme.textMuted, fontSize: 10, marginTop: 2 },
   infoBtn: { minWidth: 60, alignItems: 'flex-end' },
-  infoText: { color: '#c9973a', fontSize: 14, fontWeight: '600' },
+  infoText: { color: theme.gold, fontSize: 14, fontWeight: '600' },
 
   list: { padding: 16, paddingBottom: 8, flexGrow: 1 },
 
@@ -671,19 +623,19 @@ uploadText: {
     paddingHorizontal: 14,
     paddingVertical: 10,
   },
-  bubbleMine: {
-    backgroundColor: '#c9973a',
+    bubbleMine: {
+    backgroundColor: theme.gold,
     borderBottomRightRadius: 4,
   },
-  bubbleOther: {
-    backgroundColor: '#1f1f1f',
+    bubbleOther: {
+    backgroundColor: theme.raised,
     borderWidth: 0.5,
-    borderColor: '#2a2a2a',
+    borderColor: theme.border,
     borderBottomLeftRadius: 4,
   },
 
   senderName: {
-    color: '#c9973a',
+    color: theme.gold,
     fontSize: 11,
     fontWeight: '700',
     marginBottom: 6,
@@ -694,22 +646,22 @@ uploadText: {
     lineHeight: 21,
   },
   messageTextMine: { color: '#111' },
-  messageTextOther: { color: '#eee' },
+  messageTextOther: { color: theme.text },
 
    pendingMediaBox: {
     width: 220,
     height: 120,
     borderRadius: 12,
     marginTop: 4,
-    backgroundColor: '#111',
+    backgroundColor: theme.bg,
     borderWidth: 0.5,
-    borderColor: '#2a2a2a',
+    borderColor: theme.border,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
   },
   pendingMediaText: {
-    color: '#c9973a',
+    color: theme.gold,
     fontSize: 13,
     fontWeight: '700',
   },
@@ -738,10 +690,10 @@ messageVideoOverlay: {
   ...StyleSheet.absoluteFillObject,
   alignItems: 'center',
   justifyContent: 'center',
-  backgroundColor: 'rgba(0,0,0,0.25)',
+  backgroundColor: 'rgba(0,0,0,0.35)',
 },
 messageVideoIcon: {
-  color: '#c9973a',
+  color: theme.gold,
   fontSize: 34,
   fontWeight: '800',
 },
@@ -750,8 +702,8 @@ messageVideoIcon: {
     fontSize: 10,
     marginTop: 6,
   },
-  timeMine: { color: 'rgba(0,0,0,0.45)', textAlign: 'right' },
-  timeOther: { color: '#555' },
+  timeMine: { color: '#111', textAlign: 'right' },
+    timeOther: { color: theme.textMuted },
 
   empty: {
     flex: 1,
@@ -760,35 +712,36 @@ messageVideoIcon: {
     paddingTop: 60,
     paddingHorizontal: 32,
   },
-  emptyIcon: { fontSize: 36, marginBottom: 14 },
-  emptyText: { color: '#fff', fontSize: 16, fontWeight: '600', marginBottom: 6 },
-  emptyHint: { color: '#555', fontSize: 13, textAlign: 'center' },
+  emptyIcon: { fontSize: 36, marginBottom: 14, opacity: 0.7 },
+  emptyText: { color: theme.text, fontSize: 16, fontWeight: '600', marginBottom: 6 },
+  emptyHint: { color: theme.textMuted, fontSize: 13, textAlign: 'center' },
 
       composer: {
     borderTopWidth: 0.5,
-    borderTopColor: '#222',
+    borderTopColor: theme.border,
     paddingHorizontal: 12,
     paddingTop: 10,
     paddingBottom: Platform.OS === 'ios' ? 12 : 4,
     flexDirection: 'row',
     gap: 10,
     alignItems: 'flex-end',
-    backgroundColor: '#111',
+    backgroundColor: theme.bg,
   },
   attachBtn: {
     width: 42,
     height: 42,
     borderRadius: 21,
     borderWidth: 0.5,
-    borderColor: '#2a2a2a',
-    backgroundColor: '#1a1a1a',
+    elevation: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
   attachBtnDim: { opacity: 0.5 },
   attachText: {
     fontSize: 24,
-    color: '#c9973a',
+    color: theme.gold,
     lineHeight: 26,
   },
 
@@ -798,9 +751,10 @@ messageVideoIcon: {
     borderWidth: 0.5,
     borderColor: '#2a2a2a',
     borderRadius: 20,
+    elevation: 1,
     paddingHorizontal: 16,
     paddingVertical: 10,
-    color: '#fff',
+    color: theme.text,
     fontSize: 15,
     maxHeight: 120,
     lineHeight: 20,
@@ -810,14 +764,15 @@ messageVideoIcon: {
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: '#c9973a',
+    elevation: 2,
+    backgroundColor: theme.gold,
     alignItems: 'center',
     justifyContent: 'center',
   },
   sendBtnDim: { opacity: 0.4 },
   sendText: {
     fontSize: 20,
-    color: '#111',
+    color: theme.bg,
     fontWeight: '700',
     lineHeight: 22,
   },

@@ -18,8 +18,8 @@ import { BEContact, getContacts } from '../../src/utils/contacts-storage';
 import { subscribeToDMEvents } from '../../src/utils/dm-events';
 import { createThread, deleteThread, getDMThreads, type DMThread } from '../../src/utils/dm-storage';
 import { normalizeNostrIdentity } from '../../src/utils/nostr-identity';
+import { useIdentity } from '../_layout';
 
-const theme = Colors.dark;
 
 type Sheet = 'none' | 'new';
 
@@ -45,6 +45,9 @@ function getInitials(name: string): string {
 }
 
 export default function MessagesScreen() {
+  const { themeMode } = useIdentity();
+  const theme = themeMode === 'light' ? Colors.light : Colors.dark;
+  const s = useMemo(() => createStyles(theme), [theme]);
   const router = useRouter();
 
   const [threads, setThreads] = useState<DMThread[]>([]);
@@ -219,9 +222,6 @@ export default function MessagesScreen() {
           <Text style={s.headerTitle}>Messages</Text>
         </View>
 
-        <TouchableOpacity style={s.headerButton} onPress={() => setSheet('new')}>
-          <Text style={s.headerButtonText}>＋</Text>
-        </TouchableOpacity>
       </View>
 
       <View style={s.searchWrap}>
@@ -371,7 +371,7 @@ export default function MessagesScreen() {
   );
 }
 
-const s = StyleSheet.create({
+const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
   safe: {
     flex: 1,
     backgroundColor: theme.bg,
@@ -382,7 +382,7 @@ const s = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 14,
     borderBottomWidth: 0.5,
-    borderBottomColor: theme.surface,
+    borderBottomColor: theme.border,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -421,7 +421,7 @@ const s = StyleSheet.create({
     marginBottom: 6,
     height: 44,
     borderRadius: 14,
-    backgroundColor: theme.surface,
+    backgroundColor: theme.raised,
     borderWidth: 0.5,
     borderColor: theme.border,
     flexDirection: 'row',
@@ -449,6 +449,7 @@ const s = StyleSheet.create({
   },
 
   threadRow: {
+    backgroundColor: theme.surface,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
@@ -582,7 +583,7 @@ const s = StyleSheet.create({
     backgroundColor: theme.gold,
     paddingHorizontal: 18,
     paddingVertical: 12,
-    borderRadius: 999,
+    borderRadius: 14,
   },
   emptyBtnText: {
     color: theme.surface,
@@ -614,7 +615,7 @@ const s = StyleSheet.create({
   },
   backdrop: {
     flex: 1,
-    backgroundColor: `${theme.bg}8C`,
+    backgroundColor: 'rgba(0,0,0,0.5)',
   },
   sheet: {
     backgroundColor: theme.surface,
