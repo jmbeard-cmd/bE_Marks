@@ -53,12 +53,16 @@ export async function importNsec(nsec: string): Promise<{ npub: string; nsec: st
 export async function getStoredIdentity() {
   try {
     if (Platform.OS === 'web') {
-      // SecureStore not supported on web
       return null;
     }
 
-    const npub = await SecureStore.getItemAsync('npub');
-    const nsec = await SecureStore.getItemAsync('nsec');
+    const nsec =
+      (await SecureStore.getItemAsync(SECKEY)) ||
+      (await SecureStore.getItemAsync('nsec'));
+
+    const npub =
+      (await SecureStore.getItemAsync(PUBKEY)) ||
+      (await SecureStore.getItemAsync('npub'));
 
     if (!npub || !nsec) return null;
 
@@ -1252,6 +1256,65 @@ export function fetchGroupByInviteCode(
   });
 }
 
+export function fetchGroupById(
+  groupId: string,
+  relayUrl: string = DEFAULT_RELAY
+): Promise<NostrGroupPayload | null> {
+  return new Promise(resolve => {
+    try {
+      const ws = new WebSocket(relayUrl);
+
+      const timeout = setTimeout(() => {
+        ws.close();
+        resolve(null);
+      }, 6000);
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify([
+          'REQ',
+          `group-id-fetch-${groupId}`,
+          {
+            kinds: [GROUP_KIND],
+            '#d': [groupId],
+            limit: 1,
+          }
+        ]));
+      };
+
+      ws.onmessage = (msg) => {
+        try {
+          const data = JSON.parse(msg.data);
+
+          if (data[0] === 'EVENT' && data[2]?.kind === GROUP_KIND) {
+            clearTimeout(timeout);
+            ws.close();
+
+            const parsed = JSON.parse(data[2].content || '{}') as NostrGroupPayload;
+
+            resolve(parsed);
+          }
+
+          if (data[0] === 'EOSE') {
+            clearTimeout(timeout);
+            ws.close();
+            resolve(null);
+          }
+        } catch {
+          resolve(null);
+        }
+      };
+
+      ws.onerror = () => {
+        clearTimeout(timeout);
+        resolve(null);
+      };
+
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
 export async function publishGroupMembership(input: {
   groupId: string;
   memberNpub: string;
@@ -1503,11 +1566,36 @@ export async function fetchGroupMemberships(
     const events = await pool.querySync(relayUrls, {
       kinds: [GROUP_MEMBER_KIND],
       '#d': [groupId],
-      limit: 200,
+      limit: 500,
     });
 
-    // Dedupe by event id
     const seen = new Set<string>();
+
+    return events.filter((event) => {
+      if (seen.has(event.id)) return false;
+      seen.add(event.id);
+      return true;
+    });
+  } finally {
+    pool.close(relayUrls);
+  }
+}
+
+export async function fetchGroupMembershipsForPubkey(
+  pubkeyHex: string,
+  relayUrls: string[],
+): Promise<Event[]> {
+  const pool = new SimplePool();
+
+  try {
+    const events = await pool.querySync(relayUrls, {
+      kinds: [GROUP_MEMBER_KIND],
+      '#p': [pubkeyHex],
+      limit: 500,
+    });
+
+    const seen = new Set<string>();
+
     return events.filter((event) => {
       if (seen.has(event.id)) return false;
       seen.add(event.id);

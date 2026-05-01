@@ -1,4 +1,5 @@
 import { useFocusEffect, useRouter } from 'expo-router';
+import { nip19 } from 'nostr-tools';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -17,6 +18,7 @@ import { Colors } from '../../src/constants/theme';
 import { BEContact, getContacts } from '../../src/utils/contacts-storage';
 import { subscribeToDMEvents } from '../../src/utils/dm-events';
 import { createThread, deleteThread, getDMThreads, type DMThread } from '../../src/utils/dm-storage';
+import { fetchNostrProfile } from '../../src/utils/nostr';
 import { normalizeNostrIdentity } from '../../src/utils/nostr-identity';
 import { useIdentity } from '../_layout';
 
@@ -52,6 +54,8 @@ export default function MessagesScreen() {
 
   const [threads, setThreads] = useState<DMThread[]>([]);
   const [contacts, setContacts] = useState<BEContact[]>([]);
+  const [profileNames, setProfileNames] = useState<Record<string, string>>({});
+  const [profilePictures, setProfilePictures] = useState<Record<string, string>>({});
   const [sheet, setSheet] = useState<Sheet>('none');
   const [search, setSearch] = useState('');
 
@@ -59,10 +63,42 @@ export default function MessagesScreen() {
   const [newNpub, setNewNpub] = useState('');
   const [creating, setCreating] = useState(false);
 
-  const loadData = useCallback(async () => {
+    const loadData = useCallback(async () => {
     const [t, c] = await Promise.all([getDMThreads(), getContacts()]);
     setThreads(t);
     setContacts(c);
+
+    const nextNames: Record<string, string> = {};
+    const nextPictures: Record<string, string> = {};
+
+    await Promise.all(
+      t.map(async thread => {
+        if (!thread.participantPubkey) return;
+
+        try {
+          const npub = nip19.npubEncode(thread.participantPubkey);
+          const profile = await fetchNostrProfile(npub);
+
+          if (!profile) return;
+
+          const displayName =
+            profile.display_name ||
+            profile.name ||
+            thread.title;
+
+          nextNames[thread.participantPubkey] = displayName;
+
+          if (profile.picture) {
+            nextPictures[thread.participantPubkey] = profile.picture;
+          }
+        } catch (error) {
+          console.warn('[Messages] failed to hydrate DM profile:', error);
+        }
+      })
+    );
+
+    setProfileNames(nextNames);
+    setProfilePictures(nextPictures);
   }, []);
 
   useFocusEffect(
@@ -165,6 +201,15 @@ export default function MessagesScreen() {
   const renderThread = ({ item }: { item: DMThread }) => {
     const encrypted = !!item.participantPubkey;
     const hasUnread = item.unread > 0;
+    const displayTitle =
+      item.participantPubkey && profileNames[item.participantPubkey]
+        ? profileNames[item.participantPubkey]
+        : item.title;
+
+    const profilePicture =
+      item.participantPubkey
+        ? profilePictures[item.participantPubkey]
+        : undefined;
 
     return (
       <TouchableOpacity
@@ -174,13 +219,17 @@ export default function MessagesScreen() {
         onLongPress={() => handleDeleteThread(item)}
       >
         <View style={[s.avatar, hasUnread && s.avatarUnread]}>
-          <Text style={s.avatarText}>{getInitials(item.title)}</Text>
+          {profilePicture ? (
+            <Image source={{ uri: profilePicture }} style={s.avatarImage} />
+          ) : (
+            <Text style={s.avatarText}>{getInitials(displayTitle)}</Text>
+          )}
         </View>
 
         <View style={s.threadBody}>
           <View style={s.threadTop}>
             <Text style={[s.threadTitle, hasUnread && s.threadTitleUnread]} numberOfLines={1}>
-              {item.title}
+                            {displayTitle}
             </Text>
 
             <Text style={s.threadTime}>{formatThreadTime(item.updatedAt)}</Text>
@@ -472,10 +521,15 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     borderColor: theme.gold,
     backgroundColor: theme.raised,
   },
-  avatarText: {
+   avatarText: {
     color: theme.gold,
     fontSize: 17,
     fontWeight: '900',
+  },
+  avatarImage: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
   },
   threadBody: {
     flex: 1,

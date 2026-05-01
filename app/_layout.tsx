@@ -6,6 +6,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-get-random-values';
 import { Colors } from '../src/constants/theme';
 import { startDMService, stopDMService } from '../src/utils/dm-service';
+import { clearDMStorage } from '../src/utils/dm-storage';
 import { fetchNostrProfile, getStoredIdentity, type NostrProfile } from '../src/utils/nostr';
 import {
   getFamily,
@@ -95,8 +96,12 @@ export default function RootLayout() {
         }
 
         // Start background DM listener on app launch if already signed in
-        console.log('[LAYOUT] calling startDMService');
-startDMService();
+        console.log('[LAYOUT] restoring DMs + starting service');
+
+import('../src/utils/dm-service').then(async (mod) => {
+  await mod.restoreDMsFromRelay();
+  startDMService();
+});
       }
 
       if (fam) setFamilyState(fam);
@@ -117,6 +122,8 @@ startDMService();
   const hasIdentity = !!npub;
 
   const allowSignedInAuthScreen =
+  currentScreen === 'onboarding-intro' ||
+  currentScreen === 'onboarding-purpose' ||
   currentScreen === 'onboarding-create-identity' ||
   currentScreen === 'onboarding-key-backup' ||
   currentScreen === 'onboarding-profile' ||
@@ -137,12 +144,23 @@ startDMService();
   await AsyncStorage.setItem('be_theme_mode', mode);
 };
   
-  const setIdentity = (p: string, s: string) => {
-    setNpub(p);
-    setNsec(s);
-    // Start background DM listener when identity is established
-    startDMService();
-  };
+ const setIdentity = (p: string, s: string) => {
+  stopDMService();
+
+  setNpub(p);
+  setNsec(s);
+
+  // 🔥 CLEAR PROFILE (prevents cross-identity bleed)
+  setProfile(null);
+
+  // 🔥 CLEAR DM CACHE (prevents cross-identity thread bleed)
+  clearDMStorage().then(() => {
+    import('../src/utils/dm-service').then(async (mod) => {
+      await mod.restoreDMsFromRelay();
+      startDMService();
+    });
+  });
+};
   const clear = () => {
     setNpub(null);
     setNsec(null);

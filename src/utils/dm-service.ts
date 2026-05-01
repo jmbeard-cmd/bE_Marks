@@ -4,11 +4,13 @@ import { AppState, type AppStateStatus } from 'react-native';
 import { emitDMChanged } from './dm-events';
 import {
   createThread,
+  deleteThread,
   getDMThreads,
   getMessagesForThread,
   saveRemoteDMMessage,
 } from './dm-storage';
-import { FAST_RELAYS, getStoredIdentity, subscribeToNostrDMs } from './nostr';
+
+import { FAST_RELAYS, fetchNostrDMs, getStoredIdentity, subscribeToNostrDMs } from './nostr';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -229,4 +231,95 @@ function _scheduleKeepAlive(): void {
       _connect();
     }
   }, 5 * 60_000);
+}
+export async function restoreDMsFromRelay(): Promise<void> {
+  console.log('[DM RESTORE] starting full restore');
+
+  try {
+    const identity = await getStoredIdentity();
+
+    if (!identity?.nsec) {
+      console.log('[DM RESTORE] no identity');
+      return;
+    }
+
+    const decoded = nip19.decode(identity.nsec);
+    if (decoded.type !== 'nsec') {
+      console.log('[DM RESTORE] invalid nsec');
+      return;
+    }
+
+    const sk = decoded.data as Uint8Array;
+    const myPubkey = getPublicKey(sk);
+
+    console.log('[DM RESTORE] myPubkey:', myPubkey.slice(0, 16));
+
+    const existingThreads = await getDMThreads();
+
+    for (const thread of existingThreads) {
+      if (
+        thread.participantPubkey?.toLowerCase() === myPubkey.toLowerCase()
+      ) {
+        console.log('[DM RESTORE] deleting self-thread:', thread.id);
+        await deleteThread(thread.id);
+      }
+    }
+
+    const messages = await fetchNostrDMs({
+      relayUrls: FAST_RELAYS,
+      limit: 2000,
+    });
+
+    console.log('[DM RESTORE] messages fetched:', messages.length);
+
+    const threadMap = new Map<string, string>();
+
+    for (const msg of messages) {
+      const otherPubkey = msg.threadPubkey;
+
+      if (!otherPubkey) continue;
+
+      if (otherPubkey.toLowerCase() === myPubkey.toLowerCase()) {
+        console.log('[DM RESTORE] skipped self DM event:', msg.id);
+        continue;
+      }
+
+      let threadId = threadMap.get(otherPubkey);
+
+      if (!threadId) {
+        const latestThreads = await getDMThreads();
+
+        const existing = latestThreads.find(
+          t =>
+            t.participantPubkey?.toLowerCase() ===
+            otherPubkey.toLowerCase()
+        );
+
+        if (existing) {
+          threadId = existing.id;
+        } else {
+          const newThread = await createThread({
+            title: otherPubkey.slice(0, 8),
+            participantPubkey: otherPubkey,
+          });
+
+          threadId = newThread.id;
+        }
+
+        threadMap.set(otherPubkey, threadId);
+      }
+
+      await saveRemoteDMMessage({
+        id: `nostr_${msg.id}`,
+        threadId,
+        text: msg.content,
+        mine: msg.isMine,
+        createdAt: msg.createdAt,
+      });
+    }
+
+    console.log('[DM RESTORE] complete');
+  } catch (error) {
+    console.warn('[DM RESTORE] failed:', error);
+  }
 }

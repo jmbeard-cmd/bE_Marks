@@ -1,12 +1,13 @@
 import * as SecureStore from 'expo-secure-store';
 import {
+  fetchGroupById,
   fetchGroupByInviteCode,
   fetchGroupMemberships,
+  fetchGroupMembershipsForPubkey,
   publishGroup,
   publishGroupMembership,
   type NostrGroupPayload,
 } from './nostr';
-
 const GROUPS_KEY = 'be_groups_v1';
 const MEMBERS_KEY = 'be_group_members_v1';
 
@@ -248,12 +249,30 @@ export async function createGroup(input: {
   const publishResult = await publishGroup(payload, input.nsec);
 
   console.log('[Groups] publish result:', publishResult);
-console.log('[Groups] created group invite code:', group.inviteCode);
-console.log('[Groups] created group relayUrl:', group.relayUrl);
+  console.log('[Groups] created group invite code:', group.inviteCode);
+  console.log('[Groups] created group relayUrl:', group.relayUrl);
 
-if (!publishResult.success) {
-  console.warn('[Groups] Failed to publish group to relay:', publishResult.error);
-}
+  if (!publishResult.success) {
+    console.warn('[Groups] Failed to publish group to relay:', publishResult.error);
+  }
+
+  const ownerMembershipResult = await publishGroupMembership({
+    groupId: group.id,
+    memberNpub: input.ownerNpub,
+    memberPubkeyHex: input.ownerPubkeyHex,
+    action: 'join',
+    nsec: input.nsec,
+    relayUrl: group.relayUrl,
+  });
+
+  console.log('[Groups] owner membership publish result:', ownerMembershipResult);
+
+  if (!ownerMembershipResult.success) {
+    console.warn(
+      '[Groups] Failed to publish owner membership to relay:',
+      ownerMembershipResult.error
+    );
+  }
 }
 
   return group;
@@ -506,4 +525,95 @@ export async function recordGroupPost(
     lastPostPreview: preview.slice(0, 80),
     postCount: (group.postCount ?? 0) + 1,
   });
+}
+
+// ─────────────────────────────────────────────
+// CLEAR GROUP STORAGE (FOR NEW IDENTITY)
+// ─────────────────────────────────────────────
+
+export async function clearGroupStorage(): Promise<void> {
+  try {
+    // Remove groups
+    await SecureStore.deleteItemAsync(GROUPS_KEY);
+
+    // Remove members
+    await SecureStore.deleteItemAsync(MEMBERS_KEY);
+
+    console.log('[Group Storage] Cleared for new identity');
+  } catch (error) {
+    console.warn('[Group Storage] Failed to clear:', error);
+  }
+}
+export async function restoreGroupsFromRelay(input: {
+  pubkeyHex: string;
+  relayUrls: string[];
+}): Promise<void> {
+  console.log('[Groups] restoreGroupsFromRelay start');
+
+  try {
+    // 1. Fetch ALL memberships for this user
+    const membershipEvents = await fetchGroupMembershipsForPubkey(
+      input.pubkeyHex,
+      input.relayUrls
+    );
+
+    console.log('[Groups] membership events found:', membershipEvents.length);
+
+    const groupIds = new Set<string>();
+
+    for (const event of membershipEvents) {
+      const dTag = event.tags.find(tag => tag[0] === 'd');
+      const groupId = dTag?.[1];
+
+      if (groupId) {
+        groupIds.add(groupId);
+      }
+    }
+
+    console.log('[Groups] unique groupIds:', Array.from(groupIds));
+
+    const existingGroups = await readGroups();
+    const now = Math.floor(Date.now() / 1000);
+
+    for (const groupId of groupIds) {
+      // 2. Fetch group definition
+      const groupEvent = await fetchGroupById(groupId);
+
+      if (!groupEvent) {
+        console.warn('[Groups] group not found on relay:', groupId);
+        continue;
+      }
+
+      const alreadyExists = existingGroups.find(g => g.id === groupId);
+
+      if (!alreadyExists) {
+        const newGroup: BEGroup = {
+          id: groupEvent.id,
+          name: groupEvent.name,
+          description: groupEvent.description,
+          season: groupEvent.season,
+          sport: groupEvent.sport,
+          schoolId: groupEvent.schoolId,
+          inviteCode: groupEvent.inviteCode,
+          status: groupEvent.status,
+          createdAt: groupEvent.createdAt,
+          updatedAt: now,
+          relayUrl: groupEvent.relayUrl,
+          memberCount: 0,
+          postCount: 0,
+        };
+
+        existingGroups.push(newGroup);
+      }
+
+      // 3. Sync members for this group
+      await syncGroupMembersFromRelay(groupId, input.relayUrls);
+    }
+
+    await writeGroups(existingGroups);
+
+    console.log('[Groups] restore complete');
+  } catch (error) {
+    console.warn('[Groups] restore failed:', error);
+  }
 }

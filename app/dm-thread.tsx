@@ -1,4 +1,5 @@
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { nip19 } from 'nostr-tools';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -10,7 +11,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MessageBubble from '../components/MessageBubble';
@@ -23,7 +24,7 @@ import {
   sendLocalDM,
   type DMMessage
 } from '../src/utils/dm-storage';
-import { sendNostrDM } from '../src/utils/nostr';
+import { fetchNostrProfile, sendNostrDM } from '../src/utils/nostr';
 import { useIdentity } from './_layout';
 
 export default function DmThreadScreen() {
@@ -39,6 +40,8 @@ export default function DmThreadScreen() {
   const [messages, setMessages] = useState<DMMessage[]>([]);
   const [sending, setSending] = useState(false);
   const [hasPubkey, setHasPubkey] = useState(false);
+  const [profileName, setProfileName] = useState<string | null>(null);
+  const [profilePicture, setProfilePicture] = useState<string | null>(null);
 
   const listRef = useRef<FlatList<DMMessage>>(null);
   const leavingRef = useRef(false);
@@ -67,6 +70,25 @@ export default function DmThreadScreen() {
 
     setMessages(localMessages);
     setHasPubkey(!!thread?.participantPubkey);
+
+    if (thread?.participantPubkey) {
+      try {
+        const npub = nip19.npubEncode(thread.participantPubkey);
+        const profile = await fetchNostrProfile(npub);
+
+        if (profile) {
+          const displayName =
+            profile.display_name ||
+            profile.name ||
+            thread.title;
+
+                    setProfileName(displayName);
+          setProfilePicture(profile.picture || null);
+        }
+      } catch (error) {
+        console.warn('[DM THREAD] profile fetch failed:', error);
+      }
+    }
 
     requestAnimationFrame(() => scrollToBottom(false));
 
@@ -203,7 +225,9 @@ export default function DmThreadScreen() {
             </TouchableOpacity>
 
             <View style={s.headerCenter}>
-              <Text style={s.headerTitle} numberOfLines={1}>{title}</Text>
+              <Text style={s.headerTitle} numberOfLines={1}>
+  {profileName || title}
+</Text>
               {hasPubkey && <Text style={s.headerSub}>🔒 End-to-end encrypted</Text>}
             </View>
 
@@ -237,7 +261,7 @@ export default function DmThreadScreen() {
           <View style={s.composer}>
             <TextInput
               style={[s.input, { height: Math.max(40, Math.min(120, inputHeight)) }]}
-              placeholder={`Message ${title}…`}
+              placeholder={`Message ${profileName || title}…`}
               placeholderTextColor={theme.textMuted}
               value={draft}
               onChangeText={setDraft}
@@ -318,6 +342,12 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  headerAvatar: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    marginBottom: 4,
   },
   headerTitle: { color: theme.text, fontSize: 15, fontWeight: '700', maxWidth: 220 },
   headerSub: { color: theme.textMuted, fontSize: 10, marginTop: 2 },
