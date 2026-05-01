@@ -1,5 +1,8 @@
 import GroupCalendarTab from '@/components/GroupCalendarTab';
-import { getUpcomingEventsForGroup } from '@/src/utils/group-calendar';
+import {
+  getUpcomingEventsForGroup,
+  syncCalendarEventsFromRelay,
+} from '@/src/utils/group-calendar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
@@ -179,7 +182,11 @@ const syncedStickies = g.relayUrl
 
 setStickies(syncedStickies);
 
-setStickies(syncedStickies);
+if (g.relayUrl) {
+  await syncCalendarEventsFromRelay(id, g.relayUrl);
+}
+
+// 🔥 Force re-read AFTER sync (ensures deletes applied)
 const upcoming = await getUpcomingEventsForGroup(id);
 setUpcomingCount(upcoming.length);
 // 🔥 GALLERY FROM CHAT IMAGES + LOCAL SAVED HIGHLIGHT MEDIA
@@ -850,7 +857,7 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
                   value={groupRelayUrl}
                   onChangeText={setGroupRelayUrl}
                   placeholder="wss://relay.school.org"
-                  placeholderTextColor="#444"
+                  placeholderTextColor={theme.textMuted}
                   autoCapitalize="none"
                   keyboardType="url"
                 />
@@ -1136,16 +1143,16 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
         value={stickyTitle}
         onChangeText={setStickyTitle}
         placeholder="Practice reminder, team highlight..."
-        placeholderTextColor="#444"
+        placeholderTextColor={theme.textMuted}
       />
 
-            <Text style={s.inputLabel}>MESSAGE</Text>
+      <Text style={s.inputLabel}>MESSAGE</Text>
       <TextInput
         style={[s.input, s.inputMulti]}
         value={stickyBody}
         onChangeText={setStickyBody}
         placeholder="Write the highlight..."
-        placeholderTextColor="#444"
+        placeholderTextColor={theme.textMuted}
         multiline
         textAlignVertical="top"
       />
@@ -1229,41 +1236,41 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
 </View>
 
       {highlightUploadStatus && (
-  <View style={{ marginTop: 12 }}>
-    <Text style={s.highlightUploadStatus}>
-      {highlightUploadStatus}
-    </Text>
+        <View style={{ marginTop: 12 }}>
+          <Text style={s.highlightUploadStatus}>
+            {highlightUploadStatus}
+          </Text>
 
-    <View
-      style={{
-        height: 6,
-        backgroundColor: '#2a2a2a',
-        borderRadius: 999,
-        marginTop: 8,
-        overflow: 'hidden',
-      }}
-    >
-      <View
-        style={{
-          width: `${Math.max(highlightProgress * 100, 5)}%`,
-          height: '100%',
-          backgroundColor: '#c9973a',
-        }}
-      />
-    </View>
+          <View
+            style={{
+              height: 6,
+              backgroundColor: theme.border,
+              borderRadius: 999,
+              marginTop: 8,
+              overflow: 'hidden',
+            }}
+          >
+            <View
+              style={{
+                width: `${Math.max(highlightProgress * 100, 5)}%`,
+                height: '100%',
+                backgroundColor: theme.gold,
+              }}
+            />
+          </View>
 
-    <Text
-      style={{
-        color: '#555',
-        fontSize: 11,
-        textAlign: 'center',
-        marginTop: 4,
-      }}
-    >
-      {Math.round(highlightProgress * 100)}%
-    </Text>
-  </View>
-)}
+          <Text
+            style={{
+              color: theme.textMuted,
+              fontSize: 11,
+              textAlign: 'center',
+              marginTop: 4,
+            }}
+          >
+            {Math.round(highlightProgress * 100)}%
+          </Text>
+        </View>
+      )}
 
       <View style={s.modalActions}>
                 <TouchableOpacity
@@ -1327,12 +1334,12 @@ visibilityOption: {
   padding: 12,
   borderRadius: 12,
   borderWidth: 0.5,
-  borderColor: '#2a2a2a',
-  backgroundColor: '#1a1a1a',
+  borderColor: theme.border,
+  backgroundColor: theme.surface,
 },
 visibilityOptionActive: {
-  borderColor: '#c9973a',
-  backgroundColor: '#1e1600',
+  borderColor: theme.gold,
+  backgroundColor: theme.raised,
 },
 visibilityOptionDisabled: {
   opacity: 0.55,
@@ -1341,27 +1348,27 @@ visibilityIcon: {
   fontSize: 20,
 },
 visibilityTitle: {
-  color: '#fff',
+  color: theme.text,
   fontSize: 14,
   fontWeight: '700',
 },
 visibilityTitleDim: {
-  color: '#aaa',
+  color: theme.textMuted,
   fontSize: 14,
   fontWeight: '700',
 },
 visibilityHint: {
-  color: '#555',
+  color: theme.textMuted,
   fontSize: 11,
   marginTop: 2,
 },
 visibilityStatus: {
-  color: '#c9973a',
+  color: theme.gold,
   fontSize: 11,
   fontWeight: '800',
 },
 visibilitySoon: {
-  color: '#555',
+  color: theme.textMuted,
   fontSize: 11,
   fontWeight: '700',
 },
@@ -1387,7 +1394,12 @@ visibilitySoon: {
     borderRadius: 999,
     backgroundColor: theme.gold,
   },
-  inviteBtnText: { color: theme.bg, fontWeight: '800', fontSize: 13 },
+inviteBtnText: {
+  color: theme.bg,
+  fontWeight: '700',
+  fontSize: 15,
+  letterSpacing: 0.3,
+},
     stickyCard: {
     backgroundColor: theme.surface,
     borderWidth: 0.5,
@@ -1785,27 +1797,28 @@ adminBtnText: {
     alignItems: 'center',
     justifyContent: 'center',
   },
-  adminBtnGoldText: {
-    color: theme.bg,
-    fontWeight: '900',
-    fontSize: 14,
-  },
+adminBtnGoldText: {
+  color: theme.bg,
+  fontWeight: '700',
+  fontSize: 15,
+  letterSpacing: 0.3,
+},
 modalScrollContent: {
   flexGrow: 1,
   justifyContent: 'flex-end',
 },
-  modalOverlay: {
+modalOverlay: {
   flex: 1,
-  backgroundColor: 'rgba(0,0,0,0.7)',
+  backgroundColor: 'rgba(0,0,0,0.4)',
   justifyContent: 'flex-end',
 },
 modalCard: {
-  backgroundColor: theme.bg,
+  backgroundColor: theme.surface,
+  borderTopLeftRadius: 18,
+  borderTopRightRadius: 18,
   borderTopWidth: 0.5,
   borderTopColor: theme.border,
   padding: 20,
-  borderTopLeftRadius: 18,
-  borderTopRightRadius: 18,
 },
 modalTitle: {
   color: theme.text,
@@ -1853,12 +1866,14 @@ cancelBtn: {
   padding: 12,
   borderRadius: 10,
   borderWidth: 0.5,
-  borderColor: '#2a2a2a',
+  borderColor: theme.border,
+  backgroundColor: theme.surface,
   alignItems: 'center',
 },
 cancelText: {
   color: theme.textMuted,
   fontSize: 14,
+  fontWeight: '700',
 },
 confirmBtn: {
   flex: 2,
@@ -1875,21 +1890,34 @@ confirmText: {
   
 highlightAddMediaBtn: {
   borderWidth: 0.5,
-  borderColor: '#2a2a2a',
+  borderColor: theme.border,
   borderRadius: 12,
   padding: 14,
-  backgroundColor: '#181818',
+  backgroundColor: theme.surface,
   alignItems: 'center',
 },
 highlightAddMediaText: {
-  color: '#c9973a',
+  color: theme.gold,
   fontSize: 14,
   fontWeight: '800',
 },
 highlightAddMediaHint: {
-  color: '#555',
+  color: theme.textMuted,
   fontSize: 11,
   marginTop: 4,
+},
+highlightRemoveMediaBtn: {
+  padding: 11,
+  alignItems: 'center',
+  backgroundColor: theme.raised,
+  borderWidth: 0.5,
+  borderColor: theme.border,
+  borderRadius: 10,
+},
+highlightRemoveMediaText: {
+  color: theme.textMuted,
+  fontSize: 13,
+  fontWeight: '800',
 },
 highlightMediaPreviewWrap: {
   borderRadius: 14,
@@ -1917,16 +1945,7 @@ highlightVideoBadgeText: {
   fontSize: 12,
   fontWeight: '800',
 },
-highlightRemoveMediaBtn: {
-  padding: 11,
-  alignItems: 'center',
-  backgroundColor: '#111',
-},
-highlightRemoveMediaText: {
-  color: '#c44',
-  fontSize: 13,
-  fontWeight: '800',
-},  
+ 
 // FAB
   fab: {
     position: 'absolute', bottom: 24, right: 24,

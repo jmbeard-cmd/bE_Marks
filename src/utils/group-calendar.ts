@@ -13,14 +13,17 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
+  fetchGroupCalendarDeletes,
   fetchGroupCalendarEvents,
   getStoredIdentity,
+  publishGroupCalendarDelete,
   publishGroupCalendarEvent,
   publishGroupRSVP,
 } from './nostr';
 
 const GROUP_CALENDAR_KEY = 'be_group_calendar_v1';
 const GROUP_RSVP_KEY = 'be_group_rsvps_v1';
+const GROUP_CALENDAR_DELETED_KEY = 'be_group_calendar_deleted_v1';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -115,8 +118,15 @@ export async function getUpcomingEventsForGroup(
   const all = await readJson<GroupCalendarEvent[]>(GROUP_CALENDAR_KEY, []);
   const now = Math.floor(Date.now() / 1000);
 
-  return all
-    .filter(e => e.groupId === groupId && e.startTime >= now - 3600) // include events ending up to 1hr ago
+  const eventMap = new Map<string, GroupCalendarEvent>();
+
+  all
+    .filter(e => e.groupId === groupId && e.startTime >= now - 3600)
+    .forEach(e => {
+      eventMap.set(e.id, e);
+    });
+
+  return Array.from(eventMap.values())
     .sort((a, b) => a.startTime - b.startTime)
     .slice(0, limit);
 }
@@ -174,6 +184,14 @@ export async function createCalendarEvent(input: {
 
 export async function deleteCalendarEvent(eventId: string): Promise<void> {
   const all = await readJson<GroupCalendarEvent[]>(GROUP_CALENDAR_KEY, []);
+  const event = all.find(e => e.id === eventId);
+
+  const deletedIds = await readJson<string[]>(GROUP_CALENDAR_DELETED_KEY, []);
+
+  if (!deletedIds.includes(eventId)) {
+    await writeJson(GROUP_CALENDAR_DELETED_KEY, [...deletedIds, eventId]);
+  }
+
   await writeJson(
     GROUP_CALENDAR_KEY,
     all.filter(e => e.id !== eventId)
@@ -182,6 +200,21 @@ export async function deleteCalendarEvent(eventId: string): Promise<void> {
   // Also remove all RSVPs for this event
   const rsvps = await readJson<GroupRSVP[]>(GROUP_RSVP_KEY, []);
   await writeJson(GROUP_RSVP_KEY, rsvps.filter(r => r.eventId !== eventId));
+
+  if (event?.relayUrl) {
+    const identity = await getStoredIdentity();
+
+    if (identity?.nsec) {
+      publishGroupCalendarDelete({
+        eventId,
+        groupId: event.groupId,
+        nsec: identity.nsec,
+        relayUrl: event.relayUrl,
+      }).catch(e =>
+        console.warn('[Group Calendar] relay delete publish failed:', e)
+      );
+    }
+  }
 }
 
 export async function updateCalendarEvent(
@@ -326,14 +359,24 @@ export async function syncCalendarEventsFromRelay(
 ): Promise<GroupCalendarEvent[]> {
   try {
     const remoteEvents = await fetchGroupCalendarEvents(groupId, relayUrl);
+    const remoteDeletedIds = await fetchGroupCalendarDeletes(groupId, relayUrl);
+    const localDeletedIds = await readJson<string[]>(GROUP_CALENDAR_DELETED_KEY, []);
+
+    const deletedIds = Array.from(new Set([...localDeletedIds, ...remoteDeletedIds]));
+    const deletedSet = new Set(deletedIds);
+
+    await writeJson(GROUP_CALENDAR_DELETED_KEY, deletedIds);
+
     const all   = await readJson<GroupCalendarEvent[]>(GROUP_CALENDAR_KEY, []);
-    const local = all.filter(e => e.groupId === groupId);
+    const local = all.filter(e => e.groupId === groupId && !deletedSet.has(e.id));
     const other = all.filter(e => e.groupId !== groupId);
 
     const eventMap = new Map<string, GroupCalendarEvent>();
     for (const e of local) eventMap.set(e.id, e);
 
     for (const raw of remoteEvents) {
+      if (deletedSet.has(raw.id)) continue;
+
       const existing = eventMap.get(raw.id);
       if (!existing || raw.updatedAt >= existing.updatedAt) {
         eventMap.set(raw.id, raw as GroupCalendarEvent);

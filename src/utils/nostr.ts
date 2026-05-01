@@ -1630,6 +1630,7 @@ export async function subscribeToGroupMessages(input: {
 
 export const GROUP_CALENDAR_KIND = 30084;
 export const GROUP_RSVP_KIND     = 30085;
+export const GROUP_CALENDAR_DELETE_KIND = 30086;
 
 export interface GroupCalendarEventRaw {
   id:           string;
@@ -1832,4 +1833,104 @@ export async function publishGroupRSVP(input: {
     const msg = e instanceof Error ? e.message : 'Unknown error';
     return { success: false, error: msg };
   }
+}
+
+export async function publishGroupCalendarDelete(input: {
+  eventId: string;
+  groupId: string;
+  nsec: string;
+  relayUrl: string;
+}): Promise<{ success: boolean; eventId?: string; error?: string }> {
+  try {
+    const decoded = nip19.decode(input.nsec);
+    if (decoded.type !== 'nsec') throw new Error('Invalid nsec');
+
+    const sk = decoded.data as Uint8Array;
+    const pk = getPublicKey(sk);
+    const now = Math.floor(Date.now() / 1000);
+
+    const unsigned: UnsignedEvent = {
+      kind: GROUP_CALENDAR_DELETE_KIND,
+      created_at: now,
+      tags: [
+        ['d', input.eventId],
+        ['t', `group-cal-delete:${input.groupId}`],
+        ['group', input.groupId],
+        ['event', input.eventId],
+        ['client', 'bE-Marks'],
+      ],
+      content: JSON.stringify({
+        eventId: input.eventId,
+        groupId: input.groupId,
+        deletedAt: now,
+      }),
+      pubkey: pk,
+    };
+
+    const signed = finalizeEvent(unsigned, sk);
+    return await publishToSpecificRelay(signed, input.relayUrl);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    return { success: false, error: msg };
+  }
+}
+
+export function fetchGroupCalendarDeletes(
+  groupId: string,
+  relayUrl: string = DEFAULT_RELAY,
+): Promise<string[]> {
+  return new Promise(resolve => {
+    try {
+      const ws = new WebSocket(relayUrl);
+      const deletedIds: string[] = [];
+      const seen = new Set<string>();
+
+      const timeout = setTimeout(() => {
+        ws.close();
+        resolve(deletedIds);
+      }, 6000);
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify([
+          'REQ',
+          `group-cal-delete-fetch-${groupId}`,
+          {
+            kinds: [GROUP_CALENDAR_DELETE_KIND],
+            '#t': [`group-cal-delete:${groupId}`],
+            limit: 200,
+          },
+        ]));
+      };
+
+      ws.onmessage = (msg) => {
+        try {
+          const data = JSON.parse(msg.data);
+
+          if (data[0] === 'EVENT' && data[2]?.kind === GROUP_CALENDAR_DELETE_KIND) {
+            const evt = data[2];
+
+            if (seen.has(evt.id)) return;
+            seen.add(evt.id);
+
+            const parsed = JSON.parse(evt.content || '{}');
+
+            if (parsed.groupId === groupId && parsed.eventId) {
+              deletedIds.push(parsed.eventId);
+            }
+          } else if (data[0] === 'EOSE') {
+            clearTimeout(timeout);
+            ws.close();
+            resolve(deletedIds);
+          }
+        } catch {}
+      };
+
+      ws.onerror = () => {
+        clearTimeout(timeout);
+        resolve(deletedIds);
+      };
+    } catch {
+      resolve([]);
+    }
+  });
 }

@@ -1,31 +1,33 @@
 import {
-    createCalendarEvent,
-    deleteCalendarEvent,
-    formatEventTime,
-    getCalendarEventsForGroup,
-    getMyRSVP,
-    getRSVPCounts,
-    isEventPast,
-    submitRSVP,
-    type GroupCalendarEvent,
-    type RSVPStatus,
+  createCalendarEvent,
+  deleteCalendarEvent,
+  formatEventTime,
+  getCalendarEventsForGroup,
+  getMyRSVP,
+  getRSVPCounts,
+  isEventPast,
+  submitRSVP,
+  type GroupCalendarEvent,
+  type RSVPStatus,
 } from '@/src/utils/group-calendar';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    KeyboardAvoidingView,
-    Modal,
-    Platform,
-    RefreshControl,
-    ScrollView,
-    StyleSheet,
-    Switch,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
+import { useIdentity } from '../app/_layout';
+import { Colors } from '../src/constants/theme';
 import type { BEGroup } from '../src/utils/group-storage';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -57,6 +59,7 @@ type EventCardProps = {
   onRSVP: (status: RSVPStatus) => void;
   onDelete: () => void;
   isPast?: boolean;
+  s: ReturnType<typeof createStyles>;
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -78,6 +81,9 @@ export default function GroupCalendarTab({
   refreshing,
   onRefresh,
 }: Props) {
+  const { themeMode } = useIdentity();
+  const theme = Colors[themeMode];
+  const s = useMemo(() => createStyles(theme), [theme]);
   const [events, setEvents]         = useState<GroupCalendarEvent[]>([]);
   const [loading, setLoading]       = useState(true);
   const [showPast, setShowPast]     = useState(false);
@@ -163,7 +169,16 @@ export default function GroupCalendarTab({
           style: 'destructive',
           onPress: async () => {
             await deleteCalendarEvent(event.id);
-            await loadEvents();
+
+            setEvents(current =>
+              current.filter(item => item.id !== event.id)
+            );
+
+            setRsvpState(current => {
+              const next = { ...current };
+              delete next[event.id];
+              return next;
+            });
           },
         },
       ]
@@ -255,7 +270,7 @@ export default function GroupCalendarTab({
   if (loading) {
     return (
       <View style={s.centered}>
-        <ActivityIndicator color="#c9973a" />
+        <ActivityIndicator color={theme.gold} />
       </View>
     );
   }
@@ -268,7 +283,7 @@ export default function GroupCalendarTab({
           <RefreshControl
             refreshing={refreshing}
             onRefresh={async () => { await onRefresh(); await loadEvents(); }}
-            tintColor="#c9973a"
+            tintColor={theme.gold}
           />
         }
       >
@@ -294,6 +309,7 @@ export default function GroupCalendarTab({
               onToggleExpand={() => setExpandedId(id => (id === event.id ? null : event.id))}
               onRSVP={status => handleRSVP(event, status)}
               onDelete={() => handleDelete(event)}
+              s={s}
             />
           ))
         )}
@@ -321,6 +337,7 @@ export default function GroupCalendarTab({
                 onRSVP={status => handleRSVP(event, status)}
                 onDelete={() => handleDelete(event)}
                 isPast
+                s={s}
               />
             ))}
           </View>
@@ -361,7 +378,7 @@ export default function GroupCalendarTab({
                 value={evTitle}
                 onChangeText={setEvTitle}
                 placeholder="Game vs. Rush Springs, Practice, Meeting…"
-                placeholderTextColor="#444"
+                placeholderTextColor={theme.textMuted}
                 autoFocus
               />
 
@@ -472,6 +489,7 @@ function EventCard({
   onRSVP,
   onDelete,
   isPast = false,
+  s,
 }: EventCardProps) {
   const past = isPast || isEventPast(event);
 
@@ -596,40 +614,73 @@ function parseTimeInput(
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-const s = StyleSheet.create({
-  container: { padding: 20, paddingBottom: 100 },
-  centered:  { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  empty:     { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 48 },
-  emptyIcon: { fontSize: 36, marginBottom: 12 },
-  emptyText: { fontSize: 17, color: '#555', fontWeight: '500' },
-  emptyHint: { fontSize: 13, color: '#333', marginTop: 6, textAlign: 'center', lineHeight: 19 },
+const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
+  container: {
+    padding: 20,
+    paddingBottom: 100,
+    backgroundColor: theme.bg,
+  },
+  centered: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.bg,
+  },
+  empty: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 48,
+  },
+  emptyIcon: { fontSize: 36, marginBottom: 12, opacity: 0.75 },
+  emptyText: { fontSize: 17, color: theme.text, fontWeight: '600' },
+  emptyHint: {
+    fontSize: 13,
+    color: theme.textMuted,
+    marginTop: 6,
+    textAlign: 'center',
+    lineHeight: 19,
+  },
 
-  card: {
+   card: {
     flexDirection: 'row',
     gap: 14,
-    backgroundColor: '#181818',
+    backgroundColor: theme.surface,
     borderWidth: 0.5,
-    borderColor: '#252525',
+    borderColor: theme.border,
     borderRadius: 18,
     padding: 14,
     marginBottom: 12,
   },
-  cardPast: { opacity: 0.5 },
+  cardPast: { opacity: 0.6 },
 
   dateStripe: {
     width: 44,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#1e1600',
+    backgroundColor: theme.raised,
     borderRadius: 12,
     borderWidth: 0.5,
-    borderColor: '#c9973a33',
+    borderColor: theme.gold,
     paddingVertical: 8,
   },
-  dateStripePast:     { backgroundColor: '#1a1a1a', borderColor: '#2a2a2a' },
-  dateStripeDay:      { fontSize: 9,  fontWeight: '800', color: '#c9973a', letterSpacing: 0.5 },
-  dateStripeNum:      { fontSize: 14, fontWeight: '800', color: '#c9973a', marginTop: 2 },
-  dateStripeTextPast: { color: '#555' },
+  dateStripePast: {
+    backgroundColor: theme.surface,
+    borderColor: theme.border,
+  },
+  dateStripeDay: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: theme.gold,
+    letterSpacing: 0.5,
+  },
+  dateStripeNum: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: theme.gold,
+    marginTop: 2,
+  },
+  dateStripeTextPast: { color: theme.textMuted },
 
   cardContent: { flex: 1 },
   cardTop: {
@@ -639,17 +690,23 @@ const s = StyleSheet.create({
     marginBottom: 5,
     gap: 10,
   },
-  cardTitle:     { flex: 1, color: '#f4f4f4', fontSize: 15, fontWeight: '800', letterSpacing: -0.2 },
-  cardTitlePast: { color: '#666' },
-  deleteBtn:     { color: '#444', fontSize: 14, fontWeight: '700', paddingHorizontal: 2 },
+  cardTitle: {
+    flex: 1,
+    color: theme.text,
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+  },
+  cardTitlePast: { color: theme.textMuted },
+  deleteBtn:     { color: theme.textMuted, fontSize: 14, fontWeight: '700', paddingHorizontal: 2 },
 
   metaRow:     { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 6 },
-  metaText:    { fontSize: 12, color: '#888', fontWeight: '500' },
-  description: { color: '#bdbdbd', fontSize: 13, lineHeight: 19, marginTop: 6, marginBottom: 8 },
-  expandHint:  { fontSize: 11, color: '#555', fontStyle: 'italic', marginTop: 4 },
+  metaText:    { fontSize: 12, color: theme.textMuted, fontWeight: '500' },
+  description: { color: theme.textMuted, fontSize: 13, lineHeight: 19, marginTop: 6, marginBottom: 8 },
+  expandHint:  { fontSize: 11, color: theme.textMuted, fontStyle: 'italic', marginTop: 4 },
 
   rsvpCountRow: { flexDirection: 'row', gap: 10, marginTop: 6, marginBottom: 4 },
-  rsvpCount:    { fontSize: 12, color: '#888', fontWeight: '600' },
+  rsvpCount:    { fontSize: 12, color: theme.textMuted, fontWeight: '600' },
 
   rsvpRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
   rsvpBtn: {
@@ -661,17 +718,24 @@ const s = StyleSheet.create({
     paddingVertical: 9,
     borderRadius: 10,
     borderWidth: 0.5,
-    borderColor: '#2a2a2a',
-    backgroundColor: '#111',
+    borderColor: theme.border,
+    backgroundColor: theme.bg,
   },
-  rsvpBtnActive:     { borderColor: '#c9973a', backgroundColor: '#1e1600' },
-  rsvpBtnEmoji:      { fontSize: 14 },
-  rsvpBtnText:       { fontSize: 11, color: '#666', fontWeight: '700' },
-  rsvpBtnTextActive: { color: '#c9973a' },
+  rsvpBtnActive: {
+    borderColor: theme.gold,
+    backgroundColor: theme.raised,
+  },
+  rsvpBtnEmoji: { fontSize: 14 },
+  rsvpBtnText: {
+    fontSize: 11,
+    color: theme.textMuted,
+    fontWeight: '700',
+  },
+  rsvpBtnTextActive: { color: theme.gold },
 
   pastSection:    { marginTop: 8 },
   pastToggle:     { paddingVertical: 12, paddingHorizontal: 4 },
-  pastToggleText: { color: '#444', fontSize: 13, fontWeight: '500' },
+  pastToggleText: { color: theme.textMuted, fontSize: 13, fontWeight: '500' },
 
   fab: {
     position: 'absolute',
@@ -690,37 +754,51 @@ const s = StyleSheet.create({
     shadowRadius: 8,
     elevation: 8,
   },
-  fabIcon: { fontSize: 20, color: '#111', fontWeight: '300' },
-  fabText: { fontSize: 14, color: '#111', fontWeight: '800' },
+fabIcon: {
+  fontSize: 18,
+  color: theme.bg,
+  fontWeight: '400',
+  marginRight: 2,
+},
+fabText: {
+  fontSize: 15,
+  color: theme.bg,
+  fontWeight: '700',
+  letterSpacing: 0.3,
+},
 
-  modalOverlay:       { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'flex-end',
+  },
   modalScrollContent: { flexGrow: 1, justifyContent: 'flex-end' },
   modalCard: {
-    backgroundColor: '#111',
+    backgroundColor: theme.bg,
     borderTopWidth: 0.5,
-    borderTopColor: '#2a2a2a',
+    borderTopColor: theme.border,
     padding: 20,
     borderTopLeftRadius: 18,
     borderTopRightRadius: 18,
   },
-  modalTitle: { color: '#fff', fontSize: 18, fontWeight: '700', marginBottom: 16 },
-  modalMeta:  { fontSize: 11, color: '#444', marginTop: 12, lineHeight: 17 },
+  modalTitle: { color: theme.text, fontSize: 18, fontWeight: '700', marginBottom: 16 },
+  modalMeta: { fontSize: 11, color: theme.textMuted, marginTop: 12, lineHeight: 17 },
 
   toggleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 14,
     borderBottomWidth: 0.5,
-    borderBottomColor: '#1e1e1e',
+    borderBottomColor: theme.border,
     marginBottom: 4,
     gap: 12,
   },
-  toggleLabel: { color: '#f4f4f4', fontSize: 14, fontWeight: '700' },
-  toggleHint:  { color: '#555', fontSize: 11, marginTop: 2 },
+  toggleLabel: { color: theme.text, fontSize: 14, fontWeight: '700' },
+  toggleHint: { color: theme.textMuted, fontSize: 11, marginTop: 2 },
 
   inputLabel: {
     fontSize: 11,
-    color: '#444',
+    color: theme.textMuted,
     fontWeight: '600',
     letterSpacing: 0.8,
     marginBottom: 6,
@@ -728,19 +806,19 @@ const s = StyleSheet.create({
   },
   input: {
     borderWidth: 0.5,
-    borderColor: '#2a2a2a',
+    borderColor: theme.border,
     borderRadius: 10,
     padding: 12,
     fontSize: 15,
-    color: '#fff',
-    backgroundColor: '#1a1a1a',
+    color: theme.text,
+    backgroundColor: theme.surface,
   },
   inputMulti: { minHeight: 80, textAlignVertical: 'top', lineHeight: 21 },
 
   modalActions:       { flexDirection: 'row', gap: 10, marginTop: 16 },
-  cancelBtn:          { flex: 1, padding: 12, borderRadius: 10, borderWidth: 0.5, borderColor: '#2a2a2a', alignItems: 'center' },
-  cancelText:         { color: '#555', fontSize: 14 },
-  confirmBtn:         { flex: 2, padding: 12, borderRadius: 10, backgroundColor: '#c9973a', alignItems: 'center' },
+  cancelBtn:          { flex: 1, padding: 12, borderRadius: 10, borderWidth: 0.5, borderColor: theme.border, alignItems: 'center' },
+  cancelText:         { color: theme.textMuted,fontSize: 14 },
+  confirmBtn:         { flex: 2, padding: 12, borderRadius: 10, backgroundColor: theme.gold, alignItems: 'center' },
   confirmBtnDisabled: { opacity: 0.65 },
-  confirmText:        { color: '#111', fontWeight: '700', fontSize: 14 },
+  confirmText:        { color: theme.bg, fontWeight: '700', fontSize: 14 },
 });

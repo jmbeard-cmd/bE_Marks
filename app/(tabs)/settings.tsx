@@ -599,11 +599,11 @@ const handleJoinFamily = async () => {
 />
 
                 <View style={s.inputActions}>
-                  <TouchableOpacity style={s.cancelBtn} onPress={() => setEditingProfile(false)}>
-                    <Text style={s.cancelText}>Cancel</Text>
+                  <TouchableOpacity style={[s.cancelBtn, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={() => setEditingProfile(false)}>
+                    <Text style={[s.cancelText, { color: theme.textMuted }]}>Cancel</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={s.confirmBtn} onPress={saveProfileEdits} disabled={savingProfile || uploadingPhoto}>
-                    {savingProfile ? <ActivityIndicator color="#111" /> : <Text style={s.confirmText}>Publish</Text>}
+                  <TouchableOpacity style={[s.confirmBtn, { backgroundColor: theme.gold }]} onPress={saveProfileEdits} disabled={savingProfile || uploadingPhoto}>
+                    {savingProfile ? <ActivityIndicator color="#111" /> : <Text style={[s.confirmText, { color: theme.bg }]}>Publish</Text>}
                   </TouchableOpacity>
                 </View>
               </View>
@@ -748,11 +748,11 @@ const handleJoinFamily = async () => {
                   </TouchableOpacity>
                 </View>
                 <View style={s.inputActions}>
-                  <TouchableOpacity style={s.cancelBtn} onPress={() => setEditingRelays(false)}>
-                    <Text style={s.cancelText}>Cancel</Text>
+                  <TouchableOpacity style={[s.cancelBtn, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={() => setEditingRelays(false)}>
+                    <Text style={[s.cancelText, { color: theme.textMuted }]}>Cancel</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={s.confirmBtn} onPress={saveRelays} disabled={savingRelays}>
-                    {savingRelays ? <ActivityIndicator color="#111" /> : <Text style={s.confirmText}>Save relays</Text>}
+                  <TouchableOpacity style={[s.confirmBtn, { backgroundColor: theme.gold }]} onPress={saveRelays} disabled={savingRelays}>
+                    {savingRelays ? <ActivityIndicator color="#111" /> : <Text style={[s.confirmText, { color: theme.bg }]}>Save relays</Text>}
                   </TouchableOpacity>
                 </View>
               </View>
@@ -889,11 +889,11 @@ const handleJoinFamily = async () => {
                           style={s.cancelBtn}
                           onPress={() => setEditingFamilyRelay(false)}
                         >
-                          <Text style={s.cancelText}>Cancel</Text>
+                          <Text style={[s.cancelText, { color: theme.textMuted }]}>Cancel</Text>
                         </TouchableOpacity>
 
-                        <TouchableOpacity style={s.confirmBtn} onPress={saveFamilyRelaySettings}>
-                          <Text style={s.confirmText}>Save</Text>
+                        <TouchableOpacity style={[s.confirmBtn, { backgroundColor: theme.gold }]} onPress={saveFamilyRelaySettings}>
+                          <Text style={[s.confirmText, { color: theme.bg }]}>Save</Text>
                         </TouchableOpacity>
                       </View>
                     </View>
@@ -944,11 +944,11 @@ borderColor: '#7a1a1a',
                     <Text style={s.inputLabel}>FAMILY NAME</Text>
                     <TextInput style={s.input} value={familyName} onChangeText={setFamilyName} placeholder="e.g. The Smith Family" placeholderTextColor="#444" autoFocus />
                     <View style={s.inputActions}>
-                      <TouchableOpacity style={s.cancelBtn} onPress={() => { setShowCreateFamily(false); setFamilyName(''); }}>
-                        <Text style={s.cancelText}>Cancel</Text>
+                      <TouchableOpacity style={[s.cancelBtn, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={() => { setShowCreateFamily(false); setFamilyName(''); }}>
+                        <Text style={[s.cancelText, { color: theme.textMuted }]}>Cancel</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity style={s.confirmBtn} onPress={handleCreateFamily}>
-                        <Text style={s.confirmText}>Create</Text>
+                      <TouchableOpacity style={[s.confirmBtn, { backgroundColor: theme.gold }]} onPress={handleCreateFamily}>
+                        <Text style={[s.confirmText, { color: theme.bg }]}>Create</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -958,11 +958,11 @@ borderColor: '#7a1a1a',
                     <Text style={s.inputLabel}>FAMILY CODE</Text>
                     <TextInput style={s.input} value={joinCode} onChangeText={setJoinCode} placeholder="8-character code" placeholderTextColor="#444" autoCapitalize="characters" maxLength={8} autoFocus />
                     <View style={s.inputActions}>
-                      <TouchableOpacity style={s.cancelBtn} onPress={() => { setShowJoinFamily(false); setJoinCode(''); }}>
-                        <Text style={s.cancelText}>Cancel</Text>
+                      <TouchableOpacity style={[s.cancelBtn, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={() => { setShowJoinFamily(false); setJoinCode(''); }}>
+                        <Text style={[s.cancelText, { color: theme.textMuted }]}>Cancel</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity style={s.confirmBtn} onPress={handleJoinFamily}>
-                        <Text style={s.confirmText}>Join</Text>
+                      <TouchableOpacity style={[s.confirmBtn, { backgroundColor: theme.gold }]} onPress={handleJoinFamily}>
+                        <Text style={[s.confirmText, { color: theme.bg }]}>Join</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -1023,20 +1023,31 @@ borderColor: '#7a1a1a',
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#111' },
   container: { padding: 20, paddingBottom: 48, },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 36, paddingBottom: 24, borderBottomWidth: 0.5, borderBottomColor: '#222' },
+  header: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 14,
+  marginBottom: 32, paddingBottom: 24, borderBottomWidth: 0.5, borderBottomColor: '#222' },
   logo: { width: 52, height: 52 },
   appName: { fontSize: 20, fontWeight: '700', color: '#fff', letterSpacing: -0.3 },
   tagline: { fontSize: 11, color: '#c9973a', marginTop: 2, letterSpacing: 1, textTransform: 'uppercase' },
-  section: { marginBottom: 28 },
-  sectionLabel: { fontSize: 11, color: '#444', fontWeight: '600', letterSpacing: 1, marginBottom: 10 },
-  sectionHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  sectionAction: { fontSize: 13, color: '#c9973a', fontWeight: '600' },
-  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 0.5, borderBottomColor: '#1e1e1e' },
-  rowLabel: { fontSize: 14, color: '#aaa' },
-  rowValue: { fontSize: 13, color: '#555', maxWidth: '55%', textAlign: 'right' },
-  rowHint: {
+  section: { marginBottom: 32 },
+sectionLabel: {
   fontSize: 11,
-  color: '#555',
+  fontWeight: '600',
+  letterSpacing: 1,
+  marginBottom: 10,
+},
+rowLabel: {
+  fontSize: 14,
+},
+rowValue: {
+  fontSize: 13,
+  maxWidth: '55%',
+  textAlign: 'right',
+},
+rowHint: {
+  fontSize: 11,
   marginTop: 2,
 },
 themeToggle: {
@@ -1059,7 +1070,37 @@ themeToggleText: {
 themeToggleTextOn: {
   color: '#111',
 },
-  profileCard: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 14, borderRadius: 10, backgroundColor: '#1a1a1a', borderWidth: 0.5, borderColor: '#2a2a2a', marginBottom: 10 },
+sectionHeaderRow: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  marginBottom: 10,
+},
+sectionAction: {
+  fontSize: 13,
+  fontWeight: '600',
+},
+row: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  paddingVertical: 14,
+  borderBottomWidth: 0.5,
+},
+inputLabel: {
+  fontSize: 11,
+  fontWeight: '600',
+  letterSpacing: 0.8,
+  marginBottom: 6,
+},
+profileCard: {
+  flexDirection: 'row', 
+  alignItems: 'center', 
+  gap: 14, 
+  padding: 14, 
+  borderRadius: 12,
+  marginBottom: 10 
+},
   avatar: { width: 52, height: 52, borderRadius: 26, backgroundColor: '#2a2a2a' },
   avatarPlaceholder: { width: 52, height: 52, borderRadius: 26, backgroundColor: '#2a2a2a', alignItems: 'center', justifyContent: 'center' },
   avatarInitial: { fontSize: 22, color: '#c9973a', fontWeight: '700' },
@@ -1069,7 +1110,7 @@ themeToggleTextOn: {
   editProfileBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, borderWidth: 0.5, borderColor: '#c9973a' },
   editProfileBtnText: { fontSize: 12, color: '#c9973a', fontWeight: '600' },
   // Photo picker
-  photoPicker: { borderWidth: 0.5, borderColor: '#2a2a2a', borderRadius: 10, backgroundColor: '#1a1a1a', overflow: 'hidden', marginBottom: 4, height: 100, justifyContent: 'center', alignItems: 'center' },
+  photoPicker: { borderWidth: 0.5, borderColor: '#2a2a2a', borderRadius: 12, backgroundColor: '#1a1a1a', overflow: 'hidden', marginBottom: 4, height: 100, justifyContent: 'center', alignItems: 'center' },
   photoPickerEmpty: { alignItems: 'center', gap: 6 },
   photoPickerIcon: { fontSize: 28 },
   photoPickerText: { fontSize: 13, color: '#555' },
@@ -1077,13 +1118,13 @@ themeToggleTextOn: {
   photoPickerImg: { width: 72, height: 72, borderRadius: 36 },
   photoPickerChange: { fontSize: 11, color: '#555' },
   // Relay
-  relayUrl: { fontSize: 13, color: '#555', flex: 1 },
+  relayUrl: { fontSize: 13, flex: 1 },
   relayDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#2a6a2a' },
   relayRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 0.5, borderBottomColor: '#1e1e1e' },
   relayUrlEdit: { fontSize: 12, color: '#aaa', flex: 1, fontFamily: 'monospace' },
   relayRemove: { fontSize: 14, color: '#555', paddingLeft: 12 },
   relayAddRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
-  relayAddBtn: { padding: 12, borderRadius: 8, backgroundColor: '#1a1a1a', borderWidth: 0.5, borderColor: '#2a2a2a', justifyContent: 'center' },
+  relayAddBtn: { padding: 12, borderRadius: 12, backgroundColor: '#1a1a1a', borderWidth: 0.5, borderColor: '#2a2a2a', justifyContent: 'center' },
   relayAddBtnText: { fontSize: 13, color: '#c9973a', fontWeight: '600' },
   editBlock: { marginBottom: 4 },
   relayPickerRow: {
@@ -1102,55 +1143,89 @@ relayPickerName: {
 },
 relayPickerUrl: {
   fontSize: 11,
-  color: '#555',
   fontFamily: 'monospace',
 },
 relayPickerStatus: {
   fontSize: 12,
-  color: '#555',
   fontWeight: '700',
   marginLeft: 12,
+},putLabel: { fontSize: 11, color: '#444', fontWeight: '600', letterSpacing: 0.8, marginBottom: 6 },
+input: {
+  borderWidth: 0.5,
+  borderRadius: 12,
+  padding: 14,
+  fontSize: 15,
 },
-relayPickerStatusOn: {
-  color: '#c9973a',
-},
-  inputLabel: { fontSize: 11, color: '#444', fontWeight: '600', letterSpacing: 0.8, marginBottom: 6 },
-  input: { borderWidth: 0.5, borderColor: '#2a2a2a', borderRadius: 8, padding: 12, fontSize: 15, color: '#fff', backgroundColor: '#1a1a1a' },
   inputActions: { flexDirection: 'row', gap: 10, marginTop: 12 },
-  cancelBtn: { flex: 1, padding: 12, borderRadius: 8, borderWidth: 0.5, borderColor: '#2a2a2a', alignItems: 'center' },
-  cancelText: { fontSize: 14, color: '#555' },
-  confirmBtn: { flex: 2, padding: 12, borderRadius: 8, backgroundColor: '#c9973a', alignItems: 'center' },
-  confirmText: { fontSize: 14, color: '#111', fontWeight: '700' },
+cancelBtn: {
+  flex: 1,
+  padding: 12,
+  borderRadius: 12,
+  borderWidth: 0.5,
+  alignItems: 'center',
+},
+cancelText: {
+  fontSize: 14,
+  fontWeight: '700',
+},
+confirmBtn: {
+  flex: 2,
+  padding: 12,
+  borderRadius: 12,
+  alignItems: 'center',
+},
+confirmText: {
+  fontSize: 14,
+  fontWeight: '700',
+},
   backupBlock: { marginTop: 10 },
-  backupBtn: { padding: 12, borderRadius: 8, borderWidth: 0.5, borderColor: '#3a3a1a', backgroundColor: '#1e1e00', alignItems: 'center' },
+backupBtn: { 
+  padding: 12, 
+  borderRadius: 12,
+  borderWidth: 0.5,
+  alignItems: 'center' 
+},
   backupBtnText: { fontSize: 14, color: '#c9973a', fontWeight: '500' },
-  nsecBlock: { padding: 14, borderRadius: 10, borderWidth: 0.5, borderColor: '#3a1a1a', backgroundColor: '#1a0a0a' },
+  nsecBlock: { padding: 14, borderRadius: 12, borderWidth: 0.5, borderColor: '#3a1a1a', backgroundColor: '#1a0a0a' },
   nsecWarning: { fontSize: 12, color: '#c00', fontWeight: '600', marginBottom: 10 },
   nsecValue: { fontSize: 11, color: '#aaa', fontFamily: 'monospace', lineHeight: 18, marginBottom: 12 },
   nsecActions: { flexDirection: 'row', gap: 8 },
-  nsecCopyBtn: { flex: 1, padding: 10, borderRadius: 8, backgroundColor: '#c9973a', alignItems: 'center' },
+  nsecCopyBtn: { flex: 1, padding: 10, borderRadius: 12, backgroundColor: '#c9973a', alignItems: 'center' },
   nsecCopyText: { fontSize: 13, color: '#111', fontWeight: '700' },
-  nsecShareBtn: { flex: 1, padding: 10, borderRadius: 8, borderWidth: 0.5, borderColor: '#2a2a2a', alignItems: 'center' },
+  nsecShareBtn: { flex: 1, padding: 10, borderRadius: 12, borderWidth: 0.5, borderColor: '#2a2a2a', alignItems: 'center' },
   nsecShareText: { fontSize: 13, color: '#aaa' },
-  nsecHideBtn: { flex: 1, padding: 10, borderRadius: 8, borderWidth: 0.5, borderColor: '#3a1a1a', alignItems: 'center' },
+  nsecHideBtn: { flex: 1, padding: 10, borderRadius: 12, borderWidth: 0.5, borderColor: '#3a1a1a', alignItems: 'center' },
   nsecHideText: { fontSize: 13, color: '#555' },
   familyOptions: { gap: 10 },
-  familyBtn: { padding: 16, borderRadius: 10, borderWidth: 0.5, borderColor: '#2a2a2a', backgroundColor: '#1a1a1a', gap: 3 },
+familyBtn: { 
+  padding: 16, 
+  borderRadius: 12,
+  borderWidth: 0.5,
+  gap: 3 
+},
   familyBtnIcon: { fontSize: 22, marginBottom: 4 },
   familyBtnText: { fontSize: 15, color: '#fff', fontWeight: '600' },
   familyBtnHint: { fontSize: 12, color: '#444' },
-  familyCard: { padding: 16, borderRadius: 10, borderWidth: 0.5, borderColor: '#c9973a33', backgroundColor: '#1e1600', marginBottom: 10 },
+familyCard: { 
+  padding: 16, 
+  borderRadius: 12,
+  borderWidth: 0.5,
+  marginBottom: 10 
+},
   familyName: { fontSize: 16, color: '#fff', fontWeight: '600', marginBottom: 4 },
   familyCode: { fontSize: 13, color: '#c9973a', fontFamily: 'monospace' },
-    familyRole: { fontSize: 11, color: '#444', marginTop: 4, textTransform: 'uppercase', letterSpacing: 0.6 },
+familyRole: {
+  fontSize: 11,
+  marginTop: 4,
+  textTransform: 'uppercase',
+  letterSpacing: 0.6,
+},
   familyRelayCard: {
-    padding: 14,
-    borderRadius: 10,
-    borderWidth: 0.5,
-    borderColor: '#2a2a2a',
-    backgroundColor: '#1a1a1a',
-    marginBottom: 10,
-  },
+  padding: 14,
+  borderRadius: 12,
+  borderWidth: 0.5,
+  marginBottom: 10,
+},
   familyRelayHeader: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -1191,14 +1266,12 @@ relayPickerStatusOn: {
     color: '#555',
     fontFamily: 'monospace',
   },
-  familyRelayOption: {
-    padding: 12,
-    borderRadius: 9,
-    borderWidth: 0.5,
-    borderColor: '#2a2a2a',
-    backgroundColor: '#111',
-    marginBottom: 8,
-  },
+familyRelayOption: {
+  padding: 12,
+  borderRadius: 12,
+  borderWidth: 0.5,
+  marginBottom: 8,
+},
   familyRelayOptionActive: {
     borderColor: '#c9973a',
     backgroundColor: '#1e1600',
@@ -1213,11 +1286,11 @@ relayPickerStatusOn: {
     fontSize: 12,
     color: '#555',
   },
-  shareCodeBtn: { padding: 12, borderRadius: 8, borderWidth: 0.5, borderColor: '#c9973a', alignItems: 'center', marginBottom: 8 },
+  shareCodeBtn: { padding: 12, borderRadius: 12, borderWidth: 0.5, borderColor: '#c9973a', alignItems: 'center', marginBottom: 8 },
   shareCodeText: { fontSize: 14, color: '#c9973a', fontWeight: '500' },
-  leaveBtn: { padding: 12, borderRadius: 8, borderWidth: 0.5, borderColor: '#2a2a2a', alignItems: 'center' },
+  leaveBtn: { padding: 12, borderRadius: 12, borderWidth: 0.5, borderColor: '#2a2a2a', alignItems: 'center' },
   leaveText: { fontSize: 14, color: '#555' },
-  dangerBtn: { borderWidth: 0.5, borderColor: '#3a1a1a', borderRadius: 8, padding: 14, alignItems: 'center', backgroundColor: '#1a0000', marginTop: 12 },
+  dangerBtn: { borderWidth: 0.5, borderColor: '#3a1a1a', borderRadius: 12, padding: 14, alignItems: 'center', backgroundColor: '#1a0000', marginTop: 12 },
   dangerText: { fontSize: 14, color: '#c00' },
   verse: { fontSize: 12, color: '#333', textAlign: 'center', marginTop: 32, letterSpacing: 1 },
 });

@@ -1,5 +1,6 @@
 import { Tabs } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
+import { useIdentity } from '../_layout';
 
 function TimelineIcon({ color }: { color: string }) {
   return (
@@ -25,8 +26,8 @@ function GroupsIcon({ color }: { color: string }) {
   return (
     <View style={s.groupsIcon}>
       <View style={[s.gCircle1, { borderColor: color }]} />
-      <View style={[s.gCircle2, { borderColor: color, backgroundColor: '#111' }]} />
-      <View style={[s.gCircle3, { borderColor: color, backgroundColor: '#111' }]} />
+    <View style={[s.gCircle2, { borderColor: color }]} />
+    <View style={[s.gCircle3, { borderColor: color }]} />
     </View>
   );
 }
@@ -41,6 +42,7 @@ function SettingsIcon({ color }: { color: string }) {
 }
 
 export default function TabLayout() {
+  const { theme } = useIdentity();
   return (
     <Tabs
       initialRouteName="timeline"
@@ -48,17 +50,30 @@ export default function TabLayout() {
         headerShown: false,
         tabBarStyle: {
           borderTopWidth: 0.5,
-          borderTopColor: '#222',
-          backgroundColor: '#111',
+          borderTopColor: theme.border,
+          backgroundColor: theme.surface,
           elevation: 0,
           shadowOpacity: 0,
-          height: 64,
-          paddingBottom: 10,
+          height: 78,
+          paddingBottom: 22,
           paddingTop: 6,
         },
-        tabBarActiveTintColor: '#c9973a',
-        tabBarInactiveTintColor: '#444',
-        tabBarLabelStyle: { fontSize: 10, fontWeight: '600', letterSpacing: 0.5 },
+        tabBarActiveTintColor: theme.gold,
+        tabBarInactiveTintColor:
+          theme.bg === '#0D0F0E'
+            ? 'rgba(255,255,255,0.75)'
+            : theme.textMuted,
+        tabBarLabelStyle: {
+          fontSize: 10,
+          fontWeight: '600',
+          letterSpacing: 0.5,
+        },
+        tabBarItemStyle: {
+          paddingVertical: 4,
+        },
+        tabBarIconStyle: {
+          marginBottom: 2,
+        },
       }}
     >
       <Tabs.Screen

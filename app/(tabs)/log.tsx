@@ -518,7 +518,15 @@ setProgress(0);
         )}
 
         {/* Save */}
-                <TouchableOpacity style={[s.saveBtn, saving && s.saveBtnSaving]} onPress={handleSave} disabled={saving}>
+<TouchableOpacity
+  style={[
+    s.saveBtn,
+    { backgroundColor: theme.gold },
+    saving && s.saveBtnSaving,
+  ]}
+  onPress={handleSave}
+  disabled={saving}
+>
           {saving ? (
             <View style={s.savingRow}>
               <ActivityIndicator color="#111" />

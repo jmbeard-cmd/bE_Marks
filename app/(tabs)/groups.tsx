@@ -335,7 +335,7 @@ export default function GroupsScreen() {
                   <TextInput
                     style={s.input}
                     placeholder="e.g. 2025-2026"
-                    placeholderTextColor="#444"
+                    placeholderTextColor={theme.textMuted}
                     value={cgSeason}
                     onChangeText={setCgSeason}
                   />
@@ -359,7 +359,7 @@ export default function GroupsScreen() {
                   <TextInput
                     style={s.input}
                     placeholder="e.g. Washington, Rush Springs…"
-                    placeholderTextColor="#444"
+                    placeholderTextColor={theme.textMuted}
                     value={cgSchool}
                     onChangeText={setCgSchool}
                   />
@@ -368,7 +368,7 @@ export default function GroupsScreen() {
                   <TextInput
                     style={[s.input, s.inputMulti]}
                     placeholder="What is this group for?"
-                    placeholderTextColor="#444"
+                    placeholderTextColor={theme.textMuted}
                     value={cgDescription}
                     onChangeText={setCgDescription}
                     multiline
@@ -406,7 +406,7 @@ export default function GroupsScreen() {
                 <TextInput
                   style={[s.input, s.codeInput]}
                   placeholder="XXXXXX"
-                  placeholderTextColor="#444"
+                  placeholderTextColor={theme.textMuted}
                   value={joinCode}
                   onChangeText={t => setJoinCode(t.toUpperCase())}
                   autoCapitalize="characters"
@@ -617,23 +617,74 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
   sheetTitle: { fontSize: 20, fontWeight: '700', color: theme.text, marginBottom: 6 },
   sheetHint: { fontSize: 13, color: theme.textMuted, lineHeight: 18, marginBottom: 20 },
   sportPills: { marginBottom: 6 },
-  sportPill: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, borderWidth: 0.5, borderColor: '#2a2a2a', backgroundColor: theme.bg, marginRight: 8 },
-  sportPillActive: { backgroundColor: theme.gold, borderColor: '#c9973a' },
-  sportPillText: { fontSize: 12, color: '#666' },
-  sportPillTextActive: { color: '#111', fontWeight: '600' },
+  sportPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    backgroundColor: theme.raised,
+    marginRight: 8,
+  },
+  sportPillActive: {
+    backgroundColor: theme.gold,
+    borderColor: theme.gold,
+  },
+  sportPillText: {
+    fontSize: 12,
+    color: theme.text,
+  },
+  sportPillTextActive: {
+    color: theme.bg,
+    fontWeight: '600',
+  },
   inputLabel: { fontSize: 11, color: theme.textMuted, fontWeight: '600', letterSpacing: 0.8, marginBottom: 8, marginTop: 12 },
   input: {
-    backgroundColor: '#111', borderWidth: 0.5, borderColor: theme.border,
-    borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13,
-    color: theme.text, fontSize: 15, marginBottom: 4,
+    backgroundColor: theme.surface,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    color: theme.text,
+    fontSize: 15,
+    marginBottom: 4,
   },
   inputMulti: { minHeight: 80, textAlignVertical: 'top', lineHeight: 22 },
   codeInput: { textAlign: 'center', fontSize: 28, fontWeight: '700', letterSpacing: 8 },
-  inputMeta: { fontSize: 11, color: '#444', marginTop: 8, marginBottom: 4, lineHeight: 17 },
+inputMeta: {
+  fontSize: 11,
+  color: theme.textMuted,
+  marginTop: 8,
+  marginBottom: 4,
+  lineHeight: 17,
+},
   sheetActions: { flexDirection: 'row', gap: 10, marginTop: 20 },
-  cancelBtn: { flex: 1, padding: 14, borderRadius: 12, borderWidth: 0.5, borderColor: '#2a2a2a', alignItems: 'center' },
-  cancelText: { color: '#555', fontSize: 14, fontWeight: '500' },
-  confirmBtn: { flex: 2, padding: 14, borderRadius: 12, backgroundColor: theme.gold, alignItems: 'center' },
+  cancelBtn: {
+    flex: 1,
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    backgroundColor: theme.surface,
+    alignItems: 'center',
+  },
+  cancelText: {
+    color: theme.textMuted,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  confirmBtn: {
+    flex: 2,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: theme.gold,
+    alignItems: 'center',
+  },
   confirmBtnDim: { opacity: 0.5 },
-  confirmText: { color: theme.surface, fontWeight: '700', fontSize: 14 },
+  confirmText: {
+    color: theme.bg,
+    fontWeight: '700',
+    fontSize: 14,
+  },
 });
