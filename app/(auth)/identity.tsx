@@ -1,12 +1,14 @@
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Image,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
-  Text, TextInput, TouchableOpacity,
+  Text, TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -21,6 +23,7 @@ type Mode = 'choose' | 'import' | 'amber';
 
 export default function IdentityScreen() {
   const { setIdentity, setUseAmber } = useIdentity();
+  const router = useRouter();
   const [mode, setMode] = useState<Mode>('choose');
   const [nsecInput, setNsecInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -65,7 +68,11 @@ export default function IdentityScreen() {
 
   return (
     <SafeAreaView style={s.safe}>
-      <ScrollView contentContainerStyle={s.container} keyboardShouldPersistTaps="handled">
+      <ScrollView
+  contentContainerStyle={s.container}
+  keyboardShouldPersistTaps="handled"
+>
+  <View style={s.inner}>
 
         {/* Hero header */}
         <View style={s.hero}>
@@ -74,30 +81,32 @@ export default function IdentityScreen() {
   style={s.logo}
   resizeMode="contain"
 />
-          <Text style={s.appName}>Milestones</Text>
+          <Text style={s.appName}>Marks</Text>
           <Text style={s.tagline}>by beginning End</Text>
         </View>
 
         {mode === 'choose' && (
           <View style={s.options}>
             <Text style={s.sectionLabel}>SET UP YOUR IDENTITY</Text>
-            <OptionCard
-              title="New identity"
-              description="Generate a fresh Nostr keypair stored securely on this device."
-              onPress={handleGenerate}
-              loading={loading}
-              accent
-            />
-            <OptionCard
-              title="Import key"
-              description="Already have a Nostr account? Enter your nsec private key."
-              onPress={() => setMode('import')}
-            />
-            <OptionCard
-              title="Amber signer"
-              description="Use the Amber app on Android to sign without exposing your nsec."
-              onPress={() => setMode('amber')}
-            />
+<OptionCard
+  icon="🔑"
+  title="Import saved test key"
+  description="Use one of your saved test nsecs. Best for onboarding and reinstall testing."
+  onPress={() => setMode('import')}
+  accent
+/>
+<OptionCard
+  icon="＋"
+  title="Create new identity"
+  description="Start a guided setup for your first real bE Marks identity."
+  onPress={() => router.push('/onboarding-intro' as any)}
+/>
+<OptionCard
+  icon="🛡️"
+  title="Amber signer"
+  description="Use the Amber app on Android to sign without exposing your nsec."
+  onPress={() => setMode('amber')}
+/>
           </View>
         )}
 
@@ -114,12 +123,12 @@ export default function IdentityScreen() {
               autoCorrect={false}
               secureTextEntry
             />
-            <TouchableOpacity style={s.primaryBtn} onPress={handleImport} disabled={loading}>
+            <Pressable style={s.primaryBtn} onPress={handleImport} disabled={loading}>
               {loading ? <ActivityIndicator color="#111" /> : <Text style={s.primaryBtnText}>Import</Text>}
-            </TouchableOpacity>
-            <TouchableOpacity style={s.back} onPress={() => setMode('choose')}>
+            </Pressable>
+            <Pressable style={s.back} onPress={() => setMode('choose')}>
               <Text style={s.backText}>← Back</Text>
-            </TouchableOpacity>
+            </Pressable>
           </View>
         )}
 
@@ -129,33 +138,69 @@ export default function IdentityScreen() {
             <Text style={s.hint}>
               Amber keeps your private key off this app. Install Amber from GitHub or the Play Store, then tap below.
             </Text>
-            <TouchableOpacity style={s.primaryBtn} onPress={handleAmber} disabled={loading}>
+            <Pressable style={s.primaryBtn} onPress={handleAmber} disabled={loading}>
               {loading ? <ActivityIndicator color="#111" /> : <Text style={s.primaryBtnText}>Open Amber</Text>}
-            </TouchableOpacity>
-            <TouchableOpacity style={s.back} onPress={() => setMode('choose')}>
+            </Pressable>
+            <Pressable style={s.back} onPress={() => setMode('choose')}>
               <Text style={s.backText}>← Back</Text>
-            </TouchableOpacity>
+            </Pressable>
           </View>
         )}
 
-      </ScrollView>
+        </View>
+</ScrollView>
     </SafeAreaView>
   );
 }
 
-function OptionCard({ title, description, onPress, loading, accent }: {
-  title: string; description: string; onPress: () => void; loading?: boolean; accent?: boolean;
+function OptionCard({
+  icon,
+  title,
+  description,
+  onPress,
+  loading,
+  accent,
+}: {
+  icon?: string;
+  title: string;
+  description: string;
+  onPress: () => void;
+  loading?: boolean;
+  accent?: boolean;
 }) {
   return (
-    <TouchableOpacity style={[s.card, accent && s.cardAccent]} onPress={onPress} disabled={loading}>
-      {loading
-        ? <ActivityIndicator color={accent ? '#111' : '#c9973a'} />
-        : <>
-            <Text style={[s.cardTitle, accent && s.cardTitleAccent]}>{title}</Text>
-            <Text style={[s.cardDesc, accent && s.cardDescAccent]}>{description}</Text>
-          </>
-      }
-    </TouchableOpacity>
+<Pressable
+  onPress={onPress}
+  style={({ pressed }) => [
+    s.card,
+    accent && s.cardAccent,
+    pressed && s.cardPressed,
+  ]}
+>
+  {loading ? (
+    <ActivityIndicator />
+  ) : (
+    <View style={s.cardRow}>
+      
+      {/* LEFT ICON */}
+      {icon && (
+        <View style={s.iconCircle}>
+          <Text style={s.iconText}>{icon}</Text>
+        </View>
+      )}
+
+      {/* TEXT CONTENT */}
+      <View style={s.cardTextWrap}>
+        <Text style={[s.cardTitle, accent && s.cardTitleAccent]}>{title}</Text>
+        <Text style={[s.cardDesc, accent && s.cardDescAccent]}>{description}</Text>
+      </View>
+
+      {/* RIGHT ARROW */}
+      <Text style={s.cardArrow}>›</Text>
+
+    </View>
+  )}
+</Pressable>
   );
 }
 
@@ -164,17 +209,43 @@ const s = StyleSheet.create({
   container: { padding: 24, paddingTop: 32, paddingBottom: 48 },
   hero: { alignItems: 'center', marginBottom: 44 },
   logo: { width: 90, height: 90, marginBottom: 16 },
-  appName: { fontSize: 28, fontWeight: '700', color: '#fff', letterSpacing: -0.5 },
+  appName: { fontSize: 46, fontWeight: '700', color: '#fff', letterSpacing: -0.5 },
   tagline: { fontSize: 13, color: '#c9973a', marginTop: 4, letterSpacing: 1, textTransform: 'uppercase' },
   sectionLabel: { fontSize: 11, color: '#555', fontWeight: '600', letterSpacing: 1, marginBottom: 12 },
-  options: { gap: 10 },
-  card: { borderWidth: 0.5, borderColor: '#2a2a2a', borderRadius: 12, padding: 18, backgroundColor: '#1a1a1a' },
+  options: { gap: 16 },
+card: {
+  backgroundColor: '#161A18', // surface
+  borderRadius: 18,
+
+  paddingVertical: 18,
+  paddingHorizontal: 18,
+  marginBottom: 18,
+
+  borderWidth: 1,
+  borderColor: '#2A2620',
+
+  shadowColor: '#000',
+  shadowOpacity: 0.25,
+  shadowRadius: 12,
+  shadowOffset: { width: 0, height: 6 },
+  elevation: 4,
+},
   cardAccent: { backgroundColor: '#c9973a', borderColor: '#c9973a' },
-  cardTitle: { fontSize: 16, fontWeight: '600', color: '#fff', marginBottom: 4 },
+cardTitle: {
+  color: '#F2EDE6',
+  fontSize: 17,
+  fontWeight: '600',
+  letterSpacing: 0.3,
+},
   cardTitleAccent: { color: '#111' },
-  cardDesc: { fontSize: 13, color: '#666', lineHeight: 19 },
+cardDesc: {
+  color: '#A89880',
+  fontSize: 13,
+  marginTop: 6,
+  lineHeight: 18,
+},
   cardDescAccent: { color: '#333' },
-  form: { gap: 14 },
+  form: { gap: 16 },
   hint: { fontSize: 13, color: '#666', lineHeight: 20 },
   input: { borderWidth: 0.5, borderColor: '#2a2a2a', borderRadius: 8, padding: 12, fontSize: 14, color: '#fff', backgroundColor: '#1a1a1a' },
   primaryBtn: { backgroundColor: '#c9973a', borderRadius: 8, padding: 14, alignItems: 'center' },
@@ -182,4 +253,55 @@ const s = StyleSheet.create({
   back: { alignItems: 'center', padding: 8 },
   backText: { color: '#555', fontSize: 14 },
   footer: { fontSize: 12, color: '#333', textAlign: 'center', marginTop: 32, letterSpacing: 1 },
+  inner: {
+  width: '100%',
+  maxWidth: 520,
+  alignSelf: 'center',
+},
+cardRow: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  paddingVertical: 4,
+},
+
+iconCircle: {
+  width: 46,
+  height: 46,
+  borderRadius: 23,
+
+  backgroundColor: 'rgba(201,151,58,0.12)', // soft gold tint
+  borderWidth: 1,
+  borderColor: 'rgba(201,151,58,0.35)',
+
+  alignItems: 'center',
+  justifyContent: 'center',
+  marginRight: 14,
+
+  // subtle glow depth
+  shadowColor: '#C9973A',
+  shadowOpacity: 0.25,
+  shadowRadius: 6,
+  shadowOffset: { width: 0, height: 2 },
+  elevation: 2,
+},
+
+iconText: {
+  fontSize: 20,
+  color: '#E8B96A', // gold light
+},
+
+cardTextWrap: {
+  flex: 1,
+  justifyContent: 'center',
+},
+
+cardArrow: {
+  fontSize: 22,
+  color: '#999',
+  marginLeft: 10,
+},
+cardPressed: {
+  transform: [{ scale: 0.98 }],
+  opacity: 0.9,
+},
 });

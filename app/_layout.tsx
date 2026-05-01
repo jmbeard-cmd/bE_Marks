@@ -110,12 +110,27 @@ startDMService();
   }, [npub]);
 
   useEffect(() => {
-    if (!ready) return;
-    const inAuth = (segments[0] as string) === '(auth)';
-    const hasIdentity = !!npub;
-    if (!hasIdentity && !inAuth) router.replace('/(auth)/identity' as any);
-    if (hasIdentity && inAuth) router.replace('/(tabs)/timeline' as any);
-  }, [ready, npub]);
+  if (!ready) return;
+
+  const inAuth = (segments[0] as string) === '(auth)';
+  const currentScreen = segments[1] as string | undefined;
+  const hasIdentity = !!npub;
+
+  const allowSignedInAuthScreen =
+  currentScreen === 'onboarding-create-identity' ||
+  currentScreen === 'onboarding-key-backup' ||
+  currentScreen === 'onboarding-profile' ||
+  currentScreen === 'onboarding-first-mark';
+
+  if (!hasIdentity && !inAuth) {
+    router.replace('/(auth)/identity' as any);
+    return;
+  }
+
+  if (hasIdentity && inAuth && !allowSignedInAuthScreen) {
+    router.replace('/(tabs)/timeline' as any);
+  }
+}, [ready, npub, segments]);
 
   const setThemeMode = async (mode: 'dark' | 'light') => {
   setThemeModeState(mode);

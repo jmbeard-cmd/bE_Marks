@@ -9,7 +9,7 @@ import {
   type Event,
   type UnsignedEvent,
 } from 'nostr-tools';
-import { Linking } from 'react-native';
+import { Linking, Platform } from 'react-native';
 
 const SECKEY = 'nostr_nsec';
 const PUBKEY = 'nostr_npub';
@@ -50,11 +50,23 @@ export async function importNsec(nsec: string): Promise<{ npub: string; nsec: st
   return { npub, nsec };
 }
 
-export async function getStoredIdentity(): Promise<{ npub: string; nsec: string } | null> {
-  const nsec = await SecureStore.getItemAsync(SECKEY);
-  const npub = await SecureStore.getItemAsync(PUBKEY);
-  if (!nsec || !npub) return null;
-  return { nsec, npub };
+export async function getStoredIdentity() {
+  try {
+    if (Platform.OS === 'web') {
+      // SecureStore not supported on web
+      return null;
+    }
+
+    const npub = await SecureStore.getItemAsync('npub');
+    const nsec = await SecureStore.getItemAsync('nsec');
+
+    if (!npub || !nsec) return null;
+
+    return { npub, nsec };
+  } catch (err) {
+    console.warn('getStoredIdentity failed', err);
+    return null;
+  }
 }
 
 export async function clearIdentity() {
