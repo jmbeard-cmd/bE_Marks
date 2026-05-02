@@ -44,6 +44,7 @@ export default function DmThreadScreen() {
   const [profilePicture, setProfilePicture] = useState<string | null>(null);
 
   const listRef = useRef<FlatList<DMMessage>>(null);
+  const inputRef = useRef<TextInput>(null);
   const leavingRef = useRef(false);
   const loadingMessagesRef = useRef(false);
   const pendingMessageReloadRef = useRef(false);
@@ -54,12 +55,12 @@ export default function DmThreadScreen() {
   const threadId = useMemo(() => params.id || '', [params.id]);
   const title = useMemo(() => params.title || 'Conversation', [params.title]);
 
-  const scrollToBottom = useCallback((animated = false) => {
+  const scrollToLatest = useCallback((animated = false) => {
     if (leavingRef.current) return;
 
     requestAnimationFrame(() => {
       if (leavingRef.current) return;
-      listRef.current?.scrollToEnd({ animated });
+      listRef.current?.scrollToOffset({ offset: 0, animated });
     });
   }, []);
 
@@ -122,9 +123,11 @@ export default function DmThreadScreen() {
 
       if (leavingRef.current) return;
 
-      setMessages(localMessages);
+      const newestFirstMessages = [...localMessages].sort(
+        (a, b) => b.createdAt - a.createdAt
+      );
 
-      requestAnimationFrame(() => scrollToBottom(false));
+      setMessages(newestFirstMessages);
 
       getDMThreadById(threadId)
         .then(thread => {
@@ -152,7 +155,7 @@ export default function DmThreadScreen() {
         }, 100);
       }
     }
-  }, [threadId, scrollToBottom, hydrateThreadProfile, scheduleMarkThreadRead]);
+  }, [threadId, scrollToLatest, hydrateThreadProfile, scheduleMarkThreadRead]);
 
   useFocusEffect(
     useCallback(() => {
@@ -212,7 +215,6 @@ export default function DmThreadScreen() {
     setSending(true);
     setDraft('');
     setInputHeight(40);
-    Keyboard.dismiss();
 
     try {
       const localMessage = await sendLocalDM({
@@ -226,8 +228,8 @@ export default function DmThreadScreen() {
           const exists = prev.some(m => m.id === localMessage.id);
           if (exists) return prev;
 
-          const next = [...prev, localMessage].sort((a, b) => a.createdAt - b.createdAt);
-          requestAnimationFrame(() => scrollToBottom(true));
+          const next = [localMessage, ...prev].sort((a, b) => b.createdAt - a.createdAt);
+          requestAnimationFrame(() => scrollToLatest(true));
           return next;
         });
       }
@@ -254,6 +256,12 @@ export default function DmThreadScreen() {
     } finally {
       if (!leavingRef.current) {
         setSending(false);
+
+        requestAnimationFrame(() => {
+          if (!leavingRef.current) {
+            inputRef.current?.focus();
+          }
+        });
       }
     }
   };
@@ -281,8 +289,8 @@ export default function DmThreadScreen() {
   };
 
   const renderMessage = ({ item, index }: { item: DMMessage; index: number }) => {
-    const prevMsg = index > 0 ? messages[index - 1] : null;
-    const showDateDivider = !prevMsg || !isSameDay(item.createdAt, prevMsg.createdAt);
+    const olderMsg = index < messages.length - 1 ? messages[index + 1] : null;
+    const showDateDivider = !olderMsg || !isSameDay(item.createdAt, olderMsg.createdAt);
 
     return (
       <View>
@@ -337,11 +345,12 @@ export default function DmThreadScreen() {
             contentContainerStyle={s.list}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+            inverted
             removeClippedSubviews
             initialNumToRender={12}
             maxToRenderPerBatch={10}
             windowSize={5}
-            onContentSizeChange={() => scrollToBottom(false)}
+            showsVerticalScrollIndicator={false}
             ListEmptyComponent={
               <View style={s.empty}>
                 <Text style={s.emptyIcon}>✉️</Text>
@@ -356,6 +365,7 @@ export default function DmThreadScreen() {
 
           <View style={s.composer}>
             <TextInput
+              ref={inputRef}
               style={[s.input, { height: Math.max(40, Math.min(120, inputHeight)) }]}
               placeholder={`Message ${profileName || title}…`}
               placeholderTextColor={theme.textMuted}
@@ -365,7 +375,7 @@ export default function DmThreadScreen() {
               maxLength={2000}
               textAlignVertical="top"
               onFocus={() => {
-                setTimeout(() => scrollToBottom(true), 200);
+                setTimeout(() => scrollToLatest(true), 200);
               }}
               onContentSizeChange={e => {
                 setInputHeight(e.nativeEvent.contentSize.height);
