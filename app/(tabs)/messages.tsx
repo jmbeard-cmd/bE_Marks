@@ -17,7 +17,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors } from '../../src/constants/theme';
 import { BEContact, getContacts } from '../../src/utils/contacts-storage';
 import { subscribeToDMEvents } from '../../src/utils/dm-events';
-import { createThread, deleteThread, getDMThreads, type DMThread } from '../../src/utils/dm-storage';
+import {
+  createThread,
+  deleteThread,
+  getDMThreads,
+  getMessagesForThread,
+  type DMThread,
+} from '../../src/utils/dm-storage';
 import { fetchNostrProfile } from '../../src/utils/nostr';
 import { normalizeNostrIdentity } from '../../src/utils/nostr-identity';
 import { useIdentity } from '../_layout';
@@ -65,6 +71,7 @@ export default function MessagesScreen() {
 
   const loadingThreadsRef = useRef(false);
   const loadingProfilesRef = useRef(false);
+  const warmingThreadCachesRef = useRef(false);
   const pendingThreadReloadRef = useRef(false);
   const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -118,6 +125,28 @@ export default function MessagesScreen() {
     }
   }, []);
 
+    const warmRecentThreadCaches = useCallback(async (threadList: DMThread[]) => {
+    if (warmingThreadCachesRef.current) return;
+
+    warmingThreadCachesRef.current = true;
+
+    try {
+      const recentThreads = threadList.slice(0, 5);
+
+      for (const thread of recentThreads) {
+        try {
+          await getMessagesForThread(thread.id);
+        } catch (error) {
+          console.warn('[Messages] failed to warm DM thread cache:', error);
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+    } finally {
+      warmingThreadCachesRef.current = false;
+    }
+  }, []);
+
   const loadData = useCallback(async () => {
     if (loadingThreadsRef.current) {
       pendingThreadReloadRef.current = true;
@@ -130,6 +159,10 @@ export default function MessagesScreen() {
       const t = await getDMThreads();
 
       setThreads(t);
+
+      setTimeout(() => {
+        warmRecentThreadCaches(t);
+      }, 100);
 
       getContacts()
         .then(setContacts)
@@ -148,7 +181,7 @@ export default function MessagesScreen() {
         }, 100);
       }
     }
-  }, [hydrateProfiles]);
+  }, [hydrateProfiles, warmRecentThreadCaches]);
 
   useFocusEffect(
     useCallback(() => {

@@ -201,6 +201,19 @@ export async function getMessagesForThread(threadId: string): Promise<DMMessage[
   return threadMessages;
 }
 
+export async function getRecentMessagesForThread(
+  threadId: string,
+  limit = 30
+): Promise<DMMessage[]> {
+  const messages = await getMessagesForThread(threadId);
+
+  if (messages.length <= limit) {
+    return messages;
+  }
+
+  return messages.slice(messages.length - limit);
+}
+
 export async function createThread(input: {
   title: string;
   participantPubkey?: string;

@@ -19,7 +19,7 @@ import { Colors } from '../src/constants/theme';
 import { subscribeToDMEvents } from '../src/utils/dm-events';
 import {
   getDMThreadById,
-  getMessagesForThread,
+  getRecentMessagesForThread,
   markThreadRead,
   sendLocalDM,
   type DMMessage
@@ -118,7 +118,7 @@ export default function DmThreadScreen() {
     loadingMessagesRef.current = true;
 
     try {
-      const localMessages = await getMessagesForThread(threadId);
+      const localMessages = await getRecentMessagesForThread(threadId, 30);    
 
       if (leavingRef.current) return;
 
@@ -338,9 +338,9 @@ export default function DmThreadScreen() {
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
             removeClippedSubviews
-            initialNumToRender={18}
-            maxToRenderPerBatch={18}
-            windowSize={7}
+            initialNumToRender={12}
+            maxToRenderPerBatch={10}
+            windowSize={5}
             onContentSizeChange={() => scrollToBottom(false)}
             ListEmptyComponent={
               <View style={s.empty}>
