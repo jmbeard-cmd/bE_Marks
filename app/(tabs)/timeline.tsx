@@ -789,49 +789,6 @@ style={[
               <View style={s.drawerSection}>
                 <Text style={[s.drawerSectionLabel, themed.mutedText]}>MEDIA TYPE</Text>
                 <View style={s.drawerChips}>
-{(['all', 'photo', 'video', 'voice', 'text'] as const).map(m => (
-  <TouchableOpacity
-    key={m}
-    style={[
-      s.drawerChip,
-      themed.raised,
-      themed.border,
-      pendingFilters.mediaType === m && {
-        backgroundColor: theme.gold,
-        borderColor: theme.gold,
-      },
-    ]}
-    onPress={() => setPendingFilters(prev => ({ ...prev, mediaType: m }))}
-  >
-    <Text
-      style={[
-        s.drawerChipText,
-        themed.primaryText,
-        pendingFilters.mediaType === m && {
-          color: theme.bg,
-          fontWeight: '600',
-        },
-      ]}
-    >
-      {m === 'all'
-        ? 'All media'
-        : m === 'photo'
-        ? '📷 Photo'
-        : m === 'video'
-        ? '🎥 Video'
-        : m === 'voice'
-        ? '🎙 Voice'
-        : '📝 Text only'}
-    </Text>
-  </TouchableOpacity>
-))}
-    
-                </View>
-              </View>
-
-              <View style={s.drawerSection}>
-                <Text style={[s.drawerSectionLabel, themed.mutedText]}>MEDIA TYPE</Text>
-                <View style={s.drawerChips}>
                   {(['all', 'photo', 'video', 'voice', 'text'] as const).map(m => (
                     <TouchableOpacity
                       key={m}
@@ -870,7 +827,6 @@ style={[
                   ))}
                 </View>
               </View>
-
               {tab === 'family' && familyAuthors.length > 1 && (
                 <View style={s.drawerSection}>
                   <Text style={[s.drawerSectionLabel, themed.mutedText]}>FAMILY MEMBER</Text>
