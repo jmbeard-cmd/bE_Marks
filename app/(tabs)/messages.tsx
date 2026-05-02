@@ -62,6 +62,7 @@ export default function MessagesScreen() {
   const router = useRouter();
 
   const [threads, setThreads] = useState<DMThread[]>([]);
+  const [loadingInitialThreads, setLoadingInitialThreads] = useState(true);
   const [contacts, setContacts] = useState<BEContact[]>([]);
   const [profileNames, setProfileNames] = useState<Record<string, string>>({});
   const [profilePictures, setProfilePictures] = useState<Record<string, string>>({});
@@ -153,6 +154,7 @@ export default function MessagesScreen() {
       const t = await getDMThreads();
 
       setThreads(t);
+      setLoadingInitialThreads(false);
 
       const pubkeys = t
         .map(thread => thread.participantPubkey)
@@ -207,6 +209,7 @@ export default function MessagesScreen() {
       }, 300);
     } finally {
       loadingThreadsRef.current = false;
+      setLoadingInitialThreads(false);
 
       if (pendingThreadReloadRef.current) {
         pendingThreadReloadRef.current = false;
@@ -439,23 +442,29 @@ export default function MessagesScreen() {
           filteredThreads.length === 0 && s.listEmpty,
         ]}
         ListEmptyComponent={
-          <View style={s.empty}>
-            <Text style={s.emptyIcon}>✉️</Text>
-            <Text style={s.emptyTitle}>
-              {threads.length === 0 ? 'No messages yet' : 'No matches'}
-            </Text>
-            <Text style={s.emptyHint}>
-              {threads.length === 0
-                ? 'Start a private conversation with a saved contact or npub.'
-                : 'Try searching by name, message, or npub.'}
-            </Text>
+          loadingInitialThreads ? (
+            <View style={s.empty}>
+              <Text style={s.emptyHint}>Loading messages…</Text>
+            </View>
+          ) : (
+            <View style={s.empty}>
+              <Text style={s.emptyIcon}>✉️</Text>
+              <Text style={s.emptyTitle}>
+                {threads.length === 0 ? 'No messages yet' : 'No matches'}
+              </Text>
+              <Text style={s.emptyHint}>
+                {threads.length === 0
+                  ? 'Start a private conversation with a saved contact or npub.'
+                  : 'Try searching by name, message, or npub.'}
+              </Text>
 
-            {threads.length === 0 && (
-              <TouchableOpacity style={s.emptyBtn} onPress={() => setSheet('new')}>
-                <Text style={s.emptyBtnText}>Start conversation</Text>
-              </TouchableOpacity>
-            )}
-          </View>
+              {threads.length === 0 && (
+                <TouchableOpacity style={s.emptyBtn} onPress={() => setSheet('new')}>
+                  <Text style={s.emptyBtnText}>Start conversation</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )
         }
       />
 
