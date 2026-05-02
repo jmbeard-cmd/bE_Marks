@@ -21,7 +21,6 @@ import {
   createThread,
   deleteThread,
   getDMThreads,
-  getMessagesForThread,
   type DMThread,
 } from '../../src/utils/dm-storage';
 import { fetchNostrProfile } from '../../src/utils/nostr';
@@ -71,7 +70,6 @@ export default function MessagesScreen() {
 
   const loadingThreadsRef = useRef(false);
   const loadingProfilesRef = useRef(false);
-  const warmingThreadCachesRef = useRef(false);
   const pendingThreadReloadRef = useRef(false);
   const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -125,28 +123,6 @@ export default function MessagesScreen() {
     }
   }, []);
 
-    const warmRecentThreadCaches = useCallback(async (threadList: DMThread[]) => {
-    if (warmingThreadCachesRef.current) return;
-
-    warmingThreadCachesRef.current = true;
-
-    try {
-      const recentThreads = threadList.slice(0, 5);
-
-      for (const thread of recentThreads) {
-        try {
-          await getMessagesForThread(thread.id);
-        } catch (error) {
-          console.warn('[Messages] failed to warm DM thread cache:', error);
-        }
-
-        await new Promise(resolve => setTimeout(resolve, 0));
-      }
-    } finally {
-      warmingThreadCachesRef.current = false;
-    }
-  }, []);
-
   const loadData = useCallback(async () => {
     if (loadingThreadsRef.current) {
       pendingThreadReloadRef.current = true;
@@ -159,10 +135,6 @@ export default function MessagesScreen() {
       const t = await getDMThreads();
 
       setThreads(t);
-
-      setTimeout(() => {
-        warmRecentThreadCaches(t);
-      }, 100);
 
       getContacts()
         .then(setContacts)
@@ -181,7 +153,7 @@ export default function MessagesScreen() {
         }, 100);
       }
     }
-  }, [hydrateProfiles, warmRecentThreadCaches]);
+  }, [hydrateProfiles]);
 
   useFocusEffect(
     useCallback(() => {
@@ -231,10 +203,21 @@ export default function MessagesScreen() {
     setCreating(false);
   };
 
+  const getThreadDisplayTitle = useCallback((thread: DMThread): string => {
+    if (thread.participantPubkey && profileNames[thread.participantPubkey]) {
+      return profileNames[thread.participantPubkey];
+    }
+
+    return thread.title;
+  }, [profileNames]);
+
   const openThread = (thread: DMThread) => {
     router.push({
       pathname: '/dm-thread',
-      params: { id: thread.id, title: thread.title },
+      params: {
+        id: thread.id,
+        title: getThreadDisplayTitle(thread),
+      },
     } as any);
   };
 
@@ -299,10 +282,7 @@ export default function MessagesScreen() {
   const renderThread = ({ item }: { item: DMThread }) => {
     const encrypted = !!item.participantPubkey;
     const hasUnread = item.unread > 0;
-    const displayTitle =
-      item.participantPubkey && profileNames[item.participantPubkey]
-        ? profileNames[item.participantPubkey]
-        : item.title;
+    const displayTitle = getThreadDisplayTitle(item);
 
     const profilePicture =
       item.participantPubkey
