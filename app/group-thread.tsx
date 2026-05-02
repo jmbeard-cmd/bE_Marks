@@ -58,8 +58,10 @@ export default function GroupThreadScreen() {
   const [draft, setDraft] = useState('');
     const [inputHeight, setInputHeight] = useState(40);
   const [messages, setMessages] = useState<GroupMessage[]>([]);
+  const [loadingInitialMessages, setLoadingInitialMessages] = useState(true);
 const [sending, setSending] = useState(false);
 const [uploadingImage, setUploadingImage] = useState(false);
+
 const [uploadStatus, setUploadStatus] = useState<string | null>(null);
 const [pendingUploads, setPendingUploads] = useState<PendingUploadMessage[]>([]);
 const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
@@ -107,33 +109,47 @@ const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
   const loadMessages = useCallback(async () => {
     if (!groupId) return;
 
+    setLoadingInitialMessages(true);
+
     try {
-      const remoteMessages = await fetchGroupMessages(groupId, relayUrl);
+      const localMessages = await getMessagesForGroup(groupId);
 
-      for (const msg of remoteMessages) {
-        const mine = !!npub && msg.senderNpub === npub;
-
-        await saveRemoteGroupMessage({
-  id: `nostr_group_${msg.id}`,
-  groupId,
-  text: msg.text,
-  mediaUrl: msg.mediaUrl || msg.imageUrl,
-  mediaType: msg.mediaType || (msg.imageUrl ? 'image' : undefined),
-  thumbnailUrl: msg.thumbnailUrl,
-  imageUrl: msg.imageUrl,
-  mine,
-  senderNpub: msg.senderNpub,
-  senderName: msg.senderName,
-  createdAt: msg.createdAt,
-});
-      }
-    } catch (e) {
-      console.warn('[Groups] Remote fetch error:', e);
+      setMessages(localMessages);
+      setLoadingInitialMessages(false);
+      setTimeout(() => scrollToBottom(false), 50);
+    } catch (error) {
+      console.warn('[Groups] Local message load error:', error);
+      setLoadingInitialMessages(false);
     }
 
-    const allMessages = await getMessagesForGroup(groupId);
-    setMessages(allMessages);
-    setTimeout(() => scrollToBottom(false), 100);
+    fetchGroupMessages(groupId, relayUrl)
+      .then(async remoteMessages => {
+        for (const msg of remoteMessages) {
+          const mine = !!npub && msg.senderNpub === npub;
+
+          await saveRemoteGroupMessage({
+            id: `nostr_group_${msg.id}`,
+            groupId,
+            text: msg.text,
+            mediaUrl: msg.mediaUrl || msg.imageUrl,
+            mediaType: msg.mediaType || (msg.imageUrl ? 'image' : undefined),
+            thumbnailUrl: msg.thumbnailUrl,
+            imageUrl: msg.imageUrl,
+            mine,
+            senderNpub: msg.senderNpub,
+            senderName: msg.senderName,
+            createdAt: msg.createdAt,
+          });
+        }
+
+        const refreshedMessages = await getMessagesForGroup(groupId);
+
+        setMessages(refreshedMessages);
+        setTimeout(() => scrollToBottom(false), 50);
+      })
+      .catch(error => {
+        console.warn('[Groups] Remote fetch error:', error);
+      });
   }, [groupId, relayUrl, npub, scrollToBottom]);
 
   useEffect(() => {
@@ -485,13 +501,19 @@ const handleTakePhoto = async () => {
               setTimeout(() => scrollToBottom(true), 75);
             }}
             ListEmptyComponent={
-              <View style={s.empty}>
-                <Text style={s.emptyIcon}>👥</Text>
-                <Text style={s.emptyText}>No messages yet</Text>
-                <Text style={s.emptyHint}>
-                  Send the first message to this group below.
-                </Text>
-              </View>
+              loadingInitialMessages ? (
+                <View style={s.empty}>
+                  <ActivityIndicator size="small" color={theme.gold} />
+                </View>
+              ) : (
+                <View style={s.empty}>
+                  <Text style={s.emptyIcon}>👥</Text>
+                  <Text style={s.emptyText}>No messages yet</Text>
+                  <Text style={s.emptyHint}>
+                    Send the first message to this group below.
+                  </Text>
+                </View>
+              )
             }
             renderItem={renderMessage}
           />

@@ -82,6 +82,7 @@ export default function GroupsScreen() {
 
   const [activeGroups, setActiveGroups] = useState<BEGroup[]>([]);
   const [archivedGroups, setArchivedGroups] = useState<BEGroup[]>([]);
+  const [loadingInitialGroups, setLoadingInitialGroups] = useState(true);
   const [showArchived, setShowArchived] = useState(false);
   const [sheet, setSheet] = useState<Sheet>('none');
 
@@ -116,12 +117,19 @@ export default function GroupsScreen() {
   ).current;
 
   const loadGroups = useCallback(async () => {
-    const [active, archived] = await Promise.all([
-      getActiveGroups(),
-      getArchivedGroups(),
-    ]);
-    setActiveGroups(active);
-    setArchivedGroups(archived);
+    try {
+      const [active, archived] = await Promise.all([
+        getActiveGroups(),
+        getArchivedGroups(),
+      ]);
+
+      setActiveGroups(active);
+      setArchivedGroups(archived);
+    } catch (error) {
+      console.warn('[Groups] failed to load groups:', error);
+    } finally {
+      setLoadingInitialGroups(false);
+    }
   }, []);
 
   useFocusEffect(useCallback(() => { loadGroups(); }, [loadGroups]));
@@ -262,21 +270,30 @@ export default function GroupsScreen() {
       <FlatList
         data={activeGroups}
         keyExtractor={g => g.id}
-        contentContainerStyle={[s.list, activeGroups.length === 0 && s.listEmpty]}
+        contentContainerStyle={[
+          s.list,
+          (loadingInitialGroups || activeGroups.length === 0) && s.listEmpty,
+        ]}
         ListEmptyComponent={
-          <View style={s.empty}>
-            <Text style={s.emptyIcon}>👥</Text>
-            <Text style={s.emptyTitle}>No groups yet</Text>
-            <Text style={s.emptyHint}>
-              Create a group for your team, class, or organization — or join one with an invite code.
-            </Text>
-            <TouchableOpacity style={s.emptyBtn} onPress={() => setSheet('create')}>
-              <Text style={s.emptyBtnText}>Create a group</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={s.emptyBtnOutline} onPress={() => setSheet('join')}>
-              <Text style={s.emptyBtnOutlineText}>Join with a code</Text>
-            </TouchableOpacity>
-          </View>
+          loadingInitialGroups ? (
+            <View style={s.empty}>
+              <Text style={s.emptyHint}>Loading groups…</Text>
+            </View>
+          ) : (
+            <View style={s.empty}>
+              <Text style={s.emptyIcon}>👥</Text>
+              <Text style={s.emptyTitle}>No groups yet</Text>
+              <Text style={s.emptyHint}>
+                Create a group for your team, class, or organization — or join one with an invite code.
+              </Text>
+              <TouchableOpacity style={s.emptyBtn} onPress={() => setSheet('create')}>
+                <Text style={s.emptyBtnText}>Create a group</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={s.emptyBtnOutline} onPress={() => setSheet('join')}>
+                <Text style={s.emptyBtnOutlineText}>Join with a code</Text>
+              </TouchableOpacity>
+            </View>
+          )
         }
         ListFooterComponent={
           archivedGroups.length > 0 ? (
