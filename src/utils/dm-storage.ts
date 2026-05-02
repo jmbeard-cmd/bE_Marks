@@ -208,17 +208,97 @@ export async function saveRemoteDMMessage(input: {
 
   const threads = await getDMThreads();
 
-  const updatedThreads = threads.map(thread =>
-    thread.id === input.threadId
-      ? {
-          ...thread,
-          updatedAt: input.createdAt,
-          lastMessage: input.text,
-          unread: input.mine ? thread.unread : thread.unread + 1,
-        }
-      : thread
+  const updatedThreads = threads.map(thread => {
+    if (thread.id !== input.threadId) return thread;
+
+    const isNewerThanThread = input.createdAt >= thread.updatedAt;
+
+    return {
+      ...thread,
+      updatedAt: isNewerThanThread ? input.createdAt : thread.updatedAt,
+      lastMessage: isNewerThanThread ? input.text : thread.lastMessage,
+      unread: input.mine ? thread.unread : thread.unread + 1,
+    };
+  });
+
+  await saveDMThreads(updatedThreads);
+}
+
+export async function saveRemoteDMMessagesBatch(
+  inputs: {
+    id: string;
+    threadId: string;
+    text: string;
+    mine: boolean;
+    createdAt: number;
+  }[]
+): Promise<void> {
+  if (inputs.length === 0) return;
+
+  const allMessages = await getDMMessages();
+  const threads = await getDMThreads();
+
+  const existingIds = new Set(allMessages.map(message => message.id));
+  const newMessages: DMMessage[] = [];
+
+  for (const input of inputs) {
+    if (existingIds.has(input.id)) continue;
+
+    existingIds.add(input.id);
+
+    newMessages.push({
+      id: input.id,
+      threadId: input.threadId,
+      text: input.text,
+      mine: input.mine,
+      createdAt: input.createdAt,
+    });
+  }
+
+  if (newMessages.length === 0) return;
+
+  const nextMessages = [...allMessages, ...newMessages].sort(
+    (a, b) => a.createdAt - b.createdAt
   );
 
+  const newestMessageByThread = new Map<string, DMMessage>();
+
+  for (const message of nextMessages) {
+    const existing = newestMessageByThread.get(message.threadId);
+
+    if (!existing || message.createdAt >= existing.createdAt) {
+      newestMessageByThread.set(message.threadId, message);
+    }
+  }
+
+  const unreadIncreaseByThread = new Map<string, number>();
+
+  for (const message of newMessages) {
+    if (message.mine) continue;
+
+    unreadIncreaseByThread.set(
+      message.threadId,
+      (unreadIncreaseByThread.get(message.threadId) || 0) + 1
+    );
+  }
+
+  const updatedThreads = threads.map(thread => {
+    const latestMessage = newestMessageByThread.get(thread.id);
+    const unreadIncrease = unreadIncreaseByThread.get(thread.id) || 0;
+
+    if (!latestMessage && unreadIncrease === 0) {
+      return thread;
+    }
+
+    return {
+      ...thread,
+      updatedAt: latestMessage ? latestMessage.createdAt : thread.updatedAt,
+      lastMessage: latestMessage ? latestMessage.text : thread.lastMessage,
+      unread: thread.unread + unreadIncrease,
+    };
+  });
+
+  await saveDMMessages(nextMessages);
   await saveDMThreads(updatedThreads);
 }
 

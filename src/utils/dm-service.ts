@@ -8,6 +8,7 @@ import {
   getDMThreads,
   getMessagesForThread,
   saveRemoteDMMessage,
+  saveRemoteDMMessagesBatch,
 } from './dm-storage';
 
 import { FAST_RELAYS, fetchNostrDMs, getStoredIdentity, subscribeToNostrDMs } from './nostr';
@@ -251,6 +252,7 @@ export async function restoreDMsFromRelay(): Promise<void> {
 
     const sk = decoded.data as Uint8Array;
     const myPubkey = getPublicKey(sk);
+    const normalizedMyPubkey = myPubkey.toLowerCase();
 
     console.log('[DM RESTORE] myPubkey:', myPubkey.slice(0, 16));
 
@@ -258,7 +260,7 @@ export async function restoreDMsFromRelay(): Promise<void> {
 
     for (const thread of existingThreads) {
       if (
-        thread.participantPubkey?.toLowerCase() === myPubkey.toLowerCase()
+        thread.participantPubkey?.toLowerCase() === normalizedMyPubkey
       ) {
         console.log('[DM RESTORE] deleting self-thread:', thread.id);
         await deleteThread(thread.id);
@@ -272,44 +274,46 @@ export async function restoreDMsFromRelay(): Promise<void> {
 
     console.log('[DM RESTORE] messages fetched:', messages.length);
 
+    const latestThreads = await getDMThreads();
     const threadMap = new Map<string, string>();
+
+    for (const thread of latestThreads) {
+      if (!thread.participantPubkey) continue;
+      threadMap.set(thread.participantPubkey.toLowerCase(), thread.id);
+    }
+
+    const messagesToSave: {
+      id: string;
+      threadId: string;
+      text: string;
+      mine: boolean;
+      createdAt: number;
+    }[] = [];
 
     for (const msg of messages) {
       const otherPubkey = msg.threadPubkey;
 
       if (!otherPubkey) continue;
 
-      if (otherPubkey.toLowerCase() === myPubkey.toLowerCase()) {
-        console.log('[DM RESTORE] skipped self DM event:', msg.id);
+      const normalizedOtherPubkey = otherPubkey.toLowerCase();
+
+      if (normalizedOtherPubkey === normalizedMyPubkey) {
         continue;
       }
 
-      let threadId = threadMap.get(otherPubkey);
+      let threadId = threadMap.get(normalizedOtherPubkey);
 
       if (!threadId) {
-        const latestThreads = await getDMThreads();
+        const newThread = await createThread({
+          title: otherPubkey.slice(0, 8),
+          participantPubkey: otherPubkey,
+        });
 
-        const existing = latestThreads.find(
-          t =>
-            t.participantPubkey?.toLowerCase() ===
-            otherPubkey.toLowerCase()
-        );
-
-        if (existing) {
-          threadId = existing.id;
-        } else {
-          const newThread = await createThread({
-            title: otherPubkey.slice(0, 8),
-            participantPubkey: otherPubkey,
-          });
-
-          threadId = newThread.id;
-        }
-
-        threadMap.set(otherPubkey, threadId);
+        threadId = newThread.id;
+        threadMap.set(normalizedOtherPubkey, threadId);
       }
 
-      await saveRemoteDMMessage({
+      messagesToSave.push({
         id: `nostr_${msg.id}`,
         threadId,
         text: msg.content,
@@ -318,7 +322,10 @@ export async function restoreDMsFromRelay(): Promise<void> {
       });
     }
 
-    console.log('[DM RESTORE] complete');
+    await saveRemoteDMMessagesBatch(messagesToSave);
+    emitDMChanged('__restore_done__');
+
+    console.log('[DM RESTORE] complete, saved candidates:', messagesToSave.length);
   } catch (error) {
     console.warn('[DM RESTORE] failed:', error);
   }
