@@ -6,7 +6,6 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
-  Keyboard,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -66,6 +65,7 @@ const [pendingUploads, setPendingUploads] = useState<PendingUploadMessage[]>([])
 const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
 
   const listRef = useRef<FlatList>(null);
+  const inputRef = useRef<TextInput>(null);
 
   const myDisplayName =
     profile?.display_name ||
@@ -190,8 +190,7 @@ const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
 
     setSending(true);
     setDraft('');
-        setInputHeight(40);
-    Keyboard.dismiss();
+    setInputHeight(40);
 
     try {
       setUploadStatus('Posting...');
@@ -225,6 +224,10 @@ const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
     }
 
     setSending(false);
+
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
   };
 
     const handlePickMedia = async () => {
@@ -523,6 +526,7 @@ const handleTakePhoto = async () => {
             </TouchableOpacity>
 
              <TextInput
+ref={inputRef}
 style={[
   s.input,
   { 
