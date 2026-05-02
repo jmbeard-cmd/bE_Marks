@@ -537,9 +537,9 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
   },
   input: {
     flex: 1,
-    backgroundColor: theme.surface,
+    backgroundColor: theme.raised,
     borderWidth: 0.5,
-    borderColor: '#2a2a2a',
+    borderColor: theme.border,
     borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 10,

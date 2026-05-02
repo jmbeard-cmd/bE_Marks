@@ -773,11 +773,11 @@ messageVideoIcon: {
 
   input: {
     flex: 1,
-    backgroundColor: '#1a1a1a',
+    backgroundColor: theme.raised,
     borderWidth: 0.5,
-    borderColor: '#2a2a2a',
+    borderColor: theme.border,
     borderRadius: 20,
-    elevation: 1,
+    elevation: 0,
     paddingHorizontal: 16,
     paddingVertical: 10,
     color: theme.text,
