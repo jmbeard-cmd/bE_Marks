@@ -72,6 +72,7 @@ export default function MessagesScreen() {
   const loadingProfilesRef = useRef(false);
   const pendingThreadReloadRef = useRef(false);
   const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const profileHydrationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const hydrateProfiles = useCallback(async (threadList: DMThread[]) => {
     if (loadingProfilesRef.current) return;
@@ -142,7 +143,14 @@ export default function MessagesScreen() {
           console.warn('[Messages] failed to load contacts:', error);
         });
 
-      hydrateProfiles(t);
+      if (profileHydrationTimerRef.current) {
+        clearTimeout(profileHydrationTimerRef.current);
+      }
+
+      profileHydrationTimerRef.current = setTimeout(() => {
+        profileHydrationTimerRef.current = null;
+        hydrateProfiles(t);
+      }, 300);
     } finally {
       loadingThreadsRef.current = false;
 
@@ -177,6 +185,11 @@ export default function MessagesScreen() {
       if (reloadTimerRef.current) {
         clearTimeout(reloadTimerRef.current);
         reloadTimerRef.current = null;
+      }
+
+      if (profileHydrationTimerRef.current) {
+        clearTimeout(profileHydrationTimerRef.current);
+        profileHydrationTimerRef.current = null;
       }
 
       unsubscribe();
