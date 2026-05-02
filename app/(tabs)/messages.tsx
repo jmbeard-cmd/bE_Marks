@@ -18,6 +18,10 @@ import { Colors } from '../../src/constants/theme';
 import { BEContact, getContacts } from '../../src/utils/contacts-storage';
 import { subscribeToDMEvents } from '../../src/utils/dm-events';
 import {
+  getCachedDMProfiles,
+  saveCachedDMProfile,
+} from '../../src/utils/dm-profile-cache';
+import {
   createThread,
   deleteThread,
   getDMThreads,
@@ -110,6 +114,12 @@ export default function MessagesScreen() {
           if (profile.picture) {
             nextPictures[thread.participantPubkey] = profile.picture;
           }
+
+          await saveCachedDMProfile({
+            pubkey: thread.participantPubkey,
+            displayName,
+            picture: profile.picture,
+          });
         } catch (error) {
           console.warn('[Messages] failed to hydrate DM profile:', error);
         }
@@ -117,8 +127,15 @@ export default function MessagesScreen() {
         await new Promise(resolve => setTimeout(resolve, 0));
       }
 
-      setProfileNames(nextNames);
-      setProfilePictures(nextPictures);
+      setProfileNames(prev => ({
+        ...prev,
+        ...nextNames,
+      }));
+
+      setProfilePictures(prev => ({
+        ...prev,
+        ...nextPictures,
+      }));
     } finally {
       loadingProfilesRef.current = false;
     }
@@ -136,6 +153,43 @@ export default function MessagesScreen() {
       const t = await getDMThreads();
 
       setThreads(t);
+
+      const pubkeys = t
+        .map(thread => thread.participantPubkey)
+        .filter((pubkey): pubkey is string => !!pubkey);
+
+      if (pubkeys.length > 0) {
+        getCachedDMProfiles(pubkeys)
+          .then(cachedProfiles => {
+            const cachedNames: Record<string, string> = {};
+            const cachedPictures: Record<string, string> = {};
+
+            Object.values(cachedProfiles).forEach(profile => {
+              cachedNames[profile.pubkey] = profile.displayName;
+
+              if (profile.picture) {
+                cachedPictures[profile.pubkey] = profile.picture;
+              }
+            });
+
+            if (Object.keys(cachedNames).length > 0) {
+              setProfileNames(prev => ({
+                ...prev,
+                ...cachedNames,
+              }));
+            }
+
+            if (Object.keys(cachedPictures).length > 0) {
+              setProfilePictures(prev => ({
+                ...prev,
+                ...cachedPictures,
+              }));
+            }
+          })
+          .catch(error => {
+            console.warn('[Messages] failed to load cached DM profiles:', error);
+          });
+      }
 
       getContacts()
         .then(setContacts)
