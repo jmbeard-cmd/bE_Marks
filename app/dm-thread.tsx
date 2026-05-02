@@ -45,6 +45,11 @@ export default function DmThreadScreen() {
 
   const listRef = useRef<FlatList<DMMessage>>(null);
   const leavingRef = useRef(false);
+  const loadingMessagesRef = useRef(false);
+  const pendingMessageReloadRef = useRef(false);
+  const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const markReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hydratedProfilePubkeyRef = useRef<string | null>(null);
 
   const threadId = useMemo(() => params.id || '', [params.id]);
   const title = useMemo(() => params.title || 'Conversation', [params.title]);
@@ -58,44 +63,96 @@ export default function DmThreadScreen() {
     });
   }, []);
 
+  const hydrateThreadProfile = useCallback(async (
+    participantPubkey: string,
+    fallbackTitle: string
+  ) => {
+    if (hydratedProfilePubkeyRef.current === participantPubkey) return;
+
+    hydratedProfilePubkeyRef.current = participantPubkey;
+
+    try {
+      const npub = nip19.npubEncode(participantPubkey);
+      const profile = await fetchNostrProfile(npub);
+
+      if (!profile || leavingRef.current) return;
+
+      const displayName =
+        profile.display_name ||
+        profile.name ||
+        fallbackTitle;
+
+      setProfileName(displayName);
+      setProfilePicture(profile.picture || null);
+    } catch (error) {
+      console.warn('[DM THREAD] profile fetch failed:', error);
+    }
+  }, []);
+
+  const scheduleMarkThreadRead = useCallback(() => {
+    if (!threadId || leavingRef.current) return;
+
+    if (markReadTimerRef.current) {
+      clearTimeout(markReadTimerRef.current);
+    }
+
+    markReadTimerRef.current = setTimeout(() => {
+      markReadTimerRef.current = null;
+
+      if (leavingRef.current) return;
+
+      markThreadRead(threadId).catch(e => {
+        console.warn('[DM THREAD] markThreadRead failed:', e);
+      });
+    }, 500);
+  }, [threadId]);
+
   const loadLocalThread = useCallback(async () => {
     if (!threadId || leavingRef.current) return;
 
-    const [localMessages, thread] = await Promise.all([
-      getMessagesForThread(threadId),
-      getDMThreadById(threadId),
-    ]);
-
-    if (leavingRef.current) return;
-
-    setMessages(localMessages);
-    setHasPubkey(!!thread?.participantPubkey);
-
-    if (thread?.participantPubkey) {
-      try {
-        const npub = nip19.npubEncode(thread.participantPubkey);
-        const profile = await fetchNostrProfile(npub);
-
-        if (profile) {
-          const displayName =
-            profile.display_name ||
-            profile.name ||
-            thread.title;
-
-                    setProfileName(displayName);
-          setProfilePicture(profile.picture || null);
-        }
-      } catch (error) {
-        console.warn('[DM THREAD] profile fetch failed:', error);
-      }
+    if (loadingMessagesRef.current) {
+      pendingMessageReloadRef.current = true;
+      return;
     }
 
-    requestAnimationFrame(() => scrollToBottom(false));
+    loadingMessagesRef.current = true;
 
-    markThreadRead(threadId).catch(e => {
-      console.warn('[DM THREAD] markThreadRead failed:', e);
-    });
-  }, [threadId, scrollToBottom]);
+    try {
+      const localMessages = await getMessagesForThread(threadId);
+
+      if (leavingRef.current) return;
+
+      setMessages(localMessages);
+
+      requestAnimationFrame(() => scrollToBottom(false));
+
+      getDMThreadById(threadId)
+        .then(thread => {
+          if (leavingRef.current) return;
+
+          setHasPubkey(!!thread?.participantPubkey);
+
+          if (thread?.participantPubkey) {
+            hydrateThreadProfile(thread.participantPubkey, thread.title);
+          }
+
+          scheduleMarkThreadRead();
+        })
+        .catch(error => {
+          console.warn('[DM THREAD] failed to load thread metadata:', error);
+        });
+    } finally {
+      loadingMessagesRef.current = false;
+
+      if (pendingMessageReloadRef.current && !leavingRef.current) {
+        pendingMessageReloadRef.current = false;
+
+        setTimeout(() => {
+          loadLocalThread();
+        }, 100);
+      }
+    }
+  }, [threadId, scrollToBottom, hydrateThreadProfile, scheduleMarkThreadRead]);
 
   useFocusEffect(
     useCallback(() => {
@@ -109,14 +166,44 @@ export default function DmThreadScreen() {
   );
 
   useEffect(() => {
-  if (!threadId) return;
+    if (!threadId) return;
 
-  return subscribeToDMEvents((changedThreadId) => {
-    if (changedThreadId === threadId && !leavingRef.current) {
-      loadLocalThread();
-    }
-  });
-}, [threadId, loadLocalThread]);
+    const unsubscribe = subscribeToDMEvents((changedThreadId) => {
+      if (leavingRef.current) return;
+
+      if (changedThreadId !== threadId && changedThreadId !== '__restore_done__') {
+        return;
+      }
+
+      if (reloadTimerRef.current) {
+        clearTimeout(reloadTimerRef.current);
+      }
+
+      reloadTimerRef.current = setTimeout(() => {
+        reloadTimerRef.current = null;
+
+        if (!leavingRef.current) {
+          loadLocalThread();
+        }
+      }, 250);
+    });
+
+    return () => {
+      leavingRef.current = true;
+
+      if (reloadTimerRef.current) {
+        clearTimeout(reloadTimerRef.current);
+        reloadTimerRef.current = null;
+      }
+
+      if (markReadTimerRef.current) {
+        clearTimeout(markReadTimerRef.current);
+        markReadTimerRef.current = null;
+      }
+
+      unsubscribe();
+    };
+  }, [threadId, loadLocalThread]);
 
   const handleSend = async () => {
     const text = draft.trim();
@@ -148,15 +235,15 @@ export default function DmThreadScreen() {
       const thread = await getDMThreadById(threadId);
 
       if (thread?.participantPubkey) {
-  console.log('[DM THREAD SEND] threadId:', threadId);
-  console.log('[DM THREAD SEND] title:', thread.title);
-  console.log('[DM THREAD SEND] participantPubkey:', thread.participantPubkey);
-  console.log('[DM THREAD SEND] participantNpub:', thread.participantNpub);
+        console.log('[DM THREAD SEND] threadId:', threadId);
+        console.log('[DM THREAD SEND] title:', thread.title);
+        console.log('[DM THREAD SEND] participantPubkey:', thread.participantPubkey);
+        console.log('[DM THREAD SEND] participantNpub:', thread.participantNpub);
 
-  sendNostrDM({
-    toPubkey: thread.participantPubkey,
-    content: text,
-  }).then(result => {
+        sendNostrDM({
+          toPubkey: thread.participantPubkey,
+          content: text,
+        }).then(result => {
           if (!result.success) {
             console.warn('[DM] Nostr send failed:', result.error);
           }
@@ -173,15 +260,24 @@ export default function DmThreadScreen() {
 
   const handleBack = () => {
     leavingRef.current = true;
+
+    if (reloadTimerRef.current) {
+      clearTimeout(reloadTimerRef.current);
+      reloadTimerRef.current = null;
+    }
+
+    if (markReadTimerRef.current) {
+      clearTimeout(markReadTimerRef.current);
+      markReadTimerRef.current = null;
+    }
+
     Keyboard.dismiss();
 
-    requestAnimationFrame(() => {
-      if (router.canGoBack()) {
-        router.back();
-      } else {
-        router.replace('/(tabs)/messages' as any);
-      }
-    });
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/(tabs)/messages' as any);
+    }
   };
 
   const renderMessage = ({ item, index }: { item: DMMessage; index: number }) => {
