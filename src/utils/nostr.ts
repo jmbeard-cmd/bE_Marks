@@ -201,6 +201,14 @@ function getRelayLabel(relayUrl: string): string {
   return relayUrl.replace('wss://', '').replace('ws://', '');
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function yieldToUI(): Promise<void> {
+  await sleep(0);
+}
+
 function buildDMMessageFromGiftWrap(
   wrapped: Event,
   sk: Uint8Array,
@@ -267,39 +275,51 @@ export async function fetchNostrDMs(input?: {
 
     const limit = input?.limit ?? 100;
     const seenGiftWraps = new Set<string>();
-    const seenMessages = new Set<string>();
-    const messages: NostrDMMessage[] = [];
+    const rawGiftWraps: Event[] = [];
 
-    console.log('[DM FETCH] starting 1059 fetch');
-    console.log('[DM FETCH] myPubkey:', myPubkey.slice(0, 16));
-    console.log('[DM FETCH] withPubkey:', input?.withPubkey?.slice(0, 16) || 'any');
-    console.log('[DM FETCH] relayUrls:', relayUrls);
+    console.log('[DM FETCH] starting 1059 fetch:', {
+      relays: relayUrls.length,
+      limit,
+      withPubkey: input?.withPubkey?.slice(0, 16) || 'any',
+    });
 
     await new Promise<void>((resolve) => {
       let settled = false;
       let finishedCount = 0;
       const sockets: WebSocket[] = [];
 
+      const finishAll = () => {
+        if (settled) return;
+
+        settled = true;
+
+        sockets.forEach((ws) => {
+          try {
+            ws.close();
+          } catch {}
+        });
+
+        resolve();
+      };
+
       const finishRelay = () => {
         finishedCount += 1;
-        if (!settled && finishedCount >= relayUrls.length) {
-          settled = true;
-          sockets.forEach((ws) => {
-            try { ws.close(); } catch {}
-          });
-          resolve();
+
+        if (finishedCount >= relayUrls.length) {
+          finishAll();
         }
       };
 
       const timeout = setTimeout(() => {
-        if (settled) return;
-        settled = true;
         console.log('[DM FETCH] timeout; closing sockets');
-        sockets.forEach((ws) => {
-          try { ws.close(); } catch {}
-        });
-        resolve();
+        finishAll();
       }, 5000);
+
+      const originalResolve = resolve;
+      resolve = () => {
+        clearTimeout(timeout);
+        originalResolve();
+      };
 
       relayUrls.forEach((relayUrl) => {
         const relayLabel = getRelayLabel(relayUrl);
@@ -310,7 +330,8 @@ export async function fetchNostrDMs(input?: {
 
           ws.onopen = () => {
             const subId = `dm-fetch-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-            const req = [
+
+            ws.send(JSON.stringify([
               'REQ',
               subId,
               {
@@ -318,10 +339,7 @@ export async function fetchNostrDMs(input?: {
                 '#p': [myPubkey],
                 limit,
               },
-            ];
-
-            console.log(`[DM FETCH] ${relayLabel} opened; sending REQ:`, JSON.stringify(req));
-            ws.send(JSON.stringify(req));
+            ]));
           };
 
           ws.onmessage = (msg) => {
@@ -330,7 +348,7 @@ export async function fetchNostrDMs(input?: {
               const type = data[0];
 
               if (type === 'AUTH') {
-                console.warn(`[DM FETCH] ${relayLabel} requires NIP-42 AUTH:`, data[1]);
+                console.warn(`[DM FETCH] ${relayLabel} requires NIP-42 AUTH`);
                 return;
               }
 
@@ -346,7 +364,6 @@ export async function fetchNostrDMs(input?: {
               }
 
               if (type === 'EOSE') {
-                console.log(`[DM FETCH] ${relayLabel} EOSE`);
                 finishRelay();
                 return;
               }
@@ -354,37 +371,14 @@ export async function fetchNostrDMs(input?: {
               if (type !== 'EVENT') return;
 
               const wrapped = data[2] as Event;
-              console.log(`[DM FETCH] raw 1059 from ${relayLabel}:`, {
-                id: wrapped.id,
-                pubkey: wrapped.pubkey?.slice(0, 16),
-                pTags: wrapped.tags?.filter((tag: string[]) => tag[0] === 'p'),
-                created_at: wrapped.created_at,
-              });
 
+              if (!wrapped?.id) return;
               if (seenGiftWraps.has(wrapped.id)) return;
+
               seenGiftWraps.add(wrapped.id);
-
-              const message = buildDMMessageFromGiftWrap(
-                wrapped,
-                sk,
-                myPubkey,
-                input?.withPubkey,
-              );
-
-              if (!message) return;
-              if (seenMessages.has(message.id)) return;
-              seenMessages.add(message.id);
-
-              console.log('[DM FETCH] passing decrypted DM to UI/storage:', {
-                id: message.id,
-                threadPubkey: message.threadPubkey.slice(0, 16),
-                senderPubkey: message.senderPubkey.slice(0, 16),
-                isMine: message.isMine,
-              });
-
-              messages.push(message);
+              rawGiftWraps.push(wrapped);
             } catch (error) {
-              console.warn(`[DM FETCH] ${relayLabel} parse/decrypt error:`, error);
+              console.warn(`[DM FETCH] ${relayLabel} parse error:`, error);
             }
           };
 
@@ -393,24 +387,51 @@ export async function fetchNostrDMs(input?: {
             finishRelay();
           };
 
-          ws.onclose = () => {
-            console.log(`[DM FETCH] ${relayLabel} closed`);
-          };
+          ws.onclose = () => {};
         } catch (error) {
           console.warn(`[DM FETCH] ${relayLabel} setup error:`, error);
           finishRelay();
         }
       });
-
-      const originalResolve = resolve;
-      resolve = () => {
-        clearTimeout(timeout);
-        originalResolve();
-      };
     });
 
+    rawGiftWraps.sort((a, b) => a.created_at - b.created_at);
+
+    console.log('[DM FETCH] raw gift wraps collected:', rawGiftWraps.length);
+
+    const seenMessages = new Set<string>();
+    const messages: NostrDMMessage[] = [];
+    const chunkSize = 8;
+
+    for (let i = 0; i < rawGiftWraps.length; i += chunkSize) {
+      const chunk = rawGiftWraps.slice(i, i + chunkSize);
+
+      for (const wrapped of chunk) {
+        try {
+          const message = buildDMMessageFromGiftWrap(
+            wrapped,
+            sk,
+            myPubkey,
+            input?.withPubkey,
+          );
+
+          if (!message) continue;
+          if (seenMessages.has(message.id)) continue;
+
+          seenMessages.add(message.id);
+          messages.push(message);
+        } catch (error) {
+          console.warn('[DM FETCH] unwrap error:', error);
+        }
+      }
+
+      await yieldToUI();
+    }
+
     messages.sort((a, b) => a.createdAt - b.createdAt);
-    console.log('[DM FETCH] complete; messages:', messages.length);
+
+    console.log('[DM FETCH] complete; decrypted messages:', messages.length);
+
     return messages;
   } catch (e) {
     console.warn('[fetchNostrDMs] error:', e);
