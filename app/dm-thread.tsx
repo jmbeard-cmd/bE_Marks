@@ -38,6 +38,7 @@ export default function DmThreadScreen() {
   const [draft, setDraft] = useState('');
   const [inputHeight, setInputHeight] = useState(40);
   const [messages, setMessages] = useState<DMMessage[]>([]);
+  const [loadingInitialMessages, setLoadingInitialMessages] = useState(true);
   const [sending, setSending] = useState(false);
   const [hasPubkey, setHasPubkey] = useState(false);
   const [profileName, setProfileName] = useState<string | null>(null);
@@ -117,9 +118,10 @@ export default function DmThreadScreen() {
     }
 
     loadingMessagesRef.current = true;
+    setLoadingInitialMessages(true);
 
     try {
-      const localMessages = await getRecentMessagesForThread(threadId, 30);    
+      const localMessages = await getRecentMessagesForThread(threadId, 30);        
 
       if (leavingRef.current) return;
 
@@ -128,6 +130,7 @@ export default function DmThreadScreen() {
       );
 
       setMessages(newestFirstMessages);
+      setLoadingInitialMessages(false);
 
       getDMThreadById(threadId)
         .then(thread => {
@@ -146,6 +149,10 @@ export default function DmThreadScreen() {
         });
     } finally {
       loadingMessagesRef.current = false;
+
+      if (!leavingRef.current) {
+        setLoadingInitialMessages(false);
+      }
 
       if (pendingMessageReloadRef.current && !leavingRef.current) {
         pendingMessageReloadRef.current = false;
@@ -352,13 +359,19 @@ export default function DmThreadScreen() {
             windowSize={5}
             showsVerticalScrollIndicator={false}
             ListEmptyComponent={
-              <View style={s.empty}>
-                <Text style={s.emptyIcon}>✉️</Text>
-                <Text style={s.emptyText}>No messages yet</Text>
-                <Text style={s.emptyHint}>
-                  {hasPubkey ? `Send ${title} a message below.` : 'Send the first message below.'}
-                </Text>
-              </View>
+              loadingInitialMessages ? (
+                <View style={s.empty}>
+                  <ActivityIndicator size="small" color={theme.gold} />
+                </View>
+              ) : (
+                <View style={s.empty}>
+                  <Text style={s.emptyIcon}>✉️</Text>
+                  <Text style={s.emptyText}>No messages yet</Text>
+                  <Text style={s.emptyHint}>
+                    {hasPubkey ? `Send ${title} a message below.` : 'Send the first message below.'}
+                  </Text>
+                </View>
+              )
             }
             renderItem={renderMessage}
           />
