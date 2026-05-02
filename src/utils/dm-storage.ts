@@ -5,6 +5,9 @@ import { getStoredIdentity } from './nostr';
 
 const DM_THREADS_KEY = 'dm_threads_v1';
 const DM_MESSAGES_KEY = 'dm_messages_v1';
+const DM_THREAD_MESSAGES_KEY = 'dm_thread_messages_v1';
+
+let cachedIdentityStorageSuffix: string | null = null;
 
 export type DMThread = {
   id: string;
@@ -25,20 +28,28 @@ export type DMMessage = {
 };
 
 async function getIdentityScopedKey(baseKey: string): Promise<string> {
+  if (cachedIdentityStorageSuffix) {
+    return `${baseKey}_${cachedIdentityStorageSuffix}`;
+  }
+
   const identity = await getStoredIdentity();
 
   if (!identity?.nsec) {
-    return `${baseKey}_no_identity`;
+    cachedIdentityStorageSuffix = 'no_identity';
+    return `${baseKey}_${cachedIdentityStorageSuffix}`;
   }
 
   const decoded = nip19.decode(identity.nsec);
 
   if (decoded.type !== 'nsec') {
-    return `${baseKey}_invalid_identity`;
+    cachedIdentityStorageSuffix = 'invalid_identity';
+    return `${baseKey}_${cachedIdentityStorageSuffix}`;
   }
 
   const pubkeyHex = getPublicKey(decoded.data as Uint8Array);
-  return `${baseKey}_${pubkeyHex}`;
+  cachedIdentityStorageSuffix = pubkeyHex;
+
+  return `${baseKey}_${cachedIdentityStorageSuffix}`;
 }
 
 async function readJson<T>(key: string, fallback: T): Promise<T> {
@@ -77,6 +88,57 @@ async function getThreadKey(): Promise<string> {
 
 async function getMessageKey(): Promise<string> {
   return await getIdentityScopedKey(DM_MESSAGES_KEY);
+}
+
+async function getThreadMessageKey(threadId: string): Promise<string> {
+  return await getIdentityScopedKey(`${DM_THREAD_MESSAGES_KEY}_${threadId}`);
+}
+
+async function saveMessagesForThreadCache(
+  threadId: string,
+  messages: DMMessage[]
+): Promise<void> {
+  const key = await getThreadMessageKey(threadId);
+
+  const sortedMessages = [...messages].sort(
+    (a, b) => a.createdAt - b.createdAt
+  );
+
+  await writeJson(key, sortedMessages);
+}
+
+async function upsertMessagesForThreadCache(
+  threadId: string,
+  incomingMessages: DMMessage[]
+): Promise<void> {
+  if (incomingMessages.length === 0) return;
+
+  const key = await getThreadMessageKey(threadId);
+  let existingMessages = await readJson<DMMessage[]>(key, []);
+
+  if (existingMessages.length === 0) {
+    const allMessages = await getDMMessages();
+
+    existingMessages = allMessages.filter(
+      message => message.threadId === threadId
+    );
+  }
+
+  const byId = new Map<string, DMMessage>();
+
+  for (const message of existingMessages) {
+    byId.set(message.id, message);
+  }
+
+  for (const message of incomingMessages) {
+    byId.set(message.id, message);
+  }
+
+  const nextMessages = Array.from(byId.values()).sort(
+    (a, b) => a.createdAt - b.createdAt
+  );
+
+  await writeJson(key, nextMessages);
 }
 
 export async function getDMThreads(): Promise<DMThread[]> {
@@ -119,11 +181,24 @@ export async function saveDMMessages(messages: DMMessage[]): Promise<void> {
 }
 
 export async function getMessagesForThread(threadId: string): Promise<DMMessage[]> {
+  const key = await getThreadMessageKey(threadId);
+  const cachedThreadMessages = await readJson<DMMessage[]>(key, []);
+
+  if (cachedThreadMessages.length > 0) {
+    return cachedThreadMessages.sort((a, b) => a.createdAt - b.createdAt);
+  }
+
   const all = await getDMMessages();
 
-  return all
+  const threadMessages = all
     .filter(message => message.threadId === threadId)
     .sort((a, b) => a.createdAt - b.createdAt);
+
+  if (threadMessages.length > 0) {
+    await saveMessagesForThreadCache(threadId, threadMessages);
+  }
+
+  return threadMessages;
 }
 
 export async function createThread(input: {
@@ -167,6 +242,7 @@ export async function sendLocalDM(input: {
 
   messages.push(newMessage);
   await saveDMMessages(messages);
+  await upsertMessagesForThreadCache(input.threadId, [newMessage]);
 
   const updatedThreads = threads.map(thread =>
     thread.id === input.threadId
@@ -195,16 +271,19 @@ export async function saveRemoteDMMessage(input: {
   const existsById = allMessages.some(message => message.id === input.id);
   if (existsById) return;
 
-  allMessages.push({
+  const newMessage: DMMessage = {
     id: input.id,
     threadId: input.threadId,
     text: input.text,
     mine: input.mine,
     createdAt: input.createdAt,
-  });
+  };
+
+  allMessages.push(newMessage);
 
   allMessages.sort((a, b) => a.createdAt - b.createdAt);
   await saveDMMessages(allMessages);
+  await upsertMessagesForThreadCache(input.threadId, [newMessage]);
 
   const threads = await getDMThreads();
 
@@ -298,7 +377,18 @@ export async function saveRemoteDMMessagesBatch(
     };
   });
 
+  const touchedThreadIds = new Set(newMessages.map(message => message.threadId));
+
   await saveDMMessages(nextMessages);
+
+  for (const threadId of touchedThreadIds) {
+    const threadMessages = nextMessages.filter(
+      message => message.threadId === threadId
+    );
+
+    await saveMessagesForThreadCache(threadId, threadMessages);
+  }
+
   await saveDMThreads(updatedThreads);
 }
 
@@ -318,6 +408,10 @@ export async function deleteThread(threadId: string): Promise<void> {
 
   const messages = await getDMMessages();
   await saveDMMessages(messages.filter(message => message.threadId !== threadId));
+
+  const threadMessageKey = await getThreadMessageKey(threadId);
+  await AsyncStorage.removeItem(threadMessageKey);
+  await SecureStore.deleteItemAsync(threadMessageKey);
 }
 
 export function formatDMTime(unix: number): string {
@@ -327,8 +421,17 @@ export function formatDMTime(unix: number): string {
 
 export async function clearDMStorage(): Promise<void> {
   try {
+    const existingThreads = await getDMThreads();
+
     const threadKey = await getThreadKey();
     const messageKey = await getMessageKey();
+
+    for (const thread of existingThreads) {
+      const threadMessageKey = await getThreadMessageKey(thread.id);
+
+      await AsyncStorage.removeItem(threadMessageKey);
+      await SecureStore.deleteItemAsync(threadMessageKey);
+    }
 
     await AsyncStorage.removeItem(threadKey);
     await AsyncStorage.removeItem(messageKey);
@@ -342,8 +445,11 @@ export async function clearDMStorage(): Promise<void> {
     await SecureStore.deleteItemAsync(DM_THREADS_KEY);
     await SecureStore.deleteItemAsync(DM_MESSAGES_KEY);
 
+    cachedIdentityStorageSuffix = null;
+
     console.log('[DM Storage] Cleared for current identity');
   } catch (error) {
+    cachedIdentityStorageSuffix = null;
     console.warn('[DM Storage] Failed to clear:', error);
   }
 }
