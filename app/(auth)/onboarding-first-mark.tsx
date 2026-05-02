@@ -1,6 +1,15 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+    KeyboardAvoidingView,
+    Platform,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
+} from 'react-native';
 import { saveMilestone } from '../../src/utils/storage';
 import { useIdentity } from '../_layout';
 
@@ -9,73 +18,90 @@ export default function OnboardingFirstMark() {
   const { npub } = useIdentity();
   const [text, setText] = useState('');
 
-  return (
-    <View style={s.container}>
+return (
+  <KeyboardAvoidingView
+    style={s.container}
+    behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    keyboardVerticalOffset={80}
+  >
+    <ScrollView
+      contentContainerStyle={s.scrollContent}
+      keyboardShouldPersistTaps="handled"
+    >
+      <View>
+        <Text style={s.eyebrow}>FIRST MARK</Text>
 
-      <Text style={s.eyebrow}>FIRST MARK</Text>
+        <Text style={s.title}>
+          Capture something that matters
+        </Text>
 
-      <Text style={s.title}>
-        Capture something that matters
-      </Text>
+        <Text style={s.subtitle}>
+          This is your first Mark.
+          {'\n'}
+          It could be something small.
+          {'\n\n'}
+          One day, you’ll be glad you saved it.
+        </Text>
 
-     <Text style={s.subtitle}>
-  This is your first Mark.
-  {'\n'}
-  It could be something small.
-  {'\n\n'}
-  One day, you’ll be glad you saved it.
-</Text>
+        <TextInput
+          style={s.input}
+          placeholder="Write your first Mark..."
+          placeholderTextColor="#5C5248"
+          value={text}
+          onChangeText={setText}
+          multiline
+        />
+      </View>
 
-      <TextInput
-        style={s.input}
-        placeholder="Write your first Mark..."
-        placeholderTextColor="#5C5248"
-        value={text}
-        onChangeText={setText}
-        multiline
-      />
+      <View>
+        <Pressable
+          onPress={async () => {
+            if (!text.trim()) return;
 
-      <Pressable
-        onPress={async () => {
-  if (!text.trim()) return;
+            await saveMilestone({
+              note: text.trim(),
+              tags: [],
+              publishedToRelay: false,
+              authorNpub: npub || undefined,
+            });
 
-  await saveMilestone({
-    note: text.trim(),
-    tags: [],
-    publishedToRelay: false,
-    authorNpub: npub || undefined,
-  });
+            router.replace('/(tabs)/timeline');
+          }}
+          style={({ pressed }) => [
+            s.primaryBtn,
+            pressed && s.pressed,
+            !text && { opacity: 0.5 },
+          ]}
+          disabled={!text}
+        >
+          <Text style={s.primaryBtnText}>Save Mark</Text>
+        </Pressable>
 
-  router.replace('/(tabs)/timeline');
-}}
-        style={({ pressed }) => [
-          s.primaryBtn,
-          pressed && s.pressed,
-          !text && { opacity: 0.5 },
-        ]}
-        disabled={!text}
-      >
-        <Text style={s.primaryBtnText}>Save Mark</Text>
-      </Pressable>
-
-      <Pressable
-        onPress={() => router.replace('/(tabs)/timeline')}
-        style={({ pressed }) => [s.skip, pressed && s.pressed]}
-      >
-        <Text style={s.skipText}>Skip for now</Text>
-      </Pressable>
-
-    </View>
-  );
+        <Pressable
+          onPress={() => router.replace('/(tabs)/timeline')}
+          style={({ pressed }) => [s.skip, pressed && s.pressed]}
+        >
+          <Text style={s.skipText}>Skip for now</Text>
+        </Pressable>
+      </View>
+    </ScrollView>
+  </KeyboardAvoidingView>
+);
 }
 
 const s = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#0D0F0E',
-    paddingHorizontal: 24,
-    justifyContent: 'center',
-  },
+container: {
+  flex: 1,
+  backgroundColor: '#0D0F0E',
+  paddingHorizontal: 24,
+},
+
+scrollContent: {
+  flexGrow: 1,
+  justifyContent: 'space-between',
+  paddingTop: 48,
+  paddingBottom: 24,
+},
 
   eyebrow: {
     color: '#C9973A',

@@ -2,26 +2,38 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { generateAndStoreKeypair } from '../../src/utils/nostr';
-import { leaveFamily } from '../../src/utils/storage';
+import { clearNewIdentityLocalData, leaveFamily } from '../../src/utils/storage';
 import { useIdentity } from '../_layout';
 
 export default function OnboardingCreateIdentity() {
   const router = useRouter();
-  const { setIdentity, setFamily } = useIdentity();
+  const { npub, setIdentity, setFamily } = useIdentity();
   const [loading, setLoading] = useState(false);
 
   const handleCreateIdentity = async () => {
-    setLoading(true);
+  if (npub) {
+    router.replace('/onboarding-key-backup' as any);
+    return;
+  }
+
+  setLoading(true);
 
     try {
       const { npub, nsec } = await generateAndStoreKeypair();
 
-// A brand-new identity should NOT inherit a previously saved family on this device.
+// A brand-new identity should NOT inherit any previous local state
+
+// 1. Leave any existing family
 await leaveFamily();
 await setFamily(null);
 
+// 2. Clear ALL local app data (DMs, Groups, etc.)
+await clearNewIdentityLocalData();
+
+// 3. Set the new identity
 setIdentity(npub, nsec);
 
+// 4. Continue onboarding flow
 router.replace({
   pathname: '/onboarding-key-backup',
   params: { nsec },

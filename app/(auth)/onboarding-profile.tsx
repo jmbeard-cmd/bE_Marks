@@ -1,6 +1,15 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+    KeyboardAvoidingView,
+    Platform,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
+} from 'react-native';
 import { useIdentity } from '../_layout';
 
 export default function OnboardingProfile() {
@@ -9,46 +18,66 @@ export default function OnboardingProfile() {
   const [displayName, setDisplayName] = useState('');
 
   return (
-    <View style={s.container}>
-      <Text style={s.eyebrow}>PROFILE</Text>
+  <KeyboardAvoidingView
+    style={{ flex: 1 }}
+    behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    keyboardVerticalOffset={80}
+  >
+    <ScrollView
+      contentContainerStyle={{
+        flexGrow: 1,
+        paddingHorizontal: 24,
+        paddingBottom: 24,
+        justifyContent: 'space-between',
+      }}
+      keyboardShouldPersistTaps="handled"
+    >
+      {/* TOP CONTENT */}
+      <View style={{ marginTop: 40 }}>
+        <Text style={s.eyebrow}>PROFILE</Text>
 
-      <Text style={s.title}>What should we call you?</Text>
+        <Text style={s.title}>What should we call you?</Text>
 
-      <Text style={s.subtitle}>
-        Add a simple display name now. You can update your full profile later in Settings.
-      </Text>
+        <Text style={s.subtitle}>
+          Add a simple display name now. You can update your full profile later in Settings.
+        </Text>
 
-      <TextInput
-        style={s.input}
-        placeholder="Your name"
-        placeholderTextColor="#5C5248"
-        value={displayName}
-        onChangeText={setDisplayName}
-      />
+        <TextInput
+          style={s.input}
+          placeholder="Your name"
+          placeholderTextColor="#5C5248"
+          value={displayName}
+          onChangeText={setDisplayName}
+        />
+      </View>
 
-<Pressable
-  onPress={() => {
-    const cleanName = displayName.trim();
+      {/* BOTTOM ACTIONS */}
+      <View>
+        <Pressable
+          onPress={() => {
+            const cleanName = displayName.trim();
 
-    if (cleanName.length > 0) {
-      setProfile({ name: cleanName } as any);
-    }
+            if (cleanName.length > 0) {
+              setProfile({ name: cleanName } as any);
+            }
 
-    router.replace('/onboarding-first-mark' as any);
-  }}
-  style={({ pressed }) => [s.primaryBtn, pressed && s.pressed]}
->
-  <Text style={s.primaryBtnText}>Continue</Text>
-</Pressable>
+            router.replace('/onboarding-first-mark' as any);
+          }}
+          style={({ pressed }) => [s.primaryBtn, pressed && s.pressed]}
+        >
+          <Text style={s.primaryBtnText}>Continue</Text>
+        </Pressable>
 
-      <Pressable
-        onPress={() => router.replace('/onboarding-first-mark' as any)}
-        style={({ pressed }) => [s.skipBtn, pressed && s.pressed]}
-      >
-        <Text style={s.skipText}>Skip for now</Text>
-      </Pressable>
-    </View>
-  );
+        <Pressable
+          onPress={() => router.replace('/onboarding-first-mark' as any)}
+          style={({ pressed }) => [s.skipBtn, pressed && s.pressed]}
+        >
+          <Text style={s.skipText}>Skip for now</Text>
+        </Pressable>
+      </View>
+    </ScrollView>
+  </KeyboardAvoidingView>
+);
 }
 
 const s = StyleSheet.create({

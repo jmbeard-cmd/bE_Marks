@@ -640,7 +640,7 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
           <View style={s.bannerContent}>
             <Text style={s.bannerIcon}>👨‍👩‍👧‍👦</Text>
             <View style={s.bannerText}>
-                            <Text style={[s.bannerTitle, themed.goldText]}>{newFamilyCount === 1 ? '1 new family milestone' : `${newFamilyCount} new family milestones`}</Text>
+                            <Text style={[s.bannerTitle, themed.goldText]}>{newFamilyCount === 1 ? '1 new family Mark' : `${newFamilyCount} new family Mark`}</Text>
               <Text style={[s.bannerHint, themed.mutedText]}>Tap to view {family.name}</Text>
             </View>
             <TouchableOpacity onPress={() => setShowBanner(false)} style={s.bannerDismiss}>
@@ -707,8 +707,8 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
       ) : filtered.length === 0 ? (
         <View style={s.empty}>
           <Text style={[s.emptyIcon, themed.mutedText]}>{activeFilterCount > 0 ? '🔍' : syncing ? '⟳' : '◎'}</Text>
-          <Text style={[s.emptyText, themed.primaryText]}>{syncing ? 'Syncing…' : activeFilterCount > 0 ? 'No matches' : tab === 'family' ? 'No family milestones yet' : 'No milestones yet'}</Text>
-          <Text style={[s.emptyHint, themed.mutedText]}>{syncing ? '' : activeFilterCount > 0 ? 'Try adjusting your filters.' : tab === 'family' ? 'Save a milestone and tag it to your family.' : 'Tap + to capture your first moment.'}</Text>
+          <Text style={[s.emptyText, themed.primaryText]}>{syncing ? 'Syncing…' : activeFilterCount > 0 ? 'No matches' : tab === 'family' ? 'No family Marks yet' : 'No Marks yet'}</Text>
+          <Text style={[s.emptyHint, themed.mutedText]}>{syncing ? '' : activeFilterCount > 0 ? 'Try adjusting your filters.' : tab === 'family' ? 'Save a Mark and tag it to your family.' : 'Tap + to capture your first Mark.'}</Text>
           {activeFilterCount > 0 && <TouchableOpacity style={s.emptyActionBtn} onPress={clearFilters}><Text style={s.emptyActionText}>Clear filters</Text></TouchableOpacity>}
         </View>
       ) : (

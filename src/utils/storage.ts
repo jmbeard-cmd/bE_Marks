@@ -1,4 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { clearDMStorage } from './dm-storage';
+import { clearGroupStorage } from './group-storage';
 
 const MILESTONES_KEY = 'milestones_v1';
 const FAMILY_KEY = 'family_v1';
@@ -109,7 +111,12 @@ all[existingIndex] = {
 export async function getMilestones(): Promise<Milestone[]> {
   const raw = await AsyncStorage.getItem(MILESTONES_KEY);
   if (!raw) return [];
-  return JSON.parse(raw);
+
+  const parsed = JSON.parse(raw);
+
+  return Array.isArray(parsed)
+    ? parsed.sort((a, b) => b.createdAt - a.createdAt)
+    : [];
 }
 
 export async function updateMilestone(id: string, patch: Partial<Milestone>): Promise<void> {
@@ -268,4 +275,30 @@ export async function setLastFamilyCheck(familyId: string, timestamp: number): P
 export function formatDate(timestamp: number): string {
   const d = new Date(timestamp * 1000);
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+// ─────────────────────────────────────────────
+// CLEAR ALL LOCAL DATA FOR NEW IDENTITY
+// ─────────────────────────────────────────────
+
+export async function clearNewIdentityLocalData(): Promise<void> {
+  try {
+    console.log('[Identity Reset] Starting local data clear...');
+
+    // Clear DM data
+    await clearDMStorage();
+
+    // Clear group data
+    await clearGroupStorage();
+
+    // 🔥 Clear timeline (Marks)
+    await AsyncStorage.removeItem(MILESTONES_KEY);
+
+    // 🔥 Clear family + members (extra safety)
+    await AsyncStorage.removeItem(FAMILY_KEY);
+    await AsyncStorage.removeItem(FAMILY_MEMBERS_KEY);
+
+    console.log('[Identity Reset] Local data cleared successfully');
+  } catch (error) {
+    console.warn('[Identity Reset] Failed to clear local data:', error);
+  }
 }

@@ -927,17 +927,44 @@ borderColor: '#7a1a1a',
               <>
                 {!showCreateFamily && !showJoinFamily && (
                   <View style={s.familyOptions}>
-                    <TouchableOpacity style={s.familyBtn} onPress={() => setShowCreateFamily(true)}>
-                      <Text style={s.familyBtnIcon}>👨‍👩‍👧‍👦</Text>
-                      <Text style={s.familyBtnText}>Create a family</Text>
-                      <Text style={s.familyBtnHint}>Start a shared timeline</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={s.familyBtn} onPress={() => setShowJoinFamily(true)}>
-                      <Text style={s.familyBtnIcon}>🔗</Text>
-                      <Text style={s.familyBtnText}>Join a family</Text>
-                      <Text style={s.familyBtnHint}>Enter an invite code</Text>
-                    </TouchableOpacity>
-                  </View>
+  <TouchableOpacity
+    style={[
+      s.familyBtn,
+      { backgroundColor: theme.surface, borderColor: theme.border }
+    ]}
+    onPress={() => setShowCreateFamily(true)}
+  >
+  <Text style={s.familyBtnIcon}>👨‍👩‍👧‍👦</Text>
+
+<View style={{ flex: 1 }}>
+  <Text style={[s.familyBtnText, { color: theme.text }]}>
+    Create a family
+  </Text>
+  <Text style={[s.familyBtnHint, { color: theme.textMuted }]}>
+    Start a shared timeline
+  </Text>
+</View>
+  </TouchableOpacity>
+
+  <TouchableOpacity
+    style={[
+      s.familyBtn,
+      { backgroundColor: theme.surface, borderColor: theme.border }
+    ]}
+    onPress={() => setShowJoinFamily(true)}
+  >
+   <Text style={s.familyBtnIcon}>🔗</Text>
+
+<View style={{ flex: 1 }}>
+  <Text style={[s.familyBtnText, { color: theme.text }]}>
+    Join a family
+  </Text>
+  <Text style={[s.familyBtnHint, { color: theme.textMuted }]}>
+    Enter an invite code
+  </Text>
+</View>
+  </TouchableOpacity>
+</View>
                 )}
                 {showCreateFamily && (
                   <View style={s.editBlock}>
@@ -1198,12 +1225,19 @@ backupBtn: {
   nsecHideText: { fontSize: 13, color: '#555' },
   familyOptions: { gap: 10 },
 familyBtn: { 
-  padding: 16, 
+  flexDirection: 'row',
+  alignItems: 'center',
+  paddingVertical: 12,
+  paddingHorizontal: 14,
   borderRadius: 12,
   borderWidth: 0.5,
-  gap: 3 
+  gap: 12,
 },
-  familyBtnIcon: { fontSize: 22, marginBottom: 4 },
+  familyBtnIcon: { 
+  fontSize: 20,
+  width: 28,
+  textAlign: 'center',
+},
   familyBtnText: { fontSize: 15, color: '#fff', fontWeight: '600' },
   familyBtnHint: { fontSize: 12, color: '#444' },
 familyCard: { 
