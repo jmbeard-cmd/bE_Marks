@@ -27,6 +27,10 @@ import {
   getDMThreads,
   type DMThread,
 } from '../../src/utils/dm-storage';
+import {
+  getCachedDMThreadCards,
+  saveCachedDMThreadCards,
+} from '../../src/utils/dm-thread-list-cache';
 import { fetchNostrProfile } from '../../src/utils/nostr';
 import { normalizeNostrIdentity } from '../../src/utils/nostr-identity';
 import { useIdentity } from '../_layout';
@@ -78,6 +82,38 @@ export default function MessagesScreen() {
   const pendingThreadReloadRef = useRef(false);
   const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const profileHydrationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const saveThreadCardSnapshot = useCallback(async (
+    threadList: DMThread[],
+    names: Record<string, string>,
+    pictures: Record<string, string>
+  ) => {
+    const cards = threadList.map(thread => {
+      const displayTitle =
+        thread.participantPubkey && names[thread.participantPubkey]
+          ? names[thread.participantPubkey]
+          : thread.title;
+
+      const profilePicture =
+        thread.participantPubkey
+          ? pictures[thread.participantPubkey]
+          : undefined;
+
+      return {
+        id: thread.id,
+        title: thread.title,
+        displayTitle,
+        participantPubkey: thread.participantPubkey,
+        participantNpub: thread.participantNpub,
+        profilePicture,
+        updatedAt: thread.updatedAt,
+        unread: thread.unread,
+        lastMessage: thread.lastMessage || '',
+      };
+    });
+
+    await saveCachedDMThreadCards(cards);
+  }, []);
 
   const hydrateProfiles = useCallback(async (threadList: DMThread[]) => {
     if (loadingProfilesRef.current) return;
@@ -137,10 +173,16 @@ export default function MessagesScreen() {
         ...prev,
         ...nextPictures,
       }));
+
+      await saveThreadCardSnapshot(
+        threadList,
+        nextNames,
+        nextPictures
+      );
     } finally {
       loadingProfilesRef.current = false;
     }
-  }, []);
+  }, [saveThreadCardSnapshot]);
 
   const loadData = useCallback(async () => {
     if (loadingThreadsRef.current) {
@@ -151,6 +193,46 @@ export default function MessagesScreen() {
     loadingThreadsRef.current = true;
 
     try {
+      const cachedCards = await getCachedDMThreadCards();
+
+      if (cachedCards.length > 0) {
+        const cachedNames: Record<string, string> = {};
+        const cachedPictures: Record<string, string> = {};
+
+        const cachedThreads = cachedCards.map(card => {
+          if (card.participantPubkey) {
+            cachedNames[card.participantPubkey] = card.displayTitle;
+
+            if (card.profilePicture) {
+              cachedPictures[card.participantPubkey] = card.profilePicture;
+            }
+          }
+
+          return {
+            id: card.id,
+            title: card.title,
+            participantPubkey: card.participantPubkey,
+            participantNpub: card.participantNpub,
+            updatedAt: card.updatedAt,
+            unread: card.unread,
+            lastMessage: card.lastMessage,
+          } as DMThread;
+        });
+
+        setProfileNames(prev => ({
+          ...prev,
+          ...cachedNames,
+        }));
+
+        setProfilePictures(prev => ({
+          ...prev,
+          ...cachedPictures,
+        }));
+
+        setThreads(cachedThreads);
+        setLoadingInitialThreads(false);
+      }
+
       const t = await getDMThreads();
 
       setThreads(t);
@@ -187,6 +269,8 @@ export default function MessagesScreen() {
                 ...cachedPictures,
               }));
             }
+
+            saveThreadCardSnapshot(t, cachedNames, cachedPictures);
           })
           .catch(error => {
             console.warn('[Messages] failed to load cached DM profiles:', error);
@@ -218,7 +302,7 @@ export default function MessagesScreen() {
         }, 100);
       }
     }
-  }, [hydrateProfiles]);
+  }, [hydrateProfiles, saveThreadCardSnapshot]);
 
   useFocusEffect(
     useCallback(() => {
