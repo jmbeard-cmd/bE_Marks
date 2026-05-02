@@ -269,10 +269,10 @@ export async function restoreDMsFromRelay(): Promise<void> {
 
     const messages = await fetchNostrDMs({
       relayUrls: FAST_RELAYS,
-      limit: 2000,
+      limit: 250,
     });
 
-    console.log('[DM RESTORE] messages fetched:', messages.length);
+    console.log('[DM RESTORE] recent messages fetched:', messages.length);
 
     const latestThreads = await getDMThreads();
     const threadMap = new Map<string, string>();

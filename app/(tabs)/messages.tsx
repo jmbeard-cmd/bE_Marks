@@ -1,6 +1,6 @@
 import { useFocusEffect, useRouter } from 'expo-router';
 import { nip19 } from 'nostr-tools';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   FlatList,
@@ -63,23 +63,36 @@ export default function MessagesScreen() {
   const [newNpub, setNewNpub] = useState('');
   const [creating, setCreating] = useState(false);
 
-    const loadData = useCallback(async () => {
-    const [t, c] = await Promise.all([getDMThreads(), getContacts()]);
-    setThreads(t);
-    setContacts(c);
+  const loadingThreadsRef = useRef(false);
+  const loadingProfilesRef = useRef(false);
+  const pendingThreadReloadRef = useRef(false);
+  const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    const nextNames: Record<string, string> = {};
-    const nextPictures: Record<string, string> = {};
+  const hydrateProfiles = useCallback(async (threadList: DMThread[]) => {
+    if (loadingProfilesRef.current) return;
 
-    await Promise.all(
-      t.map(async thread => {
-        if (!thread.participantPubkey) return;
+    loadingProfilesRef.current = true;
+
+    try {
+      const profileThreads = threadList.filter(thread => !!thread.participantPubkey);
+
+      if (profileThreads.length === 0) {
+        setProfileNames({});
+        setProfilePictures({});
+        return;
+      }
+
+      const nextNames: Record<string, string> = {};
+      const nextPictures: Record<string, string> = {};
+
+      for (const thread of profileThreads) {
+        if (!thread.participantPubkey) continue;
 
         try {
           const npub = nip19.npubEncode(thread.participantPubkey);
           const profile = await fetchNostrProfile(npub);
 
-          if (!profile) return;
+          if (!profile) continue;
 
           const displayName =
             profile.display_name ||
@@ -94,12 +107,48 @@ export default function MessagesScreen() {
         } catch (error) {
           console.warn('[Messages] failed to hydrate DM profile:', error);
         }
-      })
-    );
 
-    setProfileNames(nextNames);
-    setProfilePictures(nextPictures);
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+
+      setProfileNames(nextNames);
+      setProfilePictures(nextPictures);
+    } finally {
+      loadingProfilesRef.current = false;
+    }
   }, []);
+
+  const loadData = useCallback(async () => {
+    if (loadingThreadsRef.current) {
+      pendingThreadReloadRef.current = true;
+      return;
+    }
+
+    loadingThreadsRef.current = true;
+
+    try {
+      const t = await getDMThreads();
+
+      setThreads(t);
+
+      getContacts()
+        .then(setContacts)
+        .catch(error => {
+          console.warn('[Messages] failed to load contacts:', error);
+        });
+
+      hydrateProfiles(t);
+    } finally {
+      loadingThreadsRef.current = false;
+
+      if (pendingThreadReloadRef.current) {
+        pendingThreadReloadRef.current = false;
+        setTimeout(() => {
+          loadData();
+        }, 100);
+      }
+    }
+  }, [hydrateProfiles]);
 
   useFocusEffect(
     useCallback(() => {
@@ -108,9 +157,25 @@ export default function MessagesScreen() {
   );
 
   useEffect(() => {
-    return subscribeToDMEvents(() => {
-      loadData();
+    const unsubscribe = subscribeToDMEvents(() => {
+      if (reloadTimerRef.current) {
+        clearTimeout(reloadTimerRef.current);
+      }
+
+      reloadTimerRef.current = setTimeout(() => {
+        reloadTimerRef.current = null;
+        loadData();
+      }, 250);
     });
+
+    return () => {
+      if (reloadTimerRef.current) {
+        clearTimeout(reloadTimerRef.current);
+        reloadTimerRef.current = null;
+      }
+
+      unsubscribe();
+    };
   }, [loadData]);
 
   const filteredThreads = useMemo(() => {
