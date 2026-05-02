@@ -1,29 +1,54 @@
 import * as FileSystem from 'expo-file-system/legacy';
 
 const WORKER_URL = 'https://be-milestones-upload.jmbeard.workers.dev';
+type R2UploadMediaType = 'photo' | 'video' | 'audio' | 'file';
 
 // Determines content type by mediaType param first, then falls back to extension.
 // This handles content:// URIs from Android which have no file extension.
-function getContentType(uri: string, mediaType: 'photo' | 'video' | 'audio'): string {
-  // Use mediaType as the primary signal — most reliable
+function getContentType(uri: string, mediaType: R2UploadMediaType): string {
+  // Use mediaType as the primary signal — most reliable.
+  // Extension fallback helps for normal file:// URIs.
+  const ext = uri.split('.').pop()?.toLowerCase();
+
   if (mediaType === 'photo') {
-    const ext = uri.split('.').pop()?.toLowerCase();
     return ext === 'png' ? 'image/png' : 'image/jpeg';
   }
+
   if (mediaType === 'video') {
-    const ext = uri.split('.').pop()?.toLowerCase();
     return ext === 'mov' ? 'video/quicktime' : 'video/mp4';
   }
+
   if (mediaType === 'audio') {
-    const ext = uri.split('.').pop()?.toLowerCase();
     return ext === 'aac' ? 'audio/aac' : 'audio/m4a';
   }
+
+  if (mediaType === 'file') {
+    if (ext === 'pdf') return 'application/pdf';
+    if (ext === 'txt') return 'text/plain';
+    if (ext === 'csv') return 'text/csv';
+    if (ext === 'json') return 'application/json';
+    if (ext === 'doc') return 'application/msword';
+    if (ext === 'docx') {
+      return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    }
+    if (ext === 'xls') return 'application/vnd.ms-excel';
+    if (ext === 'xlsx') {
+      return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    }
+    if (ext === 'ppt') return 'application/vnd.ms-powerpoint';
+    if (ext === 'pptx') {
+      return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+    }
+
+    return 'application/octet-stream';
+  }
+
   return 'application/octet-stream';
 }
 
 export async function uploadToR2(
   localUri: string,
-  mediaType: 'photo' | 'video' | 'audio'
+  mediaType: R2UploadMediaType
 ): Promise<string | null> {
   try {
     const contentType = getContentType(localUri, mediaType);

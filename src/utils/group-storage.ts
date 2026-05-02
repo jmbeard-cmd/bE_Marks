@@ -414,6 +414,29 @@ export async function updateMemberRole(
   await writeMembers(updated);
 }
 
+export async function updateGroupMemberProfile(
+  groupId: string,
+  npub: string,
+  updates: {
+    displayName?: string;
+    avatarUrl?: string;
+  }
+): Promise<void> {
+  const members = await readMembers();
+
+  const updated = members.map(member =>
+    member.groupId === groupId && member.npub === npub
+      ? {
+          ...member,
+          displayName: updates.displayName ?? member.displayName,
+          avatarUrl: updates.avatarUrl ?? member.avatarUrl,
+        }
+      : member
+  );
+
+  await writeMembers(updated);
+}
+
 export async function isGroupAdmin(groupId: string, npub: string): Promise<boolean> {
   const member = await getMemberByNpub(groupId, npub);
   return member?.status === 'active' && (member.role === 'owner' || member.role === 'admin');

@@ -5,6 +5,7 @@ import {
 } from '@/src/utils/group-calendar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
+import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as VideoThumbnails from 'expo-video-thumbnails';
@@ -15,6 +16,7 @@ import {
   FlatList,
   Image,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   RefreshControl,
@@ -47,12 +49,13 @@ import {
   removeMember,
   syncGroupMembersFromRelay,
   updateGroup,
+  updateGroupMemberProfile,
   updateMemberRole,
   type BEGroup,
   type BEGroupMember,
   type GroupRelayMode,
 } from '../src/utils/group-storage';
-import { DEFAULT_RELAY, fetchGroupMessages } from '../src/utils/nostr';
+import { DEFAULT_RELAY, fetchGroupMessages, fetchNostrProfile } from '../src/utils/nostr';
 import { uploadToR2 } from '../src/utils/r2';
 import { useIdentity } from './_layout';
 
@@ -135,17 +138,16 @@ const [showStickyModal, setShowStickyModal] = useState(false);
 const [stickyTitle, setStickyTitle] = useState('');
 const [stickyBody, setStickyBody] = useState('');
 const [stickyVisibility, setStickyVisibility] = useState<'private' | 'organization' | 'public'>('private');
-const [selectedHighlightMedia, setSelectedHighlightMedia] = useState<{
+type HighlightAttachment = {
   uri: string;
-  type: 'image' | 'video';
-} | null>(null);
+  type: 'image' | 'video' | 'file';
+  name?: string;
+  mimeType?: string;
+};
 
-const [selectedHighlightMediaList, setSelectedHighlightMediaList] = useState<
-  {
-    uri: string;
-    type: 'image' | 'video';
-  }[]
->([]);
+const [selectedHighlightMedia, setSelectedHighlightMedia] = useState<HighlightAttachment | null>(null);
+
+const [selectedHighlightMediaList, setSelectedHighlightMediaList] = useState<HighlightAttachment[]>([]);
 const [highlightPosting, setHighlightPosting] = useState(false);
 const [highlightUploadStatus, setHighlightUploadStatus] = useState<string | null>(null);
 const [highlightProgress, setHighlightProgress] = useState(0);
@@ -159,6 +161,53 @@ const [highlightProgress, setHighlightProgress] = useState(0);
 const [groupRelayMode, setGroupRelayMode] = useState<GroupRelayMode>('default');
 const [groupRelayUrl, setGroupRelayUrl] = useState('');
 const [upcomingCount, setUpcomingCount] = useState(0);
+const hydrateMemberProfiles = useCallback(async (groupId: string, groupMembers: BEGroupMember[]) => {
+  const activeMembers = groupMembers.filter(member => member.status === 'active');
+
+  if (activeMembers.length === 0) return;
+
+  const hydratedMembers = [...groupMembers];
+
+  for (const member of activeMembers) {
+    try {
+      const profile = await fetchNostrProfile(member.npub);
+
+      if (!profile) continue;
+
+      const displayName =
+        profile.display_name ||
+        profile.name ||
+        member.displayName;
+
+      const avatarUrl =
+        profile.picture ||
+        member.avatarUrl;
+
+      if (!displayName && !avatarUrl) continue;
+
+      await updateGroupMemberProfile(groupId, member.npub, {
+        displayName,
+        avatarUrl,
+      });
+
+      const index = hydratedMembers.findIndex(item => item.id === member.id);
+
+      if (index >= 0) {
+        hydratedMembers[index] = {
+          ...hydratedMembers[index],
+          displayName,
+          avatarUrl,
+        };
+      }
+
+      setMembers([...hydratedMembers]);
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+    } catch (error) {
+      console.warn('[Group Members] failed to hydrate profile:', error);
+    }
+  }
+}, []);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -168,12 +217,17 @@ if (!g) return;
 
 setGroup(g);
 
-// ✅ Members (already working)
+// ✅ Members
 const syncedMembers = await syncGroupMembersFromRelay(
   id,
   g.relayUrl ? [g.relayUrl] : []
 );
+
 setMembers(syncedMembers);
+
+hydrateMemberProfiles(id, syncedMembers).catch(error => {
+  console.warn('[Group Members] profile hydration failed:', error);
+});
 
 // 🔥 THIS is the NEW sticky sync
 const syncedStickies = g.relayUrl
@@ -236,7 +290,7 @@ try {
       setIsAdmin(admin);
       setIsMember(member);
     }
-  }, [id, npub]);
+  }, [id, npub, hydrateMemberProfiles]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -333,44 +387,67 @@ try {
   };
 
   const handlePickHighlightMedia = async () => {
-  try {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
-    if (!permission.granted) {
-      Alert.alert('Permission needed', 'Allow photo library access to add media to a highlight.');
-      return;
+      if (!permission.granted) {
+        Alert.alert('Permission needed', 'Allow photo library access to add media to a highlight.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.All,
+        allowsEditing: false,
+        quality: 0.75,
+        videoQuality: ImagePicker.UIImagePickerControllerQualityType.Low,
+        allowsMultipleSelection: true,
+        selectionLimit: 10,
+      });
+
+      if (result.canceled || !result.assets?.length) return;
+
+      const newItems: HighlightAttachment[] = result.assets
+        .filter(asset => !!asset.uri)
+        .map(asset => ({
+          uri: asset.uri,
+          type: asset.type === 'video' ? 'video' : 'image',
+          name: asset.fileName ?? undefined,
+          mimeType: asset.mimeType ?? undefined,
+        }));
+
+      setSelectedHighlightMediaList(prev => [...prev, ...newItems]);
+      setSelectedHighlightMedia(newItems[0] ?? null);
+    } catch (e) {
+      console.warn('[Highlight media picker] failed', e);
+      Alert.alert('Media error', 'Could not open your photo library.');
     }
+  };
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.All,
-      allowsEditing: false,
-      quality: 0.75,
-videoQuality: ImagePicker.UIImagePickerControllerQualityType.Low,
-      allowsMultipleSelection: true,
-      selectionLimit: 5, // adjust later if needed
-    });
+    const handlePickHighlightFiles = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        multiple: true,
+        copyToCacheDirectory: true,
+      });
 
-    if (result.canceled || !result.assets?.length) return;
+      if (result.canceled || !result.assets?.length) return;
 
-    const newItems: {
-  uri: string;
-  type: 'image' | 'video';
-}[] = result.assets
-  .filter(asset => !!asset.uri)
-  .map(asset => ({
-    uri: asset.uri,
-    type: asset.type === 'video' ? 'video' : 'image',
-  }));
+      const newFiles: HighlightAttachment[] = result.assets
+        .filter(asset => !!asset.uri)
+        .map(asset => ({
+          uri: asset.uri,
+          type: 'file',
+          name: asset.name,
+          mimeType: asset.mimeType,
+        }));
 
-setSelectedHighlightMediaList(prev => [...prev, ...newItems]);
-
-setSelectedHighlightMedia(newItems[0] ?? null);
-
-  } catch (e) {
-    console.warn('[Highlight media picker] failed', e);
-    Alert.alert('Media error', 'Could not open your photo library.');
-  }
-};
+      setSelectedHighlightMediaList(prev => [...prev, ...newFiles]);
+      setSelectedHighlightMedia(newFiles[0] ?? null);
+    } catch (e) {
+      console.warn('[Highlight file picker] failed', e);
+      Alert.alert('File error', 'Could not open the file picker.');
+    }
+  };
   
   const handleCreateSticky = async () => {
   if (!group || highlightPosting) return;
@@ -399,9 +476,11 @@ setSelectedHighlightMedia(newItems[0] ?? null);
   try {
     const uploadedHighlightMedia: {
       mediaUrl: string;
-      mediaType: 'image' | 'video';
+      mediaType: 'image' | 'video' | 'file';
       thumbnailUrl?: string;
       imageUrl?: string;
+      fileName?: string;
+      mimeType?: string;
     }[] = [];
 
     const totalSteps = mediaToUpload.length * 2; // upload + thumbnail
@@ -414,7 +493,7 @@ for (let i = 0; i < mediaToUpload.length; i++) {
 
   const uploadedUrl = await uploadToR2(
     item.uri,
-    item.type === 'video' ? 'video' : 'photo'
+    item.type === 'video' ? 'video' : item.type === 'image' ? 'photo' : 'file'
   );
 
   currentStep++;
@@ -453,6 +532,8 @@ for (let i = 0; i < mediaToUpload.length; i++) {
     mediaType: item.type,
     thumbnailUrl,
     imageUrl: item.type === 'image' ? uploadedUrl : undefined,
+    fileName: item.name,
+    mimeType: item.mimeType,
   });
 }
 
@@ -511,6 +592,27 @@ const openViewerForSticky = (sticky: GroupSticky, startIndex: number) => {
 
   setActiveViewerImages(images);
   setSelectedGalleryImage(images[startIndex]?.uri ?? null);
+};
+
+const handleOpenHighlightFile = async (fileUrl?: string) => {
+  if (!fileUrl) {
+    Alert.alert('File unavailable', 'This file does not have a saved URL.');
+    return;
+  }
+
+  try {
+    const supported = await Linking.canOpenURL(fileUrl);
+
+    if (!supported) {
+      Alert.alert('Cannot open file', 'No app is available to open this file.');
+      return;
+    }
+
+    await Linking.openURL(fileUrl);
+  } catch (error) {
+    console.warn('[Highlight file open] failed:', error);
+    Alert.alert('File error', 'Could not open this attachment.');
+  }
 };
 
 const handleDeleteSticky = (sticky: GroupSticky) => {
@@ -918,11 +1020,40 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
   <Text style={s.stickyBody}>{sticky.body}</Text>
 ) : null}
 
-{getStickyMediaItems(sticky).length > 0 && (
+{getStickyVisualMediaItems(sticky).length > 0 && (
   <MediaCollage
-    media={getStickyMediaItems(sticky)}
+    media={getStickyVisualMediaItems(sticky)}
     onPressMedia={(index) => openViewerForSticky(sticky, index)}
   />
+)}
+
+{getStickyFileItems(sticky).length > 0 && (
+  <View style={s.stickyFileList}>
+    {getStickyFileItems(sticky).map((file, index) => (
+      <TouchableOpacity
+        key={`${sticky.id}_file_${index}`}
+        style={s.stickyFileRow}
+        onPress={() => handleOpenHighlightFile(file.mediaUrl || file.uri)}
+        activeOpacity={0.82}
+      >
+        <Text style={s.stickyFileIcon}>📎</Text>
+
+        <View style={{ flex: 1 }}>
+          <Text style={s.stickyFileName} numberOfLines={1}>
+            {file.fileName || file.name || 'Attached file'}
+          </Text>
+
+          {!!file.mimeType && (
+            <Text style={s.stickyFileMeta} numberOfLines={1}>
+              {file.mimeType}
+            </Text>
+          )}
+        </View>
+
+        <Text style={s.stickyFileOpen}>Open</Text>
+      </TouchableOpacity>
+    ))}
+  </View>
 )}
 
 <Text style={s.stickyMeta}>
@@ -1160,40 +1291,80 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
       <Text style={s.inputLabel}>MEDIA</Text>
 
       {selectedHighlightMediaList.length > 0 ? (
-  <View>
-    <MediaCollage
-      media={selectedHighlightMediaList}
-      onPressMedia={() => {}}
-    />
+        <View>
+          {selectedHighlightMediaList.some(item => item.type === 'image' || item.type === 'video') && (
+            <MediaCollage
+              media={selectedHighlightMediaList.filter(item => item.type === 'image' || item.type === 'video')}
+              onPressMedia={() => {}}
+            />
+          )}
 
-    <TouchableOpacity
-      style={s.highlightRemoveMediaBtn}
-      onPress={() => {
-        setSelectedHighlightMediaList([]);
-        setSelectedHighlightMedia(null);
-      }}
-    >
-      <Text style={s.highlightRemoveMediaText}>Remove all media</Text>
-    </TouchableOpacity>
+          {selectedHighlightMediaList.some(item => item.type === 'file') && (
+            <View style={s.highlightFileList}>
+              {selectedHighlightMediaList
+                .filter(item => item.type === 'file')
+                .map((item, index) => (
+                  <View key={`${item.uri}_${index}`} style={s.highlightFileRow}>
+                    <Text style={s.highlightFileIcon}>📎</Text>
+                    <Text style={s.highlightFileName} numberOfLines={1}>
+                      {item.name || 'Attached file'}
+                    </Text>
+                  </View>
+                ))}
+            </View>
+          )}
 
-    <TouchableOpacity
-      style={[s.highlightAddMediaBtn, { marginTop: 10 }]}
-      onPress={handlePickHighlightMedia}
-      activeOpacity={0.85}
-    >
-      <Text style={s.highlightAddMediaText}>+ Add more media</Text>
-    </TouchableOpacity>
-  </View>
-) : (
-  <TouchableOpacity
-    style={s.highlightAddMediaBtn}
-    onPress={handlePickHighlightMedia}
-    activeOpacity={0.85}
-  >
-    <Text style={s.highlightAddMediaText}>+ Add photo or video</Text>
-    <Text style={s.highlightAddMediaHint}>Select up to 5 items</Text>
-  </TouchableOpacity>
-)}
+          <TouchableOpacity
+            style={s.highlightRemoveMediaBtn}
+            onPress={() => {
+              setSelectedHighlightMediaList([]);
+              setSelectedHighlightMedia(null);
+            }}
+          >
+            <Text style={s.highlightRemoveMediaText}>Remove all attachments</Text>
+          </TouchableOpacity>
+
+          <View style={s.highlightAttachmentRow}>
+            <TouchableOpacity
+              style={[s.highlightAddMediaBtn, s.highlightAttachmentHalf]}
+              onPress={handlePickHighlightMedia}
+              activeOpacity={0.85}
+            >
+              <Text style={s.highlightAddMediaText}>+ Media</Text>
+              <Text style={s.highlightAddMediaHint}>Photos/videos</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[s.highlightAddMediaBtn, s.highlightAttachmentHalf]}
+              onPress={handlePickHighlightFiles}
+              activeOpacity={0.85}
+            >
+              <Text style={s.highlightAddMediaText}>+ File</Text>
+              <Text style={s.highlightAddMediaHint}>Docs/PDFs</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : (
+        <View style={s.highlightAttachmentRow}>
+          <TouchableOpacity
+            style={[s.highlightAddMediaBtn, s.highlightAttachmentHalf]}
+            onPress={handlePickHighlightMedia}
+            activeOpacity={0.85}
+          >
+            <Text style={s.highlightAddMediaText}>+ Add media</Text>
+            <Text style={s.highlightAddMediaHint}>Photos/videos</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[s.highlightAddMediaBtn, s.highlightAttachmentHalf]}
+            onPress={handlePickHighlightFiles}
+            activeOpacity={0.85}
+          >
+            <Text style={s.highlightAddMediaText}>+ Attach file</Text>
+            <Text style={s.highlightAddMediaHint}>Docs/PDFs</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       <Text style={s.inputLabel}>VISIBILITY</Text>
 
@@ -1302,6 +1473,22 @@ function getStickyMediaItems(sticky: GroupSticky): any[] {
   if (!media) return [];
 
   return Array.isArray(media) ? media : [media];
+}
+
+function getStickyVisualMediaItems(sticky: GroupSticky): any[] {
+  return getStickyMediaItems(sticky).filter(item => {
+    const mediaType = item.mediaType || item.type;
+
+    return mediaType === 'image' || mediaType === 'video';
+  });
+}
+
+function getStickyFileItems(sticky: GroupSticky): any[] {
+  return getStickyMediaItems(sticky).filter(item => {
+    const mediaType = item.mediaType || item.type;
+
+    return mediaType === 'file';
+  });
 }
 
 function formatStickyDate(unix: number): string {
@@ -1548,7 +1735,38 @@ highlightVideoPlay: {
     marginTop: 12,
     fontWeight: '600',
   },
-
+  stickyFileList: {
+    gap: 8,
+    marginTop: 12,
+  },
+  stickyFileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 11,
+    borderRadius: 12,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    backgroundColor: theme.raised,
+  },
+  stickyFileIcon: {
+    fontSize: 17,
+  },
+  stickyFileName: {
+    color: theme.text,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  stickyFileMeta: {
+    color: theme.textMuted,
+    fontSize: 10,
+    marginTop: 2,
+  },
+  stickyFileOpen: {
+    color: theme.gold,
+    fontSize: 12,
+    fontWeight: '900',
+  },
   groupRelayCard: {
     padding: 16,
     borderRadius: 18,
@@ -1918,6 +2136,38 @@ highlightRemoveMediaText: {
   color: theme.textMuted,
   fontSize: 13,
   fontWeight: '800',
+},
+highlightAttachmentRow: {
+  flexDirection: 'row',
+  gap: 10,
+  marginTop: 10,
+},
+highlightAttachmentHalf: {
+  flex: 1,
+},
+highlightFileList: {
+  gap: 8,
+  marginTop: 10,
+  marginBottom: 10,
+},
+highlightFileRow: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 10,
+  padding: 11,
+  borderRadius: 10,
+  borderWidth: 0.5,
+  borderColor: theme.border,
+  backgroundColor: theme.raised,
+},
+highlightFileIcon: {
+  fontSize: 16,
+},
+highlightFileName: {
+  flex: 1,
+  color: theme.text,
+  fontSize: 13,
+  fontWeight: '700',
 },
 highlightMediaPreviewWrap: {
   borderRadius: 14,
