@@ -1,7 +1,7 @@
 export default {
   expo: {
     name: "bE Marks",
-    slug: "marks-app",
+    slug: "milestone-app",
     version: "1.3.0",
     orientation: "portrait",
     icon: "./assets/images/icon.png",
