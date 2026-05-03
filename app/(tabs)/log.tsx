@@ -18,6 +18,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AudioRecorder from '../../components/AudioRecorder';
 import BEHeader from '../../components/BEHeader';
+import { compressMediaForUpload } from '../../src/utils/media-compression';
 import { publishFamilyMilestone, signAndPublish } from '../../src/utils/nostr';
 import { uploadMilestoneMedia } from '../../src/utils/r2';
 import { saveMilestone } from '../../src/utils/storage';
@@ -199,48 +200,85 @@ try {
       let completed = 0;
 const total = media.length || 1;
 
-const uploadedMedia = await Promise.all(
-  media.map(async m => {
-    let thumbnailUri: string | undefined;
+const uploadedMedia: {
+  id: string;
+  uri: string;
+  type: 'image' | 'video';
+  source: 'r2' | 'local';
+  thumbnailUri?: string;
+}[] = [];
 
-    if (m.type === 'video') {
-      try {
-        const thumb = await VideoThumbnails.getThumbnailAsync(m.uri, {
-          time: 1000,
-        });
+for (let i = 0; i < media.length; i++) {
+  const m = media[i];
 
-        const thumbUpload = await uploadMilestoneMedia({
-          photoUri: thumb.uri,
-        });
+  setSaveStatus(
+    m.type === 'video'
+      ? `Compressing video ${i + 1} of ${media.length}...`
+      : `Optimizing photo ${i + 1} of ${media.length}...`
+  );
 
-        thumbnailUri = thumbUpload.photoUri || thumb.uri;
-      } catch (error) {
-        console.warn('[Mark Video Thumbnail] Failed:', error);
-      }
+  const compressed = await compressMediaForUpload({
+    uri: m.uri,
+    type: m.type,
+    onStatus: setSaveStatus,
+    onProgress: compressionProgress => {
+      const baseProgress = Math.floor((i / total) * 40);
+      const itemProgress = Math.floor(compressionProgress * (40 / total));
+      setProgress(Math.min(40, baseProgress + itemProgress));
+    },
+  });
+
+  const uploadUri = compressed.uri;
+
+  let thumbnailUri: string | undefined;
+
+  if (m.type === 'video') {
+    try {
+      setSaveStatus(`Creating video thumbnail ${i + 1} of ${media.length}...`);
+
+      const thumb = await VideoThumbnails.getThumbnailAsync(uploadUri, {
+        time: 1000,
+      });
+
+      setSaveStatus(`Uploading video thumbnail ${i + 1} of ${media.length}...`);
+
+      const thumbUpload = await uploadMilestoneMedia({
+        photoUri: thumb.uri,
+      });
+
+      thumbnailUri = thumbUpload.photoUri || thumb.uri;
+    } catch (error) {
+      console.warn('[Mark Video Thumbnail] Failed:', error);
     }
+  }
 
-    const result = await uploadMilestoneMedia({
-      photoUri: m.type === 'image' ? m.uri : undefined,
-      videoUri: m.type === 'video' ? m.uri : undefined,
-    });
+  setSaveStatus(
+    m.type === 'video'
+      ? `Uploading compressed video ${i + 1} of ${media.length}...`
+      : `Uploading optimized photo ${i + 1} of ${media.length}...`
+  );
 
-    const uploadedUri =
-      m.type === 'image'
-        ? result.photoUri || m.uri
-        : result.videoUri || m.uri;
+  const result = await uploadMilestoneMedia({
+    photoUri: m.type === 'image' ? uploadUri : undefined,
+    videoUri: m.type === 'video' ? uploadUri : undefined,
+  });
 
-    completed++;
-setProgress(Math.floor((completed / total) * 60)); // upload = 0–60%
-        
-return {
-      id: m.id,
-      uri: uploadedUri,
-      type: m.type,
-      source: uploadedUri.startsWith('http') ? 'r2' as const : 'local' as const,
-      thumbnailUri,
-    };
-  })
-);
+  const uploadedUri =
+    m.type === 'image'
+      ? result.photoUri || m.uri
+      : result.videoUri || m.uri;
+
+  completed++;
+  setProgress(Math.floor((completed / total) * 60));
+
+  uploadedMedia.push({
+    id: m.id,
+    uri: uploadedUri,
+    type: m.type,
+    source: uploadedUri.startsWith('http') ? 'r2' as const : 'local' as const,
+    thumbnailUri,
+  });
+}
 
 const uploadedPhoto = uploadedMedia.find(m => m.type === 'image')?.uri;
 const uploadedVideo = uploadedMedia.find(m => m.type === 'video')?.uri;

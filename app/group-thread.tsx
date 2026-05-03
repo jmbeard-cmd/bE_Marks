@@ -25,6 +25,7 @@ import {
   type GroupMessage,
 } from '../src/utils/group-messages';
 import { getGroupById } from '../src/utils/group-storage';
+import { compressVideoForUpload } from '../src/utils/media-compression';
 import {
   fetchGroupMessages,
   publishGroupMessage,
@@ -289,9 +290,27 @@ const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
     try {
       const asset = result.assets[0];
       const mediaType = asset.type === 'video' ? 'video' : 'image';
-      const uploadUri = asset.uri;
+      let uploadUri = asset.uri;
 
-      setUploadStatus('Uploading...');
+      if (mediaType === 'video') {
+        const compressionResult = await compressVideoForUpload({
+          uri: asset.uri,
+          onStatus: setUploadStatus,
+          onProgress: progress => {
+            setUploadStatus(`Compressing video… ${Math.round(progress * 100)}%`);
+          },
+        });
+
+        uploadUri = compressionResult.uri;
+
+        if (compressionResult.wasCompressed) {
+          setUploadStatus('Uploading compressed video...');
+        } else {
+          setUploadStatus('Uploading video...');
+        }
+      } else {
+        setUploadStatus('Uploading photo...');
+      }
 
       const uploadedUrl = await uploadToR2(
         uploadUri,
