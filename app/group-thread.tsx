@@ -25,7 +25,10 @@ import {
   type GroupMessage,
 } from '../src/utils/group-messages';
 import { getGroupById } from '../src/utils/group-storage';
-import { compressVideoForUpload } from '../src/utils/media-compression';
+import {
+  compressImageForUpload,
+  compressVideoForUpload,
+} from '../src/utils/media-compression';
 import {
   fetchGroupMessages,
   publishGroupMessage,
@@ -247,7 +250,7 @@ const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
     });
   };
 
-    const handlePickMedia = async () => {
+  const handlePickMedia = async () => {
     if (!groupId || uploadingImage) return;
 
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -263,33 +266,32 @@ const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
 
     if (result.canceled || !result.assets?.[0]?.uri) return;
 
-        setUploadingImage(true);
+    setUploadingImage(true);
     setUploadStatus('Preparing media...');
 
+    const asset = result.assets[0];
+    const mediaType = asset.type === 'video' ? 'video' : 'image';
     const pendingId = `pending_upload_${Date.now()}`;
-    const pendingMediaType = result.assets[0].type === 'video' ? 'video' : 'image';
 
     setPendingUploads(prev => [
       ...prev,
       {
         id: pendingId,
         groupId,
-        mediaType: pendingMediaType,
+        mediaType,
         mine: true,
         senderName: myDisplayName,
         createdAt: Math.floor(Date.now() / 1000),
         pending: true,
-        pendingLabel: pendingMediaType === 'video'
-          ? 'Uploading video…'
-          : 'Uploading photo…',
+        pendingLabel: mediaType === 'video'
+          ? 'Compressing video…'
+          : 'Optimizing photo…',
       },
     ]);
 
     setTimeout(() => scrollToBottom(true), 50);
 
     try {
-      const asset = result.assets[0];
-      const mediaType = asset.type === 'video' ? 'video' : 'image';
       let uploadUri = asset.uri;
 
       if (mediaType === 'video') {
@@ -309,7 +311,18 @@ const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
           setUploadStatus('Uploading video...');
         }
       } else {
-        setUploadStatus('Uploading photo...');
+        const compressionResult = await compressImageForUpload({
+          uri: asset.uri,
+          onStatus: setUploadStatus,
+        });
+
+        uploadUri = compressionResult.uri;
+
+        if (compressionResult.wasCompressed) {
+          setUploadStatus('Uploading optimized photo...');
+        } else {
+          setUploadStatus('Uploading photo...');
+        }
       }
 
       const uploadedUrl = await uploadToR2(
@@ -321,6 +334,7 @@ const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
         Alert.alert('Upload failed', 'Could not upload media.');
         setUploadStatus(null);
         setUploadingImage(false);
+        setPendingUploads(prev => prev.filter(item => item.id !== pendingId));
         return;
       }
 
@@ -357,7 +371,7 @@ const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
       });
 
       if (nsec) {
-        await publishGroupMessage({
+        const result = await publishGroupMessage({
           groupId,
           mediaUrl: uploadedUrl,
           mediaType,
@@ -368,13 +382,17 @@ const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
           nsec,
           relayUrl,
         });
+
+        if (!result.success) {
+          console.warn('[Groups] publishGroupMessage media failed:', result.error);
+        }
       }
 
-            setPendingUploads(prev => prev.filter(item => item.id !== pendingId));
+      setPendingUploads(prev => prev.filter(item => item.id !== pendingId));
       await loadMessages();
       setUploadStatus(null);
     } catch (e: any) {
-            setPendingUploads(prev => prev.filter(item => item.id !== pendingId));
+      setPendingUploads(prev => prev.filter(item => item.id !== pendingId));
       Alert.alert('Error', e?.message || 'Failed to send media.');
       setUploadStatus(null);
     }
@@ -405,13 +423,45 @@ const handleTakePhoto = async () => {
     return;
   }
 
-  try {
-    setUploadStatus('Uploading...');
+  const pendingId = `pending_camera_upload_${Date.now()}`;
 
-    const uploadedUrl = await uploadToR2(result.assets[0].uri, 'photo');
+  setPendingUploads(prev => [
+    ...prev,
+    {
+      id: pendingId,
+      groupId,
+      mediaType: 'image',
+      mine: true,
+      senderName: myDisplayName,
+      createdAt: Math.floor(Date.now() / 1000),
+      pending: true,
+      pendingLabel: 'Optimizing photo…',
+    },
+  ]);
+
+  setTimeout(() => scrollToBottom(true), 50);
+
+  try {
+    const asset = result.assets[0];
+
+    const compressionResult = await compressImageForUpload({
+      uri: asset.uri,
+      onStatus: setUploadStatus,
+    });
+
+    const uploadUri = compressionResult.uri;
+
+    if (compressionResult.wasCompressed) {
+      setUploadStatus('Uploading optimized photo...');
+    } else {
+      setUploadStatus('Uploading photo...');
+    }
+
+    const uploadedUrl = await uploadToR2(uploadUri, 'photo');
 
     if (!uploadedUrl) {
       Alert.alert('Upload failed', 'Could not upload photo.');
+      setPendingUploads(prev => prev.filter(item => item.id !== pendingId));
       setUploadStatus(null);
       setUploadingImage(false);
       return;
@@ -430,7 +480,7 @@ const handleTakePhoto = async () => {
     });
 
     if (nsec) {
-      await publishGroupMessage({
+      const result = await publishGroupMessage({
         groupId,
         mediaUrl: uploadedUrl,
         mediaType: 'image',
@@ -440,11 +490,17 @@ const handleTakePhoto = async () => {
         nsec,
         relayUrl,
       });
+
+      if (!result.success) {
+        console.warn('[Groups] publishGroupMessage camera photo failed:', result.error);
+      }
     }
 
+    setPendingUploads(prev => prev.filter(item => item.id !== pendingId));
     await loadMessages();
     setUploadStatus(null);
   } catch (e: any) {
+    setPendingUploads(prev => prev.filter(item => item.id !== pendingId));
     Alert.alert('Error', e?.message || 'Could not send photo.');
     setUploadStatus(null);
   }

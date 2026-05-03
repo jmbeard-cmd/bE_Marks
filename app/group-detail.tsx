@@ -55,6 +55,10 @@ import {
   type BEGroupMember,
   type GroupRelayMode,
 } from '../src/utils/group-storage';
+import {
+  compressImageForUpload,
+  compressVideoForUpload,
+} from '../src/utils/media-compression';
 import { DEFAULT_RELAY, fetchGroupMessages, fetchNostrProfile } from '../src/utils/nostr';
 import { uploadToR2 } from '../src/utils/r2';
 import { useIdentity } from './_layout';
@@ -483,60 +487,105 @@ try {
       mimeType?: string;
     }[] = [];
 
-    const totalSteps = mediaToUpload.length * 2; // upload + thumbnail
-let currentStep = 0;
+    const totalSteps = Math.max(mediaToUpload.length * 3, 1);
+    let currentStep = 0;
 
-for (let i = 0; i < mediaToUpload.length; i++) {
-  const item = mediaToUpload[i];
-
-  setHighlightUploadStatus(`Uploading ${i + 1} of ${mediaToUpload.length}...`);
-
-  const uploadedUrl = await uploadToR2(
-    item.uri,
-    item.type === 'video' ? 'video' : item.type === 'image' ? 'photo' : 'file'
-  );
-
-  currentStep++;
-  setHighlightProgress(currentStep / totalSteps);
-
-  if (!uploadedUrl) {
-    console.warn('[Highlight upload] skipped failed item:', item.uri);
-    continue;
-  }
-
-  let thumbnailUrl: string | undefined;
-
-  if (item.type === 'video') {
-    try {
-      setHighlightUploadStatus(`Creating thumbnail ${i + 1}...`);
-
-      const thumbnail = await VideoThumbnails.getThumbnailAsync(item.uri, {
-        time: 1000,
-      });
-
-      setHighlightUploadStatus(`Uploading thumbnail ${i + 1}...`);
-
-      const uploadedThumbnail = await uploadToR2(thumbnail.uri, 'photo');
-      thumbnailUrl = uploadedThumbnail || undefined;
-
+    const advanceProgress = () => {
       currentStep++;
-      setHighlightProgress(currentStep / totalSteps);
+      setHighlightProgress(Math.min(currentStep / totalSteps, 0.98));
+    };
 
-    } catch (thumbError) {
-      console.warn('[Highlight thumbnail] failed:', thumbError);
+    for (let i = 0; i < mediaToUpload.length; i++) {
+      const item = mediaToUpload[i];
+      let uploadUri = item.uri;
+
+      if (item.type === 'image') {
+        setHighlightUploadStatus(`Optimizing photo ${i + 1} of ${mediaToUpload.length}...`);
+
+        const compressionResult = await compressImageForUpload({
+          uri: item.uri,
+          onStatus: setHighlightUploadStatus,
+        });
+
+        uploadUri = compressionResult.uri;
+        advanceProgress();
+
+        if (compressionResult.wasCompressed) {
+          setHighlightUploadStatus(`Uploading optimized photo ${i + 1} of ${mediaToUpload.length}...`);
+        } else {
+          setHighlightUploadStatus(`Uploading photo ${i + 1} of ${mediaToUpload.length}...`);
+        }
+      } else if (item.type === 'video') {
+        const compressionResult = await compressVideoForUpload({
+          uri: item.uri,
+          onStatus: setHighlightUploadStatus,
+          onProgress: progress => {
+            setHighlightUploadStatus(
+              `Compressing video ${i + 1} of ${mediaToUpload.length}… ${Math.round(progress * 100)}%`
+            );
+          },
+        });
+
+        uploadUri = compressionResult.uri;
+        advanceProgress();
+
+        if (compressionResult.wasCompressed) {
+          setHighlightUploadStatus(`Uploading compressed video ${i + 1} of ${mediaToUpload.length}...`);
+        } else {
+          setHighlightUploadStatus(`Uploading video ${i + 1} of ${mediaToUpload.length}...`);
+        }
+      } else {
+        setHighlightUploadStatus(`Uploading file ${i + 1} of ${mediaToUpload.length}...`);
+        advanceProgress();
+      }
+
+      const uploadedUrl = await uploadToR2(
+        uploadUri,
+        item.type === 'video' ? 'video' : item.type === 'image' ? 'photo' : 'file'
+      );
+
+      advanceProgress();
+
+      if (!uploadedUrl) {
+        console.warn('[Highlight upload] skipped failed item:', item.uri);
+        continue;
+      }
+
+      let thumbnailUrl: string | undefined;
+
+      if (item.type === 'video') {
+        try {
+          setHighlightUploadStatus(`Creating thumbnail ${i + 1} of ${mediaToUpload.length}...`);
+
+          const thumbnail = await VideoThumbnails.getThumbnailAsync(uploadUri, {
+            time: 1000,
+          });
+
+          setHighlightUploadStatus(`Uploading thumbnail ${i + 1} of ${mediaToUpload.length}...`);
+
+          const uploadedThumbnail = await uploadToR2(thumbnail.uri, 'photo');
+          thumbnailUrl = uploadedThumbnail || undefined;
+
+          advanceProgress();
+        } catch (thumbError) {
+          console.warn('[Highlight thumbnail] failed:', thumbError);
+          advanceProgress();
+        }
+      } else {
+        advanceProgress();
+      }
+
+      uploadedHighlightMedia.push({
+        mediaUrl: uploadedUrl,
+        mediaType: item.type,
+        thumbnailUrl,
+        imageUrl: item.type === 'image' ? uploadedUrl : undefined,
+        fileName: item.name,
+        mimeType: item.mimeType,
+      });
     }
-  }
 
-  uploadedHighlightMedia.push({
-    mediaUrl: uploadedUrl,
-    mediaType: item.type,
-    thumbnailUrl,
-    imageUrl: item.type === 'image' ? uploadedUrl : undefined,
-    fileName: item.name,
-    mimeType: item.mimeType,
-  });
-}
-
+    setHighlightProgress(1);
     setHighlightUploadStatus('Posting highlight...');
 
     await createGroupSticky({

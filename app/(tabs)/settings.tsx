@@ -19,6 +19,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { DEFAULT_RELAYS, RELAY_LABELS } from '../../src/constants/relays';
+import { compressImageForUpload } from '../../src/utils/media-compression';
 import {
   clearIdentity,
   DEFAULT_RELAY,
@@ -154,49 +155,81 @@ useEffect(() => {
 
   const pickProfilePhoto = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
     if (status !== 'granted') {
       Alert.alert('Permission needed', 'Allow photo access in settings.');
       return;
     }
+
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 0.9,
       allowsEditing: true,
       aspect: [1, 1],
     });
+
     if (!result.canceled) {
       setUploadingPhoto(true);
-      const url = await uploadToR2(result.assets[0].uri, 'photo');
-      if (url) {
-        setEditPicture(url);
-        Alert.alert('✓ Photo uploaded', 'Tap Publish to save your profile.');
-      } else {
+
+      try {
+        const compressionResult = await compressImageForUpload({
+          uri: result.assets[0].uri,
+        });
+
+        const uploadUri = compressionResult.uri;
+        const url = await uploadToR2(uploadUri, 'photo');
+
+        if (url) {
+          setEditPicture(url);
+          Alert.alert('✓ Photo uploaded', 'Tap Publish to save your profile.');
+        } else {
+          Alert.alert('Upload failed', 'Could not upload photo. Check your connection.');
+        }
+      } catch (error) {
+        console.warn('[Profile Photo] library upload failed:', error);
         Alert.alert('Upload failed', 'Could not upload photo. Check your connection.');
       }
+
       setUploadingPhoto(false);
     }
   };
 
   const takeProfilePhoto = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
+
     if (status !== 'granted') {
       Alert.alert('Permission needed', 'Allow camera access in settings.');
       return;
     }
+
     const result = await ImagePicker.launchCameraAsync({
       quality: 0.9,
       allowsEditing: true,
       aspect: [1, 1],
     });
+
     if (!result.canceled) {
       setUploadingPhoto(true);
-      const url = await uploadToR2(result.assets[0].uri, 'photo');
-      if (url) {
-        setEditPicture(url);
-        Alert.alert('✓ Photo uploaded', 'Tap Publish to save your profile.');
-      } else {
+
+      try {
+        const compressionResult = await compressImageForUpload({
+          uri: result.assets[0].uri,
+        });
+
+        const uploadUri = compressionResult.uri;
+        const url = await uploadToR2(uploadUri, 'photo');
+
+        if (url) {
+          setEditPicture(url);
+          Alert.alert('✓ Photo uploaded', 'Tap Publish to save your profile.');
+        } else {
+          Alert.alert('Upload failed', 'Could not upload photo. Check your connection.');
+        }
+      } catch (error) {
+        console.warn('[Profile Photo] camera upload failed:', error);
         Alert.alert('Upload failed', 'Could not upload photo. Check your connection.');
       }
+
       setUploadingPhoto(false);
     }
   };
