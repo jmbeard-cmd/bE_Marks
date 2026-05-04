@@ -1389,6 +1389,7 @@ export async function publishGroupMembership(input: {
 }
 export const GROUP_MESSAGE_KIND = 30082;
 export const GROUP_STICKY_KIND = 30083;
+export const GROUP_MESSAGE_DELETE_KIND = 30087;
 
 export type NostrGroupMediaType = 'image' | 'video' | 'file';
 
@@ -1403,6 +1404,7 @@ export type NostrGroupMessageMedia = {
 
 export interface NostrGroupMessage {
   id: string;
+  clientMessageId?: string;
   groupId: string;
   senderPubkey: string;
   senderNpub?: string;
@@ -1421,6 +1423,16 @@ export interface NostrGroupMessage {
   imageUrl?: string;
 
   createdAt: number;
+}
+
+export interface NostrGroupMessageDelete {
+  id: string;
+  groupId: string;
+  messageId: string;
+  clientMessageId?: string;
+  deletedAt: number;
+  deletedByPubkey: string;
+  deletedByNpub?: string;
 }
 
 function normalizeGroupMessageMedia(input: {
@@ -1459,6 +1471,7 @@ function normalizeGroupMessageMedia(input: {
 
 export async function publishGroupMessage(input: {
   groupId: string;
+  clientMessageId?: string;
   text?: string;
 
   // New multi-attachment support
@@ -1497,11 +1510,16 @@ export async function publishGroupMessage(input: {
 
     const sk = decoded.data as Uint8Array;
     const pk = getPublicKey(sk);
+    const now = Math.floor(Date.now() / 1000);
+    const clientMessageId =
+      input.clientMessageId ||
+      `client_msg_${input.groupId}_${now}_${Math.random().toString(36).slice(2, 10)}`;
 
     const tags: string[][] = [
-      ['d', `${input.groupId}:${Date.now()}`],
+      ['d', clientMessageId],
       ['t', `group-msg:${input.groupId}`],
       ['group', input.groupId],
+      ['clientMessageId', clientMessageId],
       ['client', 'bE-Marks'],
     ];
 
@@ -1527,10 +1545,9 @@ export async function publishGroupMessage(input: {
       }
     }
 
-    const now = Math.floor(Date.now() / 1000);
-
     const content = JSON.stringify({
       groupId: input.groupId,
+      clientMessageId,
       text: trimmedText || undefined,
 
       media,
@@ -1551,6 +1568,53 @@ export async function publishGroupMessage(input: {
       created_at: now,
       tags,
       content,
+      pubkey: pk,
+    };
+
+    const signed = finalizeEvent(unsigned, sk);
+    return await publishToSpecificRelay(signed, input.relayUrl);
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+}
+
+export async function publishGroupMessageDelete(input: {
+  groupId: string;
+  messageId: string;
+  clientMessageId?: string;
+  deletedByNpub?: string;
+  nsec: string;
+  relayUrl: string;
+}): Promise<{ success: boolean; eventId?: string; error?: string }> {
+  try {
+    const decoded = nip19.decode(input.nsec);
+    if (decoded.type !== 'nsec') throw new Error('Invalid nsec');
+
+    const sk = decoded.data as Uint8Array;
+    const pk = getPublicKey(sk);
+    const now = Math.floor(Date.now() / 1000);
+    const deleteTargetId = input.clientMessageId || input.messageId;
+
+    const tags: string[][] = [
+      ['d', deleteTargetId],
+      ['t', `group-msg-delete:${input.groupId}`],
+      ['group', input.groupId],
+      ['message', input.messageId],
+      ['clientMessageId', deleteTargetId],
+      ['client', 'bE-Marks'],
+    ];
+
+    const unsigned: UnsignedEvent = {
+      kind: GROUP_MESSAGE_DELETE_KIND,
+      created_at: now,
+      tags,
+      content: JSON.stringify({
+        groupId: input.groupId,
+        messageId: input.messageId,
+        clientMessageId: deleteTargetId,
+        deletedAt: now,
+        deletedByNpub: input.deletedByNpub,
+      }),
       pubkey: pk,
     };
 
@@ -1744,6 +1808,8 @@ export function fetchGroupMessages(
             seen.add(evt.id);
 
             const parsed = JSON.parse(evt.content || '{}');
+            const clientMessageIdTag = evt.tags?.find((tag: string[]) => tag[0] === 'clientMessageId');
+            const clientMessageId = parsed.clientMessageId || clientMessageIdTag?.[1] || evt.id;
 
             const media = normalizeGroupMessageMedia({
               media: parsed.media,
@@ -1757,6 +1823,7 @@ export function fetchGroupMessages(
 
             events.push({
               id: evt.id,
+              clientMessageId,
               groupId: parsed.groupId || groupId,
               senderPubkey: evt.pubkey,
               senderNpub: parsed.senderNpub,
@@ -1820,6 +1887,8 @@ export async function subscribeToGroupMessages(input: {
             seen.add(evt.id);
 
             const parsed = JSON.parse(evt.content || '{}');
+            const clientMessageIdTag = evt.tags?.find((tag: string[]) => tag[0] === 'clientMessageId');
+            const clientMessageId = parsed.clientMessageId || clientMessageIdTag?.[1] || evt.id;
 
             const media = normalizeGroupMessageMedia({
               media: parsed.media,
@@ -1833,6 +1902,7 @@ export async function subscribeToGroupMessages(input: {
 
             input.onMessage({
               id: evt.id,
+              clientMessageId,
               groupId: parsed.groupId || input.groupId,
               senderPubkey: evt.pubkey,
               senderNpub: parsed.senderNpub,
@@ -1852,6 +1922,132 @@ export async function subscribeToGroupMessages(input: {
                 (primaryMedia?.type === 'image' ? primaryMedia.uri : undefined),
 
               createdAt: evt.created_at,
+            });
+          } catch {}
+        },
+      }
+    );
+
+    return () => {
+      try { sub.close(); } catch {}
+    };
+  } catch {
+    return () => {};
+  }
+}
+
+export function fetchGroupMessageDeletes(
+  groupId: string,
+  relayUrl: string = DEFAULT_RELAY
+): Promise<NostrGroupMessageDelete[]> {
+  return new Promise(resolve => {
+    try {
+      const ws = new WebSocket(relayUrl);
+      const deletes: NostrGroupMessageDelete[] = [];
+      const seen = new Set<string>();
+
+      const timeout = setTimeout(() => {
+        ws.close();
+        resolve(deletes);
+      }, 6000);
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify([
+          'REQ',
+          `group-msg-delete-fetch-${groupId}`,
+          {
+            kinds: [GROUP_MESSAGE_DELETE_KIND],
+            '#t': [`group-msg-delete:${groupId}`],
+            limit: 300,
+          },
+        ]));
+      };
+
+      ws.onmessage = (msg) => {
+        try {
+          const data = JSON.parse(msg.data);
+
+          if (data[0] === 'EVENT' && data[2]?.kind === GROUP_MESSAGE_DELETE_KIND) {
+            const evt = data[2];
+
+            if (seen.has(evt.id)) return;
+            seen.add(evt.id);
+
+            const parsed = JSON.parse(evt.content || '{}');
+            const messageTag = evt.tags?.find((tag: string[]) => tag[0] === 'message');
+            const clientMessageIdTag = evt.tags?.find((tag: string[]) => tag[0] === 'clientMessageId');
+            const messageId = parsed.messageId || messageTag?.[1];
+            const clientMessageId = parsed.clientMessageId || clientMessageIdTag?.[1] || messageId;
+
+            if (parsed.groupId === groupId && messageId) {
+              deletes.push({
+                id: evt.id,
+                groupId,
+                messageId,
+                clientMessageId,
+                deletedAt: parsed.deletedAt || evt.created_at,
+                deletedByPubkey: evt.pubkey,
+                deletedByNpub: parsed.deletedByNpub,
+              });
+            }
+          } else if (data[0] === 'EOSE') {
+            clearTimeout(timeout);
+            ws.close();
+            deletes.sort((a, b) => a.deletedAt - b.deletedAt);
+            resolve(deletes);
+          }
+        } catch {}
+      };
+
+      ws.onerror = () => {
+        clearTimeout(timeout);
+        resolve(deletes);
+      };
+    } catch {
+      resolve([]);
+    }
+  });
+}
+
+export async function subscribeToGroupMessageDeletes(input: {
+  groupId: string;
+  relayUrl?: string;
+  onDelete: (messageDelete: NostrGroupMessageDelete) => void;
+}): Promise<() => void> {
+  try {
+    const relayUrl = input.relayUrl ?? DEFAULT_RELAY;
+    const pool = new SimplePool();
+    const seen = new Set<string>();
+
+    const sub = pool.subscribe(
+      [relayUrl],
+      {
+        kinds: [GROUP_MESSAGE_DELETE_KIND],
+        '#t': [`group-msg-delete:${input.groupId}`],
+        since: Math.floor(Date.now() / 1000),
+      },
+      {
+        onevent(evt) {
+          try {
+            if (seen.has(evt.id)) return;
+            seen.add(evt.id);
+
+            const parsed = JSON.parse(evt.content || '{}');
+            const messageTag = evt.tags?.find((tag: string[]) => tag[0] === 'message');
+            const clientMessageIdTag = evt.tags?.find((tag: string[]) => tag[0] === 'clientMessageId');
+            const messageId = parsed.messageId || messageTag?.[1];
+            const clientMessageId = parsed.clientMessageId || clientMessageIdTag?.[1] || messageId;
+
+            if (parsed.groupId !== input.groupId || !messageId) return;
+
+            input.onDelete({
+              id: evt.id,
+              groupId: input.groupId,
+              messageId,
+              clientMessageId,
+              deletedAt: parsed.deletedAt || evt.created_at,
+              deletedByPubkey: evt.pubkey,
+              deletedByNpub: parsed.deletedByNpub,
             });
           } catch {}
         },

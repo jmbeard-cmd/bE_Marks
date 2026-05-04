@@ -17,6 +17,7 @@ export type GroupMessageMedia = {
 
 export type GroupMessage = {
   id: string;
+  clientMessageId: string;
   groupId: string;
   text?: string;
 
@@ -84,6 +85,10 @@ async function writeJson<T>(key: string, value: T): Promise<void> {
   } catch (error) {
     console.warn(`[Group Messages] failed to write ${key}:`, error);
   }
+}
+
+function createClientMessageId(groupId: string): string {
+  return `client_msg_${groupId}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function normalizeMessageMedia(input: {
@@ -177,6 +182,7 @@ export async function getMessagesForGroup(groupId: string): Promise<GroupMessage
 
 export async function sendLocalGroupMessage(input: {
   groupId: string;
+  clientMessageId?: string;
   text?: string;
 
   // New multi-attachment support
@@ -203,9 +209,11 @@ export async function sendLocalGroupMessage(input: {
   }
 
   const allMessages = await getAllGroupMessages();
+  const clientMessageId = input.clientMessageId || createClientMessageId(input.groupId);
 
   const newMessage: GroupMessage = {
-    id: `group_msg_${Date.now()}`,
+    id: clientMessageId,
+    clientMessageId,
     groupId: input.groupId,
     text: trimmedText || undefined,
 
@@ -241,6 +249,7 @@ export async function deleteMessagesForGroup(groupId: string): Promise<void> {
 export async function markGroupMessageDeleted(input: {
   groupId: string;
   messageId: string;
+  clientMessageId?: string;
   deletedByNpub?: string;
   deletedAt?: number;
 }): Promise<boolean> {
@@ -249,7 +258,12 @@ export async function markGroupMessageDeleted(input: {
   let changed = false;
 
   const updated = all.map(message => {
-    if (message.groupId !== input.groupId || message.id !== input.messageId) {
+    const matchesId = message.id === input.messageId;
+    const matchesClientId =
+      !!input.clientMessageId &&
+      message.clientMessageId === input.clientMessageId;
+
+    if (message.groupId !== input.groupId || (!matchesId && !matchesClientId)) {
       return message;
     }
 
@@ -285,6 +299,7 @@ export async function markGroupMessageDeleted(input: {
 
 export async function saveRemoteGroupMessage(input: {
   id: string;
+  clientMessageId?: string;
   groupId: string;
   text?: string;
 
@@ -315,14 +330,27 @@ export async function saveRemoteGroupMessage(input: {
     (input.imageUrl ? 'image' : undefined);
 
   const incomingSignature = getMediaSignature(media);
+  const clientMessageId = input.clientMessageId || input.id;
 
   const existsById = allMessages.some(message => message.id === input.id);
   if (existsById) return;
+
+  const existsByClientMessageId = allMessages.some(message => {
+    return !!clientMessageId && message.clientMessageId === clientMessageId;
+  });
+
+  if (existsByClientMessageId) return;
 
   const matchesDeletedLocalMessage = allMessages.some(message => {
     if (!message.isDeleted) return false;
 
     const sameGroup = message.groupId === input.groupId;
+    const sameClientMessageId =
+      !!clientMessageId &&
+      message.clientMessageId === clientMessageId;
+
+    if (sameGroup && sameClientMessageId) return true;
+
     const sameMine = message.mine === input.mine;
     const closeInTime = Math.abs(message.createdAt - input.createdAt) <= 10;
 
@@ -377,6 +405,7 @@ export async function saveRemoteGroupMessage(input: {
 
   const newMessage: GroupMessage = {
     id: input.id,
+    clientMessageId,
     groupId: input.groupId,
     text: input.text,
 

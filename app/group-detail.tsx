@@ -59,7 +59,12 @@ import {
   compressImageForUpload,
   compressVideoForUpload,
 } from '../src/utils/media-compression';
-import { DEFAULT_RELAY, fetchGroupMessages, fetchNostrProfile } from '../src/utils/nostr';
+import {
+  DEFAULT_RELAY,
+  fetchGroupMessageDeletes,
+  fetchGroupMessages,
+  fetchNostrProfile,
+} from '../src/utils/nostr';
 import { uploadToR2 } from '../src/utils/r2';
 import { useIdentity } from './_layout';
 
@@ -253,9 +258,36 @@ try {
   let chatMediaItems: any[] = [];
 
   if (g.relayUrl) {
-    const events = await fetchGroupMessages(id, g.relayUrl);
+    const [events, deleteEvents] = await Promise.all([
+      fetchGroupMessages(id, g.relayUrl),
+      fetchGroupMessageDeletes(id, g.relayUrl),
+    ]);
 
-    chatMediaItems = events.flatMap(event => {
+    const deletedMessageIds = new Set<string>();
+    const deletedClientMessageIds = new Set<string>();
+
+    deleteEvents.forEach(deleteEvent => {
+      if (deleteEvent.messageId) {
+        deletedMessageIds.add(deleteEvent.messageId);
+        deletedMessageIds.add(`nostr_group_${deleteEvent.messageId}`);
+      }
+
+      if (deleteEvent.clientMessageId) {
+        deletedClientMessageIds.add(deleteEvent.clientMessageId);
+      }
+    });
+
+    chatMediaItems = events
+      .filter(event => {
+        const eventClientMessageId = (event as any).clientMessageId;
+
+        return (
+          !deletedMessageIds.has(event.id) &&
+          !deletedMessageIds.has(`nostr_group_${event.id}`) &&
+          (!eventClientMessageId || !deletedClientMessageIds.has(eventClientMessageId))
+        );
+      })
+      .flatMap(event => {
       const mediaItems = Array.isArray((event as any).media)
         ? (event as any).media
         : [];
@@ -298,7 +330,7 @@ try {
           source: 'chat',
         },
       ];
-    });
+      });
   }
 
   const localGalleryItems = await readLocalGalleryItems();

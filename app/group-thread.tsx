@@ -39,12 +39,19 @@ import {
   compressVideoForUpload,
 } from '../src/utils/media-compression';
 import {
+  fetchGroupMessageDeletes,
   fetchGroupMessages,
   publishGroupMessage,
+  publishGroupMessageDelete,
+  subscribeToGroupMessageDeletes,
   subscribeToGroupMessages,
 } from '../src/utils/nostr';
 import { uploadToR2 } from '../src/utils/r2';
 import { useIdentity } from './_layout';
+function createClientMessageId(groupId: string): string {
+  return `client_msg_${groupId}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
 type PendingUploadMessage = {
   id: string;
   groupId: string;
@@ -214,6 +221,7 @@ const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadM
 
           await saveRemoteGroupMessage({
             id: `nostr_group_${msg.id}`,
+            clientMessageId: msg.clientMessageId,
             groupId,
             text: msg.text,
             media: msg.media,
@@ -225,6 +233,26 @@ const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadM
             senderNpub: msg.senderNpub,
             senderName: msg.senderName,
             createdAt: msg.createdAt,
+          });
+        }
+
+        const deleteEvents = await fetchGroupMessageDeletes(groupId, relayUrl);
+
+        for (const deleteEvent of deleteEvents) {
+          await markGroupMessageDeleted({
+            groupId,
+            messageId: `nostr_group_${deleteEvent.messageId}`,
+            clientMessageId: deleteEvent.clientMessageId,
+            deletedByNpub: deleteEvent.deletedByNpub,
+            deletedAt: deleteEvent.deletedAt,
+          });
+
+          await markGroupMessageDeleted({
+            groupId,
+            messageId: deleteEvent.messageId,
+            clientMessageId: deleteEvent.clientMessageId,
+            deletedByNpub: deleteEvent.deletedByNpub,
+            deletedAt: deleteEvent.deletedAt,
           });
         }
 
@@ -249,10 +277,11 @@ const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadM
   useEffect(() => {
     if (!groupId || !relayUrl) return;
 
-    let unsubscribe: (() => void) | undefined;
+    let unsubscribeMessages: (() => void) | undefined;
+    let unsubscribeDeletes: (() => void) | undefined;
 
-    async function startLiveGroupMessages() {
-      unsubscribe = await subscribeToGroupMessages({
+    async function startLiveGroupSync() {
+      unsubscribeMessages = await subscribeToGroupMessages({
         groupId,
         relayUrl,
         onMessage: async (msg) => {
@@ -260,6 +289,7 @@ const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadM
 
           await saveRemoteGroupMessage({
             id: `nostr_group_${msg.id}`,
+            clientMessageId: msg.clientMessageId,
             groupId,
             text: msg.text,
             media: msg.media,
@@ -278,18 +308,46 @@ const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadM
           setTimeout(() => scrollToBottom(true), 50);
         },
       });
+
+      unsubscribeDeletes = await subscribeToGroupMessageDeletes({
+        groupId,
+        relayUrl,
+        onDelete: async (deleteEvent) => {
+          await markGroupMessageDeleted({
+            groupId,
+            messageId: `nostr_group_${deleteEvent.messageId}`,
+            clientMessageId: deleteEvent.clientMessageId,
+            deletedByNpub: deleteEvent.deletedByNpub,
+            deletedAt: deleteEvent.deletedAt,
+          });
+
+          await markGroupMessageDeleted({
+            groupId,
+            messageId: deleteEvent.messageId,
+            clientMessageId: deleteEvent.clientMessageId,
+            deletedByNpub: deleteEvent.deletedByNpub,
+            deletedAt: deleteEvent.deletedAt,
+          });
+
+          const next = await getMessagesForGroup(groupId);
+          setMessages(next);
+        },
+      });
     }
 
-    startLiveGroupMessages();
+    startLiveGroupSync();
 
     return () => {
-      if (unsubscribe) unsubscribe();
+      if (unsubscribeMessages) unsubscribeMessages();
+      if (unsubscribeDeletes) unsubscribeDeletes();
     };
   }, [groupId, relayUrl, npub, scrollToBottom]);
 
   const handleSend = async () => {
     const text = draft.trim();
     if (!text || !groupId || sending) return;
+
+    const clientMessageId = createClientMessageId(groupId);
 
     setSending(true);
     setDraft('');
@@ -299,6 +357,7 @@ const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadM
     try {
       await sendLocalGroupMessage({
         groupId,
+        clientMessageId,
         text,
         mine: true,
         senderNpub: npub ?? undefined,
@@ -318,6 +377,7 @@ const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadM
       if (nsec) {
         publishGroupMessage({
           groupId,
+          clientMessageId,
           text,
           senderNpub: npub ?? undefined,
           senderName: myDisplayName,
@@ -447,6 +507,8 @@ const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadM
   ) => {
     if (!groupId || uploadingImage || attachments.length === 0) return;
 
+    const clientMessageId = createClientMessageId(groupId);
+
     setUploadingImage(true);
     setUploadStatus('Preparing attachments...');
 
@@ -492,6 +554,7 @@ const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadM
 
       await sendLocalGroupMessage({
         groupId,
+        clientMessageId,
         media: uploadedMedia,
         mediaUrl: primaryMedia.uri,
         mediaType: primaryMedia.type,
@@ -513,6 +576,7 @@ const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadM
       if (nsec) {
         publishGroupMessage({
           groupId,
+          clientMessageId,
           media: uploadedMedia,
           mediaUrl: primaryMedia.uri,
           mediaType: primaryMedia.type,
@@ -696,7 +760,7 @@ const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadM
 
     Alert.alert(
       'Delete message?',
-      'This will remove the message content from this device now. Relay sync for delete is next.',
+      'This will delete the message from your group chat. Other devices will update after the delete syncs through the relay.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -704,9 +768,12 @@ const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadM
           style: 'destructive',
           onPress: async () => {
             try {
+              const clientMessageId = (message as GroupMessage).clientMessageId || message.id;
+
               const deleted = await markGroupMessageDeleted({
                 groupId,
                 messageId: message.id,
+                clientMessageId,
                 deletedByNpub: npub ?? undefined,
               });
 
@@ -717,6 +784,27 @@ const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadM
 
               const next = await getMessagesForGroup(groupId);
               setMessages(next);
+
+              if (nsec) {
+                const relayMessageId = message.id.startsWith('nostr_group_')
+                  ? message.id.replace('nostr_group_', '')
+                  : message.id;
+
+                publishGroupMessageDelete({
+                  groupId,
+                  messageId: relayMessageId,
+                  clientMessageId,
+                  deletedByNpub: npub ?? undefined,
+                  nsec,
+                  relayUrl,
+                }).then(result => {
+                  if (!result.success) {
+                    console.warn('[Groups] publishGroupMessageDelete failed:', result.error);
+                  }
+                }).catch(error => {
+                  console.warn('[Groups] publishGroupMessageDelete error:', error);
+                });
+              }
             } catch (error) {
               console.warn('[Groups] local delete failed:', error);
               Alert.alert('Delete failed', 'Could not delete this message.');
