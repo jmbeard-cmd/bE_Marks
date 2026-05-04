@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { ActivityIndicator, Image, Linking, Text, TouchableOpacity, View } from 'react-native';
 import { useIdentity } from '../app/_layout';
 import { Colors } from '../src/constants/theme';
@@ -132,7 +133,65 @@ async function openFile(uri: string) {
   }
 }
 
-export default function MessageBubble({
+function getMediaSignature(item: any): string {
+  return getMessageMediaItems(item)
+    .map(media => [
+      media.id || '',
+      media.uri,
+      media.type,
+      media.thumbnailUrl || '',
+      media.fileName || '',
+      media.mimeType || '',
+    ].join(':'))
+    .join('|');
+}
+
+function getReactionSignature(item: any): string {
+  const reactions = Array.isArray(item?.reactions) ? item.reactions : [];
+
+  return reactions
+    .map((reaction: any) => [
+      reaction.id || '',
+      reaction.reaction || '',
+      reaction.reactorNpub || '',
+      reaction.createdAt || '',
+    ].join(':'))
+    .join('|');
+}
+
+function getMessageBubbleSignature(item: any): string {
+  return [
+    item?.id || '',
+    item?.clientMessageId || '',
+    item?.text || '',
+    item?.pending ? 'pending' : '',
+    item?.pendingLabel || '',
+    item?.isDeleted ? 'deleted' : '',
+    item?.editedAt || '',
+    item?.createdAt || '',
+    item?.mine ? 'mine' : 'other',
+    item?.senderName || '',
+    item?.avatarUrl || '',
+    item?.replyToClientMessageId || '',
+    item?.replyPreviewText || '',
+    item?.replyPreviewSenderName || '',
+    getMediaSignature(item),
+    getReactionSignature(item),
+  ].join('::');
+}
+
+function areMessageBubblePropsEqual(prev: Props, next: Props): boolean {
+  return (
+    prev.showName === next.showName &&
+    prev.s === next.s &&
+    prev.onPressMedia === next.onPressMedia &&
+    prev.onLongPress === next.onLongPress &&
+    getMessageBubbleSignature(prev.item) === getMessageBubbleSignature(next.item)
+  );
+}
+
+
+function MessageBubble({
   item,
   showName,
   onPressMedia,
@@ -147,6 +206,8 @@ export default function MessageBubble({
   const mediaItems = isDeleted ? [] : getMessageMediaItems(item);
   const visualMediaItems = getVisualMediaItems(mediaItems);
   const fileMediaItems = getFileMediaItems(mediaItems);
+  const isEdited = !isPending && !isDeleted && !!item?.editedAt;
+
 
   const visualCount = visualMediaItems.length;
   const senderName = item?.mine ? 'You' : item?.senderName || 'Member';
@@ -325,17 +386,33 @@ export default function MessageBubble({
         )}
 
         {!isPending && !isDeleted && !!item.text && (
-          <Text
-            style={[
-              s.messageText,
-              {
-                color: theme.text,
-              },
-            ]}
-          >
-            {item.text}
-          </Text>
+          <View>
+            <Text
+              style={[
+                s.messageText,
+                {
+                  color: theme.text,
+                },
+              ]}
+            >
+              {item.text}
+            </Text>
+
+            {isEdited && (
+              <Text
+                style={{
+                  color: theme.textMuted,
+                  fontSize: 10,
+                  fontWeight: '700',
+                  marginTop: 4,
+                }}
+              >
+                edited
+              </Text>
+            )}
+          </View>
         )}
+
 
         {!isPending && !isDeleted && visualCount > 0 && (
           <View
@@ -539,3 +616,5 @@ export default function MessageBubble({
     </View>
   );
 }
+
+export default memo(MessageBubble, areMessageBubblePropsEqual);

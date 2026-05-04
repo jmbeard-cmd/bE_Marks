@@ -1391,6 +1391,7 @@ export const GROUP_MESSAGE_KIND = 30082;
 export const GROUP_STICKY_KIND = 30083;
 export const GROUP_MESSAGE_DELETE_KIND = 30087;
 export const GROUP_MESSAGE_REACTION_KIND = 30088;
+export const GROUP_MESSAGE_EDIT_KIND = 30089;
 
 export type NostrGroupMediaType = 'image' | 'video' | 'file';
 
@@ -1453,6 +1454,18 @@ export interface NostrGroupMessageReaction {
   reactorName?: string;
   createdAt: number;
 }
+
+export interface NostrGroupMessageEdit {
+  id: string;
+  groupId: string;
+  messageId: string;
+  clientMessageId: string;
+  text: string;
+  editedAt: number;
+  editedByPubkey: string;
+  editedByNpub?: string;
+}
+
 
 function normalizeGroupMessageMedia(input: {
   media?: NostrGroupMessageMedia[];
@@ -1722,6 +1735,62 @@ export async function publishGroupMessageReaction(input: {
   }
 }
 
+export async function publishGroupMessageEdit(input: {
+  groupId: string;
+  messageId: string;
+  clientMessageId: string;
+  text: string;
+  editedByNpub?: string;
+  nsec: string;
+  relayUrl: string;
+}): Promise<{ success: boolean; eventId?: string; error?: string }> {
+  try {
+    const trimmedText = input.text.trim();
+
+    if (!trimmedText) {
+      throw new Error('Cannot publish an empty group message edit');
+    }
+
+    const decoded = nip19.decode(input.nsec);
+    if (decoded.type !== 'nsec') throw new Error('Invalid nsec');
+
+    const sk = decoded.data as Uint8Array;
+    const pk = getPublicKey(sk);
+    const now = Math.floor(Date.now() / 1000);
+
+    const editId = `edit_${input.clientMessageId}_${now}`;
+
+    const tags: string[][] = [
+      ['d', editId],
+      ['t', `group-msg-edit:${input.groupId}`],
+      ['group', input.groupId],
+      ['message', input.messageId],
+      ['clientMessageId', input.clientMessageId],
+      ['client', 'bE-Marks'],
+    ];
+
+    const unsigned: UnsignedEvent = {
+      kind: GROUP_MESSAGE_EDIT_KIND,
+      created_at: now,
+      tags,
+      content: JSON.stringify({
+        groupId: input.groupId,
+        messageId: input.messageId,
+        clientMessageId: input.clientMessageId,
+        text: trimmedText,
+        editedAt: now,
+        editedByNpub: input.editedByNpub,
+      }),
+      pubkey: pk,
+    };
+
+    const signed = finalizeEvent(unsigned, sk);
+    return await publishToSpecificRelay(signed, input.relayUrl);
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+}
+
 export async function publishGroupSticky(input: {
   stickyId: string;
   groupId: string;
@@ -1794,6 +1863,7 @@ export async function publishGroupSticky(input: {
     return { success: false, error: e.message };
   }
 }
+
 
 export async function fetchGroupStickies(
   groupId: string,
@@ -2194,6 +2264,82 @@ export function fetchGroupMessageReactions(
   });
 }
 
+export function fetchGroupMessageEdits(
+  groupId: string,
+  relayUrl: string = DEFAULT_RELAY
+): Promise<NostrGroupMessageEdit[]> {
+  return new Promise(resolve => {
+    try {
+      const ws = new WebSocket(relayUrl);
+      const edits: NostrGroupMessageEdit[] = [];
+      const seen = new Set<string>();
+
+      const timeout = setTimeout(() => {
+        ws.close();
+        resolve(edits);
+      }, 6000);
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify([
+          'REQ',
+          `group-msg-edit-fetch-${groupId}`,
+          {
+            kinds: [GROUP_MESSAGE_EDIT_KIND],
+            '#t': [`group-msg-edit:${groupId}`],
+            limit: 500,
+          },
+        ]));
+      };
+
+      ws.onmessage = (msg) => {
+        try {
+          const data = JSON.parse(msg.data);
+
+          if (data[0] === 'EVENT' && data[2]?.kind === GROUP_MESSAGE_EDIT_KIND) {
+            const evt = data[2];
+
+            if (seen.has(evt.id)) return;
+            seen.add(evt.id);
+
+            const parsed = JSON.parse(evt.content || '{}');
+            const messageTag = evt.tags?.find((tag: string[]) => tag[0] === 'message');
+            const clientMessageIdTag = evt.tags?.find((tag: string[]) => tag[0] === 'clientMessageId');
+
+            const messageId = parsed.messageId || messageTag?.[1];
+            const clientMessageId = parsed.clientMessageId || clientMessageIdTag?.[1] || messageId;
+            const text = typeof parsed.text === 'string' ? parsed.text.trim() : '';
+
+            if (parsed.groupId === groupId && messageId && clientMessageId && text) {
+              edits.push({
+                id: evt.id,
+                groupId,
+                messageId,
+                clientMessageId,
+                text,
+                editedAt: parsed.editedAt || evt.created_at,
+                editedByPubkey: evt.pubkey,
+                editedByNpub: parsed.editedByNpub,
+              });
+            }
+          } else if (data[0] === 'EOSE') {
+            clearTimeout(timeout);
+            ws.close();
+            edits.sort((a, b) => a.editedAt - b.editedAt);
+            resolve(edits);
+          }
+        } catch {}
+      };
+
+      ws.onerror = () => {
+        clearTimeout(timeout);
+        resolve(edits);
+      };
+    } catch {
+      resolve([]);
+    }
+  });
+}
+
 export async function subscribeToGroupMessageDeletes(input: {
   groupId: string;
   relayUrl?: string;
@@ -2246,6 +2392,7 @@ export async function subscribeToGroupMessageDeletes(input: {
     return () => {};
   }
 }
+
 
 export async function subscribeToGroupMessageReactions(input: {
   groupId: string;
@@ -2308,6 +2455,67 @@ export async function subscribeToGroupMessageReactions(input: {
 }
 
 // ─── Group Calendar (kind 30084) ─────────────────────────────────────────────
+
+export async function subscribeToGroupMessageEdits(input: {
+  groupId: string;
+  relayUrl?: string;
+  onEdit: (messageEdit: NostrGroupMessageEdit) => void;
+}): Promise<() => void> {
+  try {
+    const relayUrl = input.relayUrl ?? DEFAULT_RELAY;
+    const pool = new SimplePool();
+    const seen = new Set<string>();
+
+    const sub = pool.subscribe(
+      [relayUrl],
+      {
+        kinds: [GROUP_MESSAGE_EDIT_KIND],
+        '#t': [`group-msg-edit:${input.groupId}`],
+        since: Math.floor(Date.now() / 1000),
+      },
+      {
+        onevent(evt) {
+          try {
+            if (seen.has(evt.id)) return;
+            seen.add(evt.id);
+
+            const parsed = JSON.parse(evt.content || '{}');
+            const messageTag = evt.tags?.find((tag: string[]) => tag[0] === 'message');
+            const clientMessageIdTag = evt.tags?.find((tag: string[]) => tag[0] === 'clientMessageId');
+
+            const messageId = parsed.messageId || messageTag?.[1];
+            const clientMessageId = parsed.clientMessageId || clientMessageIdTag?.[1] || messageId;
+            const text = typeof parsed.text === 'string' ? parsed.text.trim() : '';
+
+            if (parsed.groupId !== input.groupId || !messageId || !clientMessageId || !text) {
+              return;
+            }
+
+            input.onEdit({
+              id: evt.id,
+              groupId: input.groupId,
+              messageId,
+              clientMessageId,
+              text,
+              editedAt: parsed.editedAt || evt.created_at,
+              editedByPubkey: evt.pubkey,
+              editedByNpub: parsed.editedByNpub,
+            });
+          } catch {}
+        },
+      }
+    );
+
+    return () => {
+      try { sub.close(); } catch {}
+    };
+  } catch {
+    return () => {};
+  }
+}
+
+// ─── Group Calendar (kind 30084) ─────────────────────────────────────────────
+
 
 export const GROUP_CALENDAR_KIND = 30084;
 export const GROUP_RSVP_KIND     = 30085;

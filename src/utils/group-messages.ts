@@ -328,6 +328,63 @@ export async function markGroupMessageDeleted(input: {
   return true;
 }
 
+export async function editGroupMessage(input: {
+  groupId: string;
+  messageId: string;
+  clientMessageId?: string;
+  text: string;
+  editedAt?: number;
+}): Promise<GroupMessage | null> {
+  const trimmedText = input.text.trim();
+
+  if (!trimmedText) {
+    throw new Error('Cannot save an empty group message edit');
+  }
+
+  const all = await getAllGroupMessages();
+  const now = input.editedAt ?? Math.floor(Date.now() / 1000);
+  let editedMessage: GroupMessage | null = null;
+
+  const updated = all.map(message => {
+    const matchesId = message.id === input.messageId;
+    const matchesClientId =
+      !!input.clientMessageId &&
+      message.clientMessageId === input.clientMessageId;
+
+    if (message.groupId !== input.groupId || (!matchesId && !matchesClientId)) {
+      return message;
+    }
+
+    if (message.isDeleted) {
+      return message;
+    }
+
+    const currentText = message.text?.trim() || '';
+    const currentMedia = normalizeMessageMedia(message);
+
+    if (!currentText || currentMedia.length > 0) {
+      return message;
+    }
+
+    const nextMessage: GroupMessage = {
+      ...message,
+      text: trimmedText,
+      editedAt: now,
+    };
+
+    editedMessage = nextMessage;
+    return nextMessage;
+  });
+
+  if (!editedMessage) return null;
+
+  await saveAllGroupMessages(updated);
+  await recordGroupPost(input.groupId, trimmedText);
+
+  return editedMessage;
+}
+
+
 export async function saveRemoteGroupMessage(input: {
   id: string;
   clientMessageId?: string;

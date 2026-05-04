@@ -25,6 +25,7 @@ import MessageBubble from '../components/MessageBubble';
 import { Colors } from '../src/constants/theme';
 import {
   addGroupMessageReaction,
+  editGroupMessage,
   getMessagesForGroup,
   markGroupMessageDeleted,
   saveRemoteGroupMessage,
@@ -43,12 +44,15 @@ import {
 } from '../src/utils/media-compression';
 import {
   fetchGroupMessageDeletes,
+  fetchGroupMessageEdits,
   fetchGroupMessageReactions,
   fetchGroupMessages,
   publishGroupMessage,
   publishGroupMessageDelete,
+  publishGroupMessageEdit,
   publishGroupMessageReaction,
   subscribeToGroupMessageDeletes,
+  subscribeToGroupMessageEdits,
   subscribeToGroupMessageReactions,
   subscribeToGroupMessages,
 } from '../src/utils/nostr';
@@ -94,6 +98,7 @@ const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
 const [memberAvatarMap, setMemberAvatarMap] = useState<Record<string, string | undefined>>({});
 const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadMessage | null>(null);
 const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
+const [editingMessage, setEditingMessage] = useState<GroupMessage | null>(null);
 
   const listRef = useRef<FlatList>(null);
   const inputRef = useRef<TextInput>(null);
@@ -247,6 +252,31 @@ const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
     return '';
   }, []);
 
+  const canEditMessage = useCallback((message: GroupMessage | PendingUploadMessage): boolean => {
+    if (!message.mine) return false;
+    if ((message as any).pending) return false;
+    if ((message as any).isDeleted) return false;
+
+    const text = message.text?.trim();
+    if (!text) return false;
+
+    const mediaItems = Array.isArray((message as any).media)
+      ? (message as any).media
+      : [];
+
+    if (mediaItems.length > 0) return false;
+    if ((message as any).mediaUrl) return false;
+    if ((message as any).imageUrl) return false;
+
+    return true;
+  }, []);
+
+  const clearEditMode = useCallback(() => {
+    setEditingMessage(null);
+    setDraft('');
+    setInputHeight(40);
+  }, []);
+
   const scrollToBottom = useCallback((animated = true) => {
     listRef.current?.scrollToEnd({ animated });
   }, []);
@@ -381,9 +411,10 @@ const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
           });
         }
 
-        const [deleteEvents, reactionEvents] = await Promise.all([
+        const [deleteEvents, reactionEvents, editEvents] = await Promise.all([
           fetchGroupMessageDeletes(groupId, relayUrl),
           fetchGroupMessageReactions(groupId, relayUrl),
+          fetchGroupMessageEdits(groupId, relayUrl),
         ]);
 
         for (const deleteEvent of deleteEvents) {
@@ -423,6 +454,24 @@ const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
             reactorNpub: reactionEvent.reactorNpub,
             reactorName: reactionEvent.reactorName,
             createdAt: reactionEvent.createdAt,
+          });
+        }
+
+        for (const editEvent of editEvents) {
+          await editGroupMessage({
+            groupId,
+            messageId: `nostr_group_${editEvent.messageId}`,
+            clientMessageId: editEvent.clientMessageId,
+            text: editEvent.text,
+            editedAt: editEvent.editedAt,
+          });
+
+          await editGroupMessage({
+            groupId,
+            messageId: editEvent.messageId,
+            clientMessageId: editEvent.clientMessageId,
+            text: editEvent.text,
+            editedAt: editEvent.editedAt,
           });
         }
 
@@ -484,6 +533,7 @@ const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
     let unsubscribeMessages: (() => void) | undefined;
     let unsubscribeDeletes: (() => void) | undefined;
     let unsubscribeReactions: (() => void) | undefined;
+    let unsubscribeEdits: (() => void) | undefined;
 
     async function startLiveGroupSync() {
       unsubscribeMessages = await subscribeToGroupMessages({
@@ -576,6 +626,31 @@ const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
           setMessages(next);
         },
       });
+
+      unsubscribeEdits = await subscribeToGroupMessageEdits({
+        groupId,
+        relayUrl,
+        onEdit: async (editEvent) => {
+          await editGroupMessage({
+            groupId,
+            messageId: `nostr_group_${editEvent.messageId}`,
+            clientMessageId: editEvent.clientMessageId,
+            text: editEvent.text,
+            editedAt: editEvent.editedAt,
+          });
+
+          await editGroupMessage({
+            groupId,
+            messageId: editEvent.messageId,
+            clientMessageId: editEvent.clientMessageId,
+            text: editEvent.text,
+            editedAt: editEvent.editedAt,
+          });
+
+          const next = await getMessagesForGroup(groupId);
+          setMessages(next);
+        },
+      });
     }
 
     startLiveGroupSync();
@@ -584,12 +659,80 @@ const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
       if (unsubscribeMessages) unsubscribeMessages();
       if (unsubscribeDeletes) unsubscribeDeletes();
       if (unsubscribeReactions) unsubscribeReactions();
+      if (unsubscribeEdits) unsubscribeEdits();
     };
   }, [groupId, relayUrl, npub, scrollToBottom]);
 
   const handleSend = async () => {
     const text = draft.trim();
     if (!text || !groupId || sending) return;
+
+    if (editingMessage) {
+      setSending(true);
+
+      try {
+        const clientMessageId = editingMessage.clientMessageId || editingMessage.id;
+
+        const edited = await editGroupMessage({
+          groupId,
+          messageId: editingMessage.id,
+          clientMessageId,
+          text,
+        });
+
+        if (!edited) {
+          setSending(false);
+          Alert.alert('Edit failed', 'This message can no longer be edited.');
+          return;
+        }
+
+        setDraft('');
+        setInputHeight(40);
+        setEditingMessage(null);
+        setUploadStatus(null);
+
+        const next = await getMessagesForGroup(groupId);
+        setMessages(next);
+        setSending(false);
+
+        requestAnimationFrame(() => {
+          inputRef.current?.focus();
+        });
+
+        if (nsec) {
+          const relayMessageId = editingMessage.id.startsWith('nostr_group_')
+            ? editingMessage.id.replace('nostr_group_', '')
+            : editingMessage.id;
+
+          publishGroupMessageEdit({
+            groupId,
+            messageId: relayMessageId,
+            clientMessageId,
+            text,
+            editedByNpub: npub ?? undefined,
+            nsec,
+            relayUrl,
+          }).then(result => {
+            if (!result.success) {
+              console.warn('[Groups] publishGroupMessageEdit failed:', result.error);
+            }
+          }).catch(error => {
+            console.warn('[Groups] publishGroupMessageEdit error:', error);
+          });
+        }
+
+        return;
+      } catch (error: any) {
+        setSending(false);
+        Alert.alert('Edit failed', error?.message || 'Could not edit message.');
+
+        requestAnimationFrame(() => {
+          inputRef.current?.focus();
+        });
+
+        return;
+      }
+    }
 
     const clientMessageId = createClientMessageId(groupId);
     const activeReplyTarget = replyTarget;
@@ -1063,13 +1206,26 @@ const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
   const handleEditMessage = (message: GroupMessage | PendingUploadMessage) => {
     closeMessageActions();
 
-    if (!message.mine || (message as any).pending) return;
+    if (!canEditMessage(message)) {
+      Alert.alert('Cannot edit', 'Only your own text-only messages can be edited right now.');
+      return;
+    }
 
-    Alert.alert(
-      'Edit message',
-      'Editing will be added after the delete/action foundation is stable.',
-      [{ text: 'OK' }]
-    );
+    const text = message.text?.trim();
+
+    if (!text) {
+      Alert.alert('Cannot edit', 'This message does not have editable text.');
+      return;
+    }
+
+    setReplyTarget(null);
+    setEditingMessage(message as GroupMessage);
+    setDraft(text);
+    setInputHeight(40);
+
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
   };
 
   const handleDeleteMessage = (message: GroupMessage | PendingUploadMessage) => {
@@ -1154,29 +1310,37 @@ const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
     }
   };
 
-  const handleMessageLongPress = (message: GroupMessage | PendingUploadMessage) => {
+  const handleMessageLongPress = useCallback((message: GroupMessage | PendingUploadMessage) => {
     if ((message as any).pending) {
       Alert.alert('Uploading', 'This message is still uploading.');
       return;
     }
 
     setActionMessage(message);
-  };
+  }, []);
 
-    const renderMessage = ({ item, index }: { item: GroupMessage | PendingUploadMessage; index: number }) => {
-    const prevMsg = index > 0 ? visibleMessages[index - 1] : null;
-    const showName = !item.mine && (!prevMsg || prevMsg.senderName !== item.senderName);
 
-    return (
-      <MessageBubble
-        item={item}
-        showName={showName}
-        onPressMedia={(uri) => setSelectedMediaUri(uri)}
-        onLongPress={handleMessageLongPress}
-        s={s}
-      />
-    );
-  };
+  const handlePressMessageMedia = useCallback((uri: string) => {
+    setSelectedMediaUri(uri);
+  }, []);
+
+  const renderMessage = useCallback(
+    ({ item, index }: { item: GroupMessage | PendingUploadMessage; index: number }) => {
+      const prevMsg = index > 0 ? visibleMessages[index - 1] : null;
+      const showName = !item.mine && (!prevMsg || prevMsg.senderName !== item.senderName);
+
+      return (
+        <MessageBubble
+          item={item}
+          showName={showName}
+          onPressMedia={handlePressMessageMedia}
+          onLongPress={handleMessageLongPress}
+          s={s}
+        />
+      );
+    },
+    [visibleMessages, handlePressMessageMedia, handleMessageLongPress, s]
+  );
 
   return (
     <SafeAreaView style={s.safe}>
@@ -1213,7 +1377,7 @@ const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
 
           <FlatList
             ref={listRef}
-                        data={visibleMessages}
+            data={visibleMessages}
             keyExtractor={item => item.id}
             contentContainerStyle={s.list}
             showsVerticalScrollIndicator={false}
@@ -1222,6 +1386,11 @@ const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
             onScroll={handleListScroll}
             scrollEventThrottle={16}
             onContentSizeChange={handleContentSizeChange}
+            initialNumToRender={14}
+            maxToRenderPerBatch={8}
+            updateCellsBatchingPeriod={50}
+            windowSize={9}
+            removeClippedSubviews={Platform.OS === 'android'}
             onScrollToIndexFailed={() => {
               setTimeout(() => {
                 scrollToBottom(false);
@@ -1251,7 +1420,31 @@ const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
   </View>
 )}
 
-          {replyTarget && (
+          {editingMessage && (
+            <View style={s.replyComposerPreview}>
+              <View style={s.editComposerAccent} />
+
+              <View style={{ flex: 1 }}>
+                <Text style={s.replyComposerLabel}>
+                  Editing message
+                </Text>
+
+                <Text style={s.replyComposerText} numberOfLines={1}>
+                  {editingMessage.text}
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                style={s.replyComposerClose}
+                onPress={clearEditMode}
+                activeOpacity={0.75}
+              >
+                <Text style={s.replyComposerCloseText}>×</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {!editingMessage && replyTarget && (
             <View style={s.replyComposerPreview}>
               <View style={s.replyComposerAccent} />
 
@@ -1277,7 +1470,7 @@ const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
 
           <View style={s.composer}>
             <TouchableOpacity
-              style={[s.attachBtn, uploadingImage && s.attachBtnDim]}
+              style={[s.attachBtn, (uploadingImage || !!editingMessage) && s.attachBtnDim]}
               onPress={() => {
   Alert.alert(
     'Add Attachment',
@@ -1290,7 +1483,7 @@ const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
     ]
   );
 }}
-              disabled={uploadingImage}
+              disabled={uploadingImage || !!editingMessage}
             >
               {uploadingImage ? (
   <ActivityIndicator size="small" color={theme.gold} />
@@ -1309,7 +1502,7 @@ style={[
     backgroundColor: theme.raised
   }
 ]}
-              placeholder={`Message ${groupName}…`}
+              placeholder={editingMessage ? 'Edit message…' : `Message ${groupName}…`}
               placeholderTextColor={theme.textMuted}
               value={draft}
               onChangeText={setDraft}
@@ -1332,7 +1525,7 @@ style={[
               {sending ? (
                 <ActivityIndicator size="small" color={theme.bg} />
               ) : (
-                <Text style={s.sendText}>↑</Text>
+                <Text style={s.sendText}>{editingMessage ? '✓' : '↑'}</Text>
               )}
             </TouchableOpacity>
                     </View>
@@ -1391,7 +1584,7 @@ style={[
                       <Text style={s.messageActionText}>Copy</Text>
                     </TouchableOpacity>
 
-                    {actionMessage.mine && (
+                    {canEditMessage(actionMessage) && (
                       <TouchableOpacity
                         style={s.messageActionRow}
                         activeOpacity={0.75}
@@ -1601,6 +1794,12 @@ messageVideoIcon: {
     height: 34,
     borderRadius: 999,
     backgroundColor: theme.gold,
+  },
+  editComposerAccent: {
+    width: 3,
+    height: 34,
+    borderRadius: 999,
+    backgroundColor: theme.textMuted,
   },
   replyComposerLabel: {
     color: theme.gold,
