@@ -8,7 +8,9 @@ import {
   Alert,
   FlatList,
   KeyboardAvoidingView,
+  Modal,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -21,6 +23,7 @@ import MessageBubble from '../components/MessageBubble';
 import { Colors } from '../src/constants/theme';
 import {
   getMessagesForGroup,
+  markGroupMessageDeleted,
   saveRemoteGroupMessage,
   sendLocalGroupMessage,
   type GroupMediaType,
@@ -76,6 +79,7 @@ const [uploadStatus, setUploadStatus] = useState<string | null>(null);
 const [pendingUploads, setPendingUploads] = useState<PendingUploadMessage[]>([]);
 const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
 const [memberAvatarMap, setMemberAvatarMap] = useState<Record<string, string | undefined>>({});
+const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadMessage | null>(null);
 
   const listRef = useRef<FlatList>(null);
   const inputRef = useRef<TextInput>(null);
@@ -646,6 +650,102 @@ const [memberAvatarMap, setMemberAvatarMap] = useState<Record<string, string | u
     router.push({ pathname: '/group-detail', params: { id: groupId } } as any);
   };
 
+  const closeMessageActions = () => {
+    setActionMessage(null);
+  };
+
+  const handleReactToMessage = (
+    message: GroupMessage | PendingUploadMessage,
+    reaction?: string
+  ) => {
+    closeMessageActions();
+
+    Alert.alert(
+      'React',
+      `${reaction || 'Reaction'} will be synced to the group relay in the next phase.`,
+      [{ text: 'OK' }]
+    );
+  };
+
+  const handleReplyToMessage = (message: GroupMessage | PendingUploadMessage) => {
+    closeMessageActions();
+
+    Alert.alert(
+      'Reply',
+      'Reply previews will be added after message actions are stable.',
+      [{ text: 'OK' }]
+    );
+  };
+
+  const handleEditMessage = (message: GroupMessage | PendingUploadMessage) => {
+    closeMessageActions();
+
+    if (!message.mine || (message as any).pending) return;
+
+    Alert.alert(
+      'Edit message',
+      'Editing will be added after the delete/action foundation is stable.',
+      [{ text: 'OK' }]
+    );
+  };
+
+  const handleDeleteMessage = (message: GroupMessage | PendingUploadMessage) => {
+    closeMessageActions();
+
+    if (!message.mine || (message as any).pending || !groupId) return;
+
+    Alert.alert(
+      'Delete message?',
+      'This will remove the message content from this device now. Relay sync for delete is next.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const deleted = await markGroupMessageDeleted({
+                groupId,
+                messageId: message.id,
+                deletedByNpub: npub ?? undefined,
+              });
+
+              if (!deleted) {
+                Alert.alert('Not found', 'Could not find this message locally.');
+                return;
+              }
+
+              const next = await getMessagesForGroup(groupId);
+              setMessages(next);
+            } catch (error) {
+              console.warn('[Groups] local delete failed:', error);
+              Alert.alert('Delete failed', 'Could not delete this message.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleCopyMessage = (message: GroupMessage | PendingUploadMessage) => {
+    closeMessageActions();
+
+    Alert.alert(
+      'Copy',
+      'Copy message text will be added with the next action polish pass.',
+      [{ text: 'OK' }]
+    );
+  };
+
+  const handleMessageLongPress = (message: GroupMessage | PendingUploadMessage) => {
+    if ((message as any).pending) {
+      Alert.alert('Uploading', 'This message is still uploading.');
+      return;
+    }
+
+    setActionMessage(message);
+  };
+
     const renderMessage = ({ item, index }: { item: GroupMessage | PendingUploadMessage; index: number }) => {
     const prevMsg = index > 0 ? visibleMessages[index - 1] : null;
     const showName = !item.mine && (!prevMsg || prevMsg.senderName !== item.senderName);
@@ -655,6 +755,7 @@ const [memberAvatarMap, setMemberAvatarMap] = useState<Record<string, string | u
         item={item}
         showName={showName}
         onPressMedia={(uri) => setSelectedMediaUri(uri)}
+        onLongPress={handleMessageLongPress}
         s={s}
       />
     );
@@ -790,6 +891,98 @@ style={[
               )}
             </TouchableOpacity>
                     </View>
+
+          <Modal
+            visible={!!actionMessage}
+            transparent
+            animationType="fade"
+            onRequestClose={closeMessageActions}
+          >
+            <View style={s.messageActionOverlay}>
+              <Pressable
+                style={StyleSheet.absoluteFill}
+                onPress={closeMessageActions}
+              />
+
+              {actionMessage && (
+                <View style={s.messageActionContent}>
+                  <View style={s.reactionTray}>
+                    {['❤️', '👍', '👎', '😂', '🎉', '🔥', '😮'].map(reaction => (
+                      <TouchableOpacity
+                        key={reaction}
+                        style={s.reactionBtn}
+                        activeOpacity={0.8}
+                        onPress={() => handleReactToMessage(actionMessage, reaction)}
+                      >
+                        <Text style={s.reactionEmoji}>{reaction}</Text>
+                      </TouchableOpacity>
+                    ))}
+
+                    <TouchableOpacity
+                      style={s.reactionMoreBtn}
+                      activeOpacity={0.8}
+                      onPress={() => handleReactToMessage(actionMessage, '+')}
+                    >
+                      <Text style={s.reactionMoreText}>＋</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={s.messageActionCard}>
+                    <TouchableOpacity
+                      style={s.messageActionRow}
+                      activeOpacity={0.75}
+                      onPress={() => handleReplyToMessage(actionMessage)}
+                    >
+                      <Text style={s.messageActionIcon}>↩</Text>
+                      <Text style={s.messageActionText}>Reply</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={s.messageActionRow}
+                      activeOpacity={0.75}
+                      onPress={() => handleCopyMessage(actionMessage)}
+                    >
+                      <Text style={s.messageActionIcon}>⧉</Text>
+                      <Text style={s.messageActionText}>Copy</Text>
+                    </TouchableOpacity>
+
+                    {actionMessage.mine && (
+                      <TouchableOpacity
+                        style={s.messageActionRow}
+                        activeOpacity={0.75}
+                        onPress={() => handleEditMessage(actionMessage)}
+                      >
+                        <Text style={s.messageActionIcon}>✎</Text>
+                        <Text style={s.messageActionText}>Edit message</Text>
+                      </TouchableOpacity>
+                    )}
+
+                    {actionMessage.mine && (
+                      <TouchableOpacity
+                        style={s.messageActionRow}
+                        activeOpacity={0.75}
+                        onPress={() => handleDeleteMessage(actionMessage)}
+                      >
+                        <Text style={[s.messageActionIcon, s.messageActionDanger]}>⌫</Text>
+                        <Text style={[s.messageActionText, s.messageActionDanger]}>
+                          Delete message
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+
+                    <TouchableOpacity
+                      style={[s.messageActionRow, s.messageActionRowLast]}
+                      activeOpacity={0.75}
+                      onPress={closeMessageActions}
+                    >
+                      <Text style={s.messageActionIcon}>×</Text>
+                      <Text style={s.messageActionText}>Cancel</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+            </View>
+          </Modal>
 
           <ImageViewerModal
             images={viewerMedia}
@@ -990,6 +1183,92 @@ messageVideoIcon: {
     fontSize: 15,
     maxHeight: 120,
     lineHeight: 20,
+  },
+
+  messageActionOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.58)',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  messageActionContent: {
+    alignSelf: 'stretch',
+    gap: 12,
+  },
+  reactionTray: {
+    alignSelf: 'center',
+    maxWidth: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: 'rgba(24,24,24,0.96)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  reactionBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reactionEmoji: {
+    fontSize: 25,
+  },
+  reactionMoreBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#050505',
+    borderWidth: 0.5,
+    borderColor: 'rgba(255,255,255,0.14)',
+  },
+  reactionMoreText: {
+    color: '#fff',
+    fontSize: 24,
+    fontWeight: '600',
+    lineHeight: 26,
+  },
+  messageActionCard: {
+    alignSelf: 'center',
+    width: '82%',
+    maxWidth: 360,
+    borderRadius: 18,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(34,34,34,0.98)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  messageActionRow: {
+    minHeight: 54,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingHorizontal: 18,
+    borderBottomWidth: 0.5,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
+  },
+  messageActionRowLast: {
+    borderBottomWidth: 0,
+  },
+  messageActionIcon: {
+    width: 28,
+    color: '#fff',
+    fontSize: 24,
+    textAlign: 'center',
+  },
+  messageActionText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  messageActionDanger: {
+    color: '#ff6b6b',
   },
 
   sendBtn: {

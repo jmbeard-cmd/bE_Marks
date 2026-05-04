@@ -17,6 +17,7 @@ type Props = {
   item: any;
   showName?: boolean;
   onPressMedia?: (uri: string) => void;
+  onLongPress?: (item: any) => void;
   s: any;
 };
 
@@ -96,12 +97,19 @@ async function openFile(uri: string) {
   }
 }
 
-export default function MessageBubble({ item, showName, onPressMedia, s }: Props) {
+export default function MessageBubble({
+  item,
+  showName,
+  onPressMedia,
+  onLongPress,
+  s,
+}: Props) {
   const { themeMode } = useIdentity();
   const theme = Colors[themeMode];
 
   const isPending = item?.pending;
-  const mediaItems = getMessageMediaItems(item);
+  const isDeleted = !!item?.isDeleted;
+  const mediaItems = isDeleted ? [] : getMessageMediaItems(item);
   const visualMediaItems = getVisualMediaItems(mediaItems);
   const fileMediaItems = getFileMediaItems(mediaItems);
 
@@ -198,7 +206,10 @@ export default function MessageBubble({ item, showName, onPressMedia, s }: Props
         </View>
       )}
 
-      <View
+      <TouchableOpacity
+        activeOpacity={0.92}
+        delayLongPress={260}
+        onLongPress={() => onLongPress?.(item)}
         style={[
           s.bubble,
           {
@@ -223,7 +234,21 @@ export default function MessageBubble({ item, showName, onPressMedia, s }: Props
           </View>
         )}
 
-        {!isPending && !!item.text && (
+        {!isPending && isDeleted && (
+          <Text
+            style={[
+              s.messageText,
+              {
+                color: theme.textMuted,
+                fontStyle: 'italic',
+              },
+            ]}
+          >
+            Message deleted
+          </Text>
+        )}
+
+        {!isPending && !isDeleted && !!item.text && (
           <Text
             style={[
               s.messageText,
@@ -236,7 +261,7 @@ export default function MessageBubble({ item, showName, onPressMedia, s }: Props
           </Text>
         )}
 
-        {!isPending && visualCount > 0 && (
+        {!isPending && !isDeleted && visualCount > 0 && (
           <View
             style={{
               marginTop: item.text ? 8 : 0,
@@ -256,6 +281,8 @@ export default function MessageBubble({ item, showName, onPressMedia, s }: Props
                 <TouchableOpacity
                   key={media.id || `${media.uri}_${index}`}
                   activeOpacity={0.85}
+                  delayLongPress={260}
+                  onLongPress={() => onLongPress?.(item)}
                   onPress={() => onPressMedia?.(media.uri)}
                   style={{
                     width: tileSize,
@@ -320,12 +347,14 @@ export default function MessageBubble({ item, showName, onPressMedia, s }: Props
           </View>
         )}
 
-        {!isPending && fileMediaItems.length > 0 && (
+        {!isPending && !isDeleted && fileMediaItems.length > 0 && (
           <View style={{ gap: 8, marginTop: item.text || visualCount > 0 ? 8 : 0 }}>
             {fileMediaItems.map((file, index) => (
               <TouchableOpacity
                 key={file.id || `${file.uri}_${index}`}
                 activeOpacity={0.85}
+                delayLongPress={260}
+                onLongPress={() => onLongPress?.(item)}
                 onPress={() => openFile(file.uri)}
                 style={{
                   width: 220,
@@ -380,7 +409,7 @@ export default function MessageBubble({ item, showName, onPressMedia, s }: Props
             ))}
           </View>
         )}
-      </View>
+      </TouchableOpacity>
 
       {!isPending && (
         <View

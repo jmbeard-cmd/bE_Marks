@@ -31,6 +31,15 @@ export type GroupMessage = {
   // Old fallback support
   imageUrl?: string;
 
+  // Message lifecycle
+  isDeleted?: boolean;
+  deletedAt?: number;
+  deletedByNpub?: string;
+  deletedOriginalText?: string;
+  deletedOriginalMediaSignature?: string;
+  deletedOriginalPrimaryMediaUrl?: string;
+  editedAt?: number;
+
   mine: boolean;
   senderNpub?: string;
   senderName?: string;
@@ -128,7 +137,10 @@ function getMessagePreview(input: {
   mediaUrl?: string;
   imageUrl?: string;
   mediaType?: GroupMediaType;
+  isDeleted?: boolean;
 }) {
+  if (input.isDeleted) return 'Message deleted';
+
   const text = input.text?.trim();
   if (text) return text;
 
@@ -226,6 +238,51 @@ export async function deleteMessagesForGroup(groupId: string): Promise<void> {
   await saveAllGroupMessages(filtered);
 }
 
+export async function markGroupMessageDeleted(input: {
+  groupId: string;
+  messageId: string;
+  deletedByNpub?: string;
+  deletedAt?: number;
+}): Promise<boolean> {
+  const all = await getAllGroupMessages();
+  const now = input.deletedAt ?? Math.floor(Date.now() / 1000);
+  let changed = false;
+
+  const updated = all.map(message => {
+    if (message.groupId !== input.groupId || message.id !== input.messageId) {
+      return message;
+    }
+
+    changed = true;
+
+    const originalMedia = normalizeMessageMedia(message);
+    const originalPrimaryMediaUrl = getMessageMediaUrl(message);
+
+    return {
+      ...message,
+      text: undefined,
+      media: [],
+      mediaUrl: undefined,
+      mediaType: undefined,
+      thumbnailUrl: undefined,
+      imageUrl: undefined,
+      isDeleted: true,
+      deletedAt: now,
+      deletedByNpub: input.deletedByNpub,
+      deletedOriginalText: message.text,
+      deletedOriginalMediaSignature: getMediaSignature(originalMedia),
+      deletedOriginalPrimaryMediaUrl: originalPrimaryMediaUrl,
+    };
+  });
+
+  if (!changed) return false;
+
+  await saveAllGroupMessages(updated);
+  await recordGroupPost(input.groupId, 'Message deleted');
+
+  return true;
+}
+
 export async function saveRemoteGroupMessage(input: {
   id: string;
   groupId: string;
@@ -257,12 +314,55 @@ export async function saveRemoteGroupMessage(input: {
     primaryMedia?.type ||
     (input.imageUrl ? 'image' : undefined);
 
+  const incomingSignature = getMediaSignature(media);
+
   const existsById = allMessages.some(message => message.id === input.id);
   if (existsById) return;
 
-  const incomingSignature = getMediaSignature(media);
+  const matchesDeletedLocalMessage = allMessages.some(message => {
+    if (!message.isDeleted) return false;
+
+    const sameGroup = message.groupId === input.groupId;
+    const sameMine = message.mine === input.mine;
+    const closeInTime = Math.abs(message.createdAt - input.createdAt) <= 10;
+
+    if (!sameGroup || !sameMine || !closeInTime) return false;
+
+    const deletedText = message.deletedOriginalText || '';
+    const incomingText = input.text || '';
+
+    const sameDeletedText =
+      !!deletedText &&
+      deletedText === incomingText;
+
+    const sameDeletedPrimaryMedia =
+      !!message.deletedOriginalPrimaryMediaUrl &&
+      message.deletedOriginalPrimaryMediaUrl === mediaUrl;
+
+    const sameDeletedMediaList =
+      !!message.deletedOriginalMediaSignature &&
+      message.deletedOriginalMediaSignature === incomingSignature;
+
+    // Fallback for messages deleted before tombstone signatures existed.
+    // This prevents the relay copy from reappearing under a nearby deleted placeholder.
+    const deletedWithoutSignature =
+      !message.deletedOriginalText &&
+      !message.deletedOriginalPrimaryMediaUrl &&
+      !message.deletedOriginalMediaSignature;
+
+    return (
+      sameDeletedText ||
+      sameDeletedPrimaryMedia ||
+      sameDeletedMediaList ||
+      deletedWithoutSignature
+    );
+  });
+
+  if (matchesDeletedLocalMessage) return;
 
   const existsByContent = allMessages.some(message => {
+    if (message.isDeleted) return false;
+
     const sameGroup = message.groupId === input.groupId;
     const sameMine = message.mine === input.mine;
     const sameText = (message.text || '') === (input.text || '');
