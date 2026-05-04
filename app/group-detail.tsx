@@ -316,21 +316,7 @@ try {
   };
 
   const localMessages = await getMessagesForGroup(id);
-    console.log(
-    '[Gallery Debug] local video messages:',
-    localMessages
-      .filter((message: any) =>
-        message.mediaType === 'video' ||
-        message.media?.some((item: any) => item.type === 'video')
-      )
-      .map((message: any) => ({
-        id: message.id,
-        clientMessageId: message.clientMessageId,
-        mediaUrl: message.mediaUrl,
-        thumbnailUrl: message.thumbnailUrl,
-        media: message.media,
-      }))
-  );
+
   const localChatMediaItems = localMessages.flatMap(message =>
     mapMessageToGalleryItems(message, 'local-chat')
   );
@@ -1334,56 +1320,98 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
           data={members}
           keyExtractor={m => m.id}
           contentContainerStyle={s.membersList}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#c9973a" />}
-          renderItem={({ item }) => (
-            <View style={s.memberRow}>
-              <View style={s.memberAvatar}>
-                {item.avatarUrl ? (
-                  <Image source={{ uri: item.avatarUrl }} style={s.memberAvatarImg} />
-                ) : (
-                  <View style={s.memberAvatarFallback}>
-                    <Text style={s.memberAvatarLetter}>
-                      {(item.displayName ?? item.npub)[0].toUpperCase()}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={theme.gold}
+            />
+          }
+          renderItem={({ item }) => {
+            const displayName = item.displayName ?? `${item.npub.slice(0, 12)}…`;
+            const shortNpub = `${item.npub.slice(0, 12)}…`;
+            const roleLabel =
+              item.role === 'owner'
+                ? 'Owner'
+                : item.role === 'admin'
+                  ? 'Admin'
+                  : 'Member';
+
+            return (
+              <View style={s.memberCard}>
+                <View style={s.memberAvatar}>
+                  {item.avatarUrl ? (
+                    <Image source={{ uri: item.avatarUrl }} style={s.memberAvatarImg} />
+                  ) : (
+                    <View style={s.memberAvatarFallback}>
+                      <Text style={s.memberAvatarLetter}>
+                        {(item.displayName ?? item.npub)[0].toUpperCase()}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+
+                <View style={s.memberBody}>
+                  <View style={s.memberHeaderRow}>
+                    <Text style={s.memberName} numberOfLines={1}>
+                      {displayName}
                     </Text>
+
+                    <View
+                      style={[
+                        s.roleBadge,
+                        item.role === 'owner' && s.roleBadgeOwner,
+                        item.role === 'admin' && s.roleBadgeAdmin,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          s.roleBadgeText,
+                          item.role === 'owner' && s.roleBadgeTextOwner,
+                          item.role === 'admin' && s.roleBadgeTextAdmin,
+                        ]}
+                      >
+                        {roleLabel}
+                      </Text>
+                    </View>
                   </View>
+
+                  <Text style={s.memberNpub} numberOfLines={1}>
+                    {shortNpub}
+                  </Text>
+                </View>
+
+                {isAdmin && item.npub !== npub && item.role !== 'owner' && (
+                  <TouchableOpacity
+                    style={s.memberOptions}
+                    activeOpacity={0.75}
+                    onPress={() => Alert.alert(
+                      item.displayName ?? 'Member',
+                      'What would you like to do?',
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        item.role === 'member'
+                          ? { text: 'Make admin', onPress: () => handlePromoteAdmin(item) }
+                          : { text: 'Remove admin', onPress: () => updateMemberRole(group.id, item.npub, 'member').then(load) },
+                        { text: 'Remove from group', style: 'destructive', onPress: () => handleRemoveMember(item) },
+                      ]
+                    )}
+                  >
+                    <Text style={s.memberOptionsText}>⋯</Text>
+                  </TouchableOpacity>
                 )}
               </View>
-              <View style={s.memberBody}>
-                <Text style={s.memberName}>{item.displayName ?? `${item.npub.slice(0, 12)}…`}</Text>
-                <View style={[
-  s.roleBadge,
-  item.role === 'owner' && s.roleBadgeOwner,
-  item.role === 'admin' && s.roleBadgeAdmin,
-]}>
-  <Text style={[
-    s.roleBadgeText,
-    item.role === 'owner' && s.roleBadgeTextOwner,
-    item.role === 'admin' && s.roleBadgeTextAdmin,
-  ]}>
-    {item.role === 'owner' ? '👑 Owner' : item.role === 'admin' ? '⭐ Admin' : 'Member'}
-  </Text>
-</View>
-              </View>
-              {isAdmin && item.npub !== npub && item.role !== 'owner' && (
-                <TouchableOpacity
-                  style={s.memberOptions}
-                  onPress={() => Alert.alert(
-                    item.displayName ?? 'Member',
-                    'What would you like to do?',
-                    [
-                      { text: 'Cancel', style: 'cancel' },
-                      item.role === 'member'
-                        ? { text: 'Make admin', onPress: () => handlePromoteAdmin(item) }
-                        : { text: 'Remove admin', onPress: () => updateMemberRole(group.id, item.npub, 'member').then(load) },
-                      { text: 'Remove from group', style: 'destructive', onPress: () => handleRemoveMember(item) },
-                    ]
-                  )}
-                >
-                  <Text style={s.memberOptionsText}>⋯</Text>
-                </TouchableOpacity>
-              )}
+            );
+          }}
+          ListEmptyComponent={
+            <View style={s.empty}>
+              <Text style={s.emptyIcon}>👥</Text>
+              <Text style={s.emptyText}>No members yet</Text>
+              <Text style={s.emptyHint}>
+                Members will appear here after they join this group.
+              </Text>
             </View>
-          )}
+          }
         />
       )}
 
@@ -2161,62 +2189,101 @@ highlightVideoPlay: {
   emptyHint: { fontSize: 13, color: theme.textMuted, marginTop: 6, textAlign: 'center' },
 
   // Members
-  membersList: { padding: 20, paddingBottom: 100 },
-memberRow: {
-  flexDirection: 'row',
-  alignItems: 'center',
-  gap: 12,
-  paddingVertical: 12,
-  borderBottomWidth: 0.5,
-  borderBottomColor: theme.border,
-},
-  memberAvatar: { width: 42, height: 42 },
-  memberAvatarImg: { width: 42, height: 42, borderRadius: 21 },
-memberAvatarFallback: {
-  width: 42,
-  height: 42,
-  borderRadius: 21,
-  backgroundColor: theme.surface,
-  alignItems: 'center',
-  justifyContent: 'center',
-},
-memberAvatarLetter: { color: theme.gold, fontWeight: '700', fontSize: 17 },
-  memberBody: { flex: 1 },
-memberName: { color: theme.text, fontSize: 15, fontWeight: '500' },
-  memberRole: { color: '#555', fontSize: 11, marginTop: 2, textTransform: 'capitalize' },
-  memberOptions: { padding: 8 },
-memberOptionsText: { fontSize: 20, color: theme.textMuted },
+  membersList: {
+    padding: 16,
+    paddingBottom: 100,
+    gap: 10,
+  },
+  memberCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 13,
+    borderRadius: 18,
+    backgroundColor: theme.surface,
+  },
+  memberAvatar: {
+    width: 44,
+    height: 44,
+  },
+  memberAvatarImg: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+  },
+  memberAvatarFallback: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: theme.raised,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  memberAvatarLetter: {
+    color: theme.gold,
+    fontWeight: '900',
+    fontSize: 17,
+  },
+  memberBody: {
+    flex: 1,
+    minWidth: 0,
+  },
+  memberHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  memberName: {
+    flex: 1,
+    color: theme.text,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  memberNpub: {
+    color: theme.textMuted,
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 4,
+  },
+  memberOptions: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: theme.raised,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  memberOptionsText: {
+    fontSize: 20,
+    color: theme.textMuted,
+    fontWeight: '900',
+    lineHeight: 22,
+  },
   roleBadge: {
-  alignSelf: 'flex-start',
-  marginTop: 4,
-  paddingHorizontal: 8,
-  paddingVertical: 3,
-  borderRadius: 999,
-  backgroundColor: theme.surface,
-  borderWidth: 0.5,
-  borderColor: theme.border,
-},
-roleBadgeOwner: {
-  backgroundColor: '#1e1600',
-  borderColor: '#c9973a',
-},
-roleBadgeAdmin: {
-  backgroundColor: '#1a1a1a',
-  borderColor: '#6b5cff',
-},
-roleBadgeText: {
-  color: theme.textMuted,
-  fontSize: 10,
-  fontWeight: '700',
-  textTransform: 'uppercase',
-  letterSpacing: 0.5,
-},
-roleBadgeTextOwner: {
-  color: '#c9973a',
-},
-roleBadgeTextAdmin: {
-  color: '#aaa',
-},
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: theme.raised,
+  },
+  roleBadgeOwner: {
+    backgroundColor: theme.raised,
+  },
+  roleBadgeAdmin: {
+    backgroundColor: theme.raised,
+  },
+  roleBadgeText: {
+    color: theme.textMuted,
+    fontSize: 10,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  roleBadgeTextOwner: {
+    color: theme.gold,
+  },
+  roleBadgeTextAdmin: {
+    color: theme.gold,
+  },
 
     // Admin bar
   adminBar: {
