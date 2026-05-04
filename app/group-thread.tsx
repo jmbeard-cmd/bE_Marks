@@ -128,6 +128,7 @@ const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadM
 const [showReactionPicker, setShowReactionPicker] = useState(false);
 const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
 const [editingMessage, setEditingMessage] = useState<GroupMessage | null>(null);
+const [showComposerMenu, setShowComposerMenu] = useState(false);
 
   const listRef = useRef<FlatList<VisibleGroupMessage>>(null);
 
@@ -1032,7 +1033,13 @@ const [editingMessage, setEditingMessage] = useState<GroupMessage | null>(null);
     }
   };
 
+  const closeComposerMenu = useCallback(() => {
+    setShowComposerMenu(false);
+  }, []);
+
   const handlePickMedia = async () => {
+    closeComposerMenu();
+
     if (!groupId || uploadingImage) return;
 
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -1072,6 +1079,8 @@ const [editingMessage, setEditingMessage] = useState<GroupMessage | null>(null);
   };
 
   const handlePickFiles = async () => {
+    closeComposerMenu();
+
     if (!groupId || uploadingImage) return;
 
     try {
@@ -1104,6 +1113,8 @@ const [editingMessage, setEditingMessage] = useState<GroupMessage | null>(null);
   };
 
   const handleTakePhoto = async () => {
+    closeComposerMenu();
+
     if (!groupId || uploadingImage) return;
 
     const permission = await ImagePicker.requestCameraPermissionsAsync();
@@ -1137,6 +1148,17 @@ const [editingMessage, setEditingMessage] = useState<GroupMessage | null>(null);
       'Optimizing photo…'
     );
   };
+
+  const handleCreatePollPlaceholder = () => {
+    closeComposerMenu();
+    Alert.alert('Polls coming next', 'Next we will add the poll creation flow here.');
+  };
+
+  const handleGifPlaceholder = () => {
+    closeComposerMenu();
+    Alert.alert('GIFs coming later', 'GIF sending will be added through this composer menu later.');
+  };
+
 
   const handleBack = () => {
     router.navigate('/(tabs)/groups' as any);
@@ -1495,22 +1517,92 @@ const [editingMessage, setEditingMessage] = useState<GroupMessage | null>(null);
             </View>
           )}
 
+          {showComposerMenu && (
+            <View style={s.composerMenu}>
+              <TouchableOpacity
+                style={s.composerMenuItem}
+                onPress={handlePickMedia}
+                activeOpacity={0.82}
+              >
+                <Text style={s.composerMenuIcon}>🖼️</Text>
+                <View style={s.composerMenuTextBlock}>
+                  <Text style={s.composerMenuTitle}>Media</Text>
+                  <Text style={s.composerMenuHint}>Photos and videos</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={s.composerMenuItem}
+                onPress={handleTakePhoto}
+                activeOpacity={0.82}
+              >
+                <Text style={s.composerMenuIcon}>📷</Text>
+                <View style={s.composerMenuTextBlock}>
+                  <Text style={s.composerMenuTitle}>Camera</Text>
+                  <Text style={s.composerMenuHint}>Take a photo</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={s.composerMenuItem}
+                onPress={handlePickFiles}
+                activeOpacity={0.82}
+              >
+                <Text style={s.composerMenuIcon}>📎</Text>
+                <View style={s.composerMenuTextBlock}>
+                  <Text style={s.composerMenuTitle}>File</Text>
+                  <Text style={s.composerMenuHint}>Docs, PDFs, and attachments</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={s.composerMenuItem}
+                onPress={handleCreatePollPlaceholder}
+                activeOpacity={0.82}
+              >
+                <Text style={s.composerMenuIcon}>📊</Text>
+                <View style={s.composerMenuTextBlock}>
+                  <Text style={s.composerMenuTitle}>Poll</Text>
+                  <Text style={s.composerMenuHint}>Ask the group to vote</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[s.composerMenuItem, s.composerMenuItemDim]}
+                onPress={handleGifPlaceholder}
+                activeOpacity={0.82}
+              >
+                <Text style={s.composerMenuIcon}>GIF</Text>
+                <View style={s.composerMenuTextBlock}>
+                  <Text style={s.composerMenuTitle}>GIF</Text>
+                  <Text style={s.composerMenuHint}>Coming later</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[s.composerMenuItem, s.composerMenuCancelItem]}
+                onPress={closeComposerMenu}
+                activeOpacity={0.82}
+              >
+                <Text style={s.composerMenuIcon}>×</Text>
+                <View style={s.composerMenuTextBlock}>
+                  <Text style={s.composerMenuCancelTitle}>Close</Text>
+                  <Text style={s.composerMenuHint}>Hide attachment options</Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+          )}
+
           <View style={s.composer}>
             <TouchableOpacity
-              style={[s.attachBtn, (uploadingImage || !!editingMessage) && s.attachBtnDim]}
-              onPress={() => {
-  Alert.alert(
-    'Add Attachment',
-    '',
-    [
-      { text: 'Camera Photo', onPress: handleTakePhoto },
-      { text: 'Library Photos/Videos', onPress: handlePickMedia },
-      { text: 'Attach Files', onPress: handlePickFiles },
-      { text: 'Cancel', style: 'cancel' },
-    ]
-  );
-}}
+              style={[
+                s.attachBtn,
+                (uploadingImage || !!editingMessage) && s.attachBtnDim,
+                showComposerMenu && s.attachBtnActive,
+              ]}
+              onPress={() => setShowComposerMenu(current => !current)}
               disabled={uploadingImage || !!editingMessage}
+              activeOpacity={0.8}
             >
               {uploadingImage ? (
   <ActivityIndicator size="small" color={theme.gold} />
@@ -1537,6 +1629,7 @@ style={[
               maxLength={2000}
               textAlignVertical="top"
               onFocus={() => {
+                closeComposerMenu();
                 forceScrollToBottom(true);
               }}
               onContentSizeChange={(e) => {
@@ -1960,13 +2053,68 @@ messageVideoIcon: {
     alignItems: 'center',
     justifyContent: 'center',
   },
+  attachBtnActive: {
+    borderColor: theme.gold,
+    backgroundColor: theme.raised,
+  },
   attachBtnDim: { opacity: 0.5 },
   attachText: {
     fontSize: 24,
     color: theme.gold,
     lineHeight: 26,
   },
-
+  composerMenu: {
+    marginHorizontal: 12,
+    marginBottom: 8,
+    borderRadius: 18,
+    backgroundColor: theme.surface,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    overflow: 'hidden',
+  },
+  composerMenuItem: {
+    minHeight: 58,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: 0.5,
+    borderBottomColor: theme.border,
+  },
+  composerMenuItemDim: {
+    opacity: 0.62,
+  },
+  composerMenuIcon: {
+    width: 34,
+    color: theme.gold,
+    fontSize: 20,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  composerMenuTextBlock: {
+    flex: 1,
+  },
+  composerMenuTitle: {
+    color: theme.text,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  composerMenuCancelItem: {
+    borderBottomWidth: 0,
+    backgroundColor: theme.raised,
+  },
+  composerMenuCancelTitle: {
+    color: theme.gold,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  composerMenuHint: {
+    color: theme.textMuted,
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 2,
+  },
   input: {
     flex: 1,
     backgroundColor: theme.raised,
