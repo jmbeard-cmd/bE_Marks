@@ -80,6 +80,26 @@ type VisibleGroupMessage = {
   showName: boolean;
 };
 
+const QUICK_REACTIONS = ['❤️', '👍', '😂', '🎉', '🔥', '😮'];
+
+const REACTION_PACKS = [
+  {
+    title: 'Popular',
+    reactions: ['❤️', '👍', '👎', '😂', '🎉', '🔥', '😮', '😢'],
+  },
+  {
+    title: 'Support',
+    reactions: ['🙏', '👏', '💪', '⭐', '✅', '🙌', '💛', '🥹'],
+  },
+  {
+    title: 'Sports',
+    reactions: ['🏀', '⚾', '🏈', '⚽', '🏐', '🏆', '🥇', '💯'],
+  },
+  {
+    title: 'Family',
+    reactions: ['💛', '📸', '🎂', '🎓', '🥳', '✨', '🫶', '🌟'],
+  },
+];
 
 export default function GroupThreadScreen() {
   const router = useRouter();
@@ -105,6 +125,7 @@ const [pendingUploads, setPendingUploads] = useState<PendingUploadMessage[]>([])
 const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
 const [memberAvatarMap, setMemberAvatarMap] = useState<Record<string, string | undefined>>({});
 const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadMessage | null>(null);
+const [showReactionPicker, setShowReactionPicker] = useState(false);
 const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
 const [editingMessage, setEditingMessage] = useState<GroupMessage | null>(null);
 
@@ -1126,6 +1147,7 @@ const [editingMessage, setEditingMessage] = useState<GroupMessage | null>(null);
   };
 
   const closeMessageActions = () => {
+    setShowReactionPicker(false);
     setActionMessage(null);
   };
 
@@ -1133,16 +1155,17 @@ const [editingMessage, setEditingMessage] = useState<GroupMessage | null>(null);
     message: GroupMessage | PendingUploadMessage,
     reaction?: string
   ) => {
-    closeMessageActions();
-
     if ((message as any).pending || (message as any).isDeleted || !groupId) return;
 
     const selectedReaction = reaction || '👍';
 
     if (selectedReaction === '+') {
-      Alert.alert('More reactions', 'Custom reaction picker will be added later.');
+      setShowReactionPicker(current => !current);
       return;
     }
+
+    setShowReactionPicker(false);
+    closeMessageActions();
 
     try {
       const clientMessageId = (message as GroupMessage).clientMessageId || message.id;
@@ -1186,6 +1209,7 @@ const [editingMessage, setEditingMessage] = useState<GroupMessage | null>(null);
       Alert.alert('Reaction failed', 'Could not add your reaction.');
     }
   };
+
 
   const handleReplyToMessage = (message: GroupMessage | PendingUploadMessage) => {
     closeMessageActions();
@@ -1312,9 +1336,9 @@ const [editingMessage, setEditingMessage] = useState<GroupMessage | null>(null);
       return;
     }
 
+    setShowReactionPicker(false);
     setActionMessage(message);
   }, []);
-
 
   const handlePressMessageMedia = useCallback((uri: string) => {
     setSelectedMediaUri(uri);
@@ -1548,7 +1572,7 @@ style={[
               {actionMessage && (
                 <View style={s.messageActionContent}>
                   <View style={s.reactionTray}>
-                    {['❤️', '👍', '👎', '😂', '🎉', '🔥', '😮'].map(reaction => (
+                    {QUICK_REACTIONS.map(reaction => (
                       <TouchableOpacity
                         key={reaction}
                         style={s.reactionBtn}
@@ -1560,13 +1584,40 @@ style={[
                     ))}
 
                     <TouchableOpacity
-                      style={s.reactionMoreBtn}
+                      style={[
+                        s.reactionMoreBtn,
+                        showReactionPicker && s.reactionMoreBtnActive,
+                      ]}
                       activeOpacity={0.8}
                       onPress={() => handleReactToMessage(actionMessage, '+')}
                     >
                       <Text style={s.reactionMoreText}>＋</Text>
                     </TouchableOpacity>
                   </View>
+
+                  {showReactionPicker && (
+                    <View style={s.reactionPackCard}>
+                      {REACTION_PACKS.map(pack => (
+                        <View key={pack.title} style={s.reactionPackSection}>
+                          <Text style={s.reactionPackTitle}>{pack.title}</Text>
+
+                          <View style={s.reactionPackRow}>
+                            {pack.reactions.map(reaction => (
+                              <TouchableOpacity
+                                key={`${pack.title}_${reaction}`}
+                                style={s.reactionPackOption}
+                                activeOpacity={0.8}
+                                onPress={() => handleReactToMessage(actionMessage, reaction)}
+                              >
+                                <Text style={s.reactionPackEmoji}>{reaction}</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+
 
                   <View style={s.messageActionCard}>
                     <TouchableOpacity
@@ -1639,6 +1690,12 @@ style={[
 function formatMessageTime(unix: number): string {
   const date = new Date(unix * 1000);
   return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+function themeModeAwareOverlay(theme: typeof Colors.light): string {
+  return theme.bg === Colors.light.bg
+    ? 'rgba(17, 24, 28, 0.28)'
+    : 'rgba(0, 0, 0, 0.58)';
 }
 
 const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
@@ -1927,7 +1984,7 @@ messageVideoIcon: {
 
   messageActionOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.58)',
+    backgroundColor: themeModeAwareOverlay(theme),
     justifyContent: 'center',
     paddingHorizontal: 24,
   },
@@ -1944,9 +2001,9 @@ messageVideoIcon: {
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 999,
-    backgroundColor: 'rgba(24,24,24,0.96)',
+    backgroundColor: theme.surface,
     borderWidth: 0.5,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: theme.border,
   },
   reactionBtn: {
     width: 34,
@@ -1954,9 +2011,10 @@ messageVideoIcon: {
     borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: theme.raised,
   },
   reactionEmoji: {
-    fontSize: 25,
+    fontSize: 24,
   },
   reactionMoreBtn: {
     width: 38,
@@ -1964,15 +2022,55 @@ messageVideoIcon: {
     borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#050505',
+    backgroundColor: theme.raised,
     borderWidth: 0.5,
-    borderColor: 'rgba(255,255,255,0.14)',
+    borderColor: theme.border,
   },
   reactionMoreText: {
-    color: '#fff',
+    color: theme.gold,
     fontSize: 24,
-    fontWeight: '600',
+    fontWeight: '700',
     lineHeight: 26,
+  },
+  reactionMoreBtnActive: {
+    borderColor: theme.gold,
+  },
+  reactionPackCard: {
+    alignSelf: 'center',
+    width: '92%',
+    maxWidth: 390,
+    borderRadius: 18,
+    padding: 14,
+    backgroundColor: theme.surface,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    gap: 12,
+  },
+  reactionPackSection: {
+    gap: 8,
+  },
+  reactionPackTitle: {
+    color: theme.textMuted,
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.7,
+    textTransform: 'uppercase',
+  },
+  reactionPackRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  reactionPackOption: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: theme.raised,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reactionPackEmoji: {
+    fontSize: 23,
   },
   messageActionCard: {
     alignSelf: 'center',
@@ -1980,9 +2078,9 @@ messageVideoIcon: {
     maxWidth: 360,
     borderRadius: 18,
     overflow: 'hidden',
-    backgroundColor: 'rgba(34,34,34,0.98)',
+    backgroundColor: theme.surface,
     borderWidth: 0.5,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: theme.border,
   },
   messageActionRow: {
     minHeight: 54,
@@ -1991,24 +2089,24 @@ messageVideoIcon: {
     gap: 14,
     paddingHorizontal: 18,
     borderBottomWidth: 0.5,
-    borderBottomColor: 'rgba(255,255,255,0.08)',
+    borderBottomColor: theme.border,
   },
   messageActionRowLast: {
     borderBottomWidth: 0,
   },
   messageActionIcon: {
     width: 28,
-    color: '#fff',
-    fontSize: 24,
+    color: theme.gold,
+    fontSize: 22,
     textAlign: 'center',
   },
   messageActionText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '600',
+    color: theme.text,
+    fontSize: 17,
+    fontWeight: '700',
   },
   messageActionDanger: {
-    color: '#ff6b6b',
+    color: theme.danger,
   },
 
   sendBtn: {
