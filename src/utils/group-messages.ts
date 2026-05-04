@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { recordGroupPost } from './group-storage';
 
@@ -38,17 +39,42 @@ export type GroupMessage = {
 
 async function readJson<T>(key: string, fallback: T): Promise<T> {
   try {
-    const raw = await SecureStore.getItemAsync(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
-  } catch {
+    const asyncRaw = await AsyncStorage.getItem(key);
+
+    if (asyncRaw) {
+      return JSON.parse(asyncRaw) as T;
+    }
+
+    // Migration fallback from older SecureStore-based versions.
+    const secureRaw = await SecureStore.getItemAsync(key);
+
+    if (secureRaw) {
+      const parsed = JSON.parse(secureRaw) as T;
+
+      try {
+        await AsyncStorage.setItem(key, secureRaw);
+        await SecureStore.deleteItemAsync(key);
+        console.log(`[Group Messages] migrated ${key} from SecureStore to AsyncStorage`);
+      } catch (migrationError) {
+        console.warn(`[Group Messages] failed to migrate ${key}:`, migrationError);
+      }
+
+      return parsed;
+    }
+
+    return fallback;
+  } catch (error) {
+    console.warn(`[Group Messages] failed to read ${key}:`, error);
     return fallback;
   }
 }
 
 async function writeJson<T>(key: string, value: T): Promise<void> {
   try {
-    await SecureStore.setItemAsync(key, JSON.stringify(value));
-  } catch {}
+    await AsyncStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    console.warn(`[Group Messages] failed to write ${key}:`, error);
+  }
 }
 
 function normalizeMessageMedia(input: {

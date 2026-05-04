@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import {
   fetchGroupById,
@@ -41,6 +42,7 @@ export type BEGroup = {
 
   // Nostr
   nostrEventId?: string;
+  ownerNpub?: string;
 
   // Counts (cached locally)
   memberCount: number;
@@ -62,31 +64,78 @@ export type BEGroupMember = {
 };
 
 // ─── Storage Helpers ──────────────────────────────────────────────
+// AsyncStorage is the primary storage for groups/members.
+// SecureStore is used only as a one-time fallback for older installs
+// that previously saved this data there.
+
+async function readJson<T>(key: string, fallback: T): Promise<T> {
+  try {
+    const asyncRaw = await AsyncStorage.getItem(key);
+
+    if (asyncRaw) {
+      return JSON.parse(asyncRaw) as T;
+    }
+
+    // Migration fallback from older SecureStore-based versions.
+    const secureRaw = await SecureStore.getItemAsync(key);
+
+    if (secureRaw) {
+      const parsed = JSON.parse(secureRaw) as T;
+
+      try {
+        await AsyncStorage.setItem(key, secureRaw);
+        await SecureStore.deleteItemAsync(key);
+        console.log(`[Group Storage] migrated ${key} from SecureStore to AsyncStorage`);
+      } catch (migrationError) {
+        console.warn(`[Group Storage] failed to migrate ${key}:`, migrationError);
+      }
+
+      return parsed;
+    }
+
+    return fallback;
+  } catch (error) {
+    console.warn(`[Group Storage] failed to read ${key}:`, error);
+    return fallback;
+  }
+}
+
+async function writeJson<T>(key: string, value: T): Promise<void> {
+  try {
+    await AsyncStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    console.warn(`[Group Storage] failed to write ${key}:`, error);
+  }
+}
+
+async function removeJson(key: string): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(key);
+  } catch (error) {
+    console.warn(`[Group Storage] failed to remove AsyncStorage key ${key}:`, error);
+  }
+
+  try {
+    await SecureStore.deleteItemAsync(key);
+  } catch {
+    // Ignore old SecureStore cleanup failures.
+  }
+}
 
 async function readGroups(): Promise<BEGroup[]> {
-  try {
-    const raw = await SecureStore.getItemAsync(GROUPS_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch { return []; }
+  return readJson<BEGroup[]>(GROUPS_KEY, []);
 }
 
 async function writeGroups(groups: BEGroup[]): Promise<void> {
-  try {
-    await SecureStore.setItemAsync(GROUPS_KEY, JSON.stringify(groups));
-  } catch {}
+  await writeJson(GROUPS_KEY, groups);
 }
 
 async function readMembers(): Promise<BEGroupMember[]> {
-  try {
-    const raw = await SecureStore.getItemAsync(MEMBERS_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch { return []; }
+  return readJson<BEGroupMember[]>(MEMBERS_KEY, []);
 }
 
 async function writeMembers(members: BEGroupMember[]): Promise<void> {
-  try {
-    await SecureStore.setItemAsync(MEMBERS_KEY, JSON.stringify(members));
-  } catch {}
+  await writeJson(MEMBERS_KEY, members);
 }
 
 function generateInviteCode(): string {
@@ -113,7 +162,8 @@ export async function syncGroupMembersFromRelay(
   groupId: string,
   relayUrls: string[],
 ): Promise<BEGroupMember[]> {
-  const membershipEvents = await fetchGroupMemberships(groupId, relayUrls);
+  const relaysToUse = relayUrls.length > 0 ? relayUrls : ['wss://relay.beginningend.com'];
+  const membershipEvents = await fetchGroupMemberships(groupId, relaysToUse);
   const allMembers = await readMembers();
   const existingGroupMembers = allMembers.filter(m => m.groupId === groupId);
 
@@ -159,6 +209,46 @@ export async function syncGroupMembersFromRelay(
       status: 'active',
       joinedAt: existing?.joinedAt ?? event.created_at,
     });
+  }
+
+  try {
+    const localGroup = await getGroupById(groupId);
+    const remoteGroup = await fetchGroupById(groupId, localGroup?.relayUrl || relaysToUse[0]);
+    const ownerNpub = localGroup?.ownerNpub || remoteGroup?.ownerNpub;
+
+    if (ownerNpub) {
+      const existingOwner = memberMap.get(ownerNpub);
+
+      let ownerPubkeyHex = existingOwner?.pubkeyHex;
+
+      if (!ownerPubkeyHex) {
+        try {
+          ownerPubkeyHex = npubToHex(ownerNpub);
+        } catch {
+          ownerPubkeyHex = '';
+        }
+      }
+
+      memberMap.set(ownerNpub, {
+        id: existingOwner?.id ?? `member_owner_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        groupId,
+        npub: ownerNpub,
+        pubkeyHex: ownerPubkeyHex,
+        displayName: existingOwner?.displayName,
+        avatarUrl: existingOwner?.avatarUrl,
+        role: 'owner',
+        status: 'active',
+        joinedAt: existingOwner?.joinedAt ?? remoteGroup?.createdAt ?? localGroup?.createdAt ?? Math.floor(Date.now() / 1000),
+      });
+
+      if (localGroup && !localGroup.ownerNpub) {
+        await updateGroup(groupId, {
+          ownerNpub,
+        });
+      }
+    }
+  } catch (ownerRepairError) {
+    console.warn('[Groups] owner repair during member sync failed:', ownerRepairError);
   }
 
   const mergedGroupMembers = Array.from(memberMap.values());
@@ -230,6 +320,7 @@ export async function createGroup(input: {
     createdAt: now,
     updatedAt: now,
     relayUrl: input.relayUrl,
+    ownerNpub: input.ownerNpub,
     memberCount: 1,
     postCount: 0,
   };
@@ -505,6 +596,7 @@ export async function joinGroupByCode(input: {
         createdAt: remoteGroup.createdAt,
         updatedAt: now,
         relayUrl: remoteGroup.relayUrl,
+        ownerNpub: remoteGroup.ownerNpub,
         memberCount: remoteGroup.ownerNpub ? 1 : 0,
         postCount: 0,
       };
@@ -589,11 +681,10 @@ export async function recordGroupPost(
 
 export async function clearGroupStorage(): Promise<void> {
   try {
-    // Remove groups
-    await SecureStore.deleteItemAsync(GROUPS_KEY);
-
-    // Remove members
-    await SecureStore.deleteItemAsync(MEMBERS_KEY);
+    await Promise.all([
+      removeJson(GROUPS_KEY),
+      removeJson(MEMBERS_KEY),
+    ]);
 
     console.log('[Group Storage] Cleared for new identity');
   } catch (error) {
@@ -655,7 +746,8 @@ export async function restoreGroupsFromRelay(input: {
           createdAt: groupEvent.createdAt,
           updatedAt: now,
           relayUrl: groupEvent.relayUrl,
-          memberCount: 0,
+          ownerNpub: groupEvent.ownerNpub,
+          memberCount: groupEvent.ownerNpub ? 1 : 0,
           postCount: 0,
         };
 
