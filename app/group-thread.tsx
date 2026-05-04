@@ -1,3 +1,4 @@
+import * as Clipboard from 'expo-clipboard';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -7,6 +8,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -209,9 +211,63 @@ const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
     return message.senderName || 'Member';
   }, []);
 
+  const getCopyTextForMessage = useCallback((message: GroupMessage | PendingUploadMessage): string => {
+    if ((message as any).isDeleted) return 'Message deleted';
+
+    const text = message.text?.trim();
+
+    if (text) return text;
+
+    const mediaItems = Array.isArray((message as any).media)
+      ? (message as any).media
+      : [];
+
+    if (mediaItems.length > 0) {
+      return mediaItems
+        .map((item: any, index: number) => {
+          const label =
+            item.type === 'video'
+              ? 'Video'
+              : item.type === 'file'
+                ? item.fileName || 'File'
+                : 'Photo';
+
+          return `${label} ${index + 1}: ${item.uri}`;
+        })
+        .join('\n');
+    }
+
+    const legacyUrl = (message as any).mediaUrl || (message as any).imageUrl;
+
+    if (legacyUrl) {
+      const label = (message as any).mediaType === 'video' ? 'Video' : 'Photo';
+      return `${label}: ${legacyUrl}`;
+    }
+
+    return '';
+  }, []);
+
   const scrollToBottom = useCallback((animated = true) => {
     listRef.current?.scrollToEnd({ animated });
   }, []);
+
+  const scrollToLatestMessage = useCallback((animated = false) => {
+    const lastIndex = visibleMessages.length - 1;
+
+    if (lastIndex < 0) return;
+
+    try {
+      listRef.current?.scrollToIndex({
+        index: lastIndex,
+        animated,
+        viewPosition: 1,
+      });
+    } catch {
+      setTimeout(() => {
+        listRef.current?.scrollToEnd({ animated });
+      }, 80);
+    }
+  }, [visibleMessages.length]);
 
   const forceScrollToBottom = useCallback((animated = true) => {
     forceNextAutoScrollRef.current = true;
@@ -246,10 +302,19 @@ const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
   }, []);
 
   const handleContentSizeChange = useCallback(() => {
+    if (!forceNextAutoScrollRef.current) return;
+
     setTimeout(() => {
-      scrollToBottomIfAppropriate(true);
-    }, 40);
-  }, [scrollToBottomIfAppropriate]);
+      if (!forceNextAutoScrollRef.current) return;
+
+      const animated = didInitialAutoScrollRef.current;
+
+      scrollToBottom(animated);
+      forceNextAutoScrollRef.current = false;
+      isNearBottomRef.current = true;
+      didInitialAutoScrollRef.current = true;
+    }, 90);
+  }, [scrollToBottom]);
 
   const loadGroup = useCallback(async () => {
     if (!groupId) return;
@@ -285,10 +350,6 @@ const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
 
       setMessages(localMessages);
       setLoadingInitialMessages(false);
-
-      if (!didInitialAutoScrollRef.current) {
-        setTimeout(() => scrollToBottomIfAppropriate(false), 50);
-      }
     } catch (error) {
       console.warn('[Groups] Local message load error:', error);
       setLoadingInitialMessages(false);
@@ -368,7 +429,6 @@ const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
         const refreshedMessages = await getMessagesForGroup(groupId);
 
         setMessages(refreshedMessages);
-        setTimeout(() => scrollToBottomIfAppropriate(false), 50);
       })
       .catch(error => {
         console.warn('[Groups] Remote fetch error:', error);
@@ -382,6 +442,41 @@ const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
   useEffect(() => {
     loadMessages();
   }, [loadMessages]);
+
+  useEffect(() => {
+    if (!groupId || visibleMessages.length === 0 || didInitialAutoScrollRef.current) return;
+
+    const timers = [180, 450, 900, 1300].map((delay, index, arr) =>
+      setTimeout(() => {
+        scrollToLatestMessage(false);
+
+        if (index === arr.length - 1) {
+          didInitialAutoScrollRef.current = true;
+          forceNextAutoScrollRef.current = false;
+          isNearBottomRef.current = true;
+        }
+      }, delay)
+    );
+
+    return () => {
+      timers.forEach(clearTimeout);
+    };
+  }, [groupId, visibleMessages.length, scrollToLatestMessage]);
+
+    useEffect(() => {
+    const keyboardEvent =
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+
+    const subscription = Keyboard.addListener(keyboardEvent, () => {
+      setTimeout(() => {
+        forceScrollToBottom(true);
+      }, Platform.OS === 'ios' ? 120 : 220);
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [forceScrollToBottom]);
 
   useEffect(() => {
     if (!groupId || !relayUrl) return;
@@ -1039,14 +1134,24 @@ const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
     );
   };
 
-  const handleCopyMessage = (message: GroupMessage | PendingUploadMessage) => {
+  const handleCopyMessage = async (message: GroupMessage | PendingUploadMessage) => {
     closeMessageActions();
 
-    Alert.alert(
-      'Copy',
-      'Copy message text will be added with the next action polish pass.',
-      [{ text: 'OK' }]
-    );
+    try {
+      const copyText = getCopyTextForMessage(message);
+
+      if (!copyText) {
+        Alert.alert('Nothing to copy', 'This message does not have text or attachment links to copy.');
+        return;
+      }
+
+      await Clipboard.setStringAsync(copyText);
+
+      Alert.alert('Copied', 'Message copied to clipboard.');
+    } catch (error) {
+      console.warn('[Groups] copy message failed:', error);
+      Alert.alert('Copy failed', 'Could not copy this message.');
+    }
   };
 
   const handleMessageLongPress = (message: GroupMessage | PendingUploadMessage) => {
@@ -1117,6 +1222,11 @@ const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
             onScroll={handleListScroll}
             scrollEventThrottle={16}
             onContentSizeChange={handleContentSizeChange}
+            onScrollToIndexFailed={() => {
+              setTimeout(() => {
+                scrollToBottom(false);
+              }, 120);
+            }}
             ListEmptyComponent={
               loadingInitialMessages ? (
                 <View style={s.empty}>
@@ -1207,7 +1317,7 @@ style={[
               maxLength={2000}
               textAlignVertical="top"
               onFocus={() => {
-                setTimeout(() => scrollToBottom(true), 250);
+                forceScrollToBottom(true);
               }}
               onContentSizeChange={(e) => {
                 setInputHeight(e.nativeEvent.contentSize.height);
