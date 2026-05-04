@@ -15,6 +15,17 @@ export type GroupMessageMedia = {
   mimeType?: string;
 };
 
+export type GroupMessageReaction = {
+  id: string;
+  groupId: string;
+  messageId?: string;
+  clientMessageId: string;
+  reaction: string;
+  reactorNpub?: string;
+  reactorName?: string;
+  createdAt: number;
+};
+
 export type GroupMessage = {
   id: string;
   clientMessageId: string;
@@ -40,6 +51,9 @@ export type GroupMessage = {
   deletedOriginalMediaSignature?: string;
   deletedOriginalPrimaryMediaUrl?: string;
   editedAt?: number;
+
+  // Message reactions
+  reactions?: GroupMessageReaction[];
 
   mine: boolean;
   senderNpub?: string;
@@ -429,4 +443,67 @@ export async function saveRemoteGroupMessage(input: {
   await saveAllGroupMessages(allMessages);
 
   await recordGroupPost(input.groupId, getMessagePreview(newMessage));
+}
+
+export async function addGroupMessageReaction(input: {
+  groupId: string;
+  messageId: string;
+  clientMessageId?: string;
+  reaction: string;
+  reactorNpub?: string;
+  reactorName?: string;
+  createdAt?: number;
+}): Promise<boolean> {
+  const all = await getAllGroupMessages();
+  const now = input.createdAt ?? Math.floor(Date.now() / 1000);
+  const clientMessageId = input.clientMessageId || input.messageId;
+  let changed = false;
+
+  const reactionRecord: GroupMessageReaction = {
+    id: `reaction_${clientMessageId}_${input.reactorNpub || 'unknown'}_${input.reaction}`,
+    groupId: input.groupId,
+    messageId: input.messageId,
+    clientMessageId,
+    reaction: input.reaction,
+    reactorNpub: input.reactorNpub,
+    reactorName: input.reactorName,
+    createdAt: now,
+  };
+
+  const updated = all.map(message => {
+    const matchesId = message.id === input.messageId;
+    const matchesClientId = message.clientMessageId === clientMessageId;
+
+    if (message.groupId !== input.groupId || (!matchesId && !matchesClientId)) {
+      return message;
+    }
+
+    if (message.isDeleted) {
+      return message;
+    }
+
+    changed = true;
+
+    const existingReactions = Array.isArray(message.reactions)
+      ? message.reactions
+      : [];
+
+    const withoutExistingSameUserReaction = existingReactions.filter(existing => {
+      if (!input.reactorNpub) {
+        return existing.id !== reactionRecord.id;
+      }
+
+      return existing.reactorNpub !== input.reactorNpub;
+    });
+
+    return {
+      ...message,
+      reactions: [...withoutExistingSameUserReaction, reactionRecord],
+    };
+  });
+
+  if (!changed) return false;
+
+  await saveAllGroupMessages(updated);
+  return true;
 }

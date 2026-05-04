@@ -22,6 +22,7 @@ import ImageViewerModal, { ViewerImage } from '../components/ImageViewerModal';
 import MessageBubble from '../components/MessageBubble';
 import { Colors } from '../src/constants/theme';
 import {
+  addGroupMessageReaction,
   getMessagesForGroup,
   markGroupMessageDeleted,
   saveRemoteGroupMessage,
@@ -40,10 +41,13 @@ import {
 } from '../src/utils/media-compression';
 import {
   fetchGroupMessageDeletes,
+  fetchGroupMessageReactions,
   fetchGroupMessages,
   publishGroupMessage,
   publishGroupMessageDelete,
+  publishGroupMessageReaction,
   subscribeToGroupMessageDeletes,
+  subscribeToGroupMessageReactions,
   subscribeToGroupMessages,
 } from '../src/utils/nostr';
 import { uploadToR2 } from '../src/utils/r2';
@@ -236,7 +240,10 @@ const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadM
           });
         }
 
-        const deleteEvents = await fetchGroupMessageDeletes(groupId, relayUrl);
+        const [deleteEvents, reactionEvents] = await Promise.all([
+          fetchGroupMessageDeletes(groupId, relayUrl),
+          fetchGroupMessageReactions(groupId, relayUrl),
+        ]);
 
         for (const deleteEvent of deleteEvents) {
           await markGroupMessageDeleted({
@@ -253,6 +260,28 @@ const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadM
             clientMessageId: deleteEvent.clientMessageId,
             deletedByNpub: deleteEvent.deletedByNpub,
             deletedAt: deleteEvent.deletedAt,
+          });
+        }
+
+        for (const reactionEvent of reactionEvents) {
+          await addGroupMessageReaction({
+            groupId,
+            messageId: `nostr_group_${reactionEvent.messageId}`,
+            clientMessageId: reactionEvent.clientMessageId,
+            reaction: reactionEvent.reaction,
+            reactorNpub: reactionEvent.reactorNpub,
+            reactorName: reactionEvent.reactorName,
+            createdAt: reactionEvent.createdAt,
+          });
+
+          await addGroupMessageReaction({
+            groupId,
+            messageId: reactionEvent.messageId,
+            clientMessageId: reactionEvent.clientMessageId,
+            reaction: reactionEvent.reaction,
+            reactorNpub: reactionEvent.reactorNpub,
+            reactorName: reactionEvent.reactorName,
+            createdAt: reactionEvent.createdAt,
           });
         }
 
@@ -279,6 +308,7 @@ const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadM
 
     let unsubscribeMessages: (() => void) | undefined;
     let unsubscribeDeletes: (() => void) | undefined;
+    let unsubscribeReactions: (() => void) | undefined;
 
     async function startLiveGroupSync() {
       unsubscribeMessages = await subscribeToGroupMessages({
@@ -333,6 +363,35 @@ const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadM
           setMessages(next);
         },
       });
+
+      unsubscribeReactions = await subscribeToGroupMessageReactions({
+        groupId,
+        relayUrl,
+        onReaction: async (reactionEvent) => {
+          await addGroupMessageReaction({
+            groupId,
+            messageId: `nostr_group_${reactionEvent.messageId}`,
+            clientMessageId: reactionEvent.clientMessageId,
+            reaction: reactionEvent.reaction,
+            reactorNpub: reactionEvent.reactorNpub,
+            reactorName: reactionEvent.reactorName,
+            createdAt: reactionEvent.createdAt,
+          });
+
+          await addGroupMessageReaction({
+            groupId,
+            messageId: reactionEvent.messageId,
+            clientMessageId: reactionEvent.clientMessageId,
+            reaction: reactionEvent.reaction,
+            reactorNpub: reactionEvent.reactorNpub,
+            reactorName: reactionEvent.reactorName,
+            createdAt: reactionEvent.createdAt,
+          });
+
+          const next = await getMessagesForGroup(groupId);
+          setMessages(next);
+        },
+      });
     }
 
     startLiveGroupSync();
@@ -340,6 +399,7 @@ const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadM
     return () => {
       if (unsubscribeMessages) unsubscribeMessages();
       if (unsubscribeDeletes) unsubscribeDeletes();
+      if (unsubscribeReactions) unsubscribeReactions();
     };
   }, [groupId, relayUrl, npub, scrollToBottom]);
 
@@ -718,17 +778,62 @@ const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadM
     setActionMessage(null);
   };
 
-  const handleReactToMessage = (
+  const handleReactToMessage = async (
     message: GroupMessage | PendingUploadMessage,
     reaction?: string
   ) => {
     closeMessageActions();
 
-    Alert.alert(
-      'React',
-      `${reaction || 'Reaction'} will be synced to the group relay in the next phase.`,
-      [{ text: 'OK' }]
-    );
+    if ((message as any).pending || (message as any).isDeleted || !groupId) return;
+
+    const selectedReaction = reaction || '👍';
+
+    if (selectedReaction === '+') {
+      Alert.alert('More reactions', 'Custom reaction picker will be added later.');
+      return;
+    }
+
+    try {
+      const clientMessageId = (message as GroupMessage).clientMessageId || message.id;
+
+      await addGroupMessageReaction({
+        groupId,
+        messageId: message.id,
+        clientMessageId,
+        reaction: selectedReaction,
+        reactorNpub: npub ?? undefined,
+        reactorName: myDisplayName,
+      });
+
+      const next = await getMessagesForGroup(groupId);
+      setMessages(next);
+
+      if (nsec) {
+        const relayMessageId = message.id.startsWith('nostr_group_')
+          ? message.id.replace('nostr_group_', '')
+          : message.id;
+
+        publishGroupMessageReaction({
+          groupId,
+          messageId: relayMessageId,
+          clientMessageId,
+          reaction: selectedReaction,
+          reactorNpub: npub ?? undefined,
+          reactorName: myDisplayName,
+          nsec,
+          relayUrl,
+        }).then(result => {
+          if (!result.success) {
+            console.warn('[Groups] publishGroupMessageReaction failed:', result.error);
+          }
+        }).catch(error => {
+          console.warn('[Groups] publishGroupMessageReaction error:', error);
+        });
+      }
+    } catch (error) {
+      console.warn('[Groups] reaction failed:', error);
+      Alert.alert('Reaction failed', 'Could not add your reaction.');
+    }
   };
 
   const handleReplyToMessage = (message: GroupMessage | PendingUploadMessage) => {

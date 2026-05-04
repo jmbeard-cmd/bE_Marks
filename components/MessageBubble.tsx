@@ -85,6 +85,25 @@ function formatTime(createdAt?: number): string {
   });
 }
 
+function getReactionSummary(item: any): { reaction: string; count: number }[] {
+  const reactions = Array.isArray(item?.reactions) ? item.reactions : [];
+
+  const counts = new Map<string, number>();
+
+  reactions.forEach((entry: any) => {
+    const reaction = entry?.reaction;
+
+    if (!reaction) return;
+
+    counts.set(reaction, (counts.get(reaction) || 0) + 1);
+  });
+
+  return Array.from(counts.entries()).map(([reaction, count]) => ({
+    reaction,
+    count,
+  }));
+}
+
 async function openFile(uri: string) {
   try {
     const supported = await Linking.canOpenURL(uri);
@@ -411,17 +430,53 @@ export default function MessageBubble({
         )}
       </TouchableOpacity>
 
-      {!isPending && (
+      {!isPending && !isDeleted && getReactionSummary(item).length > 0 && (
         <View
           style={{
             flexDirection: 'row',
+            flexWrap: 'wrap',
             gap: 6,
             marginTop: 5,
             marginLeft: 8,
             minHeight: 18,
           }}
         >
-          {/* Reaction chips will go here next. */}
+          {getReactionSummary(item).map(entry => (
+            <View
+              key={entry.reaction}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 3,
+                paddingHorizontal: 8,
+                paddingVertical: 3,
+                borderRadius: 999,
+                backgroundColor: theme.surface,
+                borderWidth: 0.5,
+                borderColor: theme.border,
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 13,
+                }}
+              >
+                {entry.reaction}
+              </Text>
+
+              {entry.count > 1 && (
+                <Text
+                  style={{
+                    color: theme.textMuted,
+                    fontSize: 11,
+                    fontWeight: '800',
+                  }}
+                >
+                  {entry.count}
+                </Text>
+              )}
+            </View>
+          ))}
         </View>
       )}
     </View>

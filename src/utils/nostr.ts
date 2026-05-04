@@ -1390,6 +1390,7 @@ export async function publishGroupMembership(input: {
 export const GROUP_MESSAGE_KIND = 30082;
 export const GROUP_STICKY_KIND = 30083;
 export const GROUP_MESSAGE_DELETE_KIND = 30087;
+export const GROUP_MESSAGE_REACTION_KIND = 30088;
 
 export type NostrGroupMediaType = 'image' | 'video' | 'file';
 
@@ -1433,6 +1434,18 @@ export interface NostrGroupMessageDelete {
   deletedAt: number;
   deletedByPubkey: string;
   deletedByNpub?: string;
+}
+
+export interface NostrGroupMessageReaction {
+  id: string;
+  groupId: string;
+  messageId: string;
+  clientMessageId: string;
+  reaction: string;
+  reactorPubkey: string;
+  reactorNpub?: string;
+  reactorName?: string;
+  createdAt: number;
 }
 
 function normalizeGroupMessageMedia(input: {
@@ -1614,6 +1627,65 @@ export async function publishGroupMessageDelete(input: {
         clientMessageId: deleteTargetId,
         deletedAt: now,
         deletedByNpub: input.deletedByNpub,
+      }),
+      pubkey: pk,
+    };
+
+    const signed = finalizeEvent(unsigned, sk);
+    return await publishToSpecificRelay(signed, input.relayUrl);
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+}
+
+export async function publishGroupMessageReaction(input: {
+  groupId: string;
+  messageId: string;
+  clientMessageId: string;
+  reaction: string;
+  reactorNpub?: string;
+  reactorName?: string;
+  nsec: string;
+  relayUrl: string;
+}): Promise<{ success: boolean; eventId?: string; error?: string }> {
+  try {
+    const reaction = input.reaction.trim();
+
+    if (!reaction) {
+      throw new Error('Cannot publish an empty reaction');
+    }
+
+    const decoded = nip19.decode(input.nsec);
+    if (decoded.type !== 'nsec') throw new Error('Invalid nsec');
+
+    const sk = decoded.data as Uint8Array;
+    const pk = getPublicKey(sk);
+    const now = Math.floor(Date.now() / 1000);
+
+    const reactionId = `reaction_${input.clientMessageId}_${input.reactorNpub || pk}_${reaction}`;
+
+    const tags: string[][] = [
+      ['d', reactionId],
+      ['t', `group-msg-reaction:${input.groupId}`],
+      ['group', input.groupId],
+      ['message', input.messageId],
+      ['clientMessageId', input.clientMessageId],
+      ['reaction', reaction],
+      ['client', 'bE-Marks'],
+    ];
+
+    const unsigned: UnsignedEvent = {
+      kind: GROUP_MESSAGE_REACTION_KIND,
+      created_at: now,
+      tags,
+      content: JSON.stringify({
+        groupId: input.groupId,
+        messageId: input.messageId,
+        clientMessageId: input.clientMessageId,
+        reaction,
+        reactorNpub: input.reactorNpub,
+        reactorName: input.reactorName,
+        createdAt: now,
       }),
       pubkey: pk,
     };
@@ -2009,6 +2081,84 @@ export function fetchGroupMessageDeletes(
   });
 }
 
+export function fetchGroupMessageReactions(
+  groupId: string,
+  relayUrl: string = DEFAULT_RELAY
+): Promise<NostrGroupMessageReaction[]> {
+  return new Promise(resolve => {
+    try {
+      const ws = new WebSocket(relayUrl);
+      const reactions: NostrGroupMessageReaction[] = [];
+      const seen = new Set<string>();
+
+      const timeout = setTimeout(() => {
+        ws.close();
+        resolve(reactions);
+      }, 6000);
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify([
+          'REQ',
+          `group-msg-reaction-fetch-${groupId}`,
+          {
+            kinds: [GROUP_MESSAGE_REACTION_KIND],
+            '#t': [`group-msg-reaction:${groupId}`],
+            limit: 500,
+          },
+        ]));
+      };
+
+      ws.onmessage = (msg) => {
+        try {
+          const data = JSON.parse(msg.data);
+
+          if (data[0] === 'EVENT' && data[2]?.kind === GROUP_MESSAGE_REACTION_KIND) {
+            const evt = data[2];
+
+            if (seen.has(evt.id)) return;
+            seen.add(evt.id);
+
+            const parsed = JSON.parse(evt.content || '{}');
+            const messageTag = evt.tags?.find((tag: string[]) => tag[0] === 'message');
+            const clientMessageIdTag = evt.tags?.find((tag: string[]) => tag[0] === 'clientMessageId');
+            const reactionTag = evt.tags?.find((tag: string[]) => tag[0] === 'reaction');
+
+            const messageId = parsed.messageId || messageTag?.[1];
+            const clientMessageId = parsed.clientMessageId || clientMessageIdTag?.[1] || messageId;
+            const reaction = parsed.reaction || reactionTag?.[1];
+
+            if (parsed.groupId === groupId && messageId && clientMessageId && reaction) {
+              reactions.push({
+                id: evt.id,
+                groupId,
+                messageId,
+                clientMessageId,
+                reaction,
+                reactorPubkey: evt.pubkey,
+                reactorNpub: parsed.reactorNpub,
+                reactorName: parsed.reactorName,
+                createdAt: parsed.createdAt || evt.created_at,
+              });
+            }
+          } else if (data[0] === 'EOSE') {
+            clearTimeout(timeout);
+            ws.close();
+            reactions.sort((a, b) => a.createdAt - b.createdAt);
+            resolve(reactions);
+          }
+        } catch {}
+      };
+
+      ws.onerror = () => {
+        clearTimeout(timeout);
+        resolve(reactions);
+      };
+    } catch {
+      resolve([]);
+    }
+  });
+}
+
 export async function subscribeToGroupMessageDeletes(input: {
   groupId: string;
   relayUrl?: string;
@@ -2048,6 +2198,66 @@ export async function subscribeToGroupMessageDeletes(input: {
               deletedAt: parsed.deletedAt || evt.created_at,
               deletedByPubkey: evt.pubkey,
               deletedByNpub: parsed.deletedByNpub,
+            });
+          } catch {}
+        },
+      }
+    );
+
+    return () => {
+      try { sub.close(); } catch {}
+    };
+  } catch {
+    return () => {};
+  }
+}
+
+export async function subscribeToGroupMessageReactions(input: {
+  groupId: string;
+  relayUrl?: string;
+  onReaction: (messageReaction: NostrGroupMessageReaction) => void;
+}): Promise<() => void> {
+  try {
+    const relayUrl = input.relayUrl ?? DEFAULT_RELAY;
+    const pool = new SimplePool();
+    const seen = new Set<string>();
+
+    const sub = pool.subscribe(
+      [relayUrl],
+      {
+        kinds: [GROUP_MESSAGE_REACTION_KIND],
+        '#t': [`group-msg-reaction:${input.groupId}`],
+        since: Math.floor(Date.now() / 1000),
+      },
+      {
+        onevent(evt) {
+          try {
+            if (seen.has(evt.id)) return;
+            seen.add(evt.id);
+
+            const parsed = JSON.parse(evt.content || '{}');
+            const messageTag = evt.tags?.find((tag: string[]) => tag[0] === 'message');
+            const clientMessageIdTag = evt.tags?.find((tag: string[]) => tag[0] === 'clientMessageId');
+            const reactionTag = evt.tags?.find((tag: string[]) => tag[0] === 'reaction');
+
+            const messageId = parsed.messageId || messageTag?.[1];
+            const clientMessageId = parsed.clientMessageId || clientMessageIdTag?.[1] || messageId;
+            const reaction = parsed.reaction || reactionTag?.[1];
+
+            if (parsed.groupId !== input.groupId || !messageId || !clientMessageId || !reaction) {
+              return;
+            }
+
+            input.onReaction({
+              id: evt.id,
+              groupId: input.groupId,
+              messageId,
+              clientMessageId,
+              reaction,
+              reactorPubkey: evt.pubkey,
+              reactorNpub: parsed.reactorNpub,
+              reactorName: parsed.reactorName,
+              createdAt: parsed.createdAt || evt.created_at,
             });
           } catch {}
         },
