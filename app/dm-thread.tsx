@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  Image,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -14,7 +15,6 @@ import {
   View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import MessageBubble from '../components/MessageBubble';
 import { Colors } from '../src/constants/theme';
 import { subscribeToDMEvents } from '../src/utils/dm-events';
 import {
@@ -298,6 +298,8 @@ export default function DmThreadScreen() {
   const renderMessage = ({ item, index }: { item: DMMessage; index: number }) => {
     const olderMsg = index < messages.length - 1 ? messages[index + 1] : null;
     const showDateDivider = !olderMsg || !isSameDay(item.createdAt, olderMsg.createdAt);
+    const senderName = item.mine ? 'You' : profileName || title || 'Member';
+    const initials = getInitials(senderName);
 
     return (
       <View>
@@ -309,11 +311,29 @@ export default function DmThreadScreen() {
           </View>
         )}
 
-        <MessageBubble
-          item={item}
-          showName={false}
-          s={s}
-        />
+        <View style={[s.messageRow, item.mine ? s.messageRowMine : s.messageRowOther]}>
+          {!item.mine && (
+            <View style={s.dmAvatar}>
+              {profilePicture ? (
+                <Image
+                  source={{ uri: profilePicture }}
+                  style={s.dmAvatarImage}
+                  resizeMode="cover"
+                />
+              ) : (
+                <Text style={s.dmAvatarText}>{initials}</Text>
+              )}
+            </View>
+          )}
+
+          <View style={[s.dmBubble, item.mine ? s.dmBubbleMine : s.dmBubbleOther]}>
+            <Text style={s.dmMessageText}>{item.text}</Text>
+
+            <Text style={s.dmTimeText}>
+              {formatMessageTime(item.createdAt)}
+            </Text>
+          </View>
+        </View>
       </View>
     );
   };
@@ -413,6 +433,28 @@ export default function DmThreadScreen() {
   );
 }
 
+function getInitials(name?: string): string {
+  const cleaned = name?.trim();
+
+  if (!cleaned) return 'M';
+
+  const parts = cleaned.split(/\s+/).filter(Boolean);
+
+  if (parts.length === 1) {
+    return parts[0].slice(0, 2).toUpperCase();
+  }
+
+  return `${parts[0][0] || ''}${parts[1][0] || ''}`.toUpperCase() || 'M';
+}
+
+function formatMessageTime(unixSecs: number): string {
+  return new Date(unixSecs * 1000).toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+
 function isSameDay(a: number, b: number): boolean {
   const da = new Date(a * 1000);
   const db = new Date(b * 1000);
@@ -482,36 +524,71 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
   dateDividerLine: { flex: 1, height: 0.5, backgroundColor: theme.border },
   dateDividerText: { fontSize: 11, color: theme.textMuted, fontWeight: '500' },
 
-  row: {
-    marginBottom: 6,
+  messageRow: {
+    marginBottom: 8,
     flexDirection: 'row',
     alignItems: 'flex-end',
+    paddingHorizontal: 2,
   },
-  rowMine: { justifyContent: 'flex-end' },
-  rowOther: { justifyContent: 'flex-start' },
-
-  bubble: {
-    maxWidth: '75%',
+  messageRowMine: {
+    justifyContent: 'flex-end',
+    paddingLeft: 52,
+  },
+  messageRowOther: {
+    justifyContent: 'flex-start',
+    paddingRight: 44,
+  },
+  dmAvatar: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    marginRight: 8,
+    backgroundColor: theme.surface,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  dmAvatarImage: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+  },
+  dmAvatarText: {
+    color: theme.gold,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  dmBubble: {
+    maxWidth: '82%',
     borderRadius: 18,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingVertical: 10,
   },
-  bubbleMine: {
-  backgroundColor: theme.gold,
-  borderBottomRightRadius: 4,
-},
-  bubbleOther: {
-    backgroundColor: theme.surface,
-    borderWidth: 0,
-    borderColor: theme.surface,
-    borderBottomLeftRadius: 4,
+  dmBubbleMine: {
+    backgroundColor: theme.raised,
+    borderTopRightRadius: 18,
+    borderBottomRightRadius: 6,
   },
-  messageText: { fontSize: 15, lineHeight: 21 },
-  messageTextMine: { color: '#111' },
-  messageTextOther: { color: theme.text },
-  time: { fontSize: 10, marginTop: 5 },
-  timeMine: { color: '#111', textAlign: 'right' },
-  timeOther: { color: theme.textMuted },
+  dmBubbleOther: {
+    backgroundColor: theme.surface,
+    borderTopLeftRadius: 6,
+    borderBottomLeftRadius: 18,
+  },
+  dmMessageText: {
+    color: theme.text,
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: '500',
+  },
+  dmTimeText: {
+    color: theme.textMuted,
+    fontSize: 10,
+    fontWeight: '700',
+    marginTop: 5,
+    alignSelf: 'flex-end',
+  },
 
   empty: {
     flex: 1,
