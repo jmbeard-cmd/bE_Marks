@@ -259,9 +259,16 @@ const [creatingPoll, setCreatingPoll] = useState(false);
     [visibleMessages]
   );
 
-
   const getReplyPreviewText = useCallback((message: GroupMessage | PendingUploadMessage): string => {
     if ((message as any).isDeleted) return 'Message deleted';
+
+    const pollQuestion = (message as any).poll?.question?.trim();
+
+    if (pollQuestion) {
+      return pollQuestion.length > 80
+        ? `Poll: ${pollQuestion.slice(0, 80)}…`
+        : `Poll: ${pollQuestion}`;
+    }
 
     const text = message.text?.trim();
     if (text) return text.length > 90 ? `${text.slice(0, 90)}…` : text;
@@ -293,6 +300,16 @@ const [creatingPoll, setCreatingPoll] = useState(false);
 
   const getCopyTextForMessage = useCallback((message: GroupMessage | PendingUploadMessage): string => {
     if ((message as any).isDeleted) return 'Message deleted';
+
+    const poll = (message as any).poll;
+
+    if (poll?.question && Array.isArray(poll.options)) {
+      const optionLines = poll.options
+        .map((option: any, index: number) => `${index + 1}. ${option.text || 'Option'}`)
+        .join('\n');
+
+      return `Poll: ${poll.question}\n\n${optionLines}`;
+    }
 
     const text = message.text?.trim();
 
@@ -331,6 +348,7 @@ const [creatingPoll, setCreatingPoll] = useState(false);
     if (!message.mine) return false;
     if ((message as any).pending) return false;
     if ((message as any).isDeleted) return false;
+    if ((message as any).poll) return false;
 
     const text = message.text?.trim();
     if (!text) return false;

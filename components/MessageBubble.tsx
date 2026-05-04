@@ -486,16 +486,37 @@ function MessageBubble({
               gap: 10,
             }}
           >
-            <Text
+            <View
               style={{
-                color: theme.gold,
-                fontSize: 12,
-                fontWeight: '900',
-                letterSpacing: 0.3,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 10,
               }}
             >
-              Poll
-            </Text>
+              <Text
+                style={{
+                  color: theme.gold,
+                  fontSize: 12,
+                  fontWeight: '900',
+                  letterSpacing: 0.3,
+                }}
+              >
+                Poll
+              </Text>
+
+              {myPollVoteOptionId && (
+                <Text
+                  style={{
+                    color: theme.textMuted,
+                    fontSize: 11,
+                    fontWeight: '800',
+                  }}
+                >
+                  You voted
+                </Text>
+              )}
+            </View>
 
             <Text
               style={{
@@ -538,13 +559,13 @@ function MessageBubble({
                         top: 0,
                         bottom: 0,
                         width: `${percent}%`,
-                        backgroundColor: selected ? theme.raised : theme.raised,
+                        backgroundColor: theme.raised,
                       }}
                     />
 
                     <View
                       style={{
-                        minHeight: 42,
+                        minHeight: 44,
                         flexDirection: 'row',
                         alignItems: 'center',
                         gap: 8,
@@ -552,28 +573,81 @@ function MessageBubble({
                         paddingVertical: 9,
                       }}
                     >
-                      <Text
-                        numberOfLines={2}
+                      <View
                         style={{
-                          flex: 1,
-                          color: theme.text,
-                          fontSize: 13,
-                          fontWeight: selected ? '900' : '700',
-                          lineHeight: 17,
+                          width: 20,
+                          height: 20,
+                          borderRadius: 10,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          borderWidth: selected ? 0 : 1,
+                          borderColor: theme.border,
+                          backgroundColor: selected ? theme.gold : 'transparent',
                         }}
                       >
-                        {option.text}
-                      </Text>
+                        {selected && (
+                          <Text
+                            style={{
+                              color: theme.bg,
+                              fontSize: 12,
+                              fontWeight: '900',
+                              lineHeight: 14,
+                            }}
+                          >
+                            ✓
+                          </Text>
+                        )}
+                      </View>
 
-                      <Text
-                        style={{
-                          color: selected ? theme.gold : theme.textMuted,
-                          fontSize: 12,
-                          fontWeight: '900',
-                        }}
-                      >
-                        {count}
-                      </Text>
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          numberOfLines={2}
+                          style={{
+                            color: theme.text,
+                            fontSize: 13,
+                            fontWeight: selected ? '900' : '700',
+                            lineHeight: 17,
+                          }}
+                        >
+                          {option.text}
+                        </Text>
+
+                        {selected && (
+                          <Text
+                            style={{
+                              color: theme.gold,
+                              fontSize: 10,
+                              fontWeight: '900',
+                              marginTop: 2,
+                            }}
+                          >
+                            Your choice
+                          </Text>
+                        )}
+                      </View>
+
+                      <View style={{ alignItems: 'flex-end' }}>
+                        <Text
+                          style={{
+                            color: selected ? theme.gold : theme.textMuted,
+                            fontSize: 12,
+                            fontWeight: '900',
+                          }}
+                        >
+                          {percent}%
+                        </Text>
+
+                        <Text
+                          style={{
+                            color: theme.textMuted,
+                            fontSize: 10,
+                            fontWeight: '700',
+                            marginTop: 1,
+                          }}
+                        >
+                          {count === 1 ? '1 vote' : `${count} votes`}
+                        </Text>
+                      </View>
                     </View>
                   </TouchableOpacity>
                 );
@@ -587,7 +661,7 @@ function MessageBubble({
                 fontWeight: '700',
               }}
             >
-              {pollVoteTotal === 1 ? '1 vote' : `${pollVoteTotal} votes`}
+              {pollVoteTotal === 1 ? '1 total vote' : `${pollVoteTotal} total votes`}
             </Text>
           </View>
         )}
