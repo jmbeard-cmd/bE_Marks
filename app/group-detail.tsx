@@ -33,6 +33,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import ImageViewerModal, { ViewerImage } from '../components/ImageViewerModal';
 import MediaCollage from '../components/MediaCollage';
 import { Colors } from '../src/constants/theme';
+import {
+  getContactByNpub,
+  saveContact,
+} from '../src/utils/contacts-storage';
+import {
+  createThread,
+  getDMThreads,
+} from '../src/utils/dm-storage';
 import { getMessagesForGroup } from '../src/utils/group-messages';
 import {
   createGroupSticky,
@@ -66,6 +74,7 @@ import {
   fetchGroupMessages,
   fetchNostrProfile,
 } from '../src/utils/nostr';
+import { normalizeNostrIdentity } from '../src/utils/nostr-identity';
 import { uploadToR2 } from '../src/utils/r2';
 import { useIdentity } from './_layout';
 
@@ -849,20 +858,99 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
   );
 };
 
+  const handleAddMemberToContacts = async (member: BEGroupMember) => {
+    const displayName = member.displayName || `${member.npub.slice(0, 12)}…`;
+
+    try {
+      const existing = await getContactByNpub(member.npub);
+
+      if (existing) {
+        Alert.alert('Already saved', `${displayName} is already in your contacts.`);
+        return;
+      }
+
+      const normalized = normalizeNostrIdentity(member.npub);
+
+      await saveContact({
+        name: displayName,
+        npub: normalized.npub,
+        pubkeyHex: normalized.pubkey,
+        nostrName: member.displayName,
+        nostrAvatar: member.avatarUrl,
+      });
+
+      Alert.alert('Contact saved', `${displayName} was added to your contacts.`);
+    } catch (error: any) {
+      console.warn('[Group Members] add contact failed:', error);
+      Alert.alert('Contact failed', error?.message || 'Could not add this member to contacts.');
+    }
+  };
+
+  const handleMessageMember = async (member: BEGroupMember) => {
+    try {
+      const displayName = member.displayName || `${member.npub.slice(0, 12)}…`;
+      const normalized = normalizeNostrIdentity(member.npub);
+      const threads = await getDMThreads();
+
+      const existingThread = threads.find(thread =>
+        thread.participantNpub === normalized.npub ||
+        thread.participantPubkey === normalized.pubkey
+      );
+
+      if (existingThread) {
+        router.push({
+          pathname: '/dm-thread',
+          params: {
+            id: existingThread.id,
+            title: displayName,
+          },
+        } as any);
+
+        return;
+      }
+
+      const thread = await createThread({
+        title: displayName,
+        participantPubkey: normalized.pubkey,
+        participantNpub: normalized.npub,
+      });
+
+      router.push({
+        pathname: '/dm-thread',
+        params: {
+          id: thread.id,
+          title: displayName,
+        },
+      } as any);
+    } catch (error: any) {
+      console.warn('[Group Members] message member failed:', error);
+      Alert.alert('Message failed', error?.message || 'Could not start a message with this member.');
+    }
+  };
+
+  const handleCopyMemberNpub = async (member: BEGroupMember) => {
+    await Clipboard.setStringAsync(member.npub);
+    Alert.alert('Copied', 'Member npub copied to clipboard.');
+  };
+
   const handleRemoveMember = (member: BEGroupMember) => {
     if (!npub) return;
+
     Alert.alert(
       `Remove ${member.displayName || member.npub.slice(0, 12)}?`,
       'Their past posts will remain but they will no longer be able to view or post in this group.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Remove', style: 'destructive', onPress: async () => {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
             if (!group) return;
+
             await removeMember(group.id, member.npub, npub);
             await load();
-          }
-        }
+          },
+        },
       ]
     );
   };
@@ -874,12 +962,52 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Make admin', onPress: async () => {
+          text: 'Make admin',
+          onPress: async () => {
             if (!group) return;
+
             await updateMemberRole(group.id, member.npub, 'admin');
             await load();
-          }
-        }
+          },
+        },
+      ]
+    );
+  };
+
+  const openMemberActions = (member: BEGroupMember) => {
+    if (!group) return;
+
+    const displayName = member.displayName || `${member.npub.slice(0, 12)}…`;
+
+    const adminButtons =
+      isAdmin && member.npub !== npub && member.role !== 'owner'
+        ? [
+            member.role === 'member'
+              ? {
+                  text: 'Make admin',
+                  onPress: () => handlePromoteAdmin(member),
+                }
+              : {
+                  text: 'Remove admin',
+                  onPress: () => updateMemberRole(group.id, member.npub, 'member').then(load),
+                },
+            {
+              text: 'Remove from group',
+              style: 'destructive' as const,
+              onPress: () => handleRemoveMember(member),
+            },
+          ]
+        : [];
+
+    Alert.alert(
+      displayName,
+      'What would you like to do?',
+      [
+        { text: 'Add to Contacts', onPress: () => handleAddMemberToContacts(member) },
+        { text: 'Message', onPress: () => handleMessageMember(member) },
+        { text: 'Copy npub', onPress: () => handleCopyMemberNpub(member) },
+        ...adminButtons,
+        { text: 'Cancel', style: 'cancel' },
       ]
     );
   };
@@ -1313,7 +1441,6 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
         />
       )}
 
-
       {/* Members tab */}
       {tab === 'members' && (
         <FlatList
@@ -1338,7 +1465,11 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
                   : 'Member';
 
             return (
-              <View style={s.memberCard}>
+              <TouchableOpacity
+                style={s.memberCard}
+                activeOpacity={0.82}
+                onPress={() => openMemberActions(item)}
+              >
                 <View style={s.memberAvatar}>
                   {item.avatarUrl ? (
                     <Image source={{ uri: item.avatarUrl }} style={s.memberAvatarImg} />
@@ -1381,26 +1512,14 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
                   </Text>
                 </View>
 
-                {isAdmin && item.npub !== npub && item.role !== 'owner' && (
-                  <TouchableOpacity
-                    style={s.memberOptions}
-                    activeOpacity={0.75}
-                    onPress={() => Alert.alert(
-                      item.displayName ?? 'Member',
-                      'What would you like to do?',
-                      [
-                        { text: 'Cancel', style: 'cancel' },
-                        item.role === 'member'
-                          ? { text: 'Make admin', onPress: () => handlePromoteAdmin(item) }
-                          : { text: 'Remove admin', onPress: () => updateMemberRole(group.id, item.npub, 'member').then(load) },
-                        { text: 'Remove from group', style: 'destructive', onPress: () => handleRemoveMember(item) },
-                      ]
-                    )}
-                  >
-                    <Text style={s.memberOptionsText}>⋯</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
+                <TouchableOpacity
+                  style={s.memberOptions}
+                  activeOpacity={0.75}
+                  onPress={() => openMemberActions(item)}
+                >
+                  <Text style={s.memberOptionsText}>⋯</Text>
+                </TouchableOpacity>
+              </TouchableOpacity>
             );
           }}
           ListEmptyComponent={
