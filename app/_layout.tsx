@@ -214,11 +214,7 @@ import('../src/utils/dm-service').then(async (mod) => {
   {/* DEFAULT APP FLOW */}
   <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
 
-  {/* AUTH */}
-  <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-
   {/* PUSH SCREENS */}
-  <Stack.Screen name="dm-thread" options={{ headerShown: false, animation: 'slide_from_right' }} />
   <Stack.Screen name="mark-detail" options={{ headerShown: false, animation: 'slide_from_right' }} />
   <Stack.Screen name="group-thread" options={{ headerShown: false, animation: 'slide_from_right' }} />
   <Stack.Screen name="group-detail" options={{ headerShown: false, animation: 'slide_from_right' }} />

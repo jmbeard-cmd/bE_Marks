@@ -106,7 +106,6 @@ export default function TabLayout() {
       />
       {/* Hidden screens — not tabs */}
       <Tabs.Screen name="log" options={{ href: null }} />
-      <Tabs.Screen name="dm-thread" options={{ href: null }} />
     </Tabs>
   );
 }

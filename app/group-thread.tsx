@@ -1445,7 +1445,7 @@ const [editingMessage, setEditingMessage] = useState<GroupMessage | null>(null);
               <View style={s.editComposerAccent} />
 
               <View style={{ flex: 1 }}>
-                <Text style={s.replyComposerLabel}>
+                <Text style={s.editComposerLabel}>
                   Editing message
                 </Text>
 
@@ -1455,14 +1455,15 @@ const [editingMessage, setEditingMessage] = useState<GroupMessage | null>(null);
               </View>
 
               <TouchableOpacity
-                style={s.replyComposerClose}
+                style={s.editComposerCancel}
                 onPress={clearEditMode}
                 activeOpacity={0.75}
               >
-                <Text style={s.replyComposerCloseText}>×</Text>
+                <Text style={s.editComposerCancelText}>Cancel</Text>
               </TouchableOpacity>
             </View>
           )}
+
 
           {!editingMessage && replyTarget && (
             <View style={s.replyComposerPreview}>
@@ -1821,6 +1822,28 @@ messageVideoIcon: {
     borderRadius: 999,
     backgroundColor: theme.textMuted,
   },
+  editComposerLabel: {
+    color: theme.text,
+    fontSize: 12,
+    fontWeight: '900',
+    marginBottom: 2,
+  },
+  editComposerCancel: {
+    minHeight: 30,
+    paddingHorizontal: 12,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+  },
+  editComposerCancelText: {
+    color: theme.textMuted,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+
   replyComposerLabel: {
     color: theme.gold,
     fontSize: 12,
