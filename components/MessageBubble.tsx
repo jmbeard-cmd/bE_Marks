@@ -20,6 +20,7 @@ type Props = {
   avatarUrl?: string;
   onPressMedia?: (uri: string) => void;
   onLongPress?: (item: any) => void;
+  onPollVote?: (item: any, optionId: string) => void;
   s: any;
 };
 
@@ -143,6 +144,41 @@ function getReactionSummary(item: any): { reaction: string; count: number }[] {
   }));
 }
 
+function getPollVotes(item: any): any[] {
+  return Array.isArray(item?.poll?.votes) ? item.poll.votes : [];
+}
+
+function getPollVoteCounts(item: any): Record<string, number> {
+  const counts: Record<string, number> = {};
+
+  getPollVotes(item).forEach(vote => {
+    const optionId = vote?.optionId;
+
+    if (!optionId) return;
+
+    counts[optionId] = (counts[optionId] || 0) + 1;
+  });
+
+  return counts;
+}
+
+function getMyPollVoteOptionId(item: any, myNpub?: string | null): string | undefined {
+  if (!myNpub) return undefined;
+
+  const vote = getPollVotes(item).find(entry => entry?.voterNpub === myNpub);
+
+  return vote?.optionId;
+}
+
+function getPollVoteTotal(item: any): number {
+  return getPollVotes(item).length;
+}
+
+function hasPoll(item: any): boolean {
+  return !!item?.poll?.question && Array.isArray(item?.poll?.options) && item.poll.options.length >= 2;
+}
+
+
 async function openFile(uri: string) {
   try {
     const supported = await Linking.canOpenURL(uri);
@@ -181,6 +217,28 @@ function getReactionSignature(item: any): string {
     .join('|');
 }
 
+function getPollSignature(item: any): string {
+  const poll = item?.poll;
+
+  if (!poll) return '';
+
+  const options = Array.isArray(poll.options)
+    ? poll.options.map((option: any) => `${option.id || ''}:${option.text || ''}`).join('|')
+    : '';
+
+  const votes = Array.isArray(poll.votes)
+    ? poll.votes.map((vote: any) => `${vote.id || ''}:${vote.optionId || ''}:${vote.voterNpub || ''}:${vote.createdAt || ''}`).join('|')
+    : '';
+
+  return [
+    poll.id || '',
+    poll.question || '',
+    options,
+    votes,
+  ].join('::');
+}
+
+
 function getMessageBubbleSignature(item: any): string {
   return [
     item?.id || '',
@@ -198,6 +256,7 @@ function getMessageBubbleSignature(item: any): string {
     item?.replyPreviewSenderName || '',
     getMediaSignature(item),
     getReactionSignature(item),
+    getPollSignature(item),
   ].join('::');
 }
 
@@ -209,11 +268,10 @@ function areMessageBubblePropsEqual(prev: Props, next: Props): boolean {
     prev.s === next.s &&
     prev.onPressMedia === next.onPressMedia &&
     prev.onLongPress === next.onLongPress &&
+    prev.onPollVote === next.onPollVote &&
     getMessageBubbleSignature(prev.item) === getMessageBubbleSignature(next.item)
   );
 }
-
-
 
 function MessageBubble({
   item,
@@ -221,9 +279,10 @@ function MessageBubble({
   avatarUrl,
   onPressMedia,
   onLongPress,
+  onPollVote,
   s,
 }: Props) {
-  const { themeMode } = useIdentity();
+  const { themeMode, npub } = useIdentity();
   const theme = Colors[themeMode];
 
   const isPending = item?.pending;
@@ -232,7 +291,9 @@ function MessageBubble({
   const visualMediaItems = getVisualMediaItems(mediaItems);
   const fileMediaItems = getFileMediaItems(mediaItems);
   const isEdited = !isPending && !isDeleted && !!item?.editedAt;
-
+  const pollVoteCounts = getPollVoteCounts(item);
+  const pollVoteTotal = getPollVoteTotal(item);
+  const myPollVoteOptionId = getMyPollVoteOptionId(item, npub);
 
   const visualCount = visualMediaItems.length;
   const senderName = item?.mine ? 'You' : item?.senderName || 'Member';
@@ -418,8 +479,121 @@ function MessageBubble({
           </View>
         )}
 
+        {!isPending && !isDeleted && hasPoll(item) && (
+          <View
+            style={{
+              width: 240,
+              gap: 10,
+            }}
+          >
+            <Text
+              style={{
+                color: theme.gold,
+                fontSize: 12,
+                fontWeight: '900',
+                letterSpacing: 0.3,
+              }}
+            >
+              Poll
+            </Text>
+
+            <Text
+              style={{
+                color: theme.text,
+                fontSize: 15,
+                fontWeight: '900',
+                lineHeight: 20,
+              }}
+            >
+              {item.poll.question}
+            </Text>
+
+            <View style={{ gap: 8 }}>
+              {item.poll.options.map((option: any) => {
+                const count = pollVoteCounts[option.id] || 0;
+                const percent = pollVoteTotal > 0
+                  ? Math.round((count / pollVoteTotal) * 100)
+                  : 0;
+                const selected = myPollVoteOptionId === option.id;
+
+                return (
+                  <TouchableOpacity
+                    key={option.id}
+                    activeOpacity={0.82}
+                    delayLongPress={260}
+                    onLongPress={() => onLongPress?.(item)}
+                    onPress={() => onPollVote?.(item, option.id)}
+                    style={{
+                      borderRadius: 14,
+                      borderWidth: selected ? 1 : 0.5,
+                      borderColor: selected ? theme.gold : theme.border,
+                      backgroundColor: theme.bg,
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <View
+                      style={{
+                        position: 'absolute',
+                        left: 0,
+                        top: 0,
+                        bottom: 0,
+                        width: `${percent}%`,
+                        backgroundColor: selected ? theme.raised : theme.raised,
+                      }}
+                    />
+
+                    <View
+                      style={{
+                        minHeight: 42,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 8,
+                        paddingHorizontal: 12,
+                        paddingVertical: 9,
+                      }}
+                    >
+                      <Text
+                        numberOfLines={2}
+                        style={{
+                          flex: 1,
+                          color: theme.text,
+                          fontSize: 13,
+                          fontWeight: selected ? '900' : '700',
+                          lineHeight: 17,
+                        }}
+                      >
+                        {option.text}
+                      </Text>
+
+                      <Text
+                        style={{
+                          color: selected ? theme.gold : theme.textMuted,
+                          fontSize: 12,
+                          fontWeight: '900',
+                        }}
+                      >
+                        {count}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <Text
+              style={{
+                color: theme.textMuted,
+                fontSize: 11,
+                fontWeight: '700',
+              }}
+            >
+              {pollVoteTotal === 1 ? '1 vote' : `${pollVoteTotal} votes`}
+            </Text>
+          </View>
+        )}
+
         {!isPending && !isDeleted && !!item.text && (
-          <View>
+          <View style={{ marginTop: hasPoll(item) ? 10 : 0 }}>
             <Text
               style={[
                 s.messageText,
@@ -445,7 +619,6 @@ function MessageBubble({
             )}
           </View>
         )}
-
 
         {!isPending && !isDeleted && visualCount > 0 && (
           <View

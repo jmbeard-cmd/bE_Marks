@@ -24,11 +24,13 @@ import MessageBubble from '../components/MessageBubble';
 import { Colors } from '../src/constants/theme';
 import {
   addGroupMessageReaction,
+  addGroupPollVote,
   editGroupMessage,
   getMessagesForGroup,
   markGroupMessageDeleted,
   saveRemoteGroupMessage,
   sendLocalGroupMessage,
+  sendLocalGroupPoll,
   type GroupMediaType,
   type GroupMessage,
   type GroupMessageMedia,
@@ -46,14 +48,17 @@ import {
   fetchGroupMessageEdits,
   fetchGroupMessageReactions,
   fetchGroupMessages,
+  fetchGroupPollVotes,
   publishGroupMessage,
   publishGroupMessageDelete,
   publishGroupMessageEdit,
   publishGroupMessageReaction,
+  publishGroupPollVote,
   subscribeToGroupMessageDeletes,
   subscribeToGroupMessageEdits,
   subscribeToGroupMessageReactions,
   subscribeToGroupMessages,
+  subscribeToGroupPollVotes,
 } from '../src/utils/nostr';
 import { uploadToR2 } from '../src/utils/r2';
 import { useIdentity } from './_layout';
@@ -129,6 +134,10 @@ const [showReactionPicker, setShowReactionPicker] = useState(false);
 const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
 const [editingMessage, setEditingMessage] = useState<GroupMessage | null>(null);
 const [showComposerMenu, setShowComposerMenu] = useState(false);
+const [showPollModal, setShowPollModal] = useState(false);
+const [pollQuestion, setPollQuestion] = useState('');
+const [pollOptions, setPollOptions] = useState(['', '']);
+const [creatingPoll, setCreatingPoll] = useState(false);
 
   const listRef = useRef<FlatList<VisibleGroupMessage>>(null);
 
@@ -450,7 +459,8 @@ const [showComposerMenu, setShowComposerMenu] = useState(false);
             replyToClientMessageId: msg.replyToClientMessageId,
             replyPreviewText: msg.replyPreviewText,
             replyPreviewSenderName: msg.replyPreviewSenderName,
-            media: msg.media,
+             media: msg.media,
+            poll: msg.poll,
             mediaUrl: msg.mediaUrl || msg.imageUrl,
             mediaType: msg.mediaType || (msg.imageUrl ? 'image' : undefined),
             thumbnailUrl: msg.thumbnailUrl,
@@ -462,11 +472,35 @@ const [showComposerMenu, setShowComposerMenu] = useState(false);
           });
         }
 
-        const [deleteEvents, reactionEvents, editEvents] = await Promise.all([
+        const [deleteEvents, reactionEvents, editEvents, pollVoteEvents] = await Promise.all([
           fetchGroupMessageDeletes(groupId, relayUrl),
           fetchGroupMessageReactions(groupId, relayUrl),
           fetchGroupMessageEdits(groupId, relayUrl),
+          fetchGroupPollVotes(groupId, relayUrl),
         ]);
+
+        for (const pollVoteEvent of pollVoteEvents) {
+          await addGroupPollVote({
+            groupId,
+            messageId: `nostr_group_${pollVoteEvent.messageId}`,
+            clientMessageId: pollVoteEvent.clientMessageId,
+            optionId: pollVoteEvent.optionId,
+            voterNpub: pollVoteEvent.voterNpub,
+            voterName: pollVoteEvent.voterName,
+            createdAt: pollVoteEvent.createdAt,
+          });
+
+          await addGroupPollVote({
+            groupId,
+            messageId: pollVoteEvent.messageId,
+            clientMessageId: pollVoteEvent.clientMessageId,
+            optionId: pollVoteEvent.optionId,
+            voterNpub: pollVoteEvent.voterNpub,
+            voterName: pollVoteEvent.voterName,
+            createdAt: pollVoteEvent.createdAt,
+          });
+        }
+
 
         for (const deleteEvent of deleteEvents) {
           await markGroupMessageDeleted({
@@ -550,6 +584,8 @@ const [showComposerMenu, setShowComposerMenu] = useState(false);
     let unsubscribeDeletes: (() => void) | undefined;
     let unsubscribeReactions: (() => void) | undefined;
     let unsubscribeEdits: (() => void) | undefined;
+    let unsubscribePollVotes: (() => void) | undefined;
+
 
     async function startLiveGroupSync() {
       unsubscribeMessages = await subscribeToGroupMessages({
@@ -568,6 +604,7 @@ const [showComposerMenu, setShowComposerMenu] = useState(false);
             replyPreviewText: msg.replyPreviewText,
             replyPreviewSenderName: msg.replyPreviewSenderName,
             media: msg.media,
+            poll: msg.poll,
             mediaUrl: msg.mediaUrl || msg.imageUrl,
             mediaType: msg.mediaType || (msg.imageUrl ? 'image' : undefined),
             thumbnailUrl: msg.thumbnailUrl,
@@ -667,6 +704,35 @@ const [showComposerMenu, setShowComposerMenu] = useState(false);
           setMessages(next);
         },
       });
+
+      unsubscribePollVotes = await subscribeToGroupPollVotes({
+        groupId,
+        relayUrl,
+        onVote: async (pollVoteEvent) => {
+          await addGroupPollVote({
+            groupId,
+            messageId: `nostr_group_${pollVoteEvent.messageId}`,
+            clientMessageId: pollVoteEvent.clientMessageId,
+            optionId: pollVoteEvent.optionId,
+            voterNpub: pollVoteEvent.voterNpub,
+            voterName: pollVoteEvent.voterName,
+            createdAt: pollVoteEvent.createdAt,
+          });
+
+          await addGroupPollVote({
+            groupId,
+            messageId: pollVoteEvent.messageId,
+            clientMessageId: pollVoteEvent.clientMessageId,
+            optionId: pollVoteEvent.optionId,
+            voterNpub: pollVoteEvent.voterNpub,
+            voterName: pollVoteEvent.voterName,
+            createdAt: pollVoteEvent.createdAt,
+          });
+
+          const next = await getMessagesForGroup(groupId);
+          setMessages(next);
+        },
+      });
     }
 
     startLiveGroupSync();
@@ -676,6 +742,7 @@ const [showComposerMenu, setShowComposerMenu] = useState(false);
       if (unsubscribeDeletes) unsubscribeDeletes();
       if (unsubscribeReactions) unsubscribeReactions();
       if (unsubscribeEdits) unsubscribeEdits();
+      if (unsubscribePollVotes) unsubscribePollVotes();
     };
   }, [groupId, relayUrl, npub, scrollToBottom]);
 
@@ -1149,10 +1216,112 @@ const [showComposerMenu, setShowComposerMenu] = useState(false);
     );
   };
 
-  const handleCreatePollPlaceholder = () => {
+  const openPollCreator = () => {
     closeComposerMenu();
-    Alert.alert('Polls coming next', 'Next we will add the poll creation flow here.');
+    setPollQuestion('');
+    setPollOptions(['', '']);
+    setShowPollModal(true);
   };
+
+  const closePollCreator = () => {
+    if (creatingPoll) return;
+
+    setShowPollModal(false);
+    setPollQuestion('');
+    setPollOptions(['', '']);
+  };
+
+  const updatePollOption = (index: number, value: string) => {
+    setPollOptions(current =>
+      current.map((option, optionIndex) => (
+        optionIndex === index ? value : option
+      ))
+    );
+  };
+
+  const addPollOptionInput = () => {
+    setPollOptions(current => {
+      if (current.length >= 6) return current;
+
+      return [...current, ''];
+    });
+  };
+
+  const removePollOptionInput = (index: number) => {
+    setPollOptions(current => {
+      if (current.length <= 2) return current;
+
+      return current.filter((_, optionIndex) => optionIndex !== index);
+    });
+  };
+
+  const handleCreatePoll = async () => {
+    if (!groupId || creatingPoll) return;
+
+    const question = pollQuestion.trim();
+    const options = pollOptions
+      .map(option => option.trim())
+      .filter(Boolean);
+
+    if (!question) {
+      Alert.alert('Poll question needed', 'Add a question for the group.');
+      return;
+    }
+
+    if (options.length < 2) {
+      Alert.alert('Poll options needed', 'Add at least two options.');
+      return;
+    }
+
+    const clientMessageId = createClientMessageId(groupId);
+
+    setCreatingPoll(true);
+
+    try {
+      const localPollMessage = await sendLocalGroupPoll({
+        groupId,
+        clientMessageId,
+        question,
+        options,
+        mine: true,
+        senderNpub: npub ?? undefined,
+        senderName: myDisplayName,
+      });
+
+      setShowPollModal(false);
+      setPollQuestion('');
+      setPollOptions(['', '']);
+      setUploadStatus(null);
+
+      const localMessages = await getMessagesForGroup(groupId);
+      forceNextAutoScrollRef.current = true;
+      setMessages(localMessages);
+      forceScrollToBottom(true);
+      setCreatingPoll(false);
+
+      if (nsec && localPollMessage.poll) {
+        publishGroupMessage({
+          groupId,
+          clientMessageId,
+          poll: localPollMessage.poll,
+          senderNpub: npub ?? undefined,
+          senderName: myDisplayName,
+          nsec,
+          relayUrl,
+        }).then(result => {
+          if (!result.success) {
+            console.warn('[Groups] publishGroupMessage poll failed:', result.error);
+          }
+        }).catch(error => {
+          console.warn('[Groups] publishGroupMessage poll error:', error);
+        });
+      }
+    } catch (error: any) {
+      setCreatingPoll(false);
+      Alert.alert('Poll failed', error?.message || 'Could not create poll.');
+    }
+  };
+
 
   const handleGifPlaceholder = () => {
     closeComposerMenu();
@@ -1366,6 +1535,53 @@ const [showComposerMenu, setShowComposerMenu] = useState(false);
     setSelectedMediaUri(uri);
   }, []);
 
+  const handlePollVote = useCallback(async (message: GroupMessage | PendingUploadMessage, optionId: string) => {
+    if (!groupId || !optionId) return;
+    if ((message as any).pending || (message as any).isDeleted || !(message as any).poll) return;
+
+    try {
+      const clientMessageId = (message as GroupMessage).clientMessageId || message.id;
+
+      await addGroupPollVote({
+        groupId,
+        messageId: message.id,
+        clientMessageId,
+        optionId,
+        voterNpub: npub ?? undefined,
+        voterName: myDisplayName,
+      });
+
+      const next = await getMessagesForGroup(groupId);
+      setMessages(next);
+
+      if (nsec) {
+        const relayMessageId = message.id.startsWith('nostr_group_')
+          ? message.id.replace('nostr_group_', '')
+          : message.id;
+
+        publishGroupPollVote({
+          groupId,
+          messageId: relayMessageId,
+          clientMessageId,
+          optionId,
+          voterNpub: npub ?? undefined,
+          voterName: myDisplayName,
+          nsec,
+          relayUrl,
+        }).then(result => {
+          if (!result.success) {
+            console.warn('[Groups] publishGroupPollVote failed:', result.error);
+          }
+        }).catch(error => {
+          console.warn('[Groups] publishGroupPollVote error:', error);
+        });
+      }
+    } catch (error) {
+      console.warn('[Groups] poll vote failed:', error);
+      Alert.alert('Vote failed', 'Could not save your vote.');
+    }
+  }, [groupId, myDisplayName, npub, nsec, relayUrl]);
+
   const renderMessage = useCallback(
     ({ item }: { item: VisibleGroupMessage }) => {
       return (
@@ -1375,11 +1591,12 @@ const [showComposerMenu, setShowComposerMenu] = useState(false);
           avatarUrl={item.avatarUrl}
           onPressMedia={handlePressMessageMedia}
           onLongPress={handleMessageLongPress}
+          onPollVote={handlePollVote}
           s={s}
         />
       );
     },
-    [handlePressMessageMedia, handleMessageLongPress, s]
+    [handlePressMessageMedia, handleMessageLongPress, handlePollVote, s]
   );
 
   const shouldHideInitialList = false;
@@ -1557,8 +1774,7 @@ const [showComposerMenu, setShowComposerMenu] = useState(false);
 
               <TouchableOpacity
                 style={s.composerMenuItem}
-                onPress={handleCreatePollPlaceholder}
-                activeOpacity={0.82}
+                onPress={openPollCreator}
               >
                 <Text style={s.composerMenuIcon}>📊</Text>
                 <View style={s.composerMenuTextBlock}>
@@ -1766,6 +1982,97 @@ style={[
                   </View>
                 </View>
               )}
+            </View>
+          </Modal>
+
+          <Modal
+            visible={showPollModal}
+            transparent
+            animationType="fade"
+            onRequestClose={closePollCreator}
+          >
+            <View style={s.pollModalOverlay}>
+              <Pressable
+                style={StyleSheet.absoluteFill}
+                onPress={closePollCreator}
+              />
+
+              <View style={s.pollModalCard}>
+                <Text style={s.pollModalTitle}>Create poll</Text>
+                <Text style={s.pollModalHint}>Ask the group to vote.</Text>
+
+                <TextInput
+                  style={s.pollQuestionInput}
+                  placeholder="Poll question"
+                  placeholderTextColor={theme.textMuted}
+                  value={pollQuestion}
+                  onChangeText={setPollQuestion}
+                  multiline
+                  maxLength={180}
+                />
+
+                <View style={s.pollOptionsBlock}>
+                  {pollOptions.map((option, index) => (
+                    <View key={`poll_option_input_${index}`} style={s.pollOptionInputRow}>
+                      <TextInput
+                        style={s.pollOptionInput}
+                        placeholder={`Option ${index + 1}`}
+                        placeholderTextColor={theme.textMuted}
+                        value={option}
+                        onChangeText={(value) => updatePollOption(index, value)}
+                        maxLength={80}
+                      />
+
+                      {pollOptions.length > 2 && (
+                        <TouchableOpacity
+                          style={s.pollOptionRemoveBtn}
+                          onPress={() => removePollOptionInput(index)}
+                          activeOpacity={0.75}
+                        >
+                          <Text style={s.pollOptionRemoveText}>×</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  ))}
+                </View>
+
+                {pollOptions.length < 6 && (
+                  <TouchableOpacity
+                    style={s.pollAddOptionBtn}
+                    onPress={addPollOptionInput}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={s.pollAddOptionText}>＋ Add option</Text>
+                  </TouchableOpacity>
+                )}
+
+                <View style={s.pollModalActions}>
+                  <TouchableOpacity
+                    style={s.pollCancelBtn}
+                    onPress={closePollCreator}
+                    disabled={creatingPoll}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={s.pollCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      s.pollCreateBtn,
+                      creatingPoll && s.sendBtnDim,
+                    ]}
+                    onPress={handleCreatePoll}
+                    disabled={creatingPoll}
+                    activeOpacity={0.8}
+                  >
+                    {creatingPoll ? (
+                      <ActivityIndicator size="small" color={theme.bg} />
+                    ) : (
+                      <Text style={s.pollCreateText}>Create</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
             </View>
           </Modal>
 
@@ -2130,6 +2437,135 @@ messageVideoIcon: {
     lineHeight: 20,
   },
 
+  pollModalOverlay: {
+    flex: 1,
+    backgroundColor: themeModeAwareOverlay(theme),
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  pollModalCard: {
+    borderRadius: 20,
+    padding: 16,
+    backgroundColor: theme.surface,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+  },
+  pollModalTitle: {
+    color: theme.text,
+    fontSize: 20,
+    fontWeight: '900',
+  },
+  pollModalHint: {
+    color: theme.textMuted,
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 4,
+    marginBottom: 14,
+  },
+  pollQuestionInput: {
+    minHeight: 52,
+    maxHeight: 96,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    color: theme.text,
+    fontSize: 15,
+    fontWeight: '700',
+    textAlignVertical: 'top',
+  },
+  pollOptionsBlock: {
+    marginTop: 12,
+    gap: 8,
+  },
+  pollOptionInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  pollOptionInput: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    color: theme.text,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  pollOptionRemoveBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+  },
+  pollOptionRemoveText: {
+    color: theme.textMuted,
+    fontSize: 22,
+    fontWeight: '900',
+    lineHeight: 24,
+  },
+  pollAddOptionBtn: {
+    marginTop: 12,
+    alignSelf: 'flex-start',
+    minHeight: 34,
+    paddingHorizontal: 12,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+  },
+  pollAddOptionText: {
+    color: theme.gold,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  pollModalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+    marginTop: 16,
+  },
+  pollCancelBtn: {
+    minHeight: 40,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+  },
+  pollCancelText: {
+    color: theme.textMuted,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  pollCreateBtn: {
+    minHeight: 40,
+    minWidth: 90,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.gold,
+  },
+  pollCreateText: {
+    color: theme.bg,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+
   messageActionOverlay: {
     flex: 1,
     backgroundColor: themeModeAwareOverlay(theme),
@@ -2256,7 +2692,6 @@ messageVideoIcon: {
   messageActionDanger: {
     color: theme.danger,
   },
-
   sendBtn: {
     width: 42,
     height: 42,

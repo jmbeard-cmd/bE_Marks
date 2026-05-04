@@ -1392,6 +1392,7 @@ export const GROUP_STICKY_KIND = 30083;
 export const GROUP_MESSAGE_DELETE_KIND = 30087;
 export const GROUP_MESSAGE_REACTION_KIND = 30088;
 export const GROUP_MESSAGE_EDIT_KIND = 30089;
+export const GROUP_POLL_VOTE_KIND = 30090;
 
 export type NostrGroupMediaType = 'image' | 'video' | 'file';
 
@@ -1402,6 +1403,29 @@ export type NostrGroupMessageMedia = {
   thumbnailUrl?: string;
   fileName?: string;
   mimeType?: string;
+};
+
+export type NostrGroupPollOption = {
+  id: string;
+  text: string;
+};
+
+export type NostrGroupPollVote = {
+  id: string;
+  groupId: string;
+  messageId: string;
+  clientMessageId: string;
+  optionId: string;
+  voterPubkey: string;
+  voterNpub?: string;
+  voterName?: string;
+  createdAt: number;
+};
+
+export type NostrGroupPoll = {
+  id: string;
+  question: string;
+  options: NostrGroupPollOption[];
 };
 
 export interface NostrGroupMessage {
@@ -1421,6 +1445,9 @@ export interface NostrGroupMessage {
 
   // New multi-attachment shape
   media?: NostrGroupMessageMedia[];
+
+  // Poll metadata
+  poll?: NostrGroupPoll;
 
   // Legacy single media shape
   mediaUrl?: string;
@@ -1466,7 +1493,6 @@ export interface NostrGroupMessageEdit {
   editedByNpub?: string;
 }
 
-
 function normalizeGroupMessageMedia(input: {
   media?: NostrGroupMessageMedia[];
   mediaUrl?: string;
@@ -1501,6 +1527,34 @@ function normalizeGroupMessageMedia(input: {
   ];
 }
 
+function normalizeNostrGroupPoll(input?: {
+  id?: string;
+  question?: string;
+  options?: { id?: string; text?: string }[];
+}): NostrGroupPoll | undefined {
+  const question = input?.question?.trim();
+
+  if (!question) return undefined;
+
+  const options = Array.isArray(input?.options)
+    ? input.options
+        .map((option, index) => ({
+          id: option.id || `poll_option_${index + 1}`,
+          text: option.text?.trim() || '',
+        }))
+        .filter(option => !!option.text)
+    : [];
+
+  if (options.length < 2) return undefined;
+
+  return {
+    id: input?.id || `poll_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    question,
+    options,
+  };
+}
+
+
 export async function publishGroupMessage(input: {
   groupId: string;
   clientMessageId?: string;
@@ -1514,6 +1568,9 @@ export async function publishGroupMessage(input: {
 
   // New multi-attachment support
   media?: NostrGroupMessageMedia[];
+
+  // Poll support
+  poll?: NostrGroupPoll;
 
   // Legacy single media support
   mediaUrl?: string;
@@ -1532,6 +1589,7 @@ export async function publishGroupMessage(input: {
     const trimmedText = input.text?.trim() || '';
     const media = normalizeGroupMessageMedia(input);
     const primaryMedia = media[0];
+    const poll = normalizeNostrGroupPoll(input.poll);
 
     const mediaUrl = input.mediaUrl || input.imageUrl || primaryMedia?.uri;
     const mediaType =
@@ -1539,7 +1597,7 @@ export async function publishGroupMessage(input: {
       primaryMedia?.type ||
       (input.imageUrl ? 'image' : undefined);
 
-    if (!trimmedText && media.length === 0 && !mediaUrl) {
+    if (!trimmedText && media.length === 0 && !mediaUrl && !poll) {
       throw new Error('Cannot publish an empty group message');
     }
 
@@ -1560,6 +1618,10 @@ export async function publishGroupMessage(input: {
       ['clientMessageId', clientMessageId],
       ['client', 'bE-Marks'],
     ];
+
+    if (poll) {
+      tags.push(['poll', poll.id]);
+    }
 
     if (input.replyToClientMessageId) {
       tags.push(['replyToClientMessageId', input.replyToClientMessageId]);
@@ -1602,6 +1664,7 @@ export async function publishGroupMessage(input: {
       replyPreviewSenderName: input.replyPreviewSenderName,
 
       media,
+      poll,
 
       // legacy single media fields preserved for older app versions
       mediaUrl,
@@ -1790,6 +1853,66 @@ export async function publishGroupMessageEdit(input: {
     return { success: false, error: e.message };
   }
 }
+
+export async function publishGroupPollVote(input: {
+  groupId: string;
+  messageId: string;
+  clientMessageId: string;
+  optionId: string;
+  voterNpub?: string;
+  voterName?: string;
+  nsec: string;
+  relayUrl: string;
+}): Promise<{ success: boolean; eventId?: string; error?: string }> {
+  try {
+    const optionId = input.optionId.trim();
+
+    if (!optionId) {
+      throw new Error('Cannot publish a poll vote without an option.');
+    }
+
+    const decoded = nip19.decode(input.nsec);
+    if (decoded.type !== 'nsec') throw new Error('Invalid nsec');
+
+    const sk = decoded.data as Uint8Array;
+    const pk = getPublicKey(sk);
+    const now = Math.floor(Date.now() / 1000);
+
+    const voteId = `poll_vote_${input.clientMessageId}_${input.voterNpub || pk}`;
+
+    const tags: string[][] = [
+      ['d', voteId],
+      ['t', `group-poll-vote:${input.groupId}`],
+      ['group', input.groupId],
+      ['message', input.messageId],
+      ['clientMessageId', input.clientMessageId],
+      ['optionId', optionId],
+      ['client', 'bE-Marks'],
+    ];
+
+    const unsigned: UnsignedEvent = {
+      kind: GROUP_POLL_VOTE_KIND,
+      created_at: now,
+      tags,
+      content: JSON.stringify({
+        groupId: input.groupId,
+        messageId: input.messageId,
+        clientMessageId: input.clientMessageId,
+        optionId,
+        voterNpub: input.voterNpub,
+        voterName: input.voterName,
+        createdAt: now,
+      }),
+      pubkey: pk,
+    };
+
+    const signed = finalizeEvent(unsigned, sk);
+    return await publishToSpecificRelay(signed, input.relayUrl);
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+}
+
 
 export async function publishGroupSticky(input: {
   stickyId: string;
@@ -1987,6 +2110,7 @@ export function fetchGroupMessages(
             });
 
             const primaryMedia = media[0];
+            const poll = normalizeNostrGroupPoll(parsed.poll);
 
             events.push({
               id: evt.id,
@@ -2003,6 +2127,7 @@ export function fetchGroupMessages(
               replyPreviewSenderName: parsed.replyPreviewSenderName,
 
               media,
+              poll,
 
               mediaUrl: parsed.mediaUrl || parsed.imageUrl || primaryMedia?.uri,
               mediaType:
@@ -2071,6 +2196,7 @@ export async function subscribeToGroupMessages(input: {
             });
 
             const primaryMedia = media[0];
+            const poll = normalizeNostrGroupPoll(parsed.poll);
 
             input.onMessage({
               id: evt.id,
@@ -2087,6 +2213,7 @@ export async function subscribeToGroupMessages(input: {
               replyPreviewSenderName: parsed.replyPreviewSenderName,
 
               media,
+              poll,
 
               mediaUrl: parsed.mediaUrl || parsed.imageUrl || primaryMedia?.uri,
               mediaType:
@@ -2340,6 +2467,84 @@ export function fetchGroupMessageEdits(
   });
 }
 
+export function fetchGroupPollVotes(
+  groupId: string,
+  relayUrl: string = DEFAULT_RELAY
+): Promise<NostrGroupPollVote[]> {
+  return new Promise(resolve => {
+    try {
+      const ws = new WebSocket(relayUrl);
+      const votes: NostrGroupPollVote[] = [];
+      const seen = new Set<string>();
+
+      const timeout = setTimeout(() => {
+        ws.close();
+        resolve(votes);
+      }, 6000);
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify([
+          'REQ',
+          `group-poll-vote-fetch-${groupId}`,
+          {
+            kinds: [GROUP_POLL_VOTE_KIND],
+            '#t': [`group-poll-vote:${groupId}`],
+            limit: 1000,
+          },
+        ]));
+      };
+
+      ws.onmessage = (msg) => {
+        try {
+          const data = JSON.parse(msg.data);
+
+          if (data[0] === 'EVENT' && data[2]?.kind === GROUP_POLL_VOTE_KIND) {
+            const evt = data[2];
+
+            if (seen.has(evt.id)) return;
+            seen.add(evt.id);
+
+            const parsed = JSON.parse(evt.content || '{}');
+            const messageTag = evt.tags?.find((tag: string[]) => tag[0] === 'message');
+            const clientMessageIdTag = evt.tags?.find((tag: string[]) => tag[0] === 'clientMessageId');
+            const optionIdTag = evt.tags?.find((tag: string[]) => tag[0] === 'optionId');
+
+            const messageId = parsed.messageId || messageTag?.[1];
+            const clientMessageId = parsed.clientMessageId || clientMessageIdTag?.[1] || messageId;
+            const optionId = parsed.optionId || optionIdTag?.[1];
+
+            if (parsed.groupId === groupId && messageId && clientMessageId && optionId) {
+              votes.push({
+                id: evt.id,
+                groupId,
+                messageId,
+                clientMessageId,
+                optionId,
+                voterPubkey: evt.pubkey,
+                voterNpub: parsed.voterNpub,
+                voterName: parsed.voterName,
+                createdAt: parsed.createdAt || evt.created_at,
+              });
+            }
+          } else if (data[0] === 'EOSE') {
+            clearTimeout(timeout);
+            ws.close();
+            votes.sort((a, b) => a.createdAt - b.createdAt);
+            resolve(votes);
+          }
+        } catch {}
+      };
+
+      ws.onerror = () => {
+        clearTimeout(timeout);
+        resolve(votes);
+      };
+    } catch {
+      resolve([]);
+    }
+  });
+}
+
 export async function subscribeToGroupMessageDeletes(input: {
   groupId: string;
   relayUrl?: string;
@@ -2366,6 +2571,7 @@ export async function subscribeToGroupMessageDeletes(input: {
             const parsed = JSON.parse(evt.content || '{}');
             const messageTag = evt.tags?.find((tag: string[]) => tag[0] === 'message');
             const clientMessageIdTag = evt.tags?.find((tag: string[]) => tag[0] === 'clientMessageId');
+
             const messageId = parsed.messageId || messageTag?.[1];
             const clientMessageId = parsed.clientMessageId || clientMessageIdTag?.[1] || messageId;
 
@@ -2392,7 +2598,6 @@ export async function subscribeToGroupMessageDeletes(input: {
     return () => {};
   }
 }
-
 
 export async function subscribeToGroupMessageReactions(input: {
   groupId: string;
@@ -2500,6 +2705,66 @@ export async function subscribeToGroupMessageEdits(input: {
               editedAt: parsed.editedAt || evt.created_at,
               editedByPubkey: evt.pubkey,
               editedByNpub: parsed.editedByNpub,
+            });
+          } catch {}
+        },
+      }
+    );
+
+    return () => {
+      try { sub.close(); } catch {}
+    };
+  } catch {
+    return () => {};
+  }
+}
+
+export async function subscribeToGroupPollVotes(input: {
+  groupId: string;
+  relayUrl?: string;
+  onVote: (pollVote: NostrGroupPollVote) => void;
+}): Promise<() => void> {
+  try {
+    const relayUrl = input.relayUrl ?? DEFAULT_RELAY;
+    const pool = new SimplePool();
+    const seen = new Set<string>();
+
+    const sub = pool.subscribe(
+      [relayUrl],
+      {
+        kinds: [GROUP_POLL_VOTE_KIND],
+        '#t': [`group-poll-vote:${input.groupId}`],
+        since: Math.floor(Date.now() / 1000),
+      },
+      {
+        onevent(evt) {
+          try {
+            if (seen.has(evt.id)) return;
+            seen.add(evt.id);
+
+            const parsed = JSON.parse(evt.content || '{}');
+            const messageTag = evt.tags?.find((tag: string[]) => tag[0] === 'message');
+            const clientMessageIdTag = evt.tags?.find((tag: string[]) => tag[0] === 'clientMessageId');
+            const optionIdTag = evt.tags?.find((tag: string[]) => tag[0] === 'optionId');
+
+            const messageId = parsed.messageId || messageTag?.[1];
+            const clientMessageId = parsed.clientMessageId || clientMessageIdTag?.[1] || messageId;
+            const optionId = parsed.optionId || optionIdTag?.[1];
+
+            if (parsed.groupId !== input.groupId || !messageId || !clientMessageId || !optionId) {
+              return;
+            }
+
+            input.onVote({
+              id: evt.id,
+              groupId: input.groupId,
+              messageId,
+              clientMessageId,
+              optionId,
+              voterPubkey: evt.pubkey,
+              voterNpub: parsed.voterNpub,
+              voterName: parsed.voterName,
+              createdAt: parsed.createdAt || evt.created_at,
             });
           } catch {}
         },

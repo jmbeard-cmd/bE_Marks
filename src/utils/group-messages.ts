@@ -26,6 +26,30 @@ export type GroupMessageReaction = {
   createdAt: number;
 };
 
+export type GroupMessagePollOption = {
+  id: string;
+  text: string;
+};
+
+export type GroupMessagePollVote = {
+  id: string;
+  groupId: string;
+  messageId?: string;
+  clientMessageId: string;
+  optionId: string;
+  voterNpub?: string;
+  voterName?: string;
+  createdAt: number;
+};
+
+export type GroupMessagePoll = {
+  id: string;
+  question: string;
+  options: GroupMessagePollOption[];
+  votes?: GroupMessagePollVote[];
+};
+
+
 export type GroupMessage = {
   id: string;
   clientMessageId: string;
@@ -60,6 +84,10 @@ export type GroupMessage = {
 
   // Message reactions
   reactions?: GroupMessageReaction[];
+
+  // Poll metadata
+  poll?: GroupMessagePoll;
+
 
   mine: boolean;
   senderNpub?: string;
@@ -163,8 +191,13 @@ function getMessagePreview(input: {
   imageUrl?: string;
   mediaType?: GroupMediaType;
   isDeleted?: boolean;
+  poll?: GroupMessagePoll;
 }) {
   if (input.isDeleted) return 'Message deleted';
+
+  if (input.poll?.question) {
+    return `📊 ${input.poll.question}`;
+  }
 
   const text = input.text?.trim();
   if (text) return text;
@@ -184,6 +217,40 @@ function getMessagePreview(input: {
 
   return '📷 Photo';
 }
+
+function createPollOptionId(index: number): string {
+  return `poll_option_${index + 1}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function normalizePoll(input?: {
+  id?: string;
+  question?: string;
+  options?: { id?: string; text?: string }[];
+  votes?: GroupMessagePollVote[];
+}): GroupMessagePoll | undefined {
+  const question = input?.question?.trim();
+
+  if (!question) return undefined;
+
+  const options = Array.isArray(input?.options)
+    ? input.options
+        .map((option, index) => ({
+          id: option.id || createPollOptionId(index),
+          text: option.text?.trim() || '',
+        }))
+        .filter(option => !!option.text)
+    : [];
+
+  if (options.length < 2) return undefined;
+
+  return {
+    id: input?.id || `poll_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    question,
+    options,
+    votes: Array.isArray(input?.votes) ? input.votes : [],
+  };
+}
+
 
 export async function getAllGroupMessages(): Promise<GroupMessage[]> {
   return await readJson<GroupMessage[]>(GROUP_MESSAGES_KEY, []);
@@ -271,11 +338,57 @@ export async function sendLocalGroupMessage(input: {
   return newMessage;
 }
 
+export async function sendLocalGroupPoll(input: {
+  groupId: string;
+  clientMessageId?: string;
+  question: string;
+  options: string[];
+  mine?: boolean;
+  senderNpub?: string;
+  senderName?: string;
+}): Promise<GroupMessage> {
+  const question = input.question.trim();
+
+  const poll = normalizePoll({
+    question,
+    options: input.options.map((text, index) => ({
+      id: createPollOptionId(index),
+      text,
+    })),
+  });
+
+  if (!poll) {
+    throw new Error('Polls need a question and at least two options.');
+  }
+
+  const allMessages = await getAllGroupMessages();
+  const clientMessageId = input.clientMessageId || createClientMessageId(input.groupId);
+
+  const newMessage: GroupMessage = {
+    id: clientMessageId,
+    clientMessageId,
+    groupId: input.groupId,
+    poll,
+    mine: input.mine ?? true,
+    senderNpub: input.senderNpub,
+    senderName: input.senderName,
+    createdAt: Math.floor(Date.now() / 1000),
+  };
+
+  allMessages.push(newMessage);
+  await saveAllGroupMessages(allMessages);
+
+  await recordGroupPost(input.groupId, getMessagePreview(newMessage));
+
+  return newMessage;
+}
+
 export async function deleteMessagesForGroup(groupId: string): Promise<void> {
   const all = await getAllGroupMessages();
   const filtered = all.filter(message => message.groupId !== groupId);
   await saveAllGroupMessages(filtered);
 }
+
 
 export async function markGroupMessageDeleted(input: {
   groupId: string;
@@ -384,7 +497,6 @@ export async function editGroupMessage(input: {
   return editedMessage;
 }
 
-
 export async function saveRemoteGroupMessage(input: {
   id: string;
   clientMessageId?: string;
@@ -399,6 +511,9 @@ export async function saveRemoteGroupMessage(input: {
 
   // New multi-attachment support
   media?: GroupMessageMedia[];
+
+  // Poll support
+  poll?: GroupMessagePoll;
 
   // Legacy single media support
   mediaUrl?: string;
@@ -424,6 +539,7 @@ export async function saveRemoteGroupMessage(input: {
     (input.imageUrl ? 'image' : undefined);
 
   const incomingSignature = getMediaSignature(media);
+  const poll = normalizePoll(input.poll);
   const clientMessageId = input.clientMessageId || input.id;
 
   const existsById = allMessages.some(message => message.id === input.id);
@@ -488,10 +604,25 @@ export async function saveRemoteGroupMessage(input: {
     const sameText = (message.text || '') === (input.text || '');
     const samePrimaryMedia = (getMessageMediaUrl(message) || '') === (mediaUrl || '');
     const sameMediaList = getMediaSignature(normalizeMessageMedia(message)) === incomingSignature;
+    const samePoll =
+      !!poll &&
+      !!message.poll &&
+      message.poll.question === poll.question &&
+      message.poll.options.map(option => option.text).join('|') === poll.options.map(option => option.text).join('|');
+
     const closeInTime = Math.abs(message.createdAt - input.createdAt) <= 10;
 
-    return sameGroup && sameMine && sameText && samePrimaryMedia && sameMediaList && closeInTime;
+    return (
+      sameGroup &&
+      sameMine &&
+      closeInTime &&
+      (
+        (sameText && samePrimaryMedia && sameMediaList) ||
+        samePoll
+      )
+    );
   });
+
 
   if (existsByContent) return;
 
@@ -507,6 +638,7 @@ export async function saveRemoteGroupMessage(input: {
     replyPreviewSenderName: input.replyPreviewSenderName,
 
     media,
+    poll,
 
     mediaUrl,
     mediaType,
@@ -514,6 +646,7 @@ export async function saveRemoteGroupMessage(input: {
     imageUrl:
       input.imageUrl ||
       (mediaType === 'image' && mediaUrl ? mediaUrl : undefined),
+
 
     mine: input.mine,
     senderNpub: input.senderNpub,
@@ -582,6 +715,78 @@ export async function addGroupMessageReaction(input: {
     return {
       ...message,
       reactions: [...withoutExistingSameUserReaction, reactionRecord],
+    };
+  });
+
+  if (!changed) return false;
+
+  await saveAllGroupMessages(updated);
+  return true;
+}
+
+export async function addGroupPollVote(input: {
+  groupId: string;
+  messageId: string;
+  clientMessageId?: string;
+  optionId: string;
+  voterNpub?: string;
+  voterName?: string;
+  createdAt?: number;
+}): Promise<boolean> {
+  const all = await getAllGroupMessages();
+  const now = input.createdAt ?? Math.floor(Date.now() / 1000);
+  const clientMessageId = input.clientMessageId || input.messageId;
+  let changed = false;
+
+  const voteRecord: GroupMessagePollVote = {
+    id: `poll_vote_${clientMessageId}_${input.voterNpub || 'unknown'}_${input.optionId}`,
+    groupId: input.groupId,
+    messageId: input.messageId,
+    clientMessageId,
+    optionId: input.optionId,
+    voterNpub: input.voterNpub,
+    voterName: input.voterName,
+    createdAt: now,
+  };
+
+  const updated = all.map(message => {
+    const matchesId = message.id === input.messageId;
+    const matchesClientId = message.clientMessageId === clientMessageId;
+
+    if (message.groupId !== input.groupId || (!matchesId && !matchesClientId)) {
+      return message;
+    }
+
+    if (message.isDeleted || !message.poll) {
+      return message;
+    }
+
+    const optionExists = message.poll.options.some(option => option.id === input.optionId);
+
+    if (!optionExists) {
+      return message;
+    }
+
+    changed = true;
+
+    const existingVotes = Array.isArray(message.poll.votes)
+      ? message.poll.votes
+      : [];
+
+    const withoutExistingSameUserVote = existingVotes.filter(existing => {
+      if (!input.voterNpub) {
+        return existing.id !== voteRecord.id;
+      }
+
+      return existing.voterNpub !== input.voterNpub;
+    });
+
+    return {
+      ...message,
+      poll: {
+        ...message.poll,
+        votes: [...withoutExistingSameUserVote, voteRecord],
+      },
     };
   });
 
