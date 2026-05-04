@@ -254,16 +254,50 @@ try {
   if (g.relayUrl) {
     const events = await fetchGroupMessages(id, g.relayUrl);
 
-    chatMediaItems = events
-      .filter(event => !!(event.mediaUrl || event.imageUrl))
-      .map(event => ({
-        id: event.id,
-        mediaUrl: event.mediaUrl || event.imageUrl!,
-        mediaType: event.mediaType || (event.imageUrl ? 'image' : 'image'),
-        thumbnailUrl: event.thumbnailUrl,
-        createdAt: event.createdAt,
-        source: 'chat',
-      }));
+    chatMediaItems = events.flatMap(event => {
+      const mediaItems = Array.isArray((event as any).media)
+        ? (event as any).media
+        : [];
+
+      if (mediaItems.length > 0) {
+        return mediaItems
+          .filter((item: any) => {
+            const mediaType = item.type || item.mediaType;
+            return !!item.uri && (mediaType === 'image' || mediaType === 'video');
+          })
+          .map((item: any, index: number) => {
+            const mediaType: 'image' | 'video' =
+              item.type === 'video' || item.mediaType === 'video' ? 'video' : 'image';
+
+            return {
+              id: `chat_gallery_${event.id}_${item.id || index}_${item.uri}`,
+              mediaUrl: item.uri,
+              mediaType,
+              thumbnailUrl: item.thumbnailUrl || item.thumbnailUri,
+              createdAt: event.createdAt,
+              source: 'chat',
+            };
+          });
+      }
+
+      const legacyUrl = event.mediaUrl || event.imageUrl;
+
+      if (!legacyUrl) return [];
+
+      const legacyType: 'image' | 'video' =
+        event.mediaType === 'video' ? 'video' : 'image';
+
+      return [
+        {
+          id: `chat_gallery_${event.id}_${legacyUrl}`,
+          mediaUrl: legacyUrl,
+          mediaType: legacyType,
+          thumbnailUrl: event.thumbnailUrl,
+          createdAt: event.createdAt,
+          source: 'chat',
+        },
+      ];
+    });
   }
 
   const localGalleryItems = await readLocalGalleryItems();

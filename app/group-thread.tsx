@@ -1,3 +1,4 @@
+import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as VideoThumbnails from 'expo-video-thumbnails';
@@ -22,7 +23,9 @@ import {
   getMessagesForGroup,
   saveRemoteGroupMessage,
   sendLocalGroupMessage,
+  type GroupMediaType,
   type GroupMessage,
+  type GroupMessageMedia,
 } from '../src/utils/group-messages';
 import { getGroupById } from '../src/utils/group-storage';
 import {
@@ -40,7 +43,7 @@ type PendingUploadMessage = {
   id: string;
   groupId: string;
   text?: string;
-  mediaType: 'image' | 'video';
+  mediaType: GroupMediaType;
   mine: true;
   senderName?: string;
   createdAt: number;
@@ -78,18 +81,52 @@ const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
     profile?.name ||
     (npub ? `${npub.slice(0, 12)}…` : 'You');
 
-    const viewerMedia: ViewerImage[] = messages
-  .filter(message => !!(message.mediaUrl || message.imageUrl))
-  .map(message => {
-    const item: ViewerImage = {
-      id: message.id,
-      uri: message.mediaUrl || message.imageUrl!,
-      type: message.mediaType || (message.imageUrl ? 'image' : 'image'),
-      thumbnailUrl: message.thumbnailUrl,
-    };
+  const viewerMedia: ViewerImage[] = messages
+    .filter(message => {
+      const mediaItems = Array.isArray((message as any).media)
+        ? (message as any).media
+        : [];
 
-    return item;
-  });
+      if (mediaItems.some((item: any) => item.type === 'image' || item.type === 'video')) {
+        return true;
+      }
+
+      const legacyType = message.mediaType || (message.imageUrl ? 'image' : undefined);
+
+      return legacyType === 'image' || legacyType === 'video';
+    })
+    .flatMap(message => {
+      const mediaItems = Array.isArray((message as any).media)
+        ? (message as any).media
+        : [];
+
+      if (mediaItems.length > 0) {
+        return mediaItems
+          .filter((item: any) => item.type === 'image' || item.type === 'video')
+          .map((item: any) => ({
+            id: item.id || `${message.id}_${item.uri}`,
+            uri: item.uri,
+            type: item.type as 'image' | 'video',
+            thumbnailUrl: item.thumbnailUrl,
+          }));
+      }
+
+      const legacyUri = message.mediaUrl || message.imageUrl;
+
+      if (!legacyUri) return [];
+
+      const legacyType: 'image' | 'video' =
+        message.mediaType === 'video' ? 'video' : 'image';
+
+      return [
+        {
+          id: message.id,
+          uri: legacyUri,
+          type: legacyType,
+          thumbnailUrl: message.thumbnailUrl,
+        },
+      ];
+    });
 
     const visibleMessages = useMemo(
     () => [...messages, ...pendingUploads].sort((a, b) => a.createdAt - b.createdAt),
@@ -135,6 +172,7 @@ const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
             id: `nostr_group_${msg.id}`,
             groupId,
             text: msg.text,
+            media: msg.media,
             mediaUrl: msg.mediaUrl || msg.imageUrl,
             mediaType: msg.mediaType || (msg.imageUrl ? 'image' : undefined),
             thumbnailUrl: msg.thumbnailUrl,
@@ -177,18 +215,19 @@ const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
           const mine = !!npub && msg.senderNpub === npub;
 
           await saveRemoteGroupMessage({
-  id: `nostr_group_${msg.id}`,
-  groupId,
-  text: msg.text,
-  mediaUrl: msg.mediaUrl || msg.imageUrl,
-  mediaType: msg.mediaType || (msg.imageUrl ? 'image' : undefined),
-  thumbnailUrl: msg.thumbnailUrl,
-  imageUrl: msg.imageUrl,
-  mine,
-  senderNpub: msg.senderNpub,
-  senderName: msg.senderName,
-  createdAt: msg.createdAt,
-});
+            id: `nostr_group_${msg.id}`,
+            groupId,
+            text: msg.text,
+            media: msg.media,
+            mediaUrl: msg.mediaUrl || msg.imageUrl,
+            mediaType: msg.mediaType || (msg.imageUrl ? 'image' : undefined),
+            thumbnailUrl: msg.thumbnailUrl,
+            imageUrl: msg.imageUrl,
+            mine,
+            senderNpub: msg.senderNpub,
+            senderName: msg.senderName,
+            createdAt: msg.createdAt,
+          });
 
           const next = await getMessagesForGroup(groupId);
           setMessages(next);
@@ -211,9 +250,9 @@ const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
     setSending(true);
     setDraft('');
     setInputHeight(40);
+    setUploadStatus(null);
 
     try {
-      setUploadStatus('Posting...');
       await sendLocalGroupMessage({
         groupId,
         text,
@@ -222,32 +261,237 @@ const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
         senderName: myDisplayName,
       });
 
+      const localMessages = await getMessagesForGroup(groupId);
+      setMessages(localMessages);
+      setTimeout(() => scrollToBottom(true), 30);
+
+      setSending(false);
+
+      requestAnimationFrame(() => {
+        inputRef.current?.focus();
+      });
+
       if (nsec) {
-        const result = await publishGroupMessage({
+        publishGroupMessage({
           groupId,
           text,
           senderNpub: npub ?? undefined,
           senderName: myDisplayName,
           nsec,
           relayUrl,
+        }).then(result => {
+          if (!result.success) {
+            console.warn('[Groups] publishGroupMessage failed:', result.error);
+          }
+        }).catch(error => {
+          console.warn('[Groups] publishGroupMessage error:', error);
+        });
+      }
+    } catch (error: any) {
+      setSending(false);
+      Alert.alert('Error', error?.message || 'Could not send message.');
+
+      requestAnimationFrame(() => {
+        inputRef.current?.focus();
+      });
+    }
+  };
+
+  const uploadGroupAttachment = async (
+    attachment: {
+      uri: string;
+      type: GroupMediaType;
+      fileName?: string;
+      mimeType?: string;
+    },
+    index: number,
+    total: number
+  ): Promise<GroupMessageMedia | null> => {
+    let uploadUri = attachment.uri;
+    let thumbnailUrl: string | undefined;
+
+    if (attachment.type === 'image') {
+      setUploadStatus(`Optimizing photo ${index + 1} of ${total}...`);
+
+      const compressionResult = await compressImageForUpload({
+        uri: attachment.uri,
+        onStatus: setUploadStatus,
+      });
+
+      uploadUri = compressionResult.uri;
+
+      if (compressionResult.wasCompressed) {
+        setUploadStatus(`Uploading optimized photo ${index + 1} of ${total}...`);
+      } else {
+        setUploadStatus(`Uploading photo ${index + 1} of ${total}...`);
+      }
+    }
+
+    if (attachment.type === 'video') {
+      const compressionResult = await compressVideoForUpload({
+        uri: attachment.uri,
+        onStatus: setUploadStatus,
+        onProgress: progress => {
+          setUploadStatus(
+            `Compressing video ${index + 1} of ${total}… ${Math.round(progress * 100)}%`
+          );
+        },
+      });
+
+      uploadUri = compressionResult.uri;
+
+      if (compressionResult.wasCompressed) {
+        setUploadStatus(`Uploading compressed video ${index + 1} of ${total}...`);
+      } else {
+        setUploadStatus(`Uploading video ${index + 1} of ${total}...`);
+      }
+    }
+
+    if (attachment.type === 'file') {
+      setUploadStatus(`Uploading file ${index + 1} of ${total}...`);
+    }
+
+    const uploadedUrl = await uploadToR2(
+      uploadUri,
+      attachment.type === 'video'
+        ? 'video'
+        : attachment.type === 'image'
+          ? 'photo'
+          : 'file'
+    );
+
+    if (!uploadedUrl) {
+      console.warn('[Groups] upload failed for attachment:', attachment.uri);
+      return null;
+    }
+
+    if (attachment.type === 'video') {
+      try {
+        setUploadStatus(`Creating thumbnail ${index + 1} of ${total}...`);
+
+        const thumbnail = await VideoThumbnails.getThumbnailAsync(uploadUri, {
+          time: 1000,
         });
 
-        if (!result.success) {
-          console.warn('[Groups] publishGroupMessage failed:', result.error);
+        setUploadStatus(`Uploading thumbnail ${index + 1} of ${total}...`);
+
+        const uploadedThumbnail = await uploadToR2(thumbnail.uri, 'photo');
+        thumbnailUrl = uploadedThumbnail || undefined;
+      } catch (thumbError) {
+        console.warn('[Groups] thumbnail failed:', thumbError);
+      }
+    }
+
+    return {
+      id: `group_media_${Date.now()}_${index}_${Math.random().toString(16).slice(2)}`,
+      uri: uploadedUrl,
+      type: attachment.type,
+      thumbnailUrl,
+      fileName: attachment.fileName,
+      mimeType: attachment.mimeType,
+    };
+  };
+
+  const sendAttachmentMessage = async (
+    attachments: {
+      uri: string;
+      type: GroupMediaType;
+      fileName?: string;
+      mimeType?: string;
+    }[],
+    pendingLabel: string
+  ) => {
+    if (!groupId || uploadingImage || attachments.length === 0) return;
+
+    setUploadingImage(true);
+    setUploadStatus('Preparing attachments...');
+
+    const pendingId = `pending_upload_${Date.now()}`;
+    const pendingMediaType = attachments[0]?.type || 'file';
+
+    setPendingUploads(prev => [
+      ...prev,
+      {
+        id: pendingId,
+        groupId,
+        mediaType: pendingMediaType,
+        mine: true,
+        senderName: myDisplayName,
+        createdAt: Math.floor(Date.now() / 1000),
+        pending: true,
+        pendingLabel,
+      },
+    ]);
+
+    setTimeout(() => scrollToBottom(true), 50);
+
+    try {
+      const uploadedMedia: GroupMessageMedia[] = [];
+
+      for (let i = 0; i < attachments.length; i++) {
+        const uploaded = await uploadGroupAttachment(attachments[i], i, attachments.length);
+
+        if (uploaded) {
+          uploadedMedia.push(uploaded);
         }
       }
 
-      await loadMessages();
+      if (uploadedMedia.length === 0) {
+        Alert.alert('Upload failed', 'Could not upload attachments.');
+        setPendingUploads(prev => prev.filter(item => item.id !== pendingId));
+        setUploadStatus(null);
+        setUploadingImage(false);
+        return;
+      }
+
+      const primaryMedia = uploadedMedia[0];
+
+      await sendLocalGroupMessage({
+        groupId,
+        media: uploadedMedia,
+        mediaUrl: primaryMedia.uri,
+        mediaType: primaryMedia.type,
+        thumbnailUrl: primaryMedia.thumbnailUrl,
+        imageUrl: primaryMedia.type === 'image' ? primaryMedia.uri : undefined,
+        mine: true,
+        senderNpub: npub ?? undefined,
+        senderName: myDisplayName,
+      });
+
+      setPendingUploads(prev => prev.filter(item => item.id !== pendingId));
+
+      const localMessages = await getMessagesForGroup(groupId);
+      setMessages(localMessages);
       setUploadStatus(null);
-    } catch (error: any) {
-      Alert.alert('Error', error?.message || 'Could not send message.');
+      setUploadingImage(false);
+      setTimeout(() => scrollToBottom(true), 30);
+
+      if (nsec) {
+        publishGroupMessage({
+          groupId,
+          media: uploadedMedia,
+          mediaUrl: primaryMedia.uri,
+          mediaType: primaryMedia.type,
+          thumbnailUrl: primaryMedia.thumbnailUrl,
+          imageUrl: primaryMedia.type === 'image' ? primaryMedia.uri : undefined,
+          senderNpub: npub ?? undefined,
+          senderName: myDisplayName,
+          nsec,
+          relayUrl,
+        }).then(result => {
+          if (!result.success) {
+            console.warn('[Groups] publishGroupMessage attachments failed:', result.error);
+          }
+        }).catch(error => {
+          console.warn('[Groups] publishGroupMessage attachments error:', error);
+        });
+      }
+    } catch (e: any) {
+      setPendingUploads(prev => prev.filter(item => item.id !== pendingId));
+      Alert.alert('Error', e?.message || 'Failed to send attachments.');
+      setUploadStatus(null);
+      setUploadingImage(false);
     }
-
-    setSending(false);
-
-    requestAnimationFrame(() => {
-      inputRef.current?.focus();
-    });
   };
 
   const handlePickMedia = async () => {
@@ -262,251 +506,97 @@ const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.All,
       quality: 0.9,
+      allowsMultipleSelection: true,
+      selectionLimit: 10,
     });
 
-    if (result.canceled || !result.assets?.[0]?.uri) return;
+    if (result.canceled || !result.assets?.length) return;
 
-    setUploadingImage(true);
-    setUploadStatus('Preparing media...');
+    const attachments = result.assets
+      .filter(asset => !!asset.uri)
+      .map(asset => ({
+        uri: asset.uri,
+        type: (asset.type === 'video' ? 'video' : 'image') as GroupMediaType,
+        fileName: asset.fileName ?? undefined,
+        mimeType: asset.mimeType ?? undefined,
+      }));
 
-    const asset = result.assets[0];
-    const mediaType = asset.type === 'video' ? 'video' : 'image';
-    const pendingId = `pending_upload_${Date.now()}`;
-
-    setPendingUploads(prev => [
-      ...prev,
-      {
-        id: pendingId,
-        groupId,
-        mediaType,
-        mine: true,
-        senderName: myDisplayName,
-        createdAt: Math.floor(Date.now() / 1000),
-        pending: true,
-        pendingLabel: mediaType === 'video'
+    const hasVideo = attachments.some(item => item.type === 'video');
+    const pendingLabel =
+      attachments.length > 1
+        ? `Uploading ${attachments.length} attachments…`
+        : hasVideo
           ? 'Compressing video…'
-          : 'Optimizing photo…',
-      },
-    ]);
+          : 'Optimizing photo…';
 
-    setTimeout(() => scrollToBottom(true), 50);
-
-    try {
-      let uploadUri = asset.uri;
-
-      if (mediaType === 'video') {
-        const compressionResult = await compressVideoForUpload({
-          uri: asset.uri,
-          onStatus: setUploadStatus,
-          onProgress: progress => {
-            setUploadStatus(`Compressing video… ${Math.round(progress * 100)}%`);
-          },
-        });
-
-        uploadUri = compressionResult.uri;
-
-        if (compressionResult.wasCompressed) {
-          setUploadStatus('Uploading compressed video...');
-        } else {
-          setUploadStatus('Uploading video...');
-        }
-      } else {
-        const compressionResult = await compressImageForUpload({
-          uri: asset.uri,
-          onStatus: setUploadStatus,
-        });
-
-        uploadUri = compressionResult.uri;
-
-        if (compressionResult.wasCompressed) {
-          setUploadStatus('Uploading optimized photo...');
-        } else {
-          setUploadStatus('Uploading photo...');
-        }
-      }
-
-      const uploadedUrl = await uploadToR2(
-        uploadUri,
-        mediaType === 'video' ? 'video' : 'photo'
-      );
-
-      if (!uploadedUrl) {
-        Alert.alert('Upload failed', 'Could not upload media.');
-        setUploadStatus(null);
-        setUploadingImage(false);
-        setPendingUploads(prev => prev.filter(item => item.id !== pendingId));
-        return;
-      }
-
-      let thumbnailUrl: string | undefined;
-
-      if (mediaType === 'video') {
-        try {
-          setUploadStatus('Creating thumbnail...');
-
-          const thumbnail = await VideoThumbnails.getThumbnailAsync(uploadUri, {
-            time: 1000,
-          });
-
-          setUploadStatus('Uploading thumbnail...');
-
-          const uploadedThumbnail = await uploadToR2(thumbnail.uri, 'photo');
-          thumbnailUrl = uploadedThumbnail || undefined;
-        } catch (thumbError) {
-          console.warn('[Groups] thumbnail failed:', thumbError);
-        }
-      }
-
-      setUploadStatus('Posting...');
-
-      await sendLocalGroupMessage({
-        groupId,
-        mediaUrl: uploadedUrl,
-        mediaType,
-        thumbnailUrl,
-        imageUrl: mediaType === 'image' ? uploadedUrl : undefined,
-        mine: true,
-        senderNpub: npub ?? undefined,
-        senderName: myDisplayName,
-      });
-
-      if (nsec) {
-        const result = await publishGroupMessage({
-          groupId,
-          mediaUrl: uploadedUrl,
-          mediaType,
-          thumbnailUrl,
-          imageUrl: mediaType === 'image' ? uploadedUrl : undefined,
-          senderNpub: npub ?? undefined,
-          senderName: myDisplayName,
-          nsec,
-          relayUrl,
-        });
-
-        if (!result.success) {
-          console.warn('[Groups] publishGroupMessage media failed:', result.error);
-        }
-      }
-
-      setPendingUploads(prev => prev.filter(item => item.id !== pendingId));
-      await loadMessages();
-      setUploadStatus(null);
-    } catch (e: any) {
-      setPendingUploads(prev => prev.filter(item => item.id !== pendingId));
-      Alert.alert('Error', e?.message || 'Failed to send media.');
-      setUploadStatus(null);
-    }
-
-    setUploadingImage(false);
+    await sendAttachmentMessage(attachments, pendingLabel);
   };
 
-const handleTakePhoto = async () => {
-  if (!groupId || uploadingImage) return;
+  const handlePickFiles = async () => {
+    if (!groupId || uploadingImage) return;
 
-  const permission = await ImagePicker.requestCameraPermissionsAsync();
-  if (permission.status !== 'granted') {
-    Alert.alert('Permission needed', 'Allow camera access.');
-    return;
-  }
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        multiple: true,
+        copyToCacheDirectory: true,
+      });
 
-  setUploadingImage(true);
-  setUploadStatus('Opening camera...');
+      if (result.canceled || !result.assets?.length) return;
 
-  const result = await ImagePicker.launchCameraAsync({
-    mediaTypes: ImagePicker.MediaTypeOptions.Images,
-    quality: 0.9,
-  });
+      const attachments = result.assets
+        .filter(asset => !!asset.uri)
+        .map(asset => ({
+          uri: asset.uri,
+          type: 'file' as GroupMediaType,
+          fileName: asset.name,
+          mimeType: asset.mimeType,
+        }));
 
-  if (result.canceled || !result.assets?.[0]?.uri) {
-    setUploadStatus(null);
-    setUploadingImage(false);
-    return;
-  }
+      const pendingLabel =
+        attachments.length > 1
+          ? `Uploading ${attachments.length} files…`
+          : 'Uploading file…';
 
-  const pendingId = `pending_camera_upload_${Date.now()}`;
-
-  setPendingUploads(prev => [
-    ...prev,
-    {
-      id: pendingId,
-      groupId,
-      mediaType: 'image',
-      mine: true,
-      senderName: myDisplayName,
-      createdAt: Math.floor(Date.now() / 1000),
-      pending: true,
-      pendingLabel: 'Optimizing photo…',
-    },
-  ]);
-
-  setTimeout(() => scrollToBottom(true), 50);
-
-  try {
-    const asset = result.assets[0];
-
-    const compressionResult = await compressImageForUpload({
-      uri: asset.uri,
-      onStatus: setUploadStatus,
-    });
-
-    const uploadUri = compressionResult.uri;
-
-    if (compressionResult.wasCompressed) {
-      setUploadStatus('Uploading optimized photo...');
-    } else {
-      setUploadStatus('Uploading photo...');
+      await sendAttachmentMessage(attachments, pendingLabel);
+    } catch (error) {
+      console.warn('[Groups] file picker failed:', error);
+      Alert.alert('File error', 'Could not open the file picker.');
     }
+  };
 
-    const uploadedUrl = await uploadToR2(uploadUri, 'photo');
+  const handleTakePhoto = async () => {
+    if (!groupId || uploadingImage) return;
 
-    if (!uploadedUrl) {
-      Alert.alert('Upload failed', 'Could not upload photo.');
-      setPendingUploads(prev => prev.filter(item => item.id !== pendingId));
-      setUploadStatus(null);
-      setUploadingImage(false);
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (permission.status !== 'granted') {
+      Alert.alert('Permission needed', 'Allow camera access.');
       return;
     }
 
-    setUploadStatus('Posting...');
+    setUploadStatus('Opening camera...');
 
-    await sendLocalGroupMessage({
-      groupId,
-      mediaUrl: uploadedUrl,
-      mediaType: 'image',
-      imageUrl: uploadedUrl,
-      mine: true,
-      senderNpub: npub ?? undefined,
-      senderName: myDisplayName,
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.9,
     });
 
-    if (nsec) {
-      const result = await publishGroupMessage({
-        groupId,
-        mediaUrl: uploadedUrl,
-        mediaType: 'image',
-        imageUrl: uploadedUrl,
-        senderNpub: npub ?? undefined,
-        senderName: myDisplayName,
-        nsec,
-        relayUrl,
-      });
-
-      if (!result.success) {
-        console.warn('[Groups] publishGroupMessage camera photo failed:', result.error);
-      }
+    if (result.canceled || !result.assets?.[0]?.uri) {
+      setUploadStatus(null);
+      return;
     }
 
-    setPendingUploads(prev => prev.filter(item => item.id !== pendingId));
-    await loadMessages();
-    setUploadStatus(null);
-  } catch (e: any) {
-    setPendingUploads(prev => prev.filter(item => item.id !== pendingId));
-    Alert.alert('Error', e?.message || 'Could not send photo.');
-    setUploadStatus(null);
-  }
-
-  setUploadingImage(false);
-};
+    await sendAttachmentMessage(
+      [
+        {
+          uri: result.assets[0].uri,
+          type: 'image',
+          fileName: result.assets[0].fileName ?? undefined,
+          mimeType: result.assets[0].mimeType ?? undefined,
+        },
+      ],
+      'Optimizing photo…'
+    );
+  };
 
   const handleBack = () => {
     router.navigate('/(tabs)/groups' as any);
@@ -604,11 +694,12 @@ const handleTakePhoto = async () => {
               style={[s.attachBtn, uploadingImage && s.attachBtnDim]}
               onPress={() => {
   Alert.alert(
-    'Add Media',
+    'Add Attachment',
     '',
     [
       { text: 'Camera Photo', onPress: handleTakePhoto },
-      { text: 'Library (Photo/Video)', onPress: handlePickMedia },
+      { text: 'Library Photos/Videos', onPress: handlePickMedia },
+      { text: 'Attach Files', onPress: handlePickFiles },
       { text: 'Cancel', style: 'cancel' },
     ]
   );

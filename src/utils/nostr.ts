@@ -1378,7 +1378,16 @@ export async function publishGroupMembership(input: {
 export const GROUP_MESSAGE_KIND = 30082;
 export const GROUP_STICKY_KIND = 30083;
 
-export type NostrGroupMediaType = 'image' | 'video';
+export type NostrGroupMediaType = 'image' | 'video' | 'file';
+
+export type NostrGroupMessageMedia = {
+  id: string;
+  uri: string;
+  type: NostrGroupMediaType;
+  thumbnailUrl?: string;
+  fileName?: string;
+  mimeType?: string;
+};
 
 export interface NostrGroupMessage {
   id: string;
@@ -1388,6 +1397,10 @@ export interface NostrGroupMessage {
   senderName?: string;
   text?: string;
 
+  // New multi-attachment shape
+  media?: NostrGroupMessageMedia[];
+
+  // Legacy single media shape
   mediaUrl?: string;
   mediaType?: NostrGroupMediaType;
   thumbnailUrl?: string;
@@ -1398,10 +1411,48 @@ export interface NostrGroupMessage {
   createdAt: number;
 }
 
+function normalizeGroupMessageMedia(input: {
+  media?: NostrGroupMessageMedia[];
+  mediaUrl?: string;
+  mediaType?: NostrGroupMediaType;
+  thumbnailUrl?: string;
+  imageUrl?: string;
+}): NostrGroupMessageMedia[] {
+  if (Array.isArray(input.media) && input.media.length > 0) {
+    return input.media
+      .filter(item => !!item.uri)
+      .map((item, index) => ({
+        id: item.id || `media_${Date.now()}_${index}`,
+        uri: item.uri,
+        type: item.type,
+        thumbnailUrl: item.thumbnailUrl,
+        fileName: item.fileName,
+        mimeType: item.mimeType,
+      }));
+  }
+
+  const legacyUri = input.mediaUrl || input.imageUrl;
+
+  if (!legacyUri) return [];
+
+  return [
+    {
+      id: `legacy_media_${legacyUri}`,
+      uri: legacyUri,
+      type: input.mediaType || (input.imageUrl ? 'image' : 'image'),
+      thumbnailUrl: input.thumbnailUrl,
+    },
+  ];
+}
+
 export async function publishGroupMessage(input: {
   groupId: string;
   text?: string;
 
+  // New multi-attachment support
+  media?: NostrGroupMessageMedia[];
+
+  // Legacy single media support
   mediaUrl?: string;
   mediaType?: NostrGroupMediaType;
   thumbnailUrl?: string;
@@ -1416,10 +1467,16 @@ export async function publishGroupMessage(input: {
 }): Promise<{ success: boolean; eventId?: string; error?: string }> {
   try {
     const trimmedText = input.text?.trim() || '';
-    const mediaUrl = input.mediaUrl || input.imageUrl;
-    const mediaType = input.mediaType || (input.imageUrl ? 'image' : undefined);
+    const media = normalizeGroupMessageMedia(input);
+    const primaryMedia = media[0];
 
-    if (!trimmedText && !mediaUrl) {
+    const mediaUrl = input.mediaUrl || input.imageUrl || primaryMedia?.uri;
+    const mediaType =
+      input.mediaType ||
+      primaryMedia?.type ||
+      (input.imageUrl ? 'image' : undefined);
+
+    if (!trimmedText && media.length === 0 && !mediaUrl) {
       throw new Error('Cannot publish an empty group message');
     }
 
@@ -1436,35 +1493,46 @@ export async function publishGroupMessage(input: {
       ['client', 'bE-Marks'],
     ];
 
-    if (mediaUrl) {
-      tags.push(['url', mediaUrl]);
+    for (const item of media) {
+      tags.push(['url', item.uri]);
 
-      if (mediaType === 'video') {
-        tags.push(['video', mediaUrl]);
-        tags.push(['imeta', `url ${mediaUrl}`, 'mime video/mp4']);
-      } else {
-        tags.push(['image', mediaUrl]);
-        tags.push(['imeta', `url ${mediaUrl}`, 'mime image/jpeg']);
+      if (item.type === 'image') {
+        tags.push(['image', item.uri]);
+        tags.push(['imeta', `url ${item.uri}`, 'mime image/jpeg']);
+      }
+
+      if (item.type === 'video') {
+        tags.push(['video', item.uri]);
+        tags.push(['imeta', `url ${item.uri}`, 'mime video/mp4']);
+      }
+
+      if (item.type === 'file') {
+        tags.push(['file', item.uri]);
+
+        if (item.mimeType) {
+          tags.push(['imeta', `url ${item.uri}`, `mime ${item.mimeType}`]);
+        }
       }
     }
 
     const now = Math.floor(Date.now() / 1000);
 
     const content = JSON.stringify({
-  groupId: input.groupId,
-  text: trimmedText || undefined,
+      groupId: input.groupId,
+      text: trimmedText || undefined,
 
-  mediaUrl,
-  mediaType,
-  thumbnailUrl: input.thumbnailUrl,
+      media,
 
-  // old fallback
-  imageUrl: mediaType === 'image' ? mediaUrl : undefined,
+      // legacy single media fields preserved for older app versions
+      mediaUrl,
+      mediaType,
+      thumbnailUrl: input.thumbnailUrl || primaryMedia?.thumbnailUrl,
+      imageUrl: mediaType === 'image' ? mediaUrl : undefined,
 
-  senderNpub: input.senderNpub,
-  senderName: input.senderName,
-  createdAt: now,
-});
+      senderNpub: input.senderNpub,
+      senderName: input.senderName,
+      createdAt: now,
+    });
 
     const unsigned: UnsignedEvent = {
       kind: GROUP_MESSAGE_KIND,
@@ -1480,6 +1548,7 @@ export async function publishGroupMessage(input: {
     return { success: false, error: e.message };
   }
 }
+
 export async function publishGroupSticky(input: {
   stickyId: string;
   groupId: string;
@@ -1664,19 +1733,38 @@ export function fetchGroupMessages(
 
             const parsed = JSON.parse(evt.content || '{}');
 
+            const media = normalizeGroupMessageMedia({
+              media: parsed.media,
+              mediaUrl: parsed.mediaUrl,
+              mediaType: parsed.mediaType,
+              thumbnailUrl: parsed.thumbnailUrl,
+              imageUrl: parsed.imageUrl,
+            });
+
+            const primaryMedia = media[0];
+
             events.push({
-  id: evt.id,
-  groupId: parsed.groupId || groupId,
-  senderPubkey: evt.pubkey,
-  senderNpub: parsed.senderNpub,
-  senderName: parsed.senderName,
-  text: parsed.text,
-  mediaUrl: parsed.mediaUrl || parsed.imageUrl,
-  mediaType: parsed.mediaType || (parsed.imageUrl ? 'image' : undefined),
-  thumbnailUrl: parsed.thumbnailUrl,
-  imageUrl: parsed.imageUrl,
-  createdAt: evt.created_at,
-});
+              id: evt.id,
+              groupId: parsed.groupId || groupId,
+              senderPubkey: evt.pubkey,
+              senderNpub: parsed.senderNpub,
+              senderName: parsed.senderName,
+              text: parsed.text,
+
+              media,
+
+              mediaUrl: parsed.mediaUrl || parsed.imageUrl || primaryMedia?.uri,
+              mediaType:
+                parsed.mediaType ||
+                primaryMedia?.type ||
+                (parsed.imageUrl ? 'image' : undefined),
+              thumbnailUrl: parsed.thumbnailUrl || primaryMedia?.thumbnailUrl,
+              imageUrl:
+                parsed.imageUrl ||
+                (primaryMedia?.type === 'image' ? primaryMedia.uri : undefined),
+
+              createdAt: evt.created_at,
+            });
           } else if (data[0] === 'EOSE') {
             clearTimeout(timeout);
             ws.close();
@@ -1721,19 +1809,38 @@ export async function subscribeToGroupMessages(input: {
 
             const parsed = JSON.parse(evt.content || '{}');
 
+            const media = normalizeGroupMessageMedia({
+              media: parsed.media,
+              mediaUrl: parsed.mediaUrl,
+              mediaType: parsed.mediaType,
+              thumbnailUrl: parsed.thumbnailUrl,
+              imageUrl: parsed.imageUrl,
+            });
+
+            const primaryMedia = media[0];
+
             input.onMessage({
-  id: evt.id,
-  groupId: parsed.groupId || input.groupId,
-  senderPubkey: evt.pubkey,
-  senderNpub: parsed.senderNpub,
-  senderName: parsed.senderName,
-  text: parsed.text,
-  mediaUrl: parsed.mediaUrl || parsed.imageUrl,
-  mediaType: parsed.mediaType || (parsed.imageUrl ? 'image' : undefined),
-  thumbnailUrl: parsed.thumbnailUrl,
-  imageUrl: parsed.imageUrl,
-  createdAt: evt.created_at,
-});
+              id: evt.id,
+              groupId: parsed.groupId || input.groupId,
+              senderPubkey: evt.pubkey,
+              senderNpub: parsed.senderNpub,
+              senderName: parsed.senderName,
+              text: parsed.text,
+
+              media,
+
+              mediaUrl: parsed.mediaUrl || parsed.imageUrl || primaryMedia?.uri,
+              mediaType:
+                parsed.mediaType ||
+                primaryMedia?.type ||
+                (parsed.imageUrl ? 'image' : undefined),
+              thumbnailUrl: parsed.thumbnailUrl || primaryMedia?.thumbnailUrl,
+              imageUrl:
+                parsed.imageUrl ||
+                (primaryMedia?.type === 'image' ? primaryMedia.uri : undefined),
+
+              createdAt: evt.created_at,
+            });
           } catch {}
         },
       }

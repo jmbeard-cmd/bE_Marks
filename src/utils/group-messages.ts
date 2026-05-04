@@ -3,14 +3,26 @@ import { recordGroupPost } from './group-storage';
 
 const GROUP_MESSAGES_KEY = 'be_group_messages_v1';
 
-export type GroupMediaType = 'image' | 'video';
+export type GroupMediaType = 'image' | 'video' | 'file';
+
+export type GroupMessageMedia = {
+  id: string;
+  uri: string;
+  type: GroupMediaType;
+  thumbnailUrl?: string;
+  fileName?: string;
+  mimeType?: string;
+};
 
 export type GroupMessage = {
   id: string;
   groupId: string;
   text?: string;
 
-  // New clean media shape
+  // New multi-attachment shape
+  media?: GroupMessageMedia[];
+
+  // Legacy single media shape
   mediaUrl?: string;
   mediaType?: GroupMediaType;
   thumbnailUrl?: string;
@@ -39,12 +51,54 @@ async function writeJson<T>(key: string, value: T): Promise<void> {
   } catch {}
 }
 
-function getMessageMediaUrl(message: Pick<GroupMessage, 'mediaUrl' | 'imageUrl'>) {
+function normalizeMessageMedia(input: {
+  media?: GroupMessageMedia[];
+  mediaUrl?: string;
+  mediaType?: GroupMediaType;
+  thumbnailUrl?: string;
+  imageUrl?: string;
+}): GroupMessageMedia[] {
+  if (Array.isArray(input.media) && input.media.length > 0) {
+    return input.media
+      .filter(item => !!item.uri)
+      .map((item, index) => ({
+        id: item.id || `media_${Date.now()}_${index}`,
+        uri: item.uri,
+        type: item.type,
+        thumbnailUrl: item.thumbnailUrl,
+        fileName: item.fileName,
+        mimeType: item.mimeType,
+      }));
+  }
+
+  const legacyUri = input.mediaUrl || input.imageUrl;
+
+  if (!legacyUri) return [];
+
+  return [
+    {
+      id: `legacy_media_${legacyUri}`,
+      uri: legacyUri,
+      type: input.mediaType || (input.imageUrl ? 'image' : 'image'),
+      thumbnailUrl: input.thumbnailUrl,
+    },
+  ];
+}
+
+function getMessageMediaUrl(message: Pick<GroupMessage, 'media' | 'mediaUrl' | 'imageUrl'>) {
+  if (message.media?.[0]?.uri) return message.media[0].uri;
   return message.mediaUrl || message.imageUrl;
+}
+
+function getMediaSignature(media: GroupMessageMedia[]): string {
+  return media
+    .map(item => `${item.type}:${item.uri}:${item.thumbnailUrl || ''}:${item.fileName || ''}`)
+    .join('|');
 }
 
 function getMessagePreview(input: {
   text?: string;
+  media?: GroupMessageMedia[];
   mediaUrl?: string;
   imageUrl?: string;
   mediaType?: GroupMediaType;
@@ -52,10 +106,20 @@ function getMessagePreview(input: {
   const text = input.text?.trim();
   if (text) return text;
 
-  const mediaUrl = input.mediaUrl || input.imageUrl;
-  if (!mediaUrl) return 'New message';
+  const media = normalizeMessageMedia(input);
 
-  return input.mediaType === 'video' ? '🎥 Video' : '📷 Photo';
+  if (media.length === 0) return 'New message';
+
+  if (media.length > 1) {
+    return `📎 ${media.length} attachments`;
+  }
+
+  const first = media[0];
+
+  if (first.type === 'video') return '🎥 Video';
+  if (first.type === 'file') return `📎 ${first.fileName || 'File'}`;
+
+  return '📷 Photo';
 }
 
 export async function getAllGroupMessages(): Promise<GroupMessage[]> {
@@ -76,6 +140,11 @@ export async function getMessagesForGroup(groupId: string): Promise<GroupMessage
 export async function sendLocalGroupMessage(input: {
   groupId: string;
   text?: string;
+
+  // New multi-attachment support
+  media?: GroupMessageMedia[];
+
+  // Legacy single media support
   mediaUrl?: string;
   mediaType?: GroupMediaType;
   thumbnailUrl?: string;
@@ -88,28 +157,34 @@ export async function sendLocalGroupMessage(input: {
   senderName?: string;
 }): Promise<GroupMessage> {
   const trimmedText = input.text?.trim() || '';
-  const mediaUrl = input.mediaUrl || input.imageUrl;
-  const mediaType = input.mediaType || (input.imageUrl ? 'image' : undefined);
+  const media = normalizeMessageMedia(input);
+  const primaryMedia = media[0];
 
-  if (!trimmedText && !mediaUrl) {
+  if (!trimmedText && media.length === 0) {
     throw new Error('Cannot send an empty group message');
   }
 
   const allMessages = await getAllGroupMessages();
 
   const newMessage: GroupMessage = {
-  id: `group_msg_${Date.now()}`,
-  groupId: input.groupId,
-  text: trimmedText || undefined,
-  mediaUrl,
-  mediaType,
-  thumbnailUrl: input.thumbnailUrl,
-  imageUrl: input.imageUrl,
-  mine: input.mine ?? true,
-  senderNpub: input.senderNpub,
-  senderName: input.senderName,
-  createdAt: Math.floor(Date.now() / 1000),
-};
+    id: `group_msg_${Date.now()}`,
+    groupId: input.groupId,
+    text: trimmedText || undefined,
+
+    media,
+
+    mediaUrl: input.mediaUrl || primaryMedia?.uri,
+    mediaType: input.mediaType || primaryMedia?.type,
+    thumbnailUrl: input.thumbnailUrl || primaryMedia?.thumbnailUrl,
+    imageUrl:
+      input.imageUrl ||
+      (primaryMedia?.type === 'image' ? primaryMedia.uri : undefined),
+
+    mine: input.mine ?? true,
+    senderNpub: input.senderNpub,
+    senderName: input.senderName,
+    createdAt: Math.floor(Date.now() / 1000),
+  };
 
   allMessages.push(newMessage);
   await saveAllGroupMessages(allMessages);
@@ -129,6 +204,11 @@ export async function saveRemoteGroupMessage(input: {
   id: string;
   groupId: string;
   text?: string;
+
+  // New multi-attachment support
+  media?: GroupMessageMedia[];
+
+  // Legacy single media support
   mediaUrl?: string;
   mediaType?: GroupMediaType;
   thumbnailUrl?: string;
@@ -143,37 +223,51 @@ export async function saveRemoteGroupMessage(input: {
 }): Promise<void> {
   const allMessages = await getAllGroupMessages();
 
-  const mediaUrl = input.mediaUrl || input.imageUrl;
-  const mediaType = input.mediaType || (input.imageUrl ? 'image' : undefined);
+  const media = normalizeMessageMedia(input);
+  const primaryMedia = media[0];
+  const mediaUrl = input.mediaUrl || input.imageUrl || primaryMedia?.uri;
+  const mediaType =
+    input.mediaType ||
+    primaryMedia?.type ||
+    (input.imageUrl ? 'image' : undefined);
 
   const existsById = allMessages.some(message => message.id === input.id);
   if (existsById) return;
+
+  const incomingSignature = getMediaSignature(media);
 
   const existsByContent = allMessages.some(message => {
     const sameGroup = message.groupId === input.groupId;
     const sameMine = message.mine === input.mine;
     const sameText = (message.text || '') === (input.text || '');
-    const sameMedia = (getMessageMediaUrl(message) || '') === (mediaUrl || '');
+    const samePrimaryMedia = (getMessageMediaUrl(message) || '') === (mediaUrl || '');
+    const sameMediaList = getMediaSignature(normalizeMessageMedia(message)) === incomingSignature;
     const closeInTime = Math.abs(message.createdAt - input.createdAt) <= 10;
 
-    return sameGroup && sameMine && sameText && sameMedia && closeInTime;
+    return sameGroup && sameMine && sameText && samePrimaryMedia && sameMediaList && closeInTime;
   });
 
   if (existsByContent) return;
 
   const newMessage: GroupMessage = {
-  id: input.id,
-  groupId: input.groupId,
-  text: input.text,
-  mediaUrl,
-  mediaType,
-  thumbnailUrl: input.thumbnailUrl,
-  imageUrl: input.imageUrl,
-  mine: input.mine,
-  senderNpub: input.senderNpub,
-  senderName: input.senderName,
-  createdAt: input.createdAt,
-};
+    id: input.id,
+    groupId: input.groupId,
+    text: input.text,
+
+    media,
+
+    mediaUrl,
+    mediaType,
+    thumbnailUrl: input.thumbnailUrl || primaryMedia?.thumbnailUrl,
+    imageUrl:
+      input.imageUrl ||
+      (mediaType === 'image' && mediaUrl ? mediaUrl : undefined),
+
+    mine: input.mine,
+    senderNpub: input.senderNpub,
+    senderName: input.senderName,
+    createdAt: input.createdAt,
+  };
 
   allMessages.push(newMessage);
   allMessages.sort((a, b) => a.createdAt - b.createdAt);
