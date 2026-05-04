@@ -74,6 +74,14 @@ type PendingUploadMessage = {
   pendingLabel: string;
 };
 
+type VisibleGroupMessage = {
+  id: string;
+  message: GroupMessage | PendingUploadMessage;
+  avatarUrl?: string;
+  showName: boolean;
+};
+
+
 export default function GroupThreadScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string }>();
@@ -100,7 +108,8 @@ const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadM
 const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
 const [editingMessage, setEditingMessage] = useState<GroupMessage | null>(null);
 
-  const listRef = useRef<FlatList>(null);
+  const listRef = useRef<FlatList<VisibleGroupMessage>>(null);
+
   const inputRef = useRef<TextInput>(null);
   const isNearBottomRef = useRef(true);
   const didInitialAutoScrollRef = useRef(false);
@@ -158,29 +167,39 @@ const [editingMessage, setEditingMessage] = useState<GroupMessage | null>(null);
       ];
     });
 
-  const visibleMessages = useMemo(
+  const visibleMessages = useMemo<VisibleGroupMessage[]>(
     () => {
       const myAvatarUrl =
         (profile as any)?.picture ||
         (profile as any)?.avatarUrl ||
         undefined;
 
-      return [...messages, ...pendingUploads]
-        .map(message => {
-          const senderNpub = (message as any).senderNpub;
-          const avatarUrl =
-            message.mine
-              ? myAvatarUrl
-              : senderNpub
-                ? memberAvatarMap[senderNpub]
-                : undefined;
+      const sortedMessages = [...messages, ...pendingUploads].sort(
+        (a, b) => a.createdAt - b.createdAt
+      );
 
-          return {
-            ...message,
-            avatarUrl,
-          };
-        })
-        .sort((a, b) => a.createdAt - b.createdAt);
+      return sortedMessages.map((message, index) => {
+        const previousMessage = index > 0 ? sortedMessages[index - 1] : null;
+        const senderNpub = (message as any).senderNpub;
+
+        const avatarUrl =
+          message.mine
+            ? myAvatarUrl
+            : senderNpub
+              ? memberAvatarMap[senderNpub]
+              : undefined;
+
+        const showName =
+          !message.mine &&
+          (!previousMessage || previousMessage.senderName !== message.senderName);
+
+        return {
+          id: message.id,
+          message,
+          avatarUrl,
+          showName,
+        };
+      });
     },
     [messages, pendingUploads, memberAvatarMap, profile]
   );
@@ -1325,22 +1344,21 @@ const [editingMessage, setEditingMessage] = useState<GroupMessage | null>(null);
   }, []);
 
   const renderMessage = useCallback(
-    ({ item, index }: { item: GroupMessage | PendingUploadMessage; index: number }) => {
-      const prevMsg = index > 0 ? visibleMessages[index - 1] : null;
-      const showName = !item.mine && (!prevMsg || prevMsg.senderName !== item.senderName);
-
+    ({ item }: { item: VisibleGroupMessage }) => {
       return (
         <MessageBubble
-          item={item}
-          showName={showName}
+          item={item.message}
+          showName={item.showName}
+          avatarUrl={item.avatarUrl}
           onPressMedia={handlePressMessageMedia}
           onLongPress={handleMessageLongPress}
           s={s}
         />
       );
     },
-    [visibleMessages, handlePressMessageMedia, handleMessageLongPress, s]
+    [handlePressMessageMedia, handleMessageLongPress, s]
   );
+
 
   return (
     <SafeAreaView style={s.safe}>

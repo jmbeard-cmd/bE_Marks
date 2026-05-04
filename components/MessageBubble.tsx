@@ -17,10 +17,12 @@ type MessageMediaItem = {
 type Props = {
   item: any;
   showName?: boolean;
+  avatarUrl?: string;
   onPressMedia?: (uri: string) => void;
   onLongPress?: (item: any) => void;
   s: any;
 };
+
 
 function getMessageMediaItems(item: any): MessageMediaItem[] {
   const media = Array.isArray(item?.media) ? item.media : [];
@@ -171,7 +173,6 @@ function getMessageBubbleSignature(item: any): string {
     item?.createdAt || '',
     item?.mine ? 'mine' : 'other',
     item?.senderName || '',
-    item?.avatarUrl || '',
     item?.replyToClientMessageId || '',
     item?.replyPreviewText || '',
     item?.replyPreviewSenderName || '',
@@ -180,9 +181,11 @@ function getMessageBubbleSignature(item: any): string {
   ].join('::');
 }
 
+
 function areMessageBubblePropsEqual(prev: Props, next: Props): boolean {
   return (
     prev.showName === next.showName &&
+    prev.avatarUrl === next.avatarUrl &&
     prev.s === next.s &&
     prev.onPressMedia === next.onPressMedia &&
     prev.onLongPress === next.onLongPress &&
@@ -191,9 +194,11 @@ function areMessageBubblePropsEqual(prev: Props, next: Props): boolean {
 }
 
 
+
 function MessageBubble({
   item,
   showName,
+  avatarUrl,
   onPressMedia,
   onLongPress,
   s,
@@ -242,9 +247,9 @@ function MessageBubble({
             zIndex: 2,
           }}
         >
-          {item?.avatarUrl ? (
+          {avatarUrl ? (
             <Image
-              source={{ uri: item.avatarUrl }}
+              source={{ uri: avatarUrl }}
               style={{
                 width: 34,
                 height: 34,
