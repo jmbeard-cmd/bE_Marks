@@ -104,6 +104,26 @@ function getReplyPreviewText(item: any): string {
   return 'Original message';
 }
 
+function getReplyPreviewIcon(item: any): string {
+  const preview = getReplyPreviewText(item).toLowerCase();
+
+  if (preview.includes('video')) return '🎥';
+  if (preview.includes('photo') || preview.includes('image')) return '📷';
+  if (preview.includes('file') || preview.includes('attachment')) return '📎';
+
+  return '↩';
+}
+
+function getReplyPreviewLabel(item: any): string {
+  const preview = getReplyPreviewText(item);
+
+  if (preview.toLowerCase() === 'photo') return 'Photo';
+  if (preview.toLowerCase() === 'video') return 'Video';
+  if (preview.toLowerCase() === 'file') return 'File';
+
+  return preview;
+}
+
 function getReactionSummary(item: any): { reaction: string; count: number }[] {
   const reactions = Array.isArray(item?.reactions) ? item.reactions : [];
 
@@ -346,8 +366,6 @@ function MessageBubble({
               backgroundColor: theme.bg,
               borderLeftWidth: 3,
               borderLeftColor: theme.gold,
-              borderWidth: 0.5,
-              borderColor: theme.surface,
             }}
           >
             <Text
@@ -356,38 +374,48 @@ function MessageBubble({
                 color: theme.gold,
                 fontSize: 11,
                 fontWeight: '900',
-                marginBottom: 2,
+                marginBottom: 6,
               }}
             >
               Replying to {getReplyPreviewSender(item)}
             </Text>
 
-            <Text
-              numberOfLines={2}
+            <View
               style={{
-                color: theme.textMuted,
-                fontSize: 12,
-                fontWeight: '600',
-                lineHeight: 16,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 8,
               }}
             >
-              {getReplyPreviewText(item)}
-            </Text>
-          </View>
-        )}
+              <View
+                style={{
+                  width: 26,
+                  height: 26,
+                  borderRadius: 8,
+                  backgroundColor: theme.surface,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Text style={{ fontSize: 14 }}>
+                  {getReplyPreviewIcon(item)}
+                </Text>
+              </View>
 
-        {!isPending && isDeleted && (
-          <Text
-            style={[
-              s.messageText,
-              {
-                color: theme.textMuted,
-                fontStyle: 'italic',
-              },
-            ]}
-          >
-            Message deleted
-          </Text>
+              <Text
+                numberOfLines={2}
+                style={{
+                  flex: 1,
+                  color: theme.textMuted,
+                  fontSize: 12,
+                  fontWeight: '700',
+                  lineHeight: 16,
+                }}
+              >
+                {getReplyPreviewLabel(item)}
+              </Text>
+            </View>
+          </View>
         )}
 
         {!isPending && !isDeleted && !!item.text && (
