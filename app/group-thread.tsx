@@ -152,6 +152,24 @@ const [creatingPoll, setCreatingPoll] = useState(false);
     profile?.name ||
     (npub ? `${npub.slice(0, 12)}…` : 'You');
 
+  const normalizedPollOptions = useMemo(
+    () => pollOptions.map(option => option.trim()).filter(Boolean),
+    [pollOptions]
+  );
+
+  const hasDuplicatePollOptions = useMemo(() => {
+    const lowered = normalizedPollOptions.map(option => option.toLowerCase());
+
+    return new Set(lowered).size !== lowered.length;
+  }, [normalizedPollOptions]);
+
+  const canCreatePoll = (
+    pollQuestion.trim().length > 0 &&
+    normalizedPollOptions.length >= 2 &&
+    !hasDuplicatePollOptions &&
+    !creatingPoll
+  );
+
   const viewerMedia: ViewerImage[] = messages
     .filter(message => {
       const mediaItems = Array.isArray((message as any).media)
@@ -1259,9 +1277,7 @@ const [creatingPoll, setCreatingPoll] = useState(false);
     if (!groupId || creatingPoll) return;
 
     const question = pollQuestion.trim();
-    const options = pollOptions
-      .map(option => option.trim())
-      .filter(Boolean);
+    const options = normalizedPollOptions;
 
     if (!question) {
       Alert.alert('Poll question needed', 'Add a question for the group.');
@@ -1270,6 +1286,11 @@ const [creatingPoll, setCreatingPoll] = useState(false);
 
     if (options.length < 2) {
       Alert.alert('Poll options needed', 'Add at least two options.');
+      return;
+    }
+
+    if (hasDuplicatePollOptions) {
+      Alert.alert('Duplicate options', 'Each poll option needs to be different.');
       return;
     }
 
@@ -1321,7 +1342,6 @@ const [creatingPoll, setCreatingPoll] = useState(false);
       Alert.alert('Poll failed', error?.message || 'Could not create poll.');
     }
   };
-
 
   const handleGifPlaceholder = () => {
     closeComposerMenu();
@@ -1539,6 +1559,14 @@ const [creatingPoll, setCreatingPoll] = useState(false);
     if (!groupId || !optionId) return;
     if ((message as any).pending || (message as any).isDeleted || !(message as any).poll) return;
 
+    const existingVote = Array.isArray((message as any).poll?.votes)
+      ? (message as any).poll.votes.find((vote: any) => vote?.voterNpub && vote.voterNpub === npub)
+      : undefined;
+
+    if (existingVote?.optionId === optionId) {
+      return;
+    }
+
     try {
       const clientMessageId = (message as GroupMessage).clientMessageId || message.id;
 
@@ -1581,6 +1609,7 @@ const [creatingPoll, setCreatingPoll] = useState(false);
       Alert.alert('Vote failed', 'Could not save your vote.');
     }
   }, [groupId, myDisplayName, npub, nsec, relayUrl]);
+
 
   const renderMessage = useCallback(
     ({ item }: { item: VisibleGroupMessage }) => {
@@ -2059,10 +2088,10 @@ style={[
                   <TouchableOpacity
                     style={[
                       s.pollCreateBtn,
-                      creatingPoll && s.sendBtnDim,
+                      !canCreatePoll && s.sendBtnDim,
                     ]}
                     onPress={handleCreatePoll}
-                    disabled={creatingPoll}
+                    disabled={!canCreatePoll}
                     activeOpacity={0.8}
                   >
                     {creatingPoll ? (
