@@ -138,6 +138,7 @@ const [showPollModal, setShowPollModal] = useState(false);
 const [pollQuestion, setPollQuestion] = useState('');
 const [pollOptions, setPollOptions] = useState(['', '']);
 const [creatingPoll, setCreatingPoll] = useState(false);
+const [pollDetailsMessage, setPollDetailsMessage] = useState<GroupMessage | PendingUploadMessage | null>(null);
 
   const listRef = useRef<FlatList<VisibleGroupMessage>>(null);
 
@@ -1628,6 +1629,11 @@ const [creatingPoll, setCreatingPoll] = useState(false);
     }
   }, [groupId, myDisplayName, npub, nsec, relayUrl]);
 
+  const handlePollDetails = useCallback((message: GroupMessage | PendingUploadMessage) => {
+    if ((message as any).pending || (message as any).isDeleted || !(message as any).poll) return;
+
+    setPollDetailsMessage(message);
+  }, []);
 
   const renderMessage = useCallback(
     ({ item }: { item: VisibleGroupMessage }) => {
@@ -1639,11 +1645,12 @@ const [creatingPoll, setCreatingPoll] = useState(false);
           onPressMedia={handlePressMessageMedia}
           onLongPress={handleMessageLongPress}
           onPollVote={handlePollVote}
+          onPollDetails={handlePollDetails}
           s={s}
         />
       );
     },
-    [handlePressMessageMedia, handleMessageLongPress, handlePollVote, s]
+    [handlePressMessageMedia, handleMessageLongPress, handlePollVote, handlePollDetails, s]
   );
 
   const shouldHideInitialList = false;
@@ -2031,6 +2038,87 @@ style={[
               )}
             </View>
           </Modal>
+
+          <Modal
+            visible={!!pollDetailsMessage}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setPollDetailsMessage(null)}
+          >
+            <View style={s.pollDetailsOverlay}>
+              <Pressable
+                style={StyleSheet.absoluteFill}
+                onPress={() => setPollDetailsMessage(null)}
+              />
+
+              {pollDetailsMessage && (pollDetailsMessage as any).poll && (
+                <View style={s.pollDetailsCard}>
+                  <View style={s.pollDetailsHeader}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.pollDetailsTitle}>Poll results</Text>
+                      <Text style={s.pollDetailsQuestion} numberOfLines={3}>
+                        {(pollDetailsMessage as any).poll.question}
+                      </Text>
+                    </View>
+
+                    <TouchableOpacity
+                      style={s.pollDetailsCloseBtn}
+                      onPress={() => setPollDetailsMessage(null)}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={s.pollDetailsCloseText}>×</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={s.pollDetailsBody}>
+                    {(pollDetailsMessage as any).poll.options.map((option: any) => {
+                      const votes = Array.isArray((pollDetailsMessage as any).poll.votes)
+                        ? (pollDetailsMessage as any).poll.votes.filter((vote: any) => vote?.optionId === option.id)
+                        : [];
+
+                      return (
+                        <View key={option.id} style={s.pollDetailsOptionBlock}>
+                          <View style={s.pollDetailsOptionHeader}>
+                            <Text style={s.pollDetailsOptionText} numberOfLines={2}>
+                              {option.text}
+                            </Text>
+
+                            <Text style={s.pollDetailsOptionCount}>
+                              {votes.length === 1 ? '1 vote' : `${votes.length} votes`}
+                            </Text>
+                          </View>
+
+                          {votes.length > 0 ? (
+                            <View style={s.pollDetailsVoterList}>
+                              {votes.map((vote: any) => {
+                                const label =
+                                  vote?.voterName ||
+                                  (vote?.voterNpub ? `${vote.voterNpub.slice(0, 12)}…` : 'Member');
+
+                                return (
+                                  <View
+                                    key={vote.id || `${option.id}_${label}`}
+                                    style={s.pollDetailsVoterPill}
+                                  >
+                                    <Text style={s.pollDetailsVoterText} numberOfLines={1}>
+                                      {label}
+                                    </Text>
+                                  </View>
+                                );
+                              })}
+                            </View>
+                          ) : (
+                            <Text style={s.pollDetailsNoVotes}>No votes yet</Text>
+                          )}
+                        </View>
+                      );
+                    })}
+                  </View>
+                </View>
+              )}
+            </View>
+          </Modal>
+
 
           <Modal
             visible={showPollModal}
@@ -2482,6 +2570,109 @@ messageVideoIcon: {
     fontSize: 15,
     maxHeight: 120,
     lineHeight: 20,
+  },
+
+  pollDetailsOverlay: {
+    flex: 1,
+    backgroundColor: themeModeAwareOverlay(theme),
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  pollDetailsCard: {
+    maxHeight: '78%',
+    borderRadius: 20,
+    padding: 16,
+    backgroundColor: theme.surface,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+  },
+  pollDetailsHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginBottom: 14,
+  },
+  pollDetailsTitle: {
+    color: theme.gold,
+    fontSize: 13,
+    fontWeight: '900',
+    letterSpacing: 0.4,
+    marginBottom: 4,
+  },
+  pollDetailsQuestion: {
+    color: theme.text,
+    fontSize: 17,
+    fontWeight: '900',
+    lineHeight: 22,
+  },
+  pollDetailsCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+  },
+  pollDetailsCloseText: {
+    color: theme.textMuted,
+    fontSize: 22,
+    fontWeight: '900',
+    lineHeight: 24,
+  },
+  pollDetailsBody: {
+    gap: 10,
+  },
+  pollDetailsOptionBlock: {
+    borderRadius: 16,
+    padding: 12,
+    backgroundColor: theme.bg,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    gap: 8,
+  },
+  pollDetailsOptionHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  pollDetailsOptionText: {
+    flex: 1,
+    color: theme.text,
+    fontSize: 14,
+    fontWeight: '900',
+    lineHeight: 18,
+  },
+  pollDetailsOptionCount: {
+    color: theme.gold,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  pollDetailsVoterList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  pollDetailsVoterPill: {
+    maxWidth: '100%',
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+  },
+  pollDetailsVoterText: {
+    color: theme.text,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  pollDetailsNoVotes: {
+    color: theme.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
   },
 
   pollModalOverlay: {

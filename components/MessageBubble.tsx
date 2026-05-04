@@ -21,9 +21,9 @@ type Props = {
   onPressMedia?: (uri: string) => void;
   onLongPress?: (item: any) => void;
   onPollVote?: (item: any, optionId: string) => void;
+  onPollDetails?: (item: any) => void;
   s: any;
 };
-
 
 function getMessageMediaItems(item: any): MessageMediaItem[] {
   const media = Array.isArray(item?.media) ? item.media : [];
@@ -269,6 +269,7 @@ function areMessageBubblePropsEqual(prev: Props, next: Props): boolean {
     prev.onPressMedia === next.onPressMedia &&
     prev.onLongPress === next.onLongPress &&
     prev.onPollVote === next.onPollVote &&
+    prev.onPollDetails === next.onPollDetails &&
     getMessageBubbleSignature(prev.item) === getMessageBubbleSignature(next.item)
   );
 }
@@ -280,6 +281,7 @@ function MessageBubble({
   onPressMedia,
   onLongPress,
   onPollVote,
+  onPollDetails,
   s,
 }: Props) {
   const { themeMode, npub } = useIdentity();
@@ -654,15 +656,26 @@ function MessageBubble({
               })}
             </View>
 
-            <Text
+            <TouchableOpacity
+              activeOpacity={0.75}
+              onPress={() => onPollDetails?.(item)}
+              onLongPress={() => onLongPress?.(item)}
+              delayLongPress={260}
               style={{
-                color: theme.textMuted,
-                fontSize: 11,
-                fontWeight: '700',
+                alignSelf: 'flex-start',
+                paddingVertical: 2,
               }}
             >
-              {pollVoteTotal === 1 ? '1 total vote' : `${pollVoteTotal} total votes`}
-            </Text>
+              <Text
+                style={{
+                  color: pollVoteTotal > 0 ? theme.gold : theme.textMuted,
+                  fontSize: 11,
+                  fontWeight: '900',
+                }}
+              >
+                {pollVoteTotal === 1 ? '1 total vote' : `${pollVoteTotal} total votes`}
+              </Text>
+            </TouchableOpacity>
           </View>
         )}
 
