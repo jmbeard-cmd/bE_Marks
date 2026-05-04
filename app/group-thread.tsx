@@ -95,6 +95,9 @@ const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
 
   const listRef = useRef<FlatList>(null);
   const inputRef = useRef<TextInput>(null);
+  const isNearBottomRef = useRef(true);
+  const didInitialAutoScrollRef = useRef(false);
+  const forceNextAutoScrollRef = useRef(false);
 
   const myDisplayName =
     profile?.display_name ||
@@ -210,6 +213,44 @@ const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
     listRef.current?.scrollToEnd({ animated });
   }, []);
 
+  const forceScrollToBottom = useCallback((animated = true) => {
+    forceNextAutoScrollRef.current = true;
+
+    setTimeout(() => {
+      scrollToBottom(animated);
+      forceNextAutoScrollRef.current = false;
+      isNearBottomRef.current = true;
+    }, 30);
+  }, [scrollToBottom]);
+
+  const scrollToBottomIfAppropriate = useCallback((animated = true) => {
+    if (
+      forceNextAutoScrollRef.current ||
+      isNearBottomRef.current ||
+      !didInitialAutoScrollRef.current
+    ) {
+      scrollToBottom(animated);
+      didInitialAutoScrollRef.current = true;
+      forceNextAutoScrollRef.current = false;
+      isNearBottomRef.current = true;
+    }
+  }, [scrollToBottom]);
+
+  const handleListScroll = useCallback((event: any) => {
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+
+    const distanceFromBottom =
+      contentSize.height - (contentOffset.y + layoutMeasurement.height);
+
+    isNearBottomRef.current = distanceFromBottom < 140;
+  }, []);
+
+  const handleContentSizeChange = useCallback(() => {
+    setTimeout(() => {
+      scrollToBottomIfAppropriate(true);
+    }, 40);
+  }, [scrollToBottomIfAppropriate]);
+
   const loadGroup = useCallback(async () => {
     if (!groupId) return;
 
@@ -244,7 +285,10 @@ const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
 
       setMessages(localMessages);
       setLoadingInitialMessages(false);
-      setTimeout(() => scrollToBottom(false), 50);
+
+      if (!didInitialAutoScrollRef.current) {
+        setTimeout(() => scrollToBottomIfAppropriate(false), 50);
+      }
     } catch (error) {
       console.warn('[Groups] Local message load error:', error);
       setLoadingInitialMessages(false);
@@ -324,7 +368,7 @@ const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
         const refreshedMessages = await getMessagesForGroup(groupId);
 
         setMessages(refreshedMessages);
-        setTimeout(() => scrollToBottom(false), 50);
+        setTimeout(() => scrollToBottomIfAppropriate(false), 50);
       })
       .catch(error => {
         console.warn('[Groups] Remote fetch error:', error);
@@ -375,7 +419,12 @@ const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
 
           const next = await getMessagesForGroup(groupId);
           setMessages(next);
-          setTimeout(() => scrollToBottom(true), 50);
+
+          if (mine || isNearBottomRef.current) {
+            forceNextAutoScrollRef.current = true;
+          }
+
+          setTimeout(() => scrollToBottomIfAppropriate(true), 50);
         },
       });
 
@@ -477,8 +526,9 @@ const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
       });
 
       const localMessages = await getMessagesForGroup(groupId);
+      forceNextAutoScrollRef.current = true;
       setMessages(localMessages);
-      setTimeout(() => scrollToBottom(true), 30);
+      forceScrollToBottom(true);
 
       setSending(false);
 
@@ -653,7 +703,7 @@ const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
       },
     ]);
 
-    setTimeout(() => scrollToBottom(true), 50);
+    forceScrollToBottom(true);
 
     try {
       const uploadedMedia: GroupMessageMedia[] = [];
@@ -693,10 +743,11 @@ const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
       setPendingUploads(prev => prev.filter(item => item.id !== pendingId));
 
       const localMessages = await getMessagesForGroup(groupId);
+      forceNextAutoScrollRef.current = true;
       setMessages(localMessages);
       setUploadStatus(null);
       setUploadingImage(false);
-      setTimeout(() => scrollToBottom(true), 30);
+      forceScrollToBottom(true);
 
       if (nsec) {
         publishGroupMessage({
@@ -1063,10 +1114,9 @@ const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
-                        onContentSizeChange={() => {
-              scrollToBottom(false);
-              setTimeout(() => scrollToBottom(true), 75);
-            }}
+            onScroll={handleListScroll}
+            scrollEventThrottle={16}
+            onContentSizeChange={handleContentSizeChange}
             ListEmptyComponent={
               loadingInitialMessages ? (
                 <View style={s.empty}>
