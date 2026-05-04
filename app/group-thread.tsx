@@ -91,6 +91,7 @@ const [pendingUploads, setPendingUploads] = useState<PendingUploadMessage[]>([])
 const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
 const [memberAvatarMap, setMemberAvatarMap] = useState<Record<string, string | undefined>>({});
 const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadMessage | null>(null);
+const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
 
   const listRef = useRef<FlatList>(null);
   const inputRef = useRef<TextInput>(null);
@@ -174,6 +175,37 @@ const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadM
     [messages, pendingUploads, memberAvatarMap, profile]
   );
 
+  const getReplyPreviewText = useCallback((message: GroupMessage | PendingUploadMessage): string => {
+    if ((message as any).isDeleted) return 'Message deleted';
+
+    const text = message.text?.trim();
+    if (text) return text.length > 90 ? `${text.slice(0, 90)}…` : text;
+
+    const mediaItems = Array.isArray((message as any).media)
+      ? (message as any).media
+      : [];
+
+    if (mediaItems.length > 1) return `${mediaItems.length} attachments`;
+
+    const firstMedia = mediaItems[0];
+
+    if (firstMedia?.type === 'video') return 'Video';
+    if (firstMedia?.type === 'file') return firstMedia.fileName || 'File';
+    if (firstMedia?.type === 'image') return 'Photo';
+
+    if ((message as any).mediaType === 'video') return 'Video';
+    if ((message as any).mediaType === 'file') return 'File';
+    if ((message as any).mediaUrl || (message as any).imageUrl) return 'Photo';
+
+    return 'Message';
+  }, []);
+
+  const getReplyPreviewSenderName = useCallback((message: GroupMessage | PendingUploadMessage): string => {
+    if (message.mine) return 'You';
+
+    return message.senderName || 'Member';
+  }, []);
+
   const scrollToBottom = useCallback((animated = true) => {
     listRef.current?.scrollToEnd({ animated });
   }, []);
@@ -228,6 +260,10 @@ const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadM
             clientMessageId: msg.clientMessageId,
             groupId,
             text: msg.text,
+            replyToMessageId: msg.replyToMessageId,
+            replyToClientMessageId: msg.replyToClientMessageId,
+            replyPreviewText: msg.replyPreviewText,
+            replyPreviewSenderName: msg.replyPreviewSenderName,
             media: msg.media,
             mediaUrl: msg.mediaUrl || msg.imageUrl,
             mediaType: msg.mediaType || (msg.imageUrl ? 'image' : undefined),
@@ -322,6 +358,10 @@ const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadM
             clientMessageId: msg.clientMessageId,
             groupId,
             text: msg.text,
+            replyToMessageId: msg.replyToMessageId,
+            replyToClientMessageId: msg.replyToClientMessageId,
+            replyPreviewText: msg.replyPreviewText,
+            replyPreviewSenderName: msg.replyPreviewSenderName,
             media: msg.media,
             mediaUrl: msg.mediaUrl || msg.imageUrl,
             mediaType: msg.mediaType || (msg.imageUrl ? 'image' : undefined),
@@ -408,10 +448,21 @@ const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadM
     if (!text || !groupId || sending) return;
 
     const clientMessageId = createClientMessageId(groupId);
+    const activeReplyTarget = replyTarget;
+
+    const replyMetadata = activeReplyTarget
+      ? {
+          replyToMessageId: activeReplyTarget.id,
+          replyToClientMessageId: activeReplyTarget.clientMessageId,
+          replyPreviewText: getReplyPreviewText(activeReplyTarget),
+          replyPreviewSenderName: getReplyPreviewSenderName(activeReplyTarget),
+        }
+      : {};
 
     setSending(true);
     setDraft('');
     setInputHeight(40);
+    setReplyTarget(null);
     setUploadStatus(null);
 
     try {
@@ -419,6 +470,7 @@ const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadM
         groupId,
         clientMessageId,
         text,
+        ...replyMetadata,
         mine: true,
         senderNpub: npub ?? undefined,
         senderName: myDisplayName,
@@ -439,6 +491,7 @@ const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadM
           groupId,
           clientMessageId,
           text,
+          ...replyMetadata,
           senderNpub: npub ?? undefined,
           senderName: myDisplayName,
           nsec,
@@ -568,7 +621,18 @@ const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadM
     if (!groupId || uploadingImage || attachments.length === 0) return;
 
     const clientMessageId = createClientMessageId(groupId);
+    const activeReplyTarget = replyTarget;
 
+    const replyMetadata = activeReplyTarget
+      ? {
+          replyToMessageId: activeReplyTarget.id,
+          replyToClientMessageId: activeReplyTarget.clientMessageId,
+          replyPreviewText: getReplyPreviewText(activeReplyTarget),
+          replyPreviewSenderName: getReplyPreviewSenderName(activeReplyTarget),
+        }
+      : {};
+
+    setReplyTarget(null);
     setUploadingImage(true);
     setUploadStatus('Preparing attachments...');
 
@@ -615,6 +679,7 @@ const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadM
       await sendLocalGroupMessage({
         groupId,
         clientMessageId,
+        ...replyMetadata,
         media: uploadedMedia,
         mediaUrl: primaryMedia.uri,
         mediaType: primaryMedia.type,
@@ -637,6 +702,7 @@ const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadM
         publishGroupMessage({
           groupId,
           clientMessageId,
+          ...replyMetadata,
           media: uploadedMedia,
           mediaUrl: primaryMedia.uri,
           mediaType: primaryMedia.type,
@@ -839,11 +905,13 @@ const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadM
   const handleReplyToMessage = (message: GroupMessage | PendingUploadMessage) => {
     closeMessageActions();
 
-    Alert.alert(
-      'Reply',
-      'Reply previews will be added after message actions are stable.',
-      [{ text: 'OK' }]
-    );
+    if ((message as any).pending || (message as any).isDeleted) return;
+
+    setReplyTarget(message as GroupMessage);
+
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
   };
 
   const handleEditMessage = (message: GroupMessage | PendingUploadMessage) => {
@@ -1022,6 +1090,30 @@ const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadM
     <Text style={s.uploadText}>{uploadStatus}</Text>
   </View>
 )}
+
+          {replyTarget && (
+            <View style={s.replyComposerPreview}>
+              <View style={s.replyComposerAccent} />
+
+              <View style={{ flex: 1 }}>
+                <Text style={s.replyComposerLabel}>
+                  Replying to {getReplyPreviewSenderName(replyTarget)}
+                </Text>
+
+                <Text style={s.replyComposerText} numberOfLines={1}>
+                  {getReplyPreviewText(replyTarget)}
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                style={s.replyComposerClose}
+                onPress={() => setReplyTarget(null)}
+                activeOpacity={0.75}
+              >
+                <Text style={s.replyComposerCloseText}>×</Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
           <View style={s.composer}>
             <TouchableOpacity
@@ -1333,6 +1425,50 @@ messageVideoIcon: {
   emptyIcon: { fontSize: 36, marginBottom: 14, opacity: 0.7 },
   emptyText: { color: theme.text, fontSize: 16, fontWeight: '600', marginBottom: 6 },
   emptyHint: { color: theme.textMuted, fontSize: 13, textAlign: 'center' },
+
+  replyComposerPreview: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderTopWidth: 0.5,
+    borderTopColor: theme.border,
+    backgroundColor: theme.surface,
+  },
+  replyComposerAccent: {
+    width: 3,
+    height: 34,
+    borderRadius: 999,
+    backgroundColor: theme.gold,
+  },
+  replyComposerLabel: {
+    color: theme.gold,
+    fontSize: 12,
+    fontWeight: '900',
+    marginBottom: 2,
+  },
+  replyComposerText: {
+    color: theme.textMuted,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  replyComposerClose: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+  },
+  replyComposerCloseText: {
+    color: theme.textMuted,
+    fontSize: 20,
+    fontWeight: '700',
+    lineHeight: 22,
+  },
 
       composer: {
     borderTopWidth: 0.5,

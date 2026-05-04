@@ -32,6 +32,12 @@ export type GroupMessage = {
   groupId: string;
   text?: string;
 
+  // Reply metadata
+  replyToMessageId?: string;
+  replyToClientMessageId?: string;
+  replyPreviewText?: string;
+  replyPreviewSenderName?: string;
+
   // New multi-attachment shape
   media?: GroupMessageMedia[];
 
@@ -199,6 +205,12 @@ export async function sendLocalGroupMessage(input: {
   clientMessageId?: string;
   text?: string;
 
+  // Reply metadata
+  replyToMessageId?: string;
+  replyToClientMessageId?: string;
+  replyPreviewText?: string;
+  replyPreviewSenderName?: string;
+
   // New multi-attachment support
   media?: GroupMessageMedia[];
 
@@ -230,6 +242,11 @@ export async function sendLocalGroupMessage(input: {
     clientMessageId,
     groupId: input.groupId,
     text: trimmedText || undefined,
+
+    replyToMessageId: input.replyToMessageId,
+    replyToClientMessageId: input.replyToClientMessageId,
+    replyPreviewText: input.replyPreviewText,
+    replyPreviewSenderName: input.replyPreviewSenderName,
 
     media,
 
@@ -317,6 +334,12 @@ export async function saveRemoteGroupMessage(input: {
   groupId: string;
   text?: string;
 
+  // Reply metadata
+  replyToMessageId?: string;
+  replyToClientMessageId?: string;
+  replyPreviewText?: string;
+  replyPreviewSenderName?: string;
+
   // New multi-attachment support
   media?: GroupMessageMedia[];
 
@@ -385,8 +408,6 @@ export async function saveRemoteGroupMessage(input: {
       !!message.deletedOriginalMediaSignature &&
       message.deletedOriginalMediaSignature === incomingSignature;
 
-    // Fallback for messages deleted before tombstone signatures existed.
-    // This prevents the relay copy from reappearing under a nearby deleted placeholder.
     const deletedWithoutSignature =
       !message.deletedOriginalText &&
       !message.deletedOriginalPrimaryMediaUrl &&
@@ -422,6 +443,11 @@ export async function saveRemoteGroupMessage(input: {
     clientMessageId,
     groupId: input.groupId,
     text: input.text,
+
+    replyToMessageId: input.replyToMessageId,
+    replyToClientMessageId: input.replyToClientMessageId,
+    replyPreviewText: input.replyPreviewText,
+    replyPreviewSenderName: input.replyPreviewSenderName,
 
     media,
 

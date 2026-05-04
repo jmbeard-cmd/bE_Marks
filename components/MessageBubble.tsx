@@ -85,6 +85,22 @@ function formatTime(createdAt?: number): string {
   });
 }
 
+function hasReplyPreview(item: any): boolean {
+  return !!item?.replyToClientMessageId || !!item?.replyPreviewText;
+}
+
+function getReplyPreviewSender(item: any): string {
+  return item?.replyPreviewSenderName || 'Message';
+}
+
+function getReplyPreviewText(item: any): string {
+  const preview = item?.replyPreviewText?.trim();
+
+  if (preview) return preview;
+
+  return 'Original message';
+}
+
 function getReactionSummary(item: any): { reaction: string; count: number }[] {
   const reactions = Array.isArray(item?.reactions) ? item.reactions : [];
 
@@ -249,6 +265,47 @@ export default function MessageBubble({
             <ActivityIndicator size="small" color={theme.gold} />
             <Text style={s.pendingMediaText}>
               {item.pendingLabel}
+            </Text>
+          </View>
+        )}
+
+        {!isPending && !isDeleted && hasReplyPreview(item) && (
+          <View
+            style={{
+              width: 220,
+              marginBottom: item.text || visualCount > 0 || fileMediaItems.length > 0 ? 8 : 0,
+              paddingHorizontal: 10,
+              paddingVertical: 8,
+              borderRadius: 12,
+              backgroundColor: theme.bg,
+              borderLeftWidth: 3,
+              borderLeftColor: theme.gold,
+              borderWidth: 0.5,
+              borderColor: theme.border,
+            }}
+          >
+            <Text
+              numberOfLines={1}
+              style={{
+                color: theme.gold,
+                fontSize: 11,
+                fontWeight: '900',
+                marginBottom: 2,
+              }}
+            >
+              Replying to {getReplyPreviewSender(item)}
+            </Text>
+
+            <Text
+              numberOfLines={2}
+              style={{
+                color: theme.textMuted,
+                fontSize: 12,
+                fontWeight: '600',
+                lineHeight: 16,
+              }}
+            >
+              {getReplyPreviewText(item)}
             </Text>
           </View>
         )}

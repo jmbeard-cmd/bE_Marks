@@ -1412,6 +1412,12 @@ export interface NostrGroupMessage {
   senderName?: string;
   text?: string;
 
+  // Reply metadata
+  replyToMessageId?: string;
+  replyToClientMessageId?: string;
+  replyPreviewText?: string;
+  replyPreviewSenderName?: string;
+
   // New multi-attachment shape
   media?: NostrGroupMessageMedia[];
 
@@ -1487,6 +1493,12 @@ export async function publishGroupMessage(input: {
   clientMessageId?: string;
   text?: string;
 
+  // Reply metadata
+  replyToMessageId?: string;
+  replyToClientMessageId?: string;
+  replyPreviewText?: string;
+  replyPreviewSenderName?: string;
+
   // New multi-attachment support
   media?: NostrGroupMessageMedia[];
 
@@ -1536,6 +1548,14 @@ export async function publishGroupMessage(input: {
       ['client', 'bE-Marks'],
     ];
 
+    if (input.replyToClientMessageId) {
+      tags.push(['replyToClientMessageId', input.replyToClientMessageId]);
+    }
+
+    if (input.replyToMessageId) {
+      tags.push(['replyToMessageId', input.replyToMessageId]);
+    }
+
     for (const item of media) {
       tags.push(['url', item.uri]);
 
@@ -1562,6 +1582,11 @@ export async function publishGroupMessage(input: {
       groupId: input.groupId,
       clientMessageId,
       text: trimmedText || undefined,
+
+      replyToMessageId: input.replyToMessageId,
+      replyToClientMessageId: input.replyToClientMessageId,
+      replyPreviewText: input.replyPreviewText,
+      replyPreviewSenderName: input.replyPreviewSenderName,
 
       media,
 
@@ -1902,6 +1927,11 @@ export function fetchGroupMessages(
               senderName: parsed.senderName,
               text: parsed.text,
 
+              replyToMessageId: parsed.replyToMessageId,
+              replyToClientMessageId: parsed.replyToClientMessageId,
+              replyPreviewText: parsed.replyPreviewText,
+              replyPreviewSenderName: parsed.replyPreviewSenderName,
+
               media,
 
               mediaUrl: parsed.mediaUrl || parsed.imageUrl || primaryMedia?.uri,
@@ -1980,6 +2010,11 @@ export async function subscribeToGroupMessages(input: {
               senderNpub: parsed.senderNpub,
               senderName: parsed.senderName,
               text: parsed.text,
+
+              replyToMessageId: parsed.replyToMessageId,
+              replyToClientMessageId: parsed.replyToClientMessageId,
+              replyPreviewText: parsed.replyPreviewText,
+              replyPreviewSenderName: parsed.replyPreviewSenderName,
 
               media,
 
