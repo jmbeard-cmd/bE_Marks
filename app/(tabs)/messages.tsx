@@ -461,7 +461,7 @@ export default function MessagesScreen() {
         <View style={s.threadBody}>
           <View style={s.threadTop}>
             <Text style={[s.threadTitle, hasUnread && s.threadTitleUnread]} numberOfLines={1}>
-                            {displayTitle}
+              {displayTitle}
             </Text>
 
             <Text style={s.threadTime}>{formatThreadTime(item.updatedAt)}</Text>
@@ -740,41 +740,42 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     paddingVertical: 12,
-    borderRadius: 18,
-    marginBottom: 4,
+    borderRadius: 20,
+    marginBottom: 8,
+    borderWidth: 0.5,
+    borderColor: theme.border,
   },
   avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: theme.surface,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: theme.raised,
     borderWidth: 0.5,
     borderColor: theme.border,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
   avatarUnread: {
     borderColor: theme.gold,
     backgroundColor: theme.raised,
   },
-   avatarText: {
+  avatarText: {
     color: theme.gold,
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '900',
   },
   avatarImage: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
   },
   threadBody: {
     flex: 1,
     minWidth: 0,
-    borderBottomWidth: 0.5,
-    borderBottomColor: theme.surface,
-    paddingBottom: 12,
+    paddingVertical: 2,
   },
   threadTop: {
     flexDirection: 'row',
@@ -785,7 +786,7 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     flex: 1,
     color: theme.text,
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '800',
     marginRight: 8,
   },
   threadTitleUnread: {
@@ -795,33 +796,45 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
   threadTime: {
     color: theme.textMuted,
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   threadBottom: {
     flexDirection: 'row',
     alignItems: 'center',
+    minHeight: 21,
   },
   threadPreview: {
     flex: 1,
-    color: theme.textSecondary,
+    color: theme.textMuted,
     fontSize: 13,
+    fontWeight: '600',
     marginRight: 8,
   },
   threadPreviewUnread: {
-    color: theme.textSecondary,
-    fontWeight: '700',
+    color: theme.text,
+    fontWeight: '800',
   },
   threadMetaSecure: {
+    alignSelf: 'flex-start',
     color: theme.gold,
     fontSize: 10,
-    fontWeight: '700',
+    fontWeight: '800',
     marginTop: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: theme.raised,
   },
   threadMetaLocal: {
+    alignSelf: 'flex-start',
     color: theme.textMuted,
     fontSize: 10,
-    fontWeight: '700',
+    fontWeight: '800',
     marginTop: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: theme.raised,
   },
   unreadBadge: {
     minWidth: 22,
@@ -833,12 +846,13 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     justifyContent: 'center',
   },
   unreadText: {
-    color: theme.surface,
+    color: theme.bg,
     fontSize: 11,
     fontWeight: '900',
   },
   moreBtn: {
     width: 28,
+    height: 42,
     alignItems: 'center',
     justifyContent: 'center',
   },
