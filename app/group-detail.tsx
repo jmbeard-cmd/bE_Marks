@@ -181,6 +181,8 @@ const [highlightProgress, setHighlightProgress] = useState(0);
 const [groupRelayMode, setGroupRelayMode] = useState<GroupRelayMode>('default');
 const [groupRelayUrl, setGroupRelayUrl] = useState('');
 const [upcomingCount, setUpcomingCount] = useState(0);
+const [selectedMemberAction, setSelectedMemberAction] = useState<BEGroupMember | null>(null);
+
 const hydrateMemberProfiles = useCallback(async (groupId: string, groupMembers: BEGroupMember[]) => {
   const activeMembers = groupMembers.filter(member => member.status === 'active');
 
@@ -975,41 +977,7 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
   };
 
   const openMemberActions = (member: BEGroupMember) => {
-    if (!group) return;
-
-    const displayName = member.displayName || `${member.npub.slice(0, 12)}…`;
-
-    const adminButtons =
-      isAdmin && member.npub !== npub && member.role !== 'owner'
-        ? [
-            member.role === 'member'
-              ? {
-                  text: 'Make admin',
-                  onPress: () => handlePromoteAdmin(member),
-                }
-              : {
-                  text: 'Remove admin',
-                  onPress: () => updateMemberRole(group.id, member.npub, 'member').then(load),
-                },
-            {
-              text: 'Remove from group',
-              style: 'destructive' as const,
-              onPress: () => handleRemoveMember(member),
-            },
-          ]
-        : [];
-
-    Alert.alert(
-      displayName,
-      'What would you like to do?',
-      [
-        { text: 'Add to Contacts', onPress: () => handleAddMemberToContacts(member) },
-        { text: 'Message', onPress: () => handleMessageMember(member) },
-        { text: 'Copy npub', onPress: () => handleCopyMemberNpub(member) },
-        ...adminButtons,
-        { text: 'Cancel', style: 'cancel' },
-      ]
-    );
+    setSelectedMemberAction(member);
   };
 
   if (!group) return (
@@ -1563,6 +1531,166 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
           <Text style={s.fabIcon}>+</Text>
         </TouchableOpacity>
       )}
+
+<Modal
+  visible={!!selectedMemberAction}
+  transparent
+  animationType="fade"
+  onRequestClose={() => setSelectedMemberAction(null)}
+>
+  <View style={s.memberActionOverlay}>
+    <TouchableOpacity
+      style={s.memberActionBackdrop}
+      activeOpacity={1}
+      onPress={() => setSelectedMemberAction(null)}
+    />
+
+    {selectedMemberAction && (
+      <View style={s.memberActionSheet}>
+        <View style={s.memberActionHandle} />
+
+        <View style={s.memberActionHeader}>
+          <View style={s.memberActionAvatar}>
+            {selectedMemberAction.avatarUrl ? (
+              <Image
+                source={{ uri: selectedMemberAction.avatarUrl }}
+                style={s.memberActionAvatarImg}
+              />
+            ) : (
+              <Text style={s.memberActionAvatarLetter}>
+                {(selectedMemberAction.displayName ?? selectedMemberAction.npub)[0].toUpperCase()}
+              </Text>
+            )}
+          </View>
+
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={s.memberActionName} numberOfLines={1}>
+              {selectedMemberAction.displayName || `${selectedMemberAction.npub.slice(0, 12)}…`}
+            </Text>
+
+            <Text style={s.memberActionNpub} numberOfLines={1}>
+              {selectedMemberAction.npub}
+            </Text>
+          </View>
+
+          <View style={s.memberActionRolePill}>
+            <Text style={s.memberActionRoleText}>
+              {selectedMemberAction.role === 'owner'
+                ? 'Owner'
+                : selectedMemberAction.role === 'admin'
+                  ? 'Admin'
+                  : 'Member'}
+            </Text>
+          </View>
+        </View>
+
+        <View style={s.memberActionList}>
+          <TouchableOpacity
+            style={s.memberActionRow}
+            activeOpacity={0.78}
+            onPress={() => {
+              const member = selectedMemberAction;
+              setSelectedMemberAction(null);
+              handleAddMemberToContacts(member);
+            }}
+          >
+            <Text style={s.memberActionIcon}>＋</Text>
+            <View style={s.memberActionTextBlock}>
+              <Text style={s.memberActionTitle}>Add to Contacts</Text>
+              <Text style={s.memberActionHint}>Save this member for quick messaging.</Text>
+            </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={s.memberActionRow}
+            activeOpacity={0.78}
+            onPress={() => {
+              const member = selectedMemberAction;
+              setSelectedMemberAction(null);
+              handleMessageMember(member);
+            }}
+          >
+            <Text style={s.memberActionIcon}>✉️</Text>
+            <View style={s.memberActionTextBlock}>
+              <Text style={s.memberActionTitle}>Message</Text>
+              <Text style={s.memberActionHint}>Open or start a private DM.</Text>
+            </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={s.memberActionRow}
+            activeOpacity={0.78}
+            onPress={() => {
+              const member = selectedMemberAction;
+              setSelectedMemberAction(null);
+              handleCopyMemberNpub(member);
+            }}
+          >
+            <Text style={s.memberActionIcon}>⧉</Text>
+            <View style={s.memberActionTextBlock}>
+              <Text style={s.memberActionTitle}>Copy npub</Text>
+              <Text style={s.memberActionHint}>Copy this member’s Nostr address.</Text>
+            </View>
+          </TouchableOpacity>
+
+          {isAdmin && selectedMemberAction.npub !== npub && selectedMemberAction.role !== 'owner' && (
+            <>
+              <TouchableOpacity
+                style={s.memberActionRow}
+                activeOpacity={0.78}
+                onPress={() => {
+                  const member = selectedMemberAction;
+                  setSelectedMemberAction(null);
+
+                  if (member.role === 'member') {
+                    handlePromoteAdmin(member);
+                  } else {
+                    updateMemberRole(group.id, member.npub, 'member').then(load);
+                  }
+                }}
+              >
+                <Text style={s.memberActionIcon}>★</Text>
+                <View style={s.memberActionTextBlock}>
+                  <Text style={s.memberActionTitle}>
+                    {selectedMemberAction.role === 'member' ? 'Make admin' : 'Remove admin'}
+                  </Text>
+                  <Text style={s.memberActionHint}>Manage this member’s group role.</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[s.memberActionRow, s.memberActionDangerRow]}
+                activeOpacity={0.78}
+                onPress={() => {
+                  const member = selectedMemberAction;
+                  setSelectedMemberAction(null);
+                  handleRemoveMember(member);
+                }}
+              >
+                <Text style={[s.memberActionIcon, s.memberActionDangerText]}>⌫</Text>
+                <View style={s.memberActionTextBlock}>
+                  <Text style={[s.memberActionTitle, s.memberActionDangerText]}>
+                    Remove from group
+                  </Text>
+                  <Text style={s.memberActionHint}>Remove access for this group.</Text>
+                </View>
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+
+        <TouchableOpacity
+          style={s.memberActionCancel}
+          activeOpacity={0.8}
+          onPress={() => setSelectedMemberAction(null)}
+        >
+          <Text style={s.memberActionCancelText}>Cancel</Text>
+        </TouchableOpacity>
+      </View>
+    )}
+  </View>
+</Modal>
+
 
 <ImageViewerModal
   images={activeViewerImages.length > 0 ? activeViewerImages : galleryViewerImages}
@@ -2320,6 +2448,8 @@ highlightVideoPlay: {
     padding: 13,
     borderRadius: 18,
     backgroundColor: theme.surface,
+    borderWidth: 0.5,
+    borderColor: theme.border,
   },
   memberAvatar: {
     width: 44,
@@ -2335,6 +2465,8 @@ highlightVideoPlay: {
     height: 44,
     borderRadius: 22,
     backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2369,6 +2501,8 @@ highlightVideoPlay: {
     height: 34,
     borderRadius: 17,
     backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2404,6 +2538,146 @@ highlightVideoPlay: {
     color: theme.gold,
   },
 
+  memberActionOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  memberActionBackdrop: {
+    flex: 1,
+    backgroundColor: theme.bg === Colors.light.bg
+      ? 'rgba(17, 24, 28, 0.28)'
+      : 'rgba(0,0,0,0.58)',
+  },
+  memberActionSheet: {
+    backgroundColor: theme.surface,
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    borderTopWidth: 0.5,
+    borderTopColor: theme.border,
+    paddingHorizontal: 18,
+    paddingBottom: 28,
+  },
+  memberActionHandle: {
+    width: 42,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: theme.border,
+    alignSelf: 'center',
+    marginTop: 12,
+    marginBottom: 16,
+  },
+  memberActionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 16,
+  },
+  memberActionAvatar: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  memberActionAvatarImg: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+  },
+  memberActionAvatarLetter: {
+    color: theme.gold,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  memberActionName: {
+    color: theme.text,
+    fontSize: 18,
+    fontWeight: '900',
+    letterSpacing: -0.3,
+  },
+  memberActionNpub: {
+    color: theme.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  memberActionRolePill: {
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+  },
+  memberActionRoleText: {
+    color: theme.gold,
+    fontSize: 10,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  memberActionList: {
+    gap: 8,
+  },
+  memberActionRow: {
+    minHeight: 58,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 13,
+    paddingVertical: 10,
+    borderRadius: 16,
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+  },
+  memberActionDangerRow: {
+    borderColor: theme.danger,
+  },
+  memberActionIcon: {
+    width: 28,
+    color: theme.gold,
+    fontSize: 20,
+    textAlign: 'center',
+    fontWeight: '900',
+  },
+  memberActionTextBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  memberActionTitle: {
+    color: theme.text,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  memberActionHint: {
+    color: theme.textMuted,
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  memberActionDangerText: {
+    color: theme.danger,
+  },
+  memberActionCancel: {
+    minHeight: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 12,
+    backgroundColor: theme.bg,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+  },
+  memberActionCancelText: {
+    color: theme.textMuted,
+    fontSize: 14,
+    fontWeight: '900',
+  },
     // Admin bar
   adminBar: {
     position: 'absolute',
