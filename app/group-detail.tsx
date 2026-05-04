@@ -64,6 +64,7 @@ import { uploadToR2 } from '../src/utils/r2';
 import { useIdentity } from './_layout';
 
 type Tab = 'stickies' | 'calendar' | 'gallery' | 'members';
+type MainTab = 'stickies' | 'calendar' | 'gallery';
 const GROUP_LOCAL_GALLERY_KEY = 'be_group_local_gallery_v1';
 
 type LocalGalleryItem = {
@@ -892,7 +893,17 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
         </TouchableOpacity>
         <View style={s.headerCenter}>
           <Text style={s.headerTitle} numberOfLines={1}>{group.name}</Text>
-          {group.season && <Text style={s.headerSub}>{group.season}</Text>}
+
+          <TouchableOpacity
+            onPress={() => setTab('members')}
+            activeOpacity={0.75}
+            style={s.memberHeaderPill}
+          >
+            <Text style={s.memberHeaderText}>
+              {members.length} {members.length === 1 ? 'member' : 'members'}
+              {group.season ? ` · ${group.season}` : ''}
+            </Text>
+          </TouchableOpacity>
         </View>
         {isAdmin && (
           <TouchableOpacity style={s.inviteBtn} onPress={() => setShowInvite(v => !v)}>
@@ -938,24 +949,22 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
 
       {/* Tab bar */}
       <View style={s.tabRow}>
-  {(['stickies', 'calendar', 'gallery', 'members'] as Tab[]).map(t => (
-    <TouchableOpacity
-      key={t}
-      style={[s.tabBtn, tab === t && s.tabBtnActive]}
-      onPress={() => setTab(t)}
-    >
-      <Text style={[s.tabText, tab === t && s.tabTextActive]}>
-        {t === 'stickies'
-          ? `Highlights (${stickies.length})`
-          : t === 'calendar'
-            ? `Calendar${upcomingCount > 0 ? ` (${upcomingCount})` : ''}`
-            : t === 'gallery'
-              ? `Gallery (${galleryItems.length})`
-              : `Members (${members.length})`}
-      </Text>
-    </TouchableOpacity>
-  ))}
-</View>
+        {(['stickies', 'calendar', 'gallery'] as MainTab[]).map(t => (
+          <TouchableOpacity
+            key={t}
+            style={[s.tabBtn, tab === t && s.tabBtnActive]}
+            onPress={() => setTab(t)}
+          >
+            <Text style={[s.tabText, tab === t && s.tabTextActive]}>
+              {t === 'stickies'
+                ? `Highlights (${stickies.length})`
+                : t === 'calendar'
+                  ? `Calendar${upcomingCount > 0 ? ` (${upcomingCount})` : ''}`
+                  : `Gallery (${galleryItems.length})`}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
 
     {/* Stickies tab */}
 {tab === 'stickies' && (
@@ -1658,6 +1667,20 @@ visibilitySoon: {
   headerCenter: { flex: 1, alignItems: 'center', paddingHorizontal: 8 },
   headerTitle: { color: theme.text, fontSize: 16, fontWeight: '800', letterSpacing: -0.2 },
   headerSub: { color: theme.textMuted, fontSize: 11, marginTop: 2, fontWeight: '600' },
+  memberHeaderPill: {
+    marginTop: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: theme.surface,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+  },
+  memberHeaderText: {
+    color: theme.gold,
+    fontSize: 11,
+    fontWeight: '800',
+  },
   inviteBtn: {
     paddingHorizontal: 14,
     paddingVertical: 8,

@@ -4,6 +4,7 @@ import {
   fetchGroupByInviteCode,
   fetchGroupMemberships,
   fetchGroupMembershipsForPubkey,
+  npubToHex,
   publishGroup,
   publishGroupMembership,
   type NostrGroupPayload,
@@ -125,27 +126,42 @@ export async function syncGroupMembersFromRelay(
   for (const event of membershipEvents) {
     const npubTag = event.tags.find(tag => tag[0] === 'npub');
     const roleTag = event.tags.find(tag => tag[0] === 'role');
+    const pTag = event.tags.find(tag => tag[0] === 'p');
 
     const memberNpub = npubTag?.[1];
     if (!memberNpub) continue;
 
+    const rawRole = roleTag?.[1];
+    const relayRole: MemberRole =
+      rawRole === 'owner' || rawRole === 'admin' || rawRole === 'member'
+        ? rawRole
+        : 'member';
+
     const existing = memberMap.get(memberNpub);
+
+    const resolvedRole: MemberRole =
+      existing?.role === 'owner'
+        ? 'owner'
+        : relayRole === 'owner'
+          ? 'owner'
+          : existing?.role === 'admin'
+            ? 'admin'
+            : relayRole;
 
     memberMap.set(memberNpub, {
       id: existing?.id ?? `member_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       groupId,
       npub: memberNpub,
-      pubkeyHex: existing?.pubkeyHex ?? event.pubkey,
+      pubkeyHex: existing?.pubkeyHex ?? pTag?.[1] ?? event.pubkey,
       displayName: existing?.displayName,
       avatarUrl: existing?.avatarUrl,
-      role: existing?.role ?? (roleTag?.[1] as MemberRole) ?? 'member',
+      role: resolvedRole,
       status: 'active',
       joinedAt: existing?.joinedAt ?? event.created_at,
     });
   }
 
   const mergedGroupMembers = Array.from(memberMap.values());
-
   const otherMembers = allMembers.filter(m => m.groupId !== groupId);
 
   await writeMembers([...otherMembers, ...mergedGroupMembers]);
@@ -261,6 +277,7 @@ export async function createGroup(input: {
     memberNpub: input.ownerNpub,
     memberPubkeyHex: input.ownerPubkeyHex,
     action: 'join',
+    role: 'owner',
     nsec: input.nsec,
     relayUrl: group.relayUrl,
   });
@@ -475,6 +492,7 @@ export async function joinGroupByCode(input: {
     if (remoteGroup) {
       const groups = await readGroups();
       const now = Math.floor(Date.now() / 1000);
+
       const newGroup: BEGroup = {
         id: remoteGroup.id,
         name: remoteGroup.name,
@@ -487,12 +505,26 @@ export async function joinGroupByCode(input: {
         createdAt: remoteGroup.createdAt,
         updatedAt: now,
         relayUrl: remoteGroup.relayUrl,
-        memberCount: 1,
+        memberCount: remoteGroup.ownerNpub ? 1 : 0,
         postCount: 0,
       };
+
       groups.push(newGroup);
       await writeGroups(groups);
       group = newGroup;
+
+      if (remoteGroup.ownerNpub) {
+        try {
+          await addGroupMember({
+            groupId: remoteGroup.id,
+            npub: remoteGroup.ownerNpub,
+            pubkeyHex: npubToHex(remoteGroup.ownerNpub),
+            role: 'owner',
+          });
+        } catch (ownerSeedError) {
+          console.warn('[Groups] failed to seed remote group owner:', ownerSeedError);
+        }
+      }
     }
   }
 
@@ -526,6 +558,7 @@ export async function joinGroupByCode(input: {
       memberNpub: input.npub,
       memberPubkeyHex: input.pubkeyHex,
       action: 'join',
+      role: 'member',
       nsec: input.nsec,
       relayUrl: group.relayUrl,
     }).catch(e => console.warn('[Groups] Failed to publish membership:', e));

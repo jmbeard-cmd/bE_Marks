@@ -27,7 +27,10 @@ import {
   type GroupMessage,
   type GroupMessageMedia,
 } from '../src/utils/group-messages';
-import { getGroupById } from '../src/utils/group-storage';
+import {
+  getGroupById,
+  getGroupMembers,
+} from '../src/utils/group-storage';
 import {
   compressImageForUpload,
   compressVideoForUpload,
@@ -72,6 +75,7 @@ const [uploadingImage, setUploadingImage] = useState(false);
 const [uploadStatus, setUploadStatus] = useState<string | null>(null);
 const [pendingUploads, setPendingUploads] = useState<PendingUploadMessage[]>([]);
 const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
+const [memberAvatarMap, setMemberAvatarMap] = useState<Record<string, string | undefined>>({});
 
   const listRef = useRef<FlatList>(null);
   const inputRef = useRef<TextInput>(null);
@@ -128,9 +132,31 @@ const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
       ];
     });
 
-    const visibleMessages = useMemo(
-    () => [...messages, ...pendingUploads].sort((a, b) => a.createdAt - b.createdAt),
-    [messages, pendingUploads]
+  const visibleMessages = useMemo(
+    () => {
+      const myAvatarUrl =
+        (profile as any)?.picture ||
+        (profile as any)?.avatarUrl ||
+        undefined;
+
+      return [...messages, ...pendingUploads]
+        .map(message => {
+          const senderNpub = (message as any).senderNpub;
+          const avatarUrl =
+            message.mine
+              ? myAvatarUrl
+              : senderNpub
+                ? memberAvatarMap[senderNpub]
+                : undefined;
+
+          return {
+            ...message,
+            avatarUrl,
+          };
+        })
+        .sort((a, b) => a.createdAt - b.createdAt);
+    },
+    [messages, pendingUploads, memberAvatarMap, profile]
   );
 
   const scrollToBottom = useCallback((animated = true) => {
@@ -141,9 +167,23 @@ const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
     if (!groupId) return;
 
     const group = await getGroupById(groupId);
+
     if (group) {
       setGroupName(group.name);
       setRelayUrl(group.relayUrl);
+    }
+
+    try {
+      const groupMembers = await getGroupMembers(groupId);
+      const nextAvatarMap: Record<string, string | undefined> = {};
+
+      groupMembers.forEach(member => {
+        nextAvatarMap[member.npub] = member.avatarUrl;
+      });
+
+      setMemberAvatarMap(nextAvatarMap);
+    } catch (error) {
+      console.warn('[Groups] failed to load member avatars:', error);
     }
   }, [groupId]);
 

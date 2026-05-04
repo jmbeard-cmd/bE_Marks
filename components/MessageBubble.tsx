@@ -58,6 +58,32 @@ function getFileMediaItems(media: MessageMediaItem[]) {
   return media.filter(entry => entry.type === 'file');
 }
 
+function getInitials(name?: string): string {
+  const fallback = 'M';
+  const cleaned = name?.trim();
+
+  if (!cleaned) return fallback;
+
+  const parts = cleaned
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (parts.length === 1) {
+    return parts[0].slice(0, 2).toUpperCase();
+  }
+
+  return `${parts[0][0] || ''}${parts[1][0] || ''}`.toUpperCase() || fallback;
+}
+
+function formatTime(createdAt?: number): string {
+  if (!createdAt) return '';
+
+  return new Date(createdAt * 1000).toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
 async function openFile(uri: string) {
   try {
     const supported = await Linking.canOpenURL(uri);
@@ -80,16 +106,114 @@ export default function MessageBubble({ item, showName, onPressMedia, s }: Props
   const fileMediaItems = getFileMediaItems(mediaItems);
 
   const visualCount = visualMediaItems.length;
+  const senderName = item?.mine ? 'You' : item?.senderName || 'Member';
+  const avatarText = getInitials(senderName);
+  const timeText = formatTime(item?.createdAt);
+  const shouldShowIdentity = showName || item?.mine;
 
   return (
-    <View style={[s.row, item.mine ? s.rowMine : s.rowOther]}>
-      <View style={[s.bubble, item.mine ? s.bubbleMine : s.bubbleOther]}>
-        {!item.mine && showName && (
-          <Text style={s.senderName}>
-            {item.senderName || 'Member'}
-          </Text>
-        )}
+    <View
+      style={{
+        position: 'relative',
+        marginBottom: 10,
+        paddingLeft: 40,
+        paddingRight: 10,
+      }}
+    >
+      {shouldShowIdentity && (
+        <View
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 20,
+            width: 34,
+            height: 34,
+            borderRadius: 17,
+            backgroundColor: theme.surface,
+            borderWidth: 0.5,
+            borderColor: theme.border,
+            alignItems: 'center',
+            justifyContent: 'center',
+            overflow: 'hidden',
+            zIndex: 2,
+          }}
+        >
+          {item?.avatarUrl ? (
+            <Image
+              source={{ uri: item.avatarUrl }}
+              style={{
+                width: 34,
+                height: 34,
+                borderRadius: 17,
+              }}
+              resizeMode="cover"
+            />
+          ) : (
+            <Text
+              style={{
+                color: theme.gold,
+                fontSize: 12,
+                fontWeight: '900',
+              }}
+            >
+              {avatarText}
+            </Text>
+          )}
+        </View>
+      )}
 
+      {shouldShowIdentity && (
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'baseline',
+            gap: 6,
+            marginBottom: 4,
+            marginLeft: 2,
+          }}
+        >
+          <Text
+            numberOfLines={1}
+            style={{
+              color: item?.mine ? theme.gold : theme.text,
+              fontSize: 13,
+              fontWeight: '900',
+              maxWidth: 190,
+            }}
+          >
+            {senderName}
+          </Text>
+
+          {!!timeText && (
+            <Text
+              style={{
+                color: theme.textMuted,
+                fontSize: 11,
+                fontWeight: '600',
+              }}
+            >
+              {timeText}
+            </Text>
+          )}
+        </View>
+      )}
+
+      <View
+        style={[
+          s.bubble,
+          {
+            alignSelf: 'flex-start',
+            maxWidth: '100%',
+            backgroundColor: item?.mine ? theme.raised : theme.surface,
+            borderWidth: 0.5,
+            borderColor: item?.mine ? theme.goldDim : theme.border,
+            borderRadius: 18,
+            borderTopLeftRadius: shouldShowIdentity ? 6 : 18,
+            paddingHorizontal: 12,
+            paddingVertical: 10,
+          },
+        ]}
+      >
         {isPending && (
           <View style={s.pendingMediaBox}>
             <ActivityIndicator size="small" color={theme.gold} />
@@ -103,7 +227,9 @@ export default function MessageBubble({ item, showName, onPressMedia, s }: Props
           <Text
             style={[
               s.messageText,
-              item.mine ? s.messageTextMine : s.messageTextOther,
+              {
+                color: theme.text,
+              },
             ]}
           >
             {item.text}
@@ -209,8 +335,8 @@ export default function MessageBubble({ item, showName, onPressMedia, s }: Props
                   padding: 11,
                   borderRadius: 12,
                   borderWidth: 0.5,
-                  borderColor: item.mine ? 'rgba(0,0,0,0.18)' : theme.border,
-                  backgroundColor: item.mine ? 'rgba(255,255,255,0.22)' : theme.surface,
+                  borderColor: theme.border,
+                  backgroundColor: theme.bg,
                 }}
               >
                 <Text style={{ fontSize: 18 }}>📎</Text>
@@ -219,7 +345,7 @@ export default function MessageBubble({ item, showName, onPressMedia, s }: Props
                   <Text
                     numberOfLines={1}
                     style={{
-                      color: item.mine ? '#111' : theme.text,
+                      color: theme.text,
                       fontSize: 13,
                       fontWeight: '800',
                     }}
@@ -231,7 +357,7 @@ export default function MessageBubble({ item, showName, onPressMedia, s }: Props
                     <Text
                       numberOfLines={1}
                       style={{
-                        color: item.mine ? 'rgba(0,0,0,0.55)' : theme.textMuted,
+                        color: theme.textMuted,
                         fontSize: 10,
                         marginTop: 2,
                       }}
@@ -243,7 +369,7 @@ export default function MessageBubble({ item, showName, onPressMedia, s }: Props
 
                 <Text
                   style={{
-                    color: item.mine ? '#111' : theme.gold,
+                    color: theme.gold,
                     fontSize: 11,
                     fontWeight: '900',
                   }}
@@ -254,19 +380,21 @@ export default function MessageBubble({ item, showName, onPressMedia, s }: Props
             ))}
           </View>
         )}
-
-        <Text
-          style={[
-            s.time,
-            item.mine ? s.timeMine : s.timeOther,
-          ]}
-        >
-          {new Date(item.createdAt * 1000).toLocaleTimeString([], {
-            hour: 'numeric',
-            minute: '2-digit',
-          })}
-        </Text>
       </View>
+
+      {!isPending && (
+        <View
+          style={{
+            flexDirection: 'row',
+            gap: 6,
+            marginTop: 5,
+            marginLeft: 8,
+            minHeight: 18,
+          }}
+        >
+          {/* Reaction chips will go here next. */}
+        </View>
+      )}
     </View>
   );
 }

@@ -1341,31 +1341,43 @@ export async function publishGroupMembership(input: {
   memberNpub: string;
   memberPubkeyHex: string;
   action: 'join' | 'leave' | 'remove';
+  role?: 'owner' | 'admin' | 'member';
   nsec: string;
   relayUrl: string;
 }): Promise<{ success: boolean; error?: string }> {
   try {
     const decoded = nip19.decode(input.nsec);
     if (decoded.type !== 'nsec') throw new Error('Invalid nsec');
+
     const sk = decoded.data as Uint8Array;
     const pk = getPublicKey(sk);
 
+    const membershipRole =
+      input.action === 'join'
+        ? input.role ?? 'member'
+        : 'removed';
+
     const tags: string[][] = [
-  ['d', input.groupId],
-  ['member', input.memberNpub],
-  ['npub', input.memberNpub],
-  ['group', input.groupId],
-  ['p', input.memberPubkeyHex],
-  ['role', input.action === 'join' ? 'member' : 'removed'],
-  ['action', input.action],
-  ['client', 'bE-Marks'],
-];
+      ['d', input.groupId],
+      ['member', input.memberNpub],
+      ['npub', input.memberNpub],
+      ['group', input.groupId],
+      ['p', input.memberPubkeyHex],
+      ['role', membershipRole],
+      ['action', input.action],
+      ['client', 'bE-Marks'],
+    ];
 
     const unsigned: UnsignedEvent = {
       kind: GROUP_MEMBER_KIND,
       created_at: Math.floor(Date.now() / 1000),
       tags,
-      content: JSON.stringify({ action: input.action, groupId: input.groupId }),
+      content: JSON.stringify({
+        action: input.action,
+        groupId: input.groupId,
+        memberNpub: input.memberNpub,
+        role: membershipRole,
+      }),
       pubkey: pk,
     };
 
