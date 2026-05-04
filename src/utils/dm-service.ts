@@ -322,10 +322,28 @@ export async function restoreDMsFromRelay(): Promise<void> {
       });
     }
 
+    const touchedThreadIds = Array.from(
+      new Set(messagesToSave.map(message => message.threadId))
+    );
+
     await saveRemoteDMMessagesBatch(messagesToSave);
+
+    for (const threadId of touchedThreadIds) {
+      emitDMChanged(threadId);
+    }
+
     emitDMChanged('__restore_done__');
 
+    setTimeout(() => {
+      for (const threadId of touchedThreadIds) {
+        emitDMChanged(threadId);
+      }
+
+      emitDMChanged('__restore_done__');
+    }, 500);
+
     console.log('[DM RESTORE] complete, saved candidates:', messagesToSave.length);
+
   } catch (error) {
     console.warn('[DM RESTORE] failed:', error);
   }

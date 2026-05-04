@@ -33,6 +33,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import ImageViewerModal, { ViewerImage } from '../components/ImageViewerModal';
 import MediaCollage from '../components/MediaCollage';
 import { Colors } from '../src/constants/theme';
+import { getMessagesForGroup } from '../src/utils/group-messages';
 import {
   createGroupSticky,
   getStickiesForGroup,
@@ -257,6 +258,85 @@ setUpcomingCount(upcoming.length);
 try {
   let chatMediaItems: any[] = [];
 
+  const mapMessageToGalleryItems = (message: any, source: 'local-chat' | 'chat') => {
+    if (message.isDeleted) return [];
+
+    const mediaItems = Array.isArray(message.media)
+      ? message.media
+      : [];
+
+    if (mediaItems.length > 0) {
+      return mediaItems
+        .filter((item: any) => {
+          const mediaType = item.type || item.mediaType;
+          return !!item.uri && (mediaType === 'image' || mediaType === 'video');
+        })
+        .map((item: any, index: number) => {
+          const mediaType: 'image' | 'video' =
+            item.type === 'video' || item.mediaType === 'video' ? 'video' : 'image';
+
+          const stableId =
+            message.clientMessageId ||
+            message.id ||
+            `${source}_${index}_${item.uri}`;
+
+          return {
+            id: `chat_gallery_${stableId}_${item.id || index}_${item.uri}`,
+            mediaUrl: item.uri,
+            mediaType,
+            thumbnailUrl: item.thumbnailUrl || item.thumbnailUri || message.thumbnailUrl,
+            createdAt: message.createdAt,
+            source,
+          };
+        });
+    }
+
+    const legacyUrl = message.mediaUrl || message.imageUrl;
+
+    if (!legacyUrl) return [];
+
+    const legacyType: 'image' | 'video' =
+      message.mediaType === 'video' ? 'video' : 'image';
+
+    const stableId =
+      message.clientMessageId ||
+      message.id ||
+      `${source}_${legacyUrl}`;
+
+    return [
+      {
+        id: `chat_gallery_${stableId}_${legacyUrl}`,
+        mediaUrl: legacyUrl,
+        mediaType: legacyType,
+        thumbnailUrl: message.thumbnailUrl,
+        createdAt: message.createdAt,
+        source,
+      },
+    ];
+  };
+
+  const localMessages = await getMessagesForGroup(id);
+    console.log(
+    '[Gallery Debug] local video messages:',
+    localMessages
+      .filter((message: any) =>
+        message.mediaType === 'video' ||
+        message.media?.some((item: any) => item.type === 'video')
+      )
+      .map((message: any) => ({
+        id: message.id,
+        clientMessageId: message.clientMessageId,
+        mediaUrl: message.mediaUrl,
+        thumbnailUrl: message.thumbnailUrl,
+        media: message.media,
+      }))
+  );
+  const localChatMediaItems = localMessages.flatMap(message =>
+    mapMessageToGalleryItems(message, 'local-chat')
+  );
+
+  let relayChatMediaItems: any[] = [];
+
   if (g.relayUrl) {
     const [events, deleteEvents] = await Promise.all([
       fetchGroupMessages(id, g.relayUrl),
@@ -277,7 +357,7 @@ try {
       }
     });
 
-    chatMediaItems = events
+    relayChatMediaItems = events
       .filter(event => {
         const eventClientMessageId = (event as any).clientMessageId;
 
@@ -287,51 +367,28 @@ try {
           (!eventClientMessageId || !deletedClientMessageIds.has(eventClientMessageId))
         );
       })
-      .flatMap(event => {
-      const mediaItems = Array.isArray((event as any).media)
-        ? (event as any).media
-        : [];
-
-      if (mediaItems.length > 0) {
-        return mediaItems
-          .filter((item: any) => {
-            const mediaType = item.type || item.mediaType;
-            return !!item.uri && (mediaType === 'image' || mediaType === 'video');
-          })
-          .map((item: any, index: number) => {
-            const mediaType: 'image' | 'video' =
-              item.type === 'video' || item.mediaType === 'video' ? 'video' : 'image';
-
-            return {
-              id: `chat_gallery_${event.id}_${item.id || index}_${item.uri}`,
-              mediaUrl: item.uri,
-              mediaType,
-              thumbnailUrl: item.thumbnailUrl || item.thumbnailUri,
-              createdAt: event.createdAt,
-              source: 'chat',
-            };
-          });
-      }
-
-      const legacyUrl = event.mediaUrl || event.imageUrl;
-
-      if (!legacyUrl) return [];
-
-      const legacyType: 'image' | 'video' =
-        event.mediaType === 'video' ? 'video' : 'image';
-
-      return [
-        {
-          id: `chat_gallery_${event.id}_${legacyUrl}`,
-          mediaUrl: legacyUrl,
-          mediaType: legacyType,
-          thumbnailUrl: event.thumbnailUrl,
-          createdAt: event.createdAt,
-          source: 'chat',
-        },
-      ];
-      });
+      .flatMap(event => mapMessageToGalleryItems(event, 'chat'));
   }
+
+  const galleryByMediaUrl = new Map<string, any>();
+
+  [...relayChatMediaItems, ...localChatMediaItems].forEach(item => {
+    const existing = galleryByMediaUrl.get(item.mediaUrl);
+
+    if (!existing) {
+      galleryByMediaUrl.set(item.mediaUrl, item);
+      return;
+    }
+
+    galleryByMediaUrl.set(item.mediaUrl, {
+      ...existing,
+      ...item,
+      thumbnailUrl: item.thumbnailUrl || existing.thumbnailUrl,
+      createdAt: Math.max(existing.createdAt || 0, item.createdAt || 0),
+    });
+  });
+
+  chatMediaItems = Array.from(galleryByMediaUrl.values());
 
   const localGalleryItems = await readLocalGalleryItems();
 
@@ -353,6 +410,7 @@ try {
 } catch (e) {
   console.warn('[Gallery] failed to load media', e);
 }
+
     if (npub && g) {
       const [admin, member] = await Promise.all([
         isGroupAdmin(id, npub),
@@ -467,7 +525,7 @@ try {
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.All,
+        mediaTypes: ['images', 'videos'],
         allowsEditing: false,
         quality: 0.75,
         videoQuality: ImagePicker.UIImagePickerControllerQualityType.Low,
@@ -1095,17 +1153,13 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
                 <Text style={s.cancelText}>Cancel</Text>
               </TouchableOpacity>
 
-                      <TouchableOpacity
-          style={[s.confirmBtn, highlightPosting && s.confirmBtnDisabled]}
-          onPress={handleCreateSticky}
-          disabled={highlightPosting}
-        >
-          {highlightPosting ? (
-            <ActivityIndicator size="small" color="#111" />
-          ) : (
-            <Text style={s.confirmText}>Post highlight</Text>
-          )}
-        </TouchableOpacity>
+              <TouchableOpacity
+                style={s.confirmBtn}
+                onPress={saveGroupRelaySettings}
+                activeOpacity={0.85}
+              >
+                <Text style={s.confirmText}>Save relay</Text>
+              </TouchableOpacity>
             </View>
           </View>
         )}
@@ -1203,79 +1257,76 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
       )}
 
       {tab === 'gallery' && (
-  <FlatList
-    data={galleryItems}
-    keyExtractor={(item) => item.id}
-    numColumns={3}
-    contentContainerStyle={{ padding: 8 }}
-    refreshControl={
-      <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#c9973a" />
-    }
-    renderItem={({ item }) => (
-      <View style={{ flex: 1 / 3, padding: 4 }}>
-        <TouchableOpacity onPress={() => openViewerForGalleryItem(item.mediaUrl)}>
-    {item.mediaType === 'video' ? (
-    <View
-      style={{
-        width: '100%',
-        aspectRatio: 1,
-        borderRadius: 8,
-        backgroundColor: '#000',
-        alignItems: 'center',
-        justifyContent: 'center',
-        overflow: 'hidden',
-      }}
-    >
-      {item.thumbnailUrl ? (
-        <Image
-          source={{ uri: item.thumbnailUrl }}
-          style={{
-            width: '100%',
-            height: '100%',
-            borderRadius: 8,
-          }}
-          resizeMode="cover"
-        />
-      ) : null}
+        <FlatList
+          data={galleryItems}
+          keyExtractor={(item) => item.id}
+          numColumns={3}
+          contentContainerStyle={s.galleryGrid}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={theme.gold}
+            />
+          }
+          renderItem={({ item }) => {
+  const tileThumbnailUrl =
+    item.thumbnailUrl ||
+    item.thumbnailUri ||
+    item.videoThumbnailUrl ||
+    item.previewUrl;
 
-      <View
-        style={{
-          position: 'absolute',
-          width: '100%',
-          height: '100%',
-          alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: 'rgba(0,0,0,0.25)',
-        }}
-      >
-        <Text style={{ color: '#c9973a', fontSize: 28, fontWeight: '800' }}>▶</Text>
-      </View>
-    </View>
-  ) : (
-    <Image
-      source={{ uri: item.mediaUrl }}
-      style={{
-        width: '100%',
-        aspectRatio: 1,
-        borderRadius: 8,
-        backgroundColor: '#222',
-      }}
-    />
-  )}
-</TouchableOpacity>
-      </View>
-    )}
-    ListEmptyComponent={
-      <View style={s.empty}>
-        <Text style={s.emptyIcon}>🖼️</Text>
-        <Text style={s.emptyText}>No media yet</Text>
-        <Text style={s.emptyHint}>
-  Photos and videos posted in chat will appear here.
-</Text>
-      </View>
-    }
+  return (
+            <View style={s.galleryTileWrap}>
+              <TouchableOpacity
+                style={s.galleryTile}
+                onPress={() => openViewerForGalleryItem(item.mediaUrl)}
+                activeOpacity={0.86}
+              >
+                {item.mediaType === 'video' ? (
+                  <View style={s.galleryVideoTile}>
+{tileThumbnailUrl ? (
+  <Image
+    source={{ uri: tileThumbnailUrl }}
+    style={s.galleryTileImage}
+    resizeMode="cover"
+    onError={(error) => {
+      console.warn('[Gallery] thumbnail image failed:', {
+        thumbnailUrl: tileThumbnailUrl,
+        mediaUrl: item.mediaUrl,
+        error: error.nativeEvent,
+      });
+    }}
   />
-)}
+) : null}
+
+                    <View style={s.galleryVideoOverlay}>
+                      <Text style={s.galleryVideoPlay}>▶</Text>
+                    </View>
+                  </View>
+                ) : (
+                  <Image
+                    source={{ uri: item.mediaUrl }}
+                    style={s.galleryTileImage}
+                    resizeMode="cover"
+                  />
+                )}
+              </TouchableOpacity>
+            </View>
+    );
+  }}
+    ListEmptyComponent={
+            <View style={s.empty}>
+              <Text style={s.emptyIcon}>🖼️</Text>
+              <Text style={s.emptyText}>No media yet</Text>
+              <Text style={s.emptyHint}>
+                Photos and videos posted in chat will appear here.
+              </Text>
+            </View>
+          }
+        />
+      )}
+
 
       {/* Members tab */}
       {tab === 'members' && (
@@ -1568,19 +1619,35 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
       )}
 
       <View style={s.modalActions}>
-                <TouchableOpacity
-          style={s.cancelBtn}
+        <TouchableOpacity
+          style={[s.cancelBtn, highlightPosting && s.confirmBtnDisabled]}
+          disabled={highlightPosting}
           onPress={() => {
+            setStickyTitle('');
+            setStickyBody('');
+            setStickyVisibility('private');
             setSelectedHighlightMedia(null);
+            setSelectedHighlightMediaList([]);
+            setHighlightUploadStatus(null);
+            setHighlightProgress(0);
             setShowStickyModal(false);
           }}
         >
           <Text style={s.cancelText}>Cancel</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={s.confirmBtn} onPress={handleCreateSticky}>
-          <Text style={s.confirmText}>Post highlight</Text>
+        <TouchableOpacity
+          style={[s.confirmBtn, highlightPosting && s.confirmBtnDisabled]}
+          onPress={handleCreateSticky}
+          disabled={highlightPosting}
+        >
+          {highlightPosting ? (
+            <ActivityIndicator size="small" color={theme.bg} />
+          ) : (
+            <Text style={s.confirmText}>Post highlight</Text>
+          )}
         </TouchableOpacity>
+
       </View>
           </View>
     </ScrollView>
@@ -2038,6 +2105,47 @@ highlightVideoPlay: {
   },
   tabTextActive: {
     color: theme.gold,
+    fontWeight: '800',
+  },
+
+  // Gallery
+  galleryGrid: {
+    padding: 8,
+    paddingBottom: 100,
+  },
+  galleryTileWrap: {
+    flex: 1 / 3,
+    padding: 4,
+  },
+  galleryTile: {
+    width: '100%',
+    aspectRatio: 1,
+    borderRadius: 10,
+    overflow: 'hidden',
+    backgroundColor: theme.surface,
+  },
+  galleryTileImage: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: theme.surface,
+  },
+  galleryVideoTile: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: theme.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  galleryVideoOverlay: {
+    position: 'absolute',
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  galleryVideoPlay: {
+    color: theme.gold,
+    fontSize: 28,
     fontWeight: '800',
   },
 

@@ -317,8 +317,8 @@ function MessageBubble({
             alignSelf: 'flex-start',
             maxWidth: '100%',
             backgroundColor: item?.mine ? theme.raised : theme.surface,
-            borderWidth: 0.5,
-            borderColor: item?.mine ? theme.goldDim : theme.border,
+            borderWidth: 0,
+            borderColor: item?.mine ? theme.raised : theme.surface,
             borderRadius: 18,
             borderTopLeftRadius: shouldShowIdentity ? 6 : 18,
             paddingHorizontal: 12,
@@ -347,7 +347,7 @@ function MessageBubble({
               borderLeftWidth: 3,
               borderLeftColor: theme.gold,
               borderWidth: 0.5,
-              borderColor: theme.border,
+              borderColor: theme.surface,
             }}
           >
             <Text
