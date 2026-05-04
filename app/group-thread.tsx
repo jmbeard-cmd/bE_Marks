@@ -1046,11 +1046,12 @@ const [editingMessage, setEditingMessage] = useState<GroupMessage | null>(null);
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.All,
+      mediaTypes: ['images', 'videos'],
       quality: 0.9,
       allowsMultipleSelection: true,
       selectionLimit: 10,
     });
+
 
     if (result.canceled || !result.assets?.length) return;
 
@@ -1118,9 +1119,10 @@ const [editingMessage, setEditingMessage] = useState<GroupMessage | null>(null);
     setUploadStatus('Opening camera...');
 
     const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       quality: 0.9,
     });
+
 
     if (result.canceled || !result.assets?.[0]?.uri) {
       setUploadStatus(null);
