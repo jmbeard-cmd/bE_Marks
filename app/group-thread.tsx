@@ -8,7 +8,6 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
-  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -97,6 +96,7 @@ export default function GroupThreadScreen() {
     const [inputHeight, setInputHeight] = useState(40);
   const [messages, setMessages] = useState<GroupMessage[]>([]);
   const [loadingInitialMessages, setLoadingInitialMessages] = useState(true);
+  const [initialListReady, setInitialListReady] = useState(false);
 const [sending, setSending] = useState(false);
 const [uploadingImage, setUploadingImage] = useState(false);
 
@@ -114,6 +114,7 @@ const [editingMessage, setEditingMessage] = useState<GroupMessage | null>(null);
   const isNearBottomRef = useRef(true);
   const didInitialAutoScrollRef = useRef(false);
   const forceNextAutoScrollRef = useRef(false);
+  const initialRevealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const myDisplayName =
     profile?.display_name ||
@@ -203,6 +204,12 @@ const [editingMessage, setEditingMessage] = useState<GroupMessage | null>(null);
     },
     [messages, pendingUploads, memberAvatarMap, profile]
   );
+
+  const chatMessages = useMemo(
+    () => [...visibleMessages].reverse(),
+    [visibleMessages]
+  );
+
 
   const getReplyPreviewText = useCallback((message: GroupMessage | PendingUploadMessage): string => {
     if ((message as any).isDeleted) return 'Message deleted';
@@ -297,26 +304,18 @@ const [editingMessage, setEditingMessage] = useState<GroupMessage | null>(null);
   }, []);
 
   const scrollToBottom = useCallback((animated = true) => {
-    listRef.current?.scrollToEnd({ animated });
+    requestAnimationFrame(() => {
+      listRef.current?.scrollToOffset({ offset: 0, animated });
+    });
   }, []);
 
   const scrollToLatestMessage = useCallback((animated = false) => {
-    const lastIndex = visibleMessages.length - 1;
+    if (chatMessages.length === 0) return;
 
-    if (lastIndex < 0) return;
-
-    try {
-      listRef.current?.scrollToIndex({
-        index: lastIndex,
-        animated,
-        viewPosition: 1,
-      });
-    } catch {
-      setTimeout(() => {
-        listRef.current?.scrollToEnd({ animated });
-      }, 80);
-    }
-  }, [visibleMessages.length]);
+    requestAnimationFrame(() => {
+      listRef.current?.scrollToOffset({ offset: 0, animated });
+    });
+  }, [chatMessages.length]);
 
   const forceScrollToBottom = useCallback((animated = true) => {
     forceNextAutoScrollRef.current = true;
@@ -342,13 +341,11 @@ const [editingMessage, setEditingMessage] = useState<GroupMessage | null>(null);
   }, [scrollToBottom]);
 
   const handleListScroll = useCallback((event: any) => {
-    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    const { contentOffset } = event.nativeEvent;
 
-    const distanceFromBottom =
-      contentSize.height - (contentOffset.y + layoutMeasurement.height);
-
-    isNearBottomRef.current = distanceFromBottom < 140;
+    isNearBottomRef.current = contentOffset.y < 140;
   }, []);
+
 
   const handleContentSizeChange = useCallback(() => {
     if (!forceNextAutoScrollRef.current) return;
@@ -356,14 +353,13 @@ const [editingMessage, setEditingMessage] = useState<GroupMessage | null>(null);
     setTimeout(() => {
       if (!forceNextAutoScrollRef.current) return;
 
-      const animated = didInitialAutoScrollRef.current;
-
-      scrollToBottom(animated);
+      scrollToBottom(true);
       forceNextAutoScrollRef.current = false;
       isNearBottomRef.current = true;
       didInitialAutoScrollRef.current = true;
-    }, 90);
+    }, 80);
   }, [scrollToBottom]);
+
 
   const loadGroup = useCallback(async () => {
     if (!groupId) return;
@@ -393,12 +389,26 @@ const [editingMessage, setEditingMessage] = useState<GroupMessage | null>(null);
     if (!groupId) return;
 
     setLoadingInitialMessages(true);
+    setInitialListReady(false);
+    didInitialAutoScrollRef.current = false;
+    forceNextAutoScrollRef.current = false;
+    isNearBottomRef.current = true;
+
+    if (initialRevealTimerRef.current) {
+      clearTimeout(initialRevealTimerRef.current);
+      initialRevealTimerRef.current = null;
+    }
+
 
     try {
       const localMessages = await getMessagesForGroup(groupId);
 
       setMessages(localMessages);
       setLoadingInitialMessages(false);
+      setInitialListReady(true);
+      didInitialAutoScrollRef.current = true;
+      isNearBottomRef.current = true;
+
     } catch (error) {
       console.warn('[Groups] Local message load error:', error);
       setLoadingInitialMessages(false);
@@ -510,41 +520,6 @@ const [editingMessage, setEditingMessage] = useState<GroupMessage | null>(null);
   useEffect(() => {
     loadMessages();
   }, [loadMessages]);
-
-  useEffect(() => {
-    if (!groupId || visibleMessages.length === 0 || didInitialAutoScrollRef.current) return;
-
-    const timers = [180, 450, 900, 1300].map((delay, index, arr) =>
-      setTimeout(() => {
-        scrollToLatestMessage(false);
-
-        if (index === arr.length - 1) {
-          didInitialAutoScrollRef.current = true;
-          forceNextAutoScrollRef.current = false;
-          isNearBottomRef.current = true;
-        }
-      }, delay)
-    );
-
-    return () => {
-      timers.forEach(clearTimeout);
-    };
-  }, [groupId, visibleMessages.length, scrollToLatestMessage]);
-
-    useEffect(() => {
-    const keyboardEvent =
-      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-
-    const subscription = Keyboard.addListener(keyboardEvent, () => {
-      setTimeout(() => {
-        forceScrollToBottom(true);
-      }, Platform.OS === 'ios' ? 120 : 220);
-    });
-
-    return () => {
-      subscription.remove();
-    };
-  }, [forceScrollToBottom]);
 
   useEffect(() => {
     if (!groupId || !relayUrl) return;
@@ -1361,6 +1336,7 @@ const [editingMessage, setEditingMessage] = useState<GroupMessage | null>(null);
     [handlePressMessageMedia, handleMessageLongPress, s]
   );
 
+  const shouldHideInitialList = false;
 
   return (
     <SafeAreaView style={s.safe}>
@@ -1397,25 +1373,23 @@ const [editingMessage, setEditingMessage] = useState<GroupMessage | null>(null);
 
           <FlatList
             ref={listRef}
-            data={visibleMessages}
+            style={[s.messageList, shouldHideInitialList && s.messageListHidden]}
+            data={chatMessages}
             keyExtractor={item => item.id}
             contentContainerStyle={s.list}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+            inverted
             onScroll={handleListScroll}
             scrollEventThrottle={16}
             onContentSizeChange={handleContentSizeChange}
-            initialNumToRender={14}
-            maxToRenderPerBatch={8}
-            updateCellsBatchingPeriod={50}
+            initialNumToRender={40}
+            maxToRenderPerBatch={20}
+            updateCellsBatchingPeriod={16}
             windowSize={9}
             removeClippedSubviews={Platform.OS === 'android'}
-            onScrollToIndexFailed={() => {
-              setTimeout(() => {
-                scrollToBottom(false);
-              }, 120);
-            }}
+
             ListEmptyComponent={
               loadingInitialMessages ? (
                 <View style={s.empty}>
@@ -1434,11 +1408,19 @@ const [editingMessage, setEditingMessage] = useState<GroupMessage | null>(null);
             renderItem={renderMessage}
           />
 
+          {shouldHideInitialList && (
+            <View style={s.initialListOverlay}>
+              <ActivityIndicator size="small" color={theme.gold} />
+              <Text style={s.initialListOverlayText}>Loading latest messages…</Text>
+            </View>
+          )}
+
           {uploadStatus && (
-  <View style={s.uploadBanner}>
-    <Text style={s.uploadText}>{uploadStatus}</Text>
-  </View>
-)}
+            <View style={s.uploadBanner}>
+              <Text style={s.uploadText}>{uploadStatus}</Text>
+            </View>
+          )}
+
 
           {editingMessage && (
             <View style={s.replyComposerPreview}>
@@ -1695,8 +1677,35 @@ uploadText: {
   infoBtn: { minWidth: 60, alignItems: 'flex-end' },
   infoText: { color: theme.gold, fontSize: 14, fontWeight: '600' },
 
-  list: { padding: 16, paddingBottom: 8, flexGrow: 1 },
-
+  messageList: {
+    flex: 1,
+    backgroundColor: theme.bg,
+  },
+  messageListHidden: {
+    opacity: 0,
+  },
+  list: {
+    padding: 16,
+    paddingBottom: 8,
+    flexGrow: 1,
+  },
+  initialListOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 62,
+    bottom: 70,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.bg,
+    zIndex: 5,
+    gap: 10,
+  },
+  initialListOverlayText: {
+    color: theme.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+  },
   row: { marginBottom: 8, flexDirection: 'row' },
   rowMine: { justifyContent: 'flex-end' },
   rowOther: { justifyContent: 'flex-start' },
