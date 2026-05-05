@@ -904,7 +904,7 @@ const handleJoinFamily = async () => {
 
                       {(familyRelayMode === 'custom' || familyRelayMode === 'both') && (
                         <>
-                          <Text style={[s.inputLabel, { marginTop: 12 }]}>FAMILY RELAY URL</Text>
+                          <Text style={[s.inputLabel, { marginTop: 12, color: theme.textMuted }]}>FAMILY RELAY URL</Text>
                           <TextInput
   style={[s.input, { backgroundColor: theme.surface, borderColor: theme.border, color: theme.text }]}
   value={familyRelayUrl}
@@ -1001,8 +1001,22 @@ borderColor: '#7a1a1a',
                 )}
                 {showCreateFamily && (
                   <View style={s.editBlock}>
-                    <Text style={s.inputLabel}>FAMILY NAME</Text>
-                    <TextInput style={s.input} value={familyName} onChangeText={setFamilyName} placeholder="e.g. The Smith Family" placeholderTextColor="#444" autoFocus />
+                    <Text style={[s.inputLabel, { color: theme.textMuted }]}>FAMILY NAME</Text>
+                    <TextInput
+                      style={[
+                        s.input,
+                        {
+                          backgroundColor: theme.surface,
+                          borderColor: theme.border,
+                          color: theme.text,
+                        },
+                      ]}
+                      value={familyName}
+                      onChangeText={setFamilyName}
+                      placeholder="e.g. The Smith Family"
+                      placeholderTextColor={theme.textMuted}
+                      autoFocus
+                    />
                     <View style={s.inputActions}>
                       <TouchableOpacity style={[s.cancelBtn, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={() => { setShowCreateFamily(false); setFamilyName(''); }}>
                         <Text style={[s.cancelText, { color: theme.textMuted }]}>Cancel</Text>
@@ -1015,8 +1029,24 @@ borderColor: '#7a1a1a',
                 )}
                 {showJoinFamily && (
                   <View style={s.editBlock}>
-                    <Text style={s.inputLabel}>FAMILY CODE</Text>
-                    <TextInput style={s.input} value={joinCode} onChangeText={setJoinCode} placeholder="8-character code" placeholderTextColor="#444" autoCapitalize="characters" maxLength={8} autoFocus />
+                    <Text style={[s.inputLabel, { color: theme.textMuted }]}>FAMILY CODE</Text>
+                    <TextInput
+                      style={[
+                        s.input,
+                        {
+                          backgroundColor: theme.surface,
+                          borderColor: theme.border,
+                          color: theme.text,
+                        },
+                      ]}
+                      value={joinCode}
+                      onChangeText={setJoinCode}
+                      placeholder="8-character code"
+                      placeholderTextColor={theme.textMuted}
+                      autoCapitalize="characters"
+                      maxLength={8}
+                      autoFocus
+                    />
                     <View style={s.inputActions}>
                       <TouchableOpacity style={[s.cancelBtn, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={() => { setShowJoinFamily(false); setJoinCode(''); }}>
                         <Text style={[s.cancelText, { color: theme.textMuted }]}>Cancel</Text>
