@@ -1,3 +1,4 @@
+import * as Clipboard from 'expo-clipboard';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { nip19 } from 'nostr-tools';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -15,7 +16,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors } from '../../src/constants/theme';
-import { BEContact, getContacts } from '../../src/utils/contacts-storage';
+import { BEContact, getContacts, saveContact } from '../../src/utils/contacts-storage';
 import { subscribeToDMEvents } from '../../src/utils/dm-events';
 import {
   getCachedDMProfiles,
@@ -59,6 +60,102 @@ function getInitials(name: string): string {
   return `${parts[0]?.[0] || ''}${parts[1]?.[0] || ''}`.toUpperCase();
 }
 
+type DiscoveryProfile = {
+  input: string;
+  npub: string;
+  pubkey: string;
+  displayName: string;
+  picture?: string;
+  nip05?: string;
+};
+
+type ConversationContact = {
+  name: string;
+  npub?: string;
+  pubkeyHex?: string;
+  nostrName?: string;
+  nostrAvatar?: string;
+};
+
+async function resolveNip05Address(address: string): Promise<{ pubkey: string; npub: string; nip05: string }> {
+  const cleaned = address.trim().toLowerCase();
+  const parts = cleaned.split('@');
+
+  if (parts.length !== 2 || !parts[0] || !parts[1]) {
+    throw new Error('Enter a valid NIP-05 address like name@example.com.');
+  }
+
+  const [name, domain] = parts;
+  const response = await fetch(`https://${domain}/.well-known/nostr.json?name=${encodeURIComponent(name)}`);
+
+  if (!response.ok) {
+    throw new Error('Could not find that NIP-05 address.');
+  }
+
+  const data = await response.json();
+  const pubkey = data?.names?.[name];
+
+  if (!pubkey || typeof pubkey !== 'string') {
+    throw new Error('That NIP-05 address did not return a valid public key.');
+  }
+
+  return {
+    pubkey,
+    npub: nip19.npubEncode(pubkey),
+    nip05: cleaned,
+  };
+}
+
+async function resolveDiscoveryInput(input: string): Promise<DiscoveryProfile> {
+  const cleaned = input.trim();
+
+  if (!cleaned) {
+    throw new Error('Enter an npub, hex pubkey, or NIP-05 address.');
+  }
+
+  let pubkey = '';
+  let npub = '';
+  let nip05: string | undefined;
+
+  if (cleaned.includes('@') && !cleaned.startsWith('npub1')) {
+    const resolved = await resolveNip05Address(cleaned);
+    pubkey = resolved.pubkey;
+    npub = resolved.npub;
+    nip05 = resolved.nip05;
+  } else {
+    const normalized = normalizeNostrIdentity(cleaned);
+    pubkey = normalized.pubkey;
+    npub = normalized.npub || nip19.npubEncode(normalized.pubkey);
+  }
+
+  let displayName = nip05 || `${npub.slice(0, 12)}…`;
+  let picture: string | undefined;
+
+  try {
+    const profile = await fetchNostrProfile(npub);
+
+    if (profile) {
+      displayName =
+        profile.display_name ||
+        profile.name ||
+        displayName;
+
+      picture = profile.picture;
+    }
+  } catch (error) {
+    console.warn('[Messages] failed to fetch discovery profile:', error);
+  }
+
+  return {
+    input: cleaned,
+    npub,
+    pubkey,
+    displayName,
+    picture,
+    nip05,
+  };
+}
+
 export default function MessagesScreen() {
   const { themeMode } = useIdentity();
   const theme = themeMode === 'light' ? Colors.light : Colors.dark;
@@ -76,6 +173,12 @@ export default function MessagesScreen() {
   const [newTitle, setNewTitle] = useState('');
   const [newNpub, setNewNpub] = useState('');
   const [creating, setCreating] = useState(false);
+
+  const [discoveryInput, setDiscoveryInput] = useState('');
+  const [discoveryProfile, setDiscoveryProfile] = useState<DiscoveryProfile | null>(null);
+  const [discoveryError, setDiscoveryError] = useState('');
+  const [discovering, setDiscovering] = useState(false);
+  const [savingDiscoveryContact, setSavingDiscoveryContact] = useState(false);
 
   const loadingThreadsRef = useRef(false);
   const loadingProfilesRef = useRef(false);
@@ -350,11 +453,26 @@ export default function MessagesScreen() {
     });
   }, [threads, search]);
 
+  const discoveryAlreadyContact = useMemo(() => {
+    if (!discoveryProfile) return false;
+
+    return contacts.some(contact =>
+      contact.npub === discoveryProfile.npub ||
+      contact.pubkeyHex === discoveryProfile.pubkey
+    );
+  }, [contacts, discoveryProfile]);
+
   const closeSheet = () => {
     setSheet('none');
     setNewTitle('');
     setNewNpub('');
     setCreating(false);
+
+    setDiscoveryInput('');
+    setDiscoveryProfile(null);
+    setDiscoveryError('');
+    setDiscovering(false);
+    setSavingDiscoveryContact(false);
   };
 
   const getThreadDisplayTitle = useCallback((thread: DMThread): string => {
@@ -393,7 +511,7 @@ export default function MessagesScreen() {
     );
   };
 
-  const createConversation = async (contact?: BEContact) => {
+  const createConversation = async (contact?: ConversationContact) => {
     if (creating) return;
 
     setCreating(true);
@@ -411,7 +529,7 @@ export default function MessagesScreen() {
       if (npubInput) {
         const normalized = normalizeNostrIdentity(npubInput);
         participantPubkey = normalized.pubkey;
-        participantNpub = normalized.npub;
+        participantNpub = normalized.npub || nip19.npubEncode(normalized.pubkey);
       }
 
       const thread = await createThread({
@@ -431,6 +549,74 @@ export default function MessagesScreen() {
     }
 
     setCreating(false);
+  };
+
+  const handleDiscoverPerson = async () => {
+    if (discovering) return;
+
+    setDiscovering(true);
+    setDiscoveryError('');
+    setDiscoveryProfile(null);
+
+    try {
+      const profile = await resolveDiscoveryInput(discoveryInput);
+      setDiscoveryProfile(profile);
+      setNewTitle(profile.displayName);
+      setNewNpub(profile.npub);
+    } catch (error: any) {
+      setDiscoveryError(error?.message || 'Could not find that person.');
+    } finally {
+      setDiscovering(false);
+    }
+  };
+
+  const handleSaveDiscoveryContact = async () => {
+    if (!discoveryProfile || savingDiscoveryContact) return;
+
+    setSavingDiscoveryContact(true);
+
+    try {
+      const contactName = discoveryProfile.displayName || discoveryProfile.nip05 || 'Nostr Contact';
+
+      await saveContact({
+        name: contactName,
+        npub: discoveryProfile.npub,
+        pubkeyHex: discoveryProfile.pubkey,
+        nostrName: discoveryProfile.displayName,
+        nostrAvatar: discoveryProfile.picture,
+      });
+
+      const nextContacts = await getContacts();
+      setContacts(nextContacts);
+
+      Alert.alert('Contact saved', `${contactName} was added to your bE Contacts.`);
+    } catch (error: any) {
+      Alert.alert(
+        'Could not save contact',
+        error?.message || 'Please try again.'
+      );
+    } finally {
+      setSavingDiscoveryContact(false);
+    }
+  };
+
+  const handleStartDiscoveryMessage = async () => {
+    if (!discoveryProfile) return;
+
+    await createConversation({
+      name: discoveryProfile.displayName,
+      npub: discoveryProfile.npub,
+      pubkeyHex: discoveryProfile.pubkey,
+      nostrName: discoveryProfile.displayName,
+      nostrAvatar: discoveryProfile.picture,
+    });
+  };
+
+  const handleCopyDiscoveryNpub = async () => {
+    if (!discoveryProfile) return;
+
+    await Clipboard.setStringAsync(discoveryProfile.npub);
+    Alert.alert('Copied', 'npub copied to clipboard.');
   };
 
   const renderThread = ({ item }: { item: DMThread }) => {
@@ -609,6 +795,109 @@ export default function MessagesScreen() {
               </>
             )}
 
+            <Text style={s.sectionLabel}>FIND PEOPLE</Text>
+
+            <View style={s.discoveryBox}>
+              <TextInput
+                style={s.discoveryInput}
+                value={discoveryInput}
+                onChangeText={text => {
+                  setDiscoveryInput(text);
+                  setDiscoveryError('');
+                  setDiscoveryProfile(null);
+                }}
+                placeholder="npub1… or name@example.com"
+                placeholderTextColor={theme.textMuted}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+
+              <TouchableOpacity
+                style={[
+                  s.discoveryLookupBtn,
+                  discovering && s.discoveryLookupBtnDisabled,
+                ]}
+                onPress={handleDiscoverPerson}
+                disabled={discovering}
+              >
+                <Text style={s.discoveryLookupText}>
+                  {discovering ? 'Finding…' : 'Find'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {!!discoveryError && (
+              <Text style={s.discoveryError}>{discoveryError}</Text>
+            )}
+
+            {discoveryProfile && (
+              <View style={s.discoveryResult}>
+                <View style={s.discoveryResultTop}>
+                  {discoveryProfile.picture ? (
+                    <Image source={{ uri: discoveryProfile.picture }} style={s.discoveryAvatar} />
+                  ) : (
+                    <View style={s.discoveryAvatarFallback}>
+                      <Text style={s.discoveryAvatarText}>
+                        {getInitials(discoveryProfile.displayName)}
+                      </Text>
+                    </View>
+                  )}
+
+                  <View style={s.discoveryBody}>
+                    <Text style={s.discoveryName} numberOfLines={1}>
+                      {discoveryProfile.displayName}
+                    </Text>
+
+                    {!!discoveryProfile.nip05 && (
+                      <Text style={s.discoveryNip05} numberOfLines={1}>
+                        {discoveryProfile.nip05}
+                      </Text>
+                    )}
+
+                    <Text style={s.discoveryNpub} numberOfLines={1}>
+                      {discoveryProfile.npub}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={s.discoveryActions}>
+                  <TouchableOpacity
+                    style={[
+                      s.discoverySecondaryBtn,
+                      discoveryAlreadyContact && s.discoveryDisabledBtn,
+                    ]}
+                    onPress={handleSaveDiscoveryContact}
+                    disabled={discoveryAlreadyContact || savingDiscoveryContact}
+                  >
+                    <Text style={s.discoverySecondaryText}>
+                      {discoveryAlreadyContact
+                        ? 'Saved'
+                        : savingDiscoveryContact
+                          ? 'Saving…'
+                          : 'Add Contact'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={s.discoverySecondaryBtn}
+                    onPress={handleCopyDiscoveryNpub}
+                  >
+                    <Text style={s.discoverySecondaryText}>Copy npub</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={s.discoveryPrimaryBtn}
+                    onPress={handleStartDiscoveryMessage}
+                    disabled={creating}
+                  >
+                    <Text style={s.discoveryPrimaryText}>
+                      {creating ? 'Starting…' : 'Message'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
             <Text style={s.sectionLabel}>MANUAL</Text>
 
             <TextInput
@@ -630,7 +919,7 @@ export default function MessagesScreen() {
             />
 
             <Text style={s.inputHelp}>
-              Leave npub blank for a local-only notes conversation.
+              Use Find People for npub/NIP-05 lookup, or leave npub blank for a local-only notes conversation.
             </Text>
 
             <View style={s.sheetActions}>
@@ -1064,6 +1353,139 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     lineHeight: 16,
     marginBottom: 14,
     fontWeight: '600',
+  },
+
+  discoveryBox: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 8,
+  },
+  discoveryInput: {
+    flex: 1,
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    color: theme.text,
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  discoveryLookupBtn: {
+    minWidth: 78,
+    borderRadius: 16,
+    backgroundColor: theme.gold,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  discoveryLookupBtnDisabled: {
+    opacity: 0.6,
+  },
+  discoveryLookupText: {
+    color: theme.bg,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  discoveryError: {
+    color: theme.gold,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '700',
+    marginBottom: 10,
+  },
+  discoveryResult: {
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    borderRadius: 20,
+    padding: 12,
+    marginBottom: 18,
+  },
+  discoveryResultTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 12,
+  },
+  discoveryAvatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+  },
+  discoveryAvatarFallback: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: theme.surface,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  discoveryAvatarText: {
+    color: theme.gold,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  discoveryBody: {
+    flex: 1,
+    minWidth: 0,
+  },
+  discoveryName: {
+    color: theme.text,
+    fontSize: 16,
+    fontWeight: '900',
+    marginBottom: 3,
+  },
+  discoveryNip05: {
+    color: theme.textSecondary,
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  discoveryNpub: {
+    color: theme.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  discoveryActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  discoverySecondaryBtn: {
+    flex: 1,
+    minHeight: 38,
+    borderRadius: 19,
+    backgroundColor: theme.surface,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  discoveryDisabledBtn: {
+    opacity: 0.55,
+  },
+  discoverySecondaryText: {
+    color: theme.textMuted,
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  discoveryPrimaryBtn: {
+    flex: 1,
+    minHeight: 38,
+    borderRadius: 19,
+    backgroundColor: theme.gold,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  discoveryPrimaryText: {
+    color: theme.bg,
+    fontSize: 11,
+    fontWeight: '900',
   },
   sheetActions: {
     flexDirection: 'row',
