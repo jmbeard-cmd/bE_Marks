@@ -988,7 +988,7 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
   </SafeAreaView>
 );
 
-const deepLink = `marksapp://join/${group.inviteCode}`;
+const deepLink = `https://beginningend.com/join/${group.inviteCode}`;
 
 const highlightViewerImages: ViewerImage[] = stickies
   .flatMap(sticky => {
@@ -1519,17 +1519,6 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
             </TouchableOpacity>
           )}
         </View>
-      )}
-
-      {/* Member post FAB */}
-      {isMember && !isAdmin && group.status === 'active' && (
-        <TouchableOpacity
-          style={s.fab}
-          onPress={() => router.push({ pathname: '/group-thread', params: { id: group.id } } as any)}
-          activeOpacity={0.85}
-        >
-          <Text style={s.fabIcon}>+</Text>
-        </TouchableOpacity>
       )}
 
 <Modal
