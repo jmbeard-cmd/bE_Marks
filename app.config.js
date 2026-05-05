@@ -14,10 +14,10 @@ export default {
       buildNumber: "1",
       infoPlist: {
         NSContactsUsageDescription: "Allow bE Marks to access your contacts to start encrypted conversations.",
-        NSCameraUsageDescription: "Allow bE Marks to record video marks.",
+        NSCameraUsageDescription: "Allow bE Marks to take photos and record videos for Marks and messages.",
         NSMicrophoneUsageDescription: "Allow bE Marks to record voice notes and video audio.",
-        NSPhotoLibraryUsageDescription: "Allow bE Marks to select photos for marks.",
-        NSPhotoLibraryAddUsageDescription: "Allow bE Marks to save photos.",
+        NSPhotoLibraryUsageDescription: "Allow bE Marks to select photos and videos for Marks and messages.",
+        NSPhotoLibraryAddUsageDescription: "Allow bE Marks to save photos and videos you choose to keep.",
       },
     },
     android: {
@@ -29,14 +29,17 @@ export default {
       predictiveBackGestureEnabled: false,
       package: "com.beginningend.marks",
       permissions: [
-        "android.permission.READ_CONTACTS"
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_CONTACTS",
+        "android.permission.POST_NOTIFICATIONS"
       ],
     },
     web: {
       output: "single",
       favicon: "./assets/images/favicon.png",
     },
-        plugins: [
+    plugins: [
       "expo-router",
       [
         "expo-splash-screen",
@@ -50,6 +53,21 @@ export default {
       "expo-secure-store",
       "expo-video",
       "react-native-compressor",
+      [
+        "expo-camera",
+        {
+          cameraPermission: "Allow bE Marks to take photos and record videos for Marks and messages.",
+          microphonePermission: "Allow bE Marks to record audio while capturing video.",
+        },
+      ],
+      [
+        "expo-image-picker",
+        {
+          photosPermission: "Allow bE Marks to select photos and videos for Marks and messages.",
+          cameraPermission: "Allow bE Marks to take photos and videos for Marks and messages.",
+          microphonePermission: "Allow bE Marks to record audio while capturing video.",
+        },
+      ],
       [
         "expo-contacts",
         {
