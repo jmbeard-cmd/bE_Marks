@@ -752,7 +752,7 @@ export default function MessagesScreen() {
             <View style={s.sheetHeader}>
               <View>
                 <Text style={s.sheetTitle}>New message</Text>
-                <Text style={s.sheetHint}>Choose a bE Contact or enter a Nostr npub.</Text>
+                <Text style={s.sheetHint}>Find someone by npub or NIP-05, then start a private DM.</Text>
               </View>
 
               <TouchableOpacity onPress={closeSheet} style={s.closeBtn}>
@@ -760,167 +760,191 @@ export default function MessagesScreen() {
               </TouchableOpacity>
             </View>
 
-            {contacts.length > 0 && (
-              <>
-                <Text style={s.sectionLabel}>CONTACTS</Text>
+            <ScrollView
+              style={s.sheetScroll}
+              contentContainerStyle={s.sheetScrollContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              <View style={s.primaryPanel}>
+                <View style={s.primaryPanelHeader}>
+                  <View>
+                    <Text style={s.primaryTitle}>Find People</Text>
+                    <Text style={s.primaryHint}>Paste an npub or enter a NIP-05 address.</Text>
+                  </View>
 
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.contactStrip}>
-                  {contacts.map(contact => (
-                    <TouchableOpacity
-                      key={contact.id}
-                      style={s.contactPill}
-                      onPress={() => createConversation(contact)}
-                      activeOpacity={0.82}
-                    >
-                      {contact.nostrAvatar ? (
-                        <Image source={{ uri: contact.nostrAvatar }} style={s.contactAvatar} />
+                  <Text style={s.primaryBadge}>Nostr</Text>
+                </View>
+
+                <View style={s.discoveryBox}>
+                  <TextInput
+                    style={s.discoveryInput}
+                    value={discoveryInput}
+                    onChangeText={text => {
+                      setDiscoveryInput(text);
+                      setDiscoveryError('');
+                      setDiscoveryProfile(null);
+                    }}
+                    placeholder="npub1… or name@example.com"
+                    placeholderTextColor={theme.textMuted}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+
+                  <TouchableOpacity
+                    style={[
+                      s.discoveryLookupBtn,
+                      discovering && s.discoveryLookupBtnDisabled,
+                    ]}
+                    onPress={handleDiscoverPerson}
+                    disabled={discovering}
+                  >
+                    <Text style={s.discoveryLookupText}>
+                      {discovering ? 'Finding…' : 'Find'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {!!discoveryError && (
+                  <Text style={s.discoveryError}>{discoveryError}</Text>
+                )}
+
+                {discoveryProfile && (
+                  <View style={s.discoveryResult}>
+                    <View style={s.discoveryResultTop}>
+                      {discoveryProfile.picture ? (
+                        <Image source={{ uri: discoveryProfile.picture }} style={s.discoveryAvatar} />
                       ) : (
-                        <View style={s.contactAvatarFallback}>
-                          <Text style={s.contactAvatarText}>
-                            {getInitials(contact.nostrName || contact.name)}
+                        <View style={s.discoveryAvatarFallback}>
+                          <Text style={s.discoveryAvatarText}>
+                            {getInitials(discoveryProfile.displayName)}
                           </Text>
                         </View>
                       )}
 
-                      <Text style={s.contactName} numberOfLines={1}>
-                        {contact.nostrName || contact.name}
-                      </Text>
+                      <View style={s.discoveryBody}>
+                        <Text style={s.discoveryName} numberOfLines={1}>
+                          {discoveryProfile.displayName}
+                        </Text>
 
-                      <Text style={contact.npub ? s.contactSecure : s.contactLocal}>
-                        {contact.npub ? '🔒' : 'Local'}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              </>
-            )}
+                        {!!discoveryProfile.nip05 && (
+                          <Text style={s.discoveryNip05} numberOfLines={1}>
+                            {discoveryProfile.nip05}
+                          </Text>
+                        )}
 
-            <Text style={s.sectionLabel}>FIND PEOPLE</Text>
-
-            <View style={s.discoveryBox}>
-              <TextInput
-                style={s.discoveryInput}
-                value={discoveryInput}
-                onChangeText={text => {
-                  setDiscoveryInput(text);
-                  setDiscoveryError('');
-                  setDiscoveryProfile(null);
-                }}
-                placeholder="npub1… or name@example.com"
-                placeholderTextColor={theme.textMuted}
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-
-              <TouchableOpacity
-                style={[
-                  s.discoveryLookupBtn,
-                  discovering && s.discoveryLookupBtnDisabled,
-                ]}
-                onPress={handleDiscoverPerson}
-                disabled={discovering}
-              >
-                <Text style={s.discoveryLookupText}>
-                  {discovering ? 'Finding…' : 'Find'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {!!discoveryError && (
-              <Text style={s.discoveryError}>{discoveryError}</Text>
-            )}
-
-            {discoveryProfile && (
-              <View style={s.discoveryResult}>
-                <View style={s.discoveryResultTop}>
-                  {discoveryProfile.picture ? (
-                    <Image source={{ uri: discoveryProfile.picture }} style={s.discoveryAvatar} />
-                  ) : (
-                    <View style={s.discoveryAvatarFallback}>
-                      <Text style={s.discoveryAvatarText}>
-                        {getInitials(discoveryProfile.displayName)}
-                      </Text>
+                        <Text style={s.discoveryNpub} numberOfLines={1}>
+                          {discoveryProfile.npub}
+                        </Text>
+                      </View>
                     </View>
-                  )}
 
-                  <View style={s.discoveryBody}>
-                    <Text style={s.discoveryName} numberOfLines={1}>
-                      {discoveryProfile.displayName}
-                    </Text>
+                    <View style={s.discoveryActions}>
+                      <TouchableOpacity
+                        style={[
+                          s.discoverySecondaryBtn,
+                          discoveryAlreadyContact && s.discoveryDisabledBtn,
+                        ]}
+                        onPress={handleSaveDiscoveryContact}
+                        disabled={discoveryAlreadyContact || savingDiscoveryContact}
+                      >
+                        <Text style={s.discoverySecondaryText}>
+                          {discoveryAlreadyContact
+                            ? 'Saved'
+                            : savingDiscoveryContact
+                              ? 'Saving…'
+                              : 'Add Contact'}
+                        </Text>
+                      </TouchableOpacity>
 
-                    {!!discoveryProfile.nip05 && (
-                      <Text style={s.discoveryNip05} numberOfLines={1}>
-                        {discoveryProfile.nip05}
-                      </Text>
-                    )}
+                      <TouchableOpacity
+                        style={s.discoverySecondaryBtn}
+                        onPress={handleCopyDiscoveryNpub}
+                      >
+                        <Text style={s.discoverySecondaryText}>Copy npub</Text>
+                      </TouchableOpacity>
 
-                    <Text style={s.discoveryNpub} numberOfLines={1}>
-                      {discoveryProfile.npub}
-                    </Text>
+                      <TouchableOpacity
+                        style={s.discoveryPrimaryBtn}
+                        onPress={handleStartDiscoveryMessage}
+                        disabled={creating}
+                      >
+                        <Text style={s.discoveryPrimaryText}>
+                          {creating ? 'Starting…' : 'Message'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
-                </View>
-
-                <View style={s.discoveryActions}>
-                  <TouchableOpacity
-                    style={[
-                      s.discoverySecondaryBtn,
-                      discoveryAlreadyContact && s.discoveryDisabledBtn,
-                    ]}
-                    onPress={handleSaveDiscoveryContact}
-                    disabled={discoveryAlreadyContact || savingDiscoveryContact}
-                  >
-                    <Text style={s.discoverySecondaryText}>
-                      {discoveryAlreadyContact
-                        ? 'Saved'
-                        : savingDiscoveryContact
-                          ? 'Saving…'
-                          : 'Add Contact'}
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={s.discoverySecondaryBtn}
-                    onPress={handleCopyDiscoveryNpub}
-                  >
-                    <Text style={s.discoverySecondaryText}>Copy npub</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={s.discoveryPrimaryBtn}
-                    onPress={handleStartDiscoveryMessage}
-                    disabled={creating}
-                  >
-                    <Text style={s.discoveryPrimaryText}>
-                      {creating ? 'Starting…' : 'Message'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
+                )}
               </View>
-            )}
 
-            <Text style={s.sectionLabel}>MANUAL</Text>
+              {contacts.length > 0 && (
+                <View style={s.secondarySection}>
+                  <View style={s.sectionHeaderRow}>
+                    <Text style={s.sectionLabel}>BΕ CONTACTS</Text>
+                    <Text style={s.sectionCount}>{contacts.length}</Text>
+                  </View>
 
-            <TextInput
-              style={s.input}
-              value={newTitle}
-              onChangeText={setNewTitle}
-              placeholder="Conversation name"
-              placeholderTextColor={theme.textMuted}
-            />
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.contactStrip}>
+                    {contacts.map(contact => (
+                      <TouchableOpacity
+                        key={contact.id}
+                        style={s.contactPill}
+                        onPress={() => createConversation(contact)}
+                        activeOpacity={0.82}
+                      >
+                        {contact.nostrAvatar ? (
+                          <Image source={{ uri: contact.nostrAvatar }} style={s.contactAvatar} />
+                        ) : (
+                          <View style={s.contactAvatarFallback}>
+                            <Text style={s.contactAvatarText}>
+                              {getInitials(contact.nostrName || contact.name)}
+                            </Text>
+                          </View>
+                        )}
 
-            <TextInput
-              style={s.input}
-              value={newNpub}
-              onChangeText={setNewNpub}
-              placeholder="npub1… or hex pubkey"
-              placeholderTextColor={theme.textMuted}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
+                        <Text style={s.contactName} numberOfLines={1}>
+                          {contact.nostrName || contact.name}
+                        </Text>
 
-            <Text style={s.inputHelp}>
-              Use Find People for npub/NIP-05 lookup, or leave npub blank for a local-only notes conversation.
-            </Text>
+                        <Text style={contact.npub ? s.contactSecure : s.contactLocal}>
+                          {contact.npub ? '🔒' : 'Local'}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+
+              <View style={s.manualPanel}>
+                <Text style={s.manualTitle}>Local-only conversation</Text>
+                <Text style={s.manualHint}>
+                  Use this for private notes or a conversation placeholder that does not sync until an npub is added.
+                </Text>
+
+                <TextInput
+                  style={s.input}
+                  value={newTitle}
+                  onChangeText={setNewTitle}
+                  placeholder="Conversation name"
+                  placeholderTextColor={theme.textMuted}
+                />
+
+                <TextInput
+                  style={s.input}
+                  value={newNpub}
+                  onChangeText={setNewNpub}
+                  placeholder="Optional npub1… or hex pubkey"
+                  placeholderTextColor={theme.textMuted}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+
+                <Text style={s.inputHelp}>
+                  Leave the npub blank to keep this conversation local-only on this device.
+                </Text>
+              </View>
+            </ScrollView>
 
             <View style={s.sheetActions}>
               <TouchableOpacity style={s.cancelBtn} onPress={closeSheet}>
@@ -1215,13 +1239,14 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
       : 'rgba(0,0,0,0.58)',
   },
   sheet: {
+    maxHeight: '88%',
     backgroundColor: theme.surface,
     borderTopLeftRadius: 26,
     borderTopRightRadius: 26,
     borderTopWidth: 0.5,
     borderTopColor: theme.border,
     paddingHorizontal: 20,
-    paddingBottom: 34,
+    paddingBottom: 22,
   },
   sheetHandle: {
     width: 42,
@@ -1269,16 +1294,36 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     fontWeight: '900',
   },
 
+  sheetScroll: {
+    maxHeight: 560,
+  },
+  sheetScrollContent: {
+    paddingBottom: 14,
+  },
+
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
   sectionLabel: {
     color: theme.textMuted,
     fontSize: 10,
     fontWeight: '900',
     letterSpacing: 1,
-    marginBottom: 10,
-    marginTop: 4,
+  },
+  sectionCount: {
+    color: theme.gold,
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  secondarySection: {
+    marginTop: 2,
+    marginBottom: 16,
   },
   contactStrip: {
-    marginBottom: 20,
+    marginBottom: 0,
   },
   contactPill: {
     width: 88,
@@ -1336,7 +1381,7 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
   },
 
   input: {
-    backgroundColor: theme.raised,
+    backgroundColor: theme.surface,
     borderWidth: 0.5,
     borderColor: theme.border,
     borderRadius: 16,
@@ -1351,8 +1396,68 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     color: theme.textMuted,
     fontSize: 11,
     lineHeight: 16,
-    marginBottom: 14,
+    marginBottom: 2,
     fontWeight: '600',
+  },
+
+  primaryPanel: {
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    borderRadius: 22,
+    padding: 14,
+    marginBottom: 16,
+  },
+  primaryPanelHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginBottom: 12,
+  },
+  primaryTitle: {
+    color: theme.text,
+    fontSize: 17,
+    fontWeight: '900',
+    letterSpacing: -0.2,
+  },
+  primaryHint: {
+    color: theme.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '600',
+    marginTop: 3,
+  },
+  primaryBadge: {
+    color: theme.bg,
+    backgroundColor: theme.gold,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 999,
+    fontSize: 10,
+    fontWeight: '900',
+    overflow: 'hidden',
+  },
+  manualPanel: {
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    borderRadius: 20,
+    padding: 14,
+    marginBottom: 4,
+  },
+  manualTitle: {
+    color: theme.text,
+    fontSize: 14,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  manualHint: {
+    color: theme.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '600',
+    marginBottom: 12,
   },
 
   discoveryBox: {
@@ -1362,7 +1467,7 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
   },
   discoveryInput: {
     flex: 1,
-    backgroundColor: theme.raised,
+    backgroundColor: theme.surface,
     borderWidth: 0.5,
     borderColor: theme.border,
     borderRadius: 16,
@@ -1393,15 +1498,16 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
     fontWeight: '700',
+    marginTop: 2,
     marginBottom: 10,
   },
   discoveryResult: {
-    backgroundColor: theme.raised,
+    backgroundColor: theme.surface,
     borderWidth: 0.5,
     borderColor: theme.border,
     borderRadius: 20,
     padding: 12,
-    marginBottom: 18,
+    marginTop: 4,
   },
   discoveryResultTop: {
     flexDirection: 'row',
@@ -1418,7 +1524,7 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: theme.surface,
+    backgroundColor: theme.raised,
     borderWidth: 0.5,
     borderColor: theme.border,
     alignItems: 'center',
@@ -1458,7 +1564,7 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     flex: 1,
     minHeight: 38,
     borderRadius: 19,
-    backgroundColor: theme.surface,
+    backgroundColor: theme.raised,
     borderWidth: 0.5,
     borderColor: theme.border,
     alignItems: 'center',
