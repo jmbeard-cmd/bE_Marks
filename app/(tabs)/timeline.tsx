@@ -1,9 +1,8 @@
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
-  Dimensions,
   FlatList,
   Image,
   Modal,
@@ -30,8 +29,6 @@ import {
   type Milestone,
 } from '../../src/utils/storage';
 import { useIdentity } from '../_layout';
-
-const { width } = Dimensions.get('window');
 
 interface FilterState {
   tags: string[];
@@ -74,81 +71,6 @@ function applyFilters(milestones: Milestone[], filters: FilterState, npub: strin
     if (filters.authorNpub && m.authorNpub !== filters.authorNpub) return false;
     return true;
   });
-}
-
-// MilestoneImage handles loading states and broken URLs gracefully
-function MilestoneImage({
-  uri,
-  onRatio,
-}: {
-  uri: string;
-  onRatio?: (ratio: number) => void;
-}) {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [ratio, setRatio] = useState(4 / 3);
-
-  useEffect(() => {
-    let mounted = true;
-
-    setLoading(true);
-    setError(false);
-
-    Image.getSize(
-      uri,
-      (w, h) => {
-        if (!mounted || !w || !h) return;
-
-        const rawRatio = w / h;
-        const safeRatio = Math.max(0.56, Math.min(rawRatio, 1.8));
-
-        setRatio(safeRatio);
-        onRatio?.(safeRatio);
-      },
-      () => {
-        if (!mounted) return;
-        setError(true);
-        setLoading(false);
-      }
-    );
-
-    return () => {
-      mounted = false;
-    };
-  }, [uri, onRatio]);
-
-  if (error) {
-    return (
-      <View style={s.imageFallback}>
-        <Text style={s.imageFallbackIcon}>🖼️</Text>
-        <Text style={s.imageFallbackText}>Image unavailable</Text>
-      </View>
-    );
-  }
-
-  const imageHeight = ratio < 0.9 ? 420 : ratio > 1.4 ? 190 : 260;
-
-  return (
-    <View style={[s.imageContainer, { height: imageHeight }]}>
-      <Image
-        source={{ uri }}
-        style={s.photo}
-        resizeMode="cover"
-        onLoadStart={() => setLoading(true)}
-        onLoadEnd={() => setLoading(false)}
-        onError={() => {
-          setLoading(false);
-          setError(true);
-        }}
-      />
-
-      {loading && (
-        <View style={s.imageLoadingOverlay}>
-          <ActivityIndicator size="small" color="#c9973a" />
-        </View>
-      )}
-    </View>
-  );
 }
 
 function getMilestoneMediaItems(item: Milestone): any[] {
@@ -564,8 +486,6 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
 }  
   
   function TimelineCard({ item, index }: { item: Milestone; index: number }) {
-    const [mediaRatio, setMediaRatio] = useState(1.2);
-
     const hasTitle = item.note?.includes('\n\n');
     const title = hasTitle ? item.note.split('\n\n')[0] : null;
     const body = hasTitle ? item.note.split('\n\n').slice(1).join('\n\n') : item.note;
@@ -942,13 +862,12 @@ const s = StyleSheet.create({
   overflow: 'hidden',
 },
       cardPortrait: {
-    width: width * 0.58,
+    width: '58%',
     maxWidth: 280,
     alignSelf: 'center',
     borderRadius: 12,
     overflow: 'hidden',
   },
-  // Image rendering
     // Image rendering
   photoWrapper: { position: 'relative', backgroundColor: '#0d0d0d' },
     imageContainer: {

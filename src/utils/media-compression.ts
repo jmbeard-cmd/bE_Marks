@@ -47,10 +47,10 @@ function getCompressorModule(): CompressorModule | null {
     // This must stay inside the function.
     // Expo Go cannot use react-native-compressor because it is a native module.
     // In an EAS/native APK build, this require should succeed and real compression will run.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     cachedCompressorModule = require('react-native-compressor') as CompressorModule;
     return cachedCompressorModule;
-  } catch (error) {
+  } catch {
     console.warn(
       '[Media Compression] react-native-compressor unavailable; using original media URI.'
     );

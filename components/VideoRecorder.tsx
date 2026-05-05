@@ -55,7 +55,7 @@ useEffect(() => {
         onVideoComplete(video.uri);
       }
       setCameraOpen(false);
-    } catch (e) {
+    } catch {
       Alert.alert('Error', 'Could not record video.');
       setIsRecording(false);
       setCameraOpen(false);

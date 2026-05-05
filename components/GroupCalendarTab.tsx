@@ -448,7 +448,7 @@ export default function GroupCalendarTab({
               />
 
               <Text style={s.modalMeta}>
-                Members can RSVP Going / Maybe / Can't go. You'll see attendance counts after posting.
+                Members can RSVP Going / Maybe / Unable to go. See attendance counts after posting.
               </Text>
 
               <View style={s.modalActions}>

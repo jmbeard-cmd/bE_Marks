@@ -911,13 +911,13 @@ export async function publishFamilyMilestone(
     photoUri?: string;
     videoUri?: string;
         audioUri?: string;
-    media?: Array<{
+    media?: {
       id: string;
       uri: string;
       type: 'image' | 'video';
       source?: 'local' | 'cloud' | 'r2';
       thumbnailUri?: string;
-    }>;
+    }[];
     reflections?: { text: string; createdAt: number; authorNpub?: string }[];
     createdAt: number;
     familyId: string;
@@ -1919,13 +1919,13 @@ export async function publishGroupSticky(input: {
   groupId: string;
   title: string;
   body: string;
-  media?: Array<{
+  media?: {
     id: string;
     uri: string;
     type: 'image' | 'video' | 'file';
     name?: string;
     thumbnailUri?: string;
-  }>;
+  }[];
   authorNpub?: string;
   nsec: string;
   relayUrl: string;

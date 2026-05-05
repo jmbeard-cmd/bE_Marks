@@ -121,7 +121,7 @@ export default function GroupThreadScreen() {
     const [inputHeight, setInputHeight] = useState(40);
   const [messages, setMessages] = useState<GroupMessage[]>([]);
   const [loadingInitialMessages, setLoadingInitialMessages] = useState(true);
-  const [initialListReady, setInitialListReady] = useState(false);
+  const [, setInitialListReady] = useState(false);
 const [sending, setSending] = useState(false);
 const [uploadingImage, setUploadingImage] = useState(false);
 
@@ -377,14 +377,6 @@ const [pollDetailsMessage, setPollDetailsMessage] = useState<GroupMessage | Pend
     });
   }, []);
 
-  const scrollToLatestMessage = useCallback((animated = false) => {
-    if (chatMessages.length === 0) return;
-
-    requestAnimationFrame(() => {
-      listRef.current?.scrollToOffset({ offset: 0, animated });
-    });
-  }, [chatMessages.length]);
-
   const forceScrollToBottom = useCallback((animated = true) => {
     forceNextAutoScrollRef.current = true;
 
@@ -604,7 +596,7 @@ const [pollDetailsMessage, setPollDetailsMessage] = useState<GroupMessage | Pend
       .catch(error => {
         console.warn('[Groups] Remote fetch error:', error);
       });
-  }, [groupId, relayUrl, npub, scrollToBottom]);
+  }, [groupId, relayUrl, npub]);
 
   useEffect(() => {
     loadGroup();
@@ -781,7 +773,7 @@ const [pollDetailsMessage, setPollDetailsMessage] = useState<GroupMessage | Pend
       if (unsubscribeEdits) unsubscribeEdits();
       if (unsubscribePollVotes) unsubscribePollVotes();
     };
-  }, [groupId, relayUrl, npub, scrollToBottom]);
+  }, [groupId, relayUrl, npub, scrollToBottomIfAppropriate]);
 
   const handleSend = async () => {
     const text = draft.trim();
@@ -2220,11 +2212,6 @@ style={[
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
-}
-
-function formatMessageTime(unix: number): string {
-  const date = new Date(unix * 1000);
-  return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
 function themeModeAwareOverlay(theme: typeof Colors.light): string {

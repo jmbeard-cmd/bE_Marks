@@ -13,7 +13,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
-  generateAndStoreKeypair,
   getPublicKeyFromAmber,
   importNsec,
 } from '../../src/utils/nostr';
@@ -27,17 +26,6 @@ export default function IdentityScreen() {
   const [mode, setMode] = useState<Mode>('choose');
   const [nsecInput, setNsecInput] = useState('');
   const [loading, setLoading] = useState(false);
-
-  const handleGenerate = async () => {
-    setLoading(true);
-    try {
-      const { npub, nsec } = await generateAndStoreKeypair();
-      setIdentity(npub, nsec);
-    } catch {
-      Alert.alert('Error', 'Failed to generate keypair.');
-    }
-    setLoading(false);
-  };
 
   const handleImport = async () => {
     if (!nsecInput.startsWith('nsec1')) {

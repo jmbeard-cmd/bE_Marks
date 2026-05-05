@@ -59,7 +59,7 @@ export default function AudioRecorder({ onRecordingComplete, existingUri }: Prop
       recorder.record();
       setIsRecording(true);
       setAudioUri(undefined);
-    } catch (e) {
+    } catch {
       Alert.alert('Error', 'Could not start recording.');
     }
   };
@@ -73,7 +73,7 @@ export default function AudioRecorder({ onRecordingComplete, existingUri }: Prop
         setAudioUri(uri);
         onRecordingComplete(uri);
       }
-    } catch (e) {
+    } catch {
       Alert.alert('Error', 'Could not stop recording.');
     }
   };
@@ -83,7 +83,7 @@ export default function AudioRecorder({ onRecordingComplete, existingUri }: Prop
     try {
       player.play();
       setIsPlaying(true);
-    } catch (e) {
+    } catch {
       Alert.alert('Error', 'Could not play audio.');
     }
   };
