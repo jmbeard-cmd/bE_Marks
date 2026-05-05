@@ -12,7 +12,37 @@ export type CachedDMProfile = {
 async function readProfileCache(): Promise<Record<string, CachedDMProfile>> {
   try {
     const raw = await AsyncStorage.getItem(DM_PROFILE_CACHE_KEY);
-    return raw ? JSON.parse(raw) : {};
+
+    if (!raw) return {};
+
+    const parsed = JSON.parse(raw);
+
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return {};
+    }
+
+    const cache: Record<string, CachedDMProfile> = {};
+
+    Object.entries(parsed).forEach(([key, value]) => {
+      const profile = value as Partial<CachedDMProfile>;
+
+      if (
+        typeof key === 'string' &&
+        !!profile &&
+        typeof profile.pubkey === 'string' &&
+        typeof profile.displayName === 'string' &&
+        typeof profile.updatedAt === 'number'
+      ) {
+        cache[key] = {
+          pubkey: profile.pubkey,
+          displayName: profile.displayName,
+          picture: typeof profile.picture === 'string' ? profile.picture : undefined,
+          updatedAt: profile.updatedAt,
+        };
+      }
+    });
+
+    return cache;
   } catch (error) {
     console.warn('[DM Profile Cache] read failed:', error);
     return {};
@@ -61,4 +91,11 @@ export async function saveCachedDMProfile(input: {
   };
 
   await writeProfileCache(cache);
+}
+export async function clearCachedDMProfiles(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(DM_PROFILE_CACHE_KEY);
+  } catch (error) {
+    console.warn('[DM Profile Cache] clear failed:', error);
+  }
 }

@@ -20,7 +20,19 @@ export async function getCachedDMThreadCards(): Promise<CachedDMThreadCard[]> {
 
     if (!raw) return [];
 
-    const cards = JSON.parse(raw) as CachedDMThreadCard[];
+    const parsed = JSON.parse(raw);
+
+    if (!Array.isArray(parsed)) return [];
+
+    const cards = parsed.filter((card): card is CachedDMThreadCard => (
+      !!card &&
+      typeof card.id === 'string' &&
+      typeof card.title === 'string' &&
+      typeof card.displayTitle === 'string' &&
+      typeof card.updatedAt === 'number' &&
+      typeof card.unread === 'number' &&
+      typeof card.lastMessage === 'string'
+    ));
 
     return cards.sort((a, b) => b.updatedAt - a.updatedAt);
   } catch (error) {
