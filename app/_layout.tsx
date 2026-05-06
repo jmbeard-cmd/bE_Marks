@@ -8,6 +8,7 @@ import { Colors } from '../src/constants/theme';
 import { startDMService, stopDMService } from '../src/utils/dm-service';
 import { clearDMStorage } from '../src/utils/dm-storage';
 import { fetchNostrProfile, getStoredIdentity, type NostrProfile } from '../src/utils/nostr';
+import { clearStartupJobs, enqueueStartupJob, startStartupScheduler } from '../src/utils/startup-scheduler';
 import {
   getFamily,
   leaveFamily,
@@ -78,10 +79,15 @@ export default function RootLayout() {
 }, []);
   
   useEffect(() => {
+    let cancelled = false;
+
     Promise.all([getStoredIdentity(), getFamily()]).then(async ([id, fam]) => {
-      console.log('[LAYOUT] checking identity + starting DM service');
+      console.log('[LAYOUT] checking identity + family');
+
+      if (cancelled) return;
+
       if (id) {
-        console.log('[LAYOUT] identity found, starting DM service');
+        console.log('[LAYOUT] identity found, deferring heavy DM restore');
         setNpub(id.npub);
         setNsec(id.nsec);
 
@@ -94,19 +100,40 @@ export default function RootLayout() {
             status: 'active',
           });
         }
-
-        // Start background DM listener on app launch if already signed in
-        console.log('[LAYOUT] restoring DMs + starting service');
-
-import('../src/utils/dm-service').then(async (mod) => {
-  await mod.restoreDMsFromRelay();
-  startDMService();
-});
       }
 
       if (fam) setFamilyState(fam);
+
+      // Mark the app ready before heavy relay/DM work starts.
       setReady(true);
+
+      if (id) {
+        startStartupScheduler();
+
+enqueueStartupJob({
+  id: 'dm-service-start',
+  label: 'Start DM service',
+  priority: 'idle',
+  run: async () => {
+    await startDMService();
+  },
+});
+
+        enqueueStartupJob({
+          id: 'dm-restore-from-relay',
+          label: 'Restore DMs from relay',
+          priority: 'idle',
+          run: async () => {
+            const mod = await import('../src/utils/dm-service');
+            await mod.restoreDMsFromRelay();
+          },
+        });
+      }
     });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -146,6 +173,7 @@ import('../src/utils/dm-service').then(async (mod) => {
   
  const setIdentity = (p: string, s: string) => {
   stopDMService();
+  clearStartupJobs();
 
   setNpub(p);
   setNsec(s);
@@ -155,9 +183,25 @@ import('../src/utils/dm-service').then(async (mod) => {
 
   // 🔥 CLEAR DM CACHE (prevents cross-identity thread bleed)
   clearDMStorage().then(() => {
-    import('../src/utils/dm-service').then(async (mod) => {
-      await mod.restoreDMsFromRelay();
-      startDMService();
+    startStartupScheduler();
+
+enqueueStartupJob({
+  id: 'dm-service-start-after-identity',
+  label: 'Start DM service after identity change',
+  priority: 'idle',
+  run: async () => {
+    await startDMService();
+  },
+});
+
+    enqueueStartupJob({
+      id: 'dm-restore-after-identity',
+      label: 'Restore DMs after identity change',
+      priority: 'idle',
+      run: async () => {
+        const mod = await import('../src/utils/dm-service');
+        await mod.restoreDMsFromRelay();
+      },
     });
   });
 };
@@ -166,6 +210,7 @@ import('../src/utils/dm-service').then(async (mod) => {
     setNsec(null);
     setUseAmber(false);
     setProfile(null);
+    clearStartupJobs();
     // Stop background listener on sign out
     stopDMService();
   };

@@ -1,6 +1,7 @@
 import * as Notifications from 'expo-notifications';
 import { getPublicKey, nip19 } from 'nostr-tools';
 import { AppState, type AppStateStatus } from 'react-native';
+import { isAppBusy } from './app-activity';
 import { emitDMChanged } from './dm-events';
 import {
   createThread,
@@ -49,6 +50,11 @@ const _seenIds = new Set<string>();
 export async function startDMService(): Promise<void> {
   console.log('[DMService] startDMService called');
 
+  if (isAppBusy()) {
+    console.log('[DMService] app busy, skipping start for now');
+    return;
+  }
+
   if (_running) {
     console.log('[DMService] already running');
     return;
@@ -86,6 +92,12 @@ export function stopDMService(): void {
 }
 
 async function _connect(): Promise<void> {
+  if (isAppBusy()) {
+    console.log('[DMService] app busy, delaying connect');
+    _scheduleReconnect(3000);
+    return;
+  }
+
   console.log('[DMService] connecting...');
   _cleanup();
 
@@ -234,6 +246,11 @@ function _scheduleKeepAlive(): void {
   }, 5 * 60_000);
 }
 export async function restoreDMsFromRelay(): Promise<void> {
+  if (isAppBusy()) {
+    console.log('[DM RESTORE] app busy, skipping restore for now');
+    return;
+  }
+
   console.log('[DM RESTORE] starting full restore');
 
   try {
@@ -271,6 +288,11 @@ export async function restoreDMsFromRelay(): Promise<void> {
       relayUrls: FAST_RELAYS,
       limit: 250,
     });
+
+    if (isAppBusy()) {
+      console.log('[DM RESTORE] app became busy after fetch, stopping before save');
+      return;
+    }
 
     console.log('[DM RESTORE] recent messages fetched:', messages.length);
 

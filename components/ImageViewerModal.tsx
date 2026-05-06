@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import ImageZoom from 'react-native-image-pan-zoom';
+import { setAppActivity } from '../src/utils/app-activity';
 
 const { width, height } = Dimensions.get('window');
 const ZoomableImage = ImageZoom as any;
@@ -118,6 +119,19 @@ export default function ImageViewerModal({
   const activeIndexRef = useRef(0);
 
   const activeMedia = images[activeIndex];
+
+  useEffect(() => {
+    if (!selectedUri) {
+      setAppActivity('media-viewer', false);
+      return;
+    }
+
+    setAppActivity('media-viewer', true);
+
+    return () => {
+      setAppActivity('media-viewer', false);
+    };
+  }, [selectedUri]);
 
   useEffect(() => {
     activeIndexRef.current = activeIndex;
