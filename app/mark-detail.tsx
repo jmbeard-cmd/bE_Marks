@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   Alert,
   Dimensions,
+  FlatList,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -18,6 +19,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ImageViewerModal, { ViewerImage } from '../components/ImageViewerModal';
+import { setAppActivity } from '../src/utils/app-activity';
 import { fetchNostrProfile, publishFamilyMilestone, type NostrProfile } from '../src/utils/nostr';
 import { formatDate, getMilestones, updateMilestone, type Milestone } from '../src/utils/storage';
 import { useIdentity } from './_layout';
@@ -72,6 +74,7 @@ export default function MilestoneDetail() {
   const [isAddingReflection, setIsAddingReflection] = useState(false);
   const [reflectionText, setReflectionText] = useState('');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [detailMediaIndex, setDetailMediaIndex] = useState(0);
   const [reflectionProfiles, setReflectionProfiles] = useState<Record<string, NostrProfile>>({});
 
   const audioPlayer = useAudioPlayer(
@@ -243,6 +246,11 @@ const body = hasTitle ? milestone.note.split('\n\n').slice(1).join('\n\n') : mil
 
 const isOwner = !milestone.authorNpub || milestone.authorNpub === npub;
 
+const openMediaViewer = (uri: string) => {
+  setAppActivity('media-viewer', true);
+  setSelectedImage(uri);
+};
+
   const viewerImages: ViewerImage[] =
   milestone.media && milestone.media.length > 0
     ? milestone.media.map(item => ({
@@ -294,32 +302,76 @@ const isOwner = !milestone.authorNpub || milestone.authorNpub === npub;
         >
 
         {/* Media */}
-{milestone.media && milestone.media.length > 0 ? (
-  <ScrollView horizontal style={s.multiPhotoRow}>
-    {milestone.media.map(item => (
-      <TouchableOpacity
-        key={item.id}
-        onPress={() => setSelectedImage(item.uri)}
-        style={s.multiPhotoWrap}
-      >
-        <Image
-  source={{ uri: item.type === 'video' ? item.thumbnailUri || item.uri : item.uri }}
-  style={s.multiPhoto}
-  resizeMode="cover"
-/>
+{viewerImages.length > 0 ? (
+  <View style={s.heroCarousel}>
+    <FlatList
+      data={viewerImages}
+      horizontal
+      pagingEnabled
+      showsHorizontalScrollIndicator={false}
+      keyExtractor={(item, index) => `${item.id || item.uri}_${index}`}
+      getItemLayout={(_, index) => ({
+        length: width,
+        offset: width * index,
+        index,
+      })}
+      onMomentumScrollEnd={(event) => {
+        const nextIndex = Math.round(event.nativeEvent.contentOffset.x / width);
+        setDetailMediaIndex(nextIndex);
+      }}
+      renderItem={({ item, index }) => {
+        const previewUri =
+          item.type === 'video'
+            ? item.thumbnailUrl || item.uri
+            : item.thumbnailUrl || item.uri;
 
-        {item.type === 'video' && (
-          <View style={s.videoBadge}>
-            <Text style={s.videoBadgeText}>▶</Text>
-          </View>
-        )}
-      </TouchableOpacity>
-    ))}
-  </ScrollView>
-) : milestone.photoUri ? (
-  <TouchableOpacity onPress={() => setSelectedImage(milestone.photoUri!)}>
-    <MilestonePhoto uri={milestone.photoUri} />
-  </TouchableOpacity>
+        return (
+          <TouchableOpacity
+            activeOpacity={0.92}
+            style={s.heroSlide}
+            onPress={() => openMediaViewer(item.uri)}
+          >
+            <Image
+              source={{ uri: previewUri }}
+              style={s.heroImage}
+              resizeMode="cover"
+            />
+
+            {item.type === 'video' && (
+              <View style={s.heroVideoBadge}>
+                <Text style={s.heroVideoBadgeText}>▶</Text>
+              </View>
+            )}
+
+            {viewerImages.length > 1 && (
+              <View style={s.heroCounter}>
+                <Text style={s.heroCounterText}>
+                  {index + 1} / {viewerImages.length}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        );
+      }}
+    />
+
+    {viewerImages.length > 1 && (
+      <View style={s.heroDots}>
+        {viewerImages.map((item, index) => (
+          <View
+            key={`${item.id || item.uri}_dot_${index}`}
+            style={[
+              s.heroDot,
+              index === detailMediaIndex && [
+                s.heroDotActive,
+                { backgroundColor: theme.gold },
+              ],
+            ]}
+          />
+        ))}
+      </View>
+    )}
+  </View>
 ) : null}
 
         <View style={s.content}>
@@ -565,7 +617,10 @@ const isOwner = !milestone.authorNpub || milestone.authorNpub === npub;
       <ImageViewerModal
   images={viewerImages}
   selectedUri={selectedImage}
-  onClose={() => setSelectedImage(null)}
+  onClose={() => {
+    setAppActivity('media-viewer', false);
+    setSelectedImage(null);
+  }}
 />
 
     </SafeAreaView>
@@ -736,15 +791,73 @@ fullscreenImage: {
   width: '100%',
   height: '100%',
 },
-multiPhotoRow: {
+heroCarousel: {
+  width: '100%',
+  backgroundColor: '#000',
   marginBottom: 16,
 },
-multiPhotoWrap: {
-  marginRight: 10,
+heroSlide: {
+  width,
+  height: width * 0.82,
+  backgroundColor: '#000',
+  position: 'relative',
 },
-multiPhoto: {
-  width: 160,
-  height: 160,
-  borderRadius: 10,
+heroImage: {
+  width: '100%',
+  height: '100%',
+  backgroundColor: '#000',
+},
+heroCounter: {
+  position: 'absolute',
+  top: 14,
+  right: 14,
+  paddingHorizontal: 10,
+  paddingVertical: 5,
+  borderRadius: 999,
+  backgroundColor: 'rgba(0,0,0,0.68)',
+},
+heroCounterText: {
+  color: '#fff',
+  fontSize: 12,
+  fontWeight: '800',
+},
+heroDots: {
+  position: 'absolute',
+  bottom: 12,
+  left: 0,
+  right: 0,
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 5,
+},
+heroDot: {
+  width: 6,
+  height: 6,
+  borderRadius: 3,
+  backgroundColor: 'rgba(255,255,255,0.35)',
+},
+heroDotActive: {
+  width: 7,
+  height: 7,
+  borderRadius: 3.5,
+},
+heroVideoBadge: {
+  position: 'absolute',
+  left: 0,
+  right: 0,
+  top: 0,
+  bottom: 0,
+  alignItems: 'center',
+  justifyContent: 'center',
+  backgroundColor: 'rgba(0,0,0,0.18)',
+},
+heroVideoBadgeText: {
+  color: '#fff',
+  fontSize: 42,
+  fontWeight: '900',
+  textShadowColor: 'rgba(0,0,0,0.55)',
+  textShadowOffset: { width: 0, height: 1 },
+  textShadowRadius: 4,
 },
 });
