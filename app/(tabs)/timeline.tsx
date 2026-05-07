@@ -17,6 +17,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import BEHeader from '../../components/BEHeader';
 import ImageViewerModal, { ViewerImage } from '../../components/ImageViewerModal';
+import MediaCollage from '../../components/MediaCollage';
 import { DEFAULT_RELAY, fetchFamilyMembers, fetchFamilyMilestones } from '../../src/utils/nostr';
 import {
   formatDate,
@@ -509,9 +510,10 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
 
         <View style={s.cardSlot}>
           <View style={[s.card, themed.raised, themed.border, isPortrait && s.cardPortrait]}>
-          {(hasVisualMedia || hasAudioOnly) && (
-  <TimelineMediaCollage
-    milestone={item}
+{(hasVisualMedia || hasAudioOnly) && (
+  <MediaCollage
+    media={mediaItems}
+    audioUri={item.audioUri}
     onPressMedia={(mediaIndex) => openViewerForMilestone(item, mediaIndex)}
   />
 )}

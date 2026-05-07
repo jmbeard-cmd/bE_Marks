@@ -1,5 +1,14 @@
-import { useState } from 'react';
-import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useRef, useState } from 'react';
+import {
+  FlatList,
+  Image,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 export type CollageMediaItem = {
   id?: string;
@@ -17,6 +26,8 @@ type Props = {
   onPressMedia?: (index: number) => void;
 };
 
+const CARD_MEDIA_HEIGHT = 260;
+
 function getMediaUrl(item: CollageMediaItem): string | null {
   return item.uri || item.mediaUrl || null;
 }
@@ -33,16 +44,14 @@ function getMediaType(item: CollageMediaItem): 'image' | 'video' | 'audio' {
 function getPreviewUri(item: CollageMediaItem): string | null {
   const mediaType = getMediaType(item);
 
-  if (mediaType === 'video') {
-    return item.thumbnailUri || item.thumbnailUrl || getMediaUrl(item);
-  }
-
   if (mediaType === 'audio') return null;
 
-  return getMediaUrl(item);
+  // Prefer thumbnails for BOTH images and videos in feed/card views.
+  // Full media still opens in ImageViewerModal through onPressMedia.
+  return item.thumbnailUri || item.thumbnailUrl || getMediaUrl(item);
 }
 
-function CollageTileImage({
+function MediaPreviewImage({
   uri,
   type,
 }: {
@@ -75,13 +84,19 @@ export default function MediaCollage({
   audioUri,
   onPressMedia,
 }: Props) {
+  const listRef = useRef<FlatList<CollageMediaItem>>(null);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [carouselWidth, setCarouselWidth] = useState(0);
+
   const mediaItems = Array.isArray(media) ? media : [];
+
   const visualItems = mediaItems.filter(item => {
     const type = getMediaType(item);
     return type === 'image' || type === 'video';
   });
 
-  const hasAudio = !!audioUri || mediaItems.some(item => getMediaType(item) === 'audio');
+  const hasAudio =
+    !!audioUri || mediaItems.some(item => getMediaType(item) === 'audio');
 
   if (visualItems.length === 0 && hasAudio) {
     return (
@@ -95,108 +110,111 @@ export default function MediaCollage({
   if (visualItems.length === 0) return null;
 
   const totalMedia = visualItems.length;
+  const hasVideo = visualItems.some(item => getMediaType(item) === 'video');
 
-  const renderTile = (item: CollageMediaItem, index: number, tileStyle: any) => {
-    const type = getMediaType(item);
-    const previewUri = getPreviewUri(item);
+  const handleScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (carouselWidth <= 0) return;
 
-    return (
-      <TouchableOpacity
-        key={`${item.id || getMediaUrl(item) || 'media'}_${index}`}
-        style={tileStyle}
-        activeOpacity={0.8}
-        onPress={() => onPressMedia?.(index)}
-      >
-        <CollageTileImage
-          uri={previewUri}
-          type={type === 'video' ? 'video' : 'image'}
-        />
-
-        {index === 3 && totalMedia > 4 && (
-          <View style={s.moreOverlay}>
-            <Text style={s.moreText}>+{totalMedia - 4}</Text>
-          </View>
-        )}
-      </TouchableOpacity>
+    const nextIndex = Math.round(
+      event.nativeEvent.contentOffset.x / carouselWidth
     );
+
+    if (nextIndex >= 0 && nextIndex < totalMedia) {
+      setActiveIndex(nextIndex);
+    }
   };
 
-  if (totalMedia === 1) {
-    return (
-      <View style={s.wrap}>
-        {renderTile(visualItems[0], 0, s.tileOne)}
-      </View>
-    );
-  }
-
-  if (totalMedia === 2) {
-    return (
-      <View style={s.wrap}>
-        {renderTile(visualItems[0], 0, s.tileTwo)}
-        {renderTile(visualItems[1], 1, s.tileTwo)}
-        <BadgeRow totalMedia={totalMedia} hasVideo={visualItems.some(item => getMediaType(item) === 'video')} hasAudio={hasAudio} />
-      </View>
-    );
-  }
-
-  if (totalMedia === 3) {
-    return (
-      <View style={s.wrap}>
-        <View style={s.threeLeft}>
-          {renderTile(visualItems[0], 0, s.fill)}
-        </View>
-
-        <View style={s.threeRight}>
-          {renderTile(visualItems[1], 1, s.threeRightTile)}
-          {renderTile(visualItems[2], 2, s.threeRightTile)}
-        </View>
-
-        <BadgeRow totalMedia={totalMedia} hasVideo={visualItems.some(item => getMediaType(item) === 'video')} hasAudio={hasAudio} />
-      </View>
-    );
-  }
-
-    return (
-    <View style={s.wrapGrid}>
-      {visualItems.slice(0, 4).map((item, index) =>
-        renderTile(item, index, s.tileFour)
-      )}
-
-      <BadgeRow
-        totalMedia={totalMedia}
-        hasVideo={visualItems.some(item => getMediaType(item) === 'video')}
-        hasAudio={hasAudio}
-      />
-    </View>
-  );
-}
-
-function BadgeRow({
-  totalMedia,
-  hasVideo,
-  hasAudio,
-}: {
-  totalMedia: number;
-  hasVideo: boolean;
-  hasAudio: boolean;
-}) {
   return (
-    <View style={s.badgeRow}>
+    <View
+      style={s.wrap}
+      onLayout={(event) => {
+        const nextWidth = event.nativeEvent.layout.width;
+        if (nextWidth > 0 && nextWidth !== carouselWidth) {
+          setCarouselWidth(nextWidth);
+        }
+      }}
+    >
+      {carouselWidth > 0 && (
+      <FlatList
+        ref={listRef}
+        data={visualItems}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        keyExtractor={(item, index) => `${item.id || getMediaUrl(item) || 'media'}_${index}`}
+        getItemLayout={(_, index) => ({
+          length: carouselWidth,
+          offset: carouselWidth * index,
+          index,
+        })}
+        initialNumToRender={1}
+        maxToRenderPerBatch={2}
+        windowSize={3}
+        removeClippedSubviews
+        onMomentumScrollEnd={handleScrollEnd}
+        renderItem={({ item, index }) => {
+          const type = getMediaType(item);
+          const previewUri = getPreviewUri(item);
+
+          return (
+            <TouchableOpacity
+              activeOpacity={0.92}
+              style={[s.slide, { width: carouselWidth }]}
+              onPress={() => onPressMedia?.(index)}
+            >
+              <MediaPreviewImage
+                uri={previewUri}
+                type={type === 'video' ? 'video' : 'image'}
+              />
+
+              {type === 'video' && (
+                <View style={s.videoOverlay}>
+                  <View style={s.playCircle}>
+                    <Text style={s.playIcon}>▶</Text>
+                  </View>
+                </View>
+              )}
+            </TouchableOpacity>
+          );
+        }}
+      />
+      )}
+
       {totalMedia > 1 && (
-        <View style={s.badge}>
-          <Text style={s.badgeText}>{totalMedia}</Text>
+        <View style={s.counter}>
+          <Text style={s.counterText}>
+            {activeIndex + 1} / {totalMedia}
+          </Text>
         </View>
       )}
 
-      {hasVideo && (
-        <View style={s.badge}>
-          <Text style={s.badgeText}>🎥</Text>
+      {(totalMedia > 1 || hasVideo || hasAudio) && (
+        <View style={s.badgeRow}>
+          {hasVideo && (
+            <View style={s.badge}>
+              <Text style={s.badgeText}>🎥</Text>
+            </View>
+          )}
+
+          {hasAudio && (
+            <View style={s.badge}>
+              <Text style={s.badgeText}>🎙</Text>
+            </View>
+          )}
         </View>
       )}
 
-      {hasAudio && (
-        <View style={s.badge}>
-          <Text style={s.badgeText}>🎙</Text>
+      {totalMedia > 1 && (
+        <View style={s.dots}>
+          {visualItems.map((item, index) => (
+            <View
+              key={`${item.id || getMediaUrl(item) || 'media'}_dot_${index}`}
+              style={[
+                s.dot,
+                index === activeIndex && s.dotActive,
+              ]}
+            />
+          ))}
         </View>
       )}
     </View>
@@ -206,67 +224,17 @@ function BadgeRow({
 const s = StyleSheet.create({
   wrap: {
     width: '100%',
-    height: 230,
+    height: CARD_MEDIA_HEIGHT,
     backgroundColor: '#0d0d0d',
     borderBottomWidth: 0.5,
     borderBottomColor: '#222',
     overflow: 'hidden',
-    flexDirection: 'row',
     position: 'relative',
   },
-  wrapGrid: {
-  width: '100%',
-  height: 230,
+slide: {
+  height: CARD_MEDIA_HEIGHT,
   backgroundColor: '#0d0d0d',
-  borderBottomWidth: 0.5,
-  borderBottomColor: '#222',
-  overflow: 'hidden',
-  flexDirection: 'row',
-  flexWrap: 'wrap',
-  position: 'relative',
 },
-  tileOne: {
-    width: '100%',
-    height: '100%',
-    overflow: 'hidden',
-    backgroundColor: '#0d0d0d',
-  },
-  tileTwo: {
-    width: '50%',
-    height: '100%',
-    overflow: 'hidden',
-    backgroundColor: '#0d0d0d',
-  },
-  tileFour: {
-    width: '50%',
-    height: '50%',
-    overflow: 'hidden',
-    backgroundColor: '#0d0d0d',
-  },
-  threeLeft: {
-    width: '60%',
-    height: '100%',
-    overflow: 'hidden',
-    backgroundColor: '#0d0d0d',
-  },
-  threeRight: {
-    width: '40%',
-    height: '100%',
-    overflow: 'hidden',
-    backgroundColor: '#0d0d0d',
-  },
-  threeRightTile: {
-    width: '100%',
-    height: '50%',
-    overflow: 'hidden',
-    backgroundColor: '#0d0d0d',
-  },
-  fill: {
-    width: '100%',
-    height: '100%',
-    overflow: 'hidden',
-    backgroundColor: '#0d0d0d',
-  },
   image: {
     width: '100%',
     height: '100%',
@@ -282,7 +250,7 @@ const s = StyleSheet.create({
   },
   fallbackIcon: {
     color: '#c9973a',
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: '900',
   },
   fallbackText: {
@@ -290,16 +258,61 @@ const s = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
-  moreOverlay: {
+  videoOverlay: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    backgroundColor: 'rgba(0,0,0,0.18)',
   },
-  moreText: {
+  playCircle: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: 'rgba(0,0,0,0.58)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  playIcon: {
     color: '#fff',
     fontSize: 24,
     fontWeight: '900',
+    marginLeft: 3,
+  },
+  counter: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.68)',
+  },
+  counterText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  dots: {
+    position: 'absolute',
+    bottom: 10,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255,255,255,0.35)',
+  },
+  dotActive: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: '#c9973a',
   },
   badgeRow: {
     position: 'absolute',
@@ -310,14 +323,14 @@ const s = StyleSheet.create({
   },
   badge: {
     backgroundColor: 'rgba(0,0,0,0.7)',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
     borderRadius: 18,
-    minWidth: 34,
+    minWidth: 30,
     alignItems: 'center',
   },
   badgeText: {
-    fontSize: 14,
+    fontSize: 13,
   },
   audioThumb: {
     width: '100%',
