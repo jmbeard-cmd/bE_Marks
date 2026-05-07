@@ -8,6 +8,7 @@ import { Colors } from '../src/constants/theme';
 import { startDMService, stopDMService } from '../src/utils/dm-service';
 import { clearDMStorage } from '../src/utils/dm-storage';
 import { fetchNostrProfile, getStoredIdentity, type NostrProfile } from '../src/utils/nostr';
+import { registerForPushNotifications } from '../src/utils/push-notifications';
 import { clearStartupJobs, enqueueStartupJob, startStartupScheduler } from '../src/utils/startup-scheduler';
 import {
   getFamily,
@@ -128,6 +129,15 @@ enqueueStartupJob({
             await mod.restoreDMsFromRelay();
           },
         });
+
+enqueueStartupJob({
+  id: 'push-register',
+  label: 'Register push notifications',
+  priority: 'idle',
+  run: async () => {
+    await registerForPushNotifications(id.npub);
+  },
+});
       }
     });
 
@@ -184,6 +194,15 @@ enqueueStartupJob({
   // 🔥 CLEAR DM CACHE (prevents cross-identity thread bleed)
   clearDMStorage().then(() => {
     startStartupScheduler();
+
+enqueueStartupJob({
+  id: 'push-register-after-identity',
+  label: 'Register push notifications after identity change',
+  priority: 'idle',
+  run: async () => {
+    await registerForPushNotifications(p);
+  },
+});
 
 enqueueStartupJob({
   id: 'dm-service-start-after-identity',
