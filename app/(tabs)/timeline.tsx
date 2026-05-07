@@ -39,6 +39,41 @@ interface FilterState {
   authorNpub: string | null;
 }
 
+const DEFAULT_TAG_FILTERS = [
+  'Family',
+  'Faith',
+  'School',
+  'Sports',
+  'Travel',
+  'Achievement',
+  'Health',
+  'Personal',
+];
+
+const MAX_RECENT_CUSTOM_TAGS = 12;
+
+function normalizeTag(tag: string): string {
+  return tag.trim().toLowerCase();
+}
+
+function uniqueTags(tags: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const rawTag of tags) {
+    const clean = rawTag.trim();
+    if (!clean) continue;
+
+    const normalized = normalizeTag(clean);
+    if (seen.has(normalized)) continue;
+
+    seen.add(normalized);
+    result.push(clean);
+  }
+
+  return result;
+}
+
 const DEFAULT_FILTERS: FilterState = {
   tags: [],
   mediaType: 'all',
@@ -440,7 +475,30 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
   const familyMilestones = family ? milestones.filter(m => m.familyId === family.id) : [];
   const source = tab === 'mine' ? myMilestones : familyMilestones;
   const familyAuthors = Array.from(new Set(familyMilestones.map(m => m.authorNpub).filter(Boolean))) as string[];
-  const allTags = Array.from(new Set(source.flatMap(m => m.tags)));
+  const allTags = uniqueTags(source.flatMap(m => m.tags ?? []));
+
+  const usedTagLookup = new Set(allTags.map(normalizeTag));
+
+  const presetTags = DEFAULT_TAG_FILTERS.filter(tag =>
+    usedTagLookup.has(normalizeTag(tag))
+  );
+
+  const recentCustomTags = uniqueTags(
+    [...source]
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .flatMap(m => m.tags ?? [])
+      .filter(tag => !DEFAULT_TAG_FILTERS.some(defaultTag =>
+        normalizeTag(defaultTag) === normalizeTag(tag)
+      ))
+  ).slice(0, MAX_RECENT_CUSTOM_TAGS);
+
+  const visibleDrawerTags = new Set(
+    [...presetTags, ...recentCustomTags].map(normalizeTag)
+  );
+
+  const selectedHiddenTags = pendingFilters.tags.filter(tag =>
+    !visibleDrawerTags.has(normalizeTag(tag))
+  );
     const filtered = applyFilters(source, filters, npub);
   const activeFilterCount = countActiveFilters(filters);
 
@@ -675,36 +733,122 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
             >
-              {allTags.length > 0 && (
+              {(presetTags.length > 0 || recentCustomTags.length > 0 || selectedHiddenTags.length > 0) && (
                 <View style={s.drawerSection}>
                   <Text style={[s.drawerSectionLabel, themed.mutedText]}>TAGS</Text>
-                  <View style={s.drawerChips}>
-                    {allTags.map(t => (
-                      <TouchableOpacity key={t} 
-style={[
-  s.drawerChip,
-  themed.raised,
-  themed.border,
-  pendingFilters.tags.includes(t) && {
-    backgroundColor: theme.gold,
-    borderColor: theme.gold,
-  },
-]}
 
-onPress={() => togglePendingTag(t)}>
-                        <Text 
-style={[
-  s.drawerChipText,
-  themed.primaryText,
-  pendingFilters.tags.includes(t) && {
-    color: theme.bg,
-    fontWeight: '600',
-  },
-]}
-             >{t}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
+                  {presetTags.length > 0 && (
+                    <>
+                      <Text style={[s.drawerSubLabel, themed.mutedText]}>Featured</Text>
+                      <View style={s.drawerChips}>
+                        {presetTags.map(t => {
+                          const isSelected = pendingFilters.tags.some(tag => normalizeTag(tag) === normalizeTag(t));
+
+                          return (
+                            <TouchableOpacity
+                              key={`preset_${t}`}
+                              style={[
+                                s.drawerChip,
+                                themed.raised,
+                                themed.border,
+                                isSelected && {
+                                  backgroundColor: theme.gold,
+                                  borderColor: theme.gold,
+                                },
+                              ]}
+                              onPress={() => togglePendingTag(t)}
+                            >
+                              <Text
+                                style={[
+                                  s.drawerChipText,
+                                  themed.primaryText,
+                                  isSelected && {
+                                    color: theme.bg,
+                                    fontWeight: '600',
+                                  },
+                                ]}
+                              >
+                                {t}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </>
+                  )}
+
+                  {recentCustomTags.length > 0 && (
+                    <>
+                      <Text style={[s.drawerSubLabel, themed.mutedText]}>Recent custom tags</Text>
+                      <View style={s.drawerChips}>
+                        {recentCustomTags.map(t => {
+                          const isSelected = pendingFilters.tags.some(tag => normalizeTag(tag) === normalizeTag(t));
+
+                          return (
+                            <TouchableOpacity
+                              key={`recent_${t}`}
+                              style={[
+                                s.drawerChip,
+                                themed.raised,
+                                themed.border,
+                                isSelected && {
+                                  backgroundColor: theme.gold,
+                                  borderColor: theme.gold,
+                                },
+                              ]}
+                              onPress={() => togglePendingTag(t)}
+                            >
+                              <Text
+                                style={[
+                                  s.drawerChipText,
+                                  themed.primaryText,
+                                  isSelected && {
+                                    color: theme.bg,
+                                    fontWeight: '600',
+                                  },
+                                ]}
+                              >
+                                {t}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </>
+                  )}
+
+                  {selectedHiddenTags.length > 0 && (
+                    <>
+                      <Text style={[s.drawerSubLabel, themed.mutedText]}>Selected</Text>
+                      <View style={s.drawerChips}>
+                        {selectedHiddenTags.map(t => (
+                          <TouchableOpacity
+                            key={`selected_hidden_${t}`}
+                            style={[
+                              s.drawerChip,
+                              {
+                                backgroundColor: theme.gold,
+                                borderColor: theme.gold,
+                              },
+                            ]}
+                            onPress={() => togglePendingTag(t)}
+                          >
+                            <Text
+                              style={[
+                                s.drawerChipText,
+                                {
+                                  color: theme.bg,
+                                  fontWeight: '600',
+                                },
+                              ]}
+                            >
+                              {t}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </>
+                  )}
                 </View>
               )}
 
@@ -1102,6 +1246,15 @@ drawerSectionLabel: {
   fontWeight: '600', 
   letterSpacing: 0.8, 
   marginBottom: 10 
+},
+drawerSubLabel: {
+  fontSize: 10,
+  fontWeight: '700',
+  letterSpacing: 0.7,
+  textTransform: 'uppercase',
+  marginTop: 4,
+  marginBottom: 8,
+  opacity: 0.72,
 },
   drawerChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
 drawerChip: { 

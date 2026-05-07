@@ -167,13 +167,6 @@ export default function MediaCollage({
                 type={type === 'video' ? 'video' : 'image'}
               />
 
-              {type === 'video' && (
-                <View style={s.videoOverlay}>
-                  <View style={s.playCircle}>
-                    <Text style={s.playIcon}>▶</Text>
-                  </View>
-                </View>
-              )}
             </TouchableOpacity>
           );
         }}
@@ -257,26 +250,6 @@ slide: {
     color: '#666',
     fontSize: 12,
     fontWeight: '700',
-  },
-  videoOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.18)',
-  },
-  playCircle: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: 'rgba(0,0,0,0.58)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  playIcon: {
-    color: '#fff',
-    fontSize: 24,
-    fontWeight: '900',
-    marginLeft: 3,
   },
   counter: {
     position: 'absolute',
