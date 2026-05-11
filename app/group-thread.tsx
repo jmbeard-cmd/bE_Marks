@@ -67,6 +67,7 @@ import {
 } from '../src/utils/push-notifications';
 import { uploadToR2 } from '../src/utils/r2';
 import { useIdentity } from './_layout';
+
 function createClientMessageId(groupId: string): string {
   return `client_msg_${groupId}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -154,7 +155,6 @@ function getGroupIcon(group: BEGroup): string {
   return GROUP_TYPE_ICONS.default;
 }
 
-
 const REACTION_PACKS = [
   {
     title: 'Popular',
@@ -177,7 +177,7 @@ const REACTION_PACKS = [
 export default function GroupThreadScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string }>();
-    const { npub, nsec, profile, themeMode } = useIdentity();
+  const { npub, nsec, profile, themeMode } = useIdentity();
   const theme = Colors[themeMode];
   const s = useMemo(() => createStyles(theme), [theme]);
 
@@ -187,27 +187,27 @@ export default function GroupThreadScreen() {
   const [groupIcon, setGroupIcon] = useState('👥');
   const [relayUrl, setRelayUrl] = useState('wss://relay.beginningend.com');
   const [draft, setDraft] = useState('');
-    const [inputHeight, setInputHeight] = useState(40);
+  const [inputHeight, setInputHeight] = useState(40);
   const [messages, setMessages] = useState<GroupMessage[]>([]);
   const [loadingInitialMessages, setLoadingInitialMessages] = useState(true);
   const [, setInitialListReady] = useState(false);
-const [sending, setSending] = useState(false);
-const [uploadingImage, setUploadingImage] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
 
-const [uploadStatus, setUploadStatus] = useState<string | null>(null);
-const [pendingUploads, setPendingUploads] = useState<PendingUploadMessage[]>([]);
-const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
-const [memberAvatarMap, setMemberAvatarMap] = useState<Record<string, string | undefined>>({});
-const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadMessage | null>(null);
-const [showReactionPicker, setShowReactionPicker] = useState(false);
-const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
-const [editingMessage, setEditingMessage] = useState<GroupMessage | null>(null);
-const [showComposerMenu, setShowComposerMenu] = useState(false);
-const [showPollModal, setShowPollModal] = useState(false);
-const [pollQuestion, setPollQuestion] = useState('');
-const [pollOptions, setPollOptions] = useState(['', '']);
-const [creatingPoll, setCreatingPoll] = useState(false);
-const [pollDetailsMessage, setPollDetailsMessage] = useState<GroupMessage | PendingUploadMessage | null>(null);
+  const [uploadStatus, setUploadStatus] = useState<string | null>(null);
+  const [pendingUploads, setPendingUploads] = useState<PendingUploadMessage[]>([]);
+  const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
+  const [memberAvatarMap, setMemberAvatarMap] = useState<Record<string, string | undefined>>({});
+  const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadMessage | null>(null);
+  const [showReactionPicker, setShowReactionPicker] = useState(false);
+  const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
+  const [editingMessage, setEditingMessage] = useState<GroupMessage | null>(null);
+  const [showComposerMenu, setShowComposerMenu] = useState(false);
+  const [showPollModal, setShowPollModal] = useState(false);
+  const [pollQuestion, setPollQuestion] = useState('');
+  const [pollOptions, setPollOptions] = useState(['', '']);
+  const [creatingPoll, setCreatingPoll] = useState(false);
+  const [pollDetailsMessage, setPollDetailsMessage] = useState<GroupMessage | PendingUploadMessage | null>(null);
 
   const listRef = useRef<FlatList<VisibleGroupMessage>>(null);
 
@@ -621,13 +621,13 @@ const [pollDetailsMessage, setPollDetailsMessage] = useState<GroupMessage | Pend
             clientMessageId: msg.clientMessageId,
             groupId,
             text: msg.text,
-              kind: (msg as any).kind,
+            kind: (msg as any).kind,
             systemType: (msg as any).systemType,
             replyToMessageId: msg.replyToMessageId,
             replyToClientMessageId: msg.replyToClientMessageId,
             replyPreviewText: msg.replyPreviewText,
             replyPreviewSenderName: msg.replyPreviewSenderName,
-             media: msg.media,
+            media: msg.media,
             poll: msg.poll,
             mediaUrl: msg.mediaUrl || msg.imageUrl,
             mediaType: msg.mediaType || (msg.imageUrl ? 'image' : undefined),
@@ -786,21 +786,21 @@ const [pollDetailsMessage, setPollDetailsMessage] = useState<GroupMessage | Pend
           });
 
           if (!mine) {
-  await sendLocalGroupNotification({
-    groupId,
-    senderNpub: msg.senderNpub,
-    senderName: msg.senderName,
-    preview: getNotificationPreviewText({
-      text: msg.text,
-      media: msg.media,
-      mediaUrl: msg.mediaUrl,
-      imageUrl: msg.imageUrl,
-      mediaType: msg.mediaType || (msg.imageUrl ? 'image' : undefined),
-      poll: msg.poll,
-    }),
-    eventId: msg.id,
-  });
-}
+            await sendLocalGroupNotification({
+              groupId,
+              senderNpub: msg.senderNpub,
+              senderName: msg.senderName,
+              preview: getNotificationPreviewText({
+                text: msg.text,
+                media: msg.media,
+                mediaUrl: msg.mediaUrl,
+                imageUrl: msg.imageUrl,
+                mediaType: msg.mediaType || (msg.imageUrl ? 'image' : undefined),
+                poll: msg.poll,
+              }),
+              eventId: msg.id,
+            });
+          }
 
           const next = await getMessagesForGroup(groupId);
           setMessages(next);
@@ -1045,40 +1045,40 @@ const [pollDetailsMessage, setPollDetailsMessage] = useState<GroupMessage | Pend
       });
 
       if (nsec) {
-publishGroupMessage({
-  groupId,
-  clientMessageId,
-  text,
-  ...replyMetadata,
-  senderNpub: npub ?? undefined,
-  senderName: myDisplayName,
-  nsec,
-  relayUrl,
-}).then(result => {
-  if (!result.success) {
-    console.warn('[Groups] publishGroupMessage failed:', result.error);
-    return;
-  }
+        publishGroupMessage({
+          groupId,
+          clientMessageId,
+          text,
+          ...replyMetadata,
+          senderNpub: npub ?? undefined,
+          senderName: myDisplayName,
+          nsec,
+          relayUrl,
+        }).then(result => {
+          if (!result.success) {
+            console.warn('[Groups] publishGroupMessage failed:', result.error);
+            return;
+          }
 
-  if (!npub) {
-    console.log('[Groups] remote group push skipped; missing sender npub');
-    return;
-  }
+          if (!npub) {
+            console.log('[Groups] remote group push skipped; missing sender npub');
+            return;
+          }
 
-  sendRemoteGroupNotification({
-    groupId,
-    groupName,
-    relayUrl,
-    senderNpub: npub,
-    senderName: myDisplayName,
-    body: text,
-    eventId: result.eventId,
-  }).catch(error => {
-    console.warn('[Groups] remote group push failed:', error);
-  });
-}).catch(error => {
-  console.warn('[Groups] publishGroupMessage error:', error);
-});
+          sendRemoteGroupNotification({
+            groupId,
+            groupName,
+            relayUrl,
+            senderNpub: npub,
+            senderName: myDisplayName,
+            body: text,
+            eventId: result.eventId,
+          }).catch(error => {
+            console.warn('[Groups] remote group push failed:', error);
+          });
+        }).catch(error => {
+          console.warn('[Groups] publishGroupMessage error:', error);
+        });
       }
     } catch (error: any) {
       setSending(false);
@@ -1276,47 +1276,47 @@ publishGroupMessage({
       forceScrollToBottom(true);
 
       if (nsec) {
-publishGroupMessage({
-  groupId,
-  clientMessageId,
-  ...replyMetadata,
-  media: uploadedMedia,
-  mediaUrl: primaryMedia.uri,
-  mediaType: primaryMedia.type,
-  thumbnailUrl: primaryMedia.thumbnailUrl,
-  imageUrl: primaryMedia.type === 'image' ? primaryMedia.uri : undefined,
-  senderNpub: npub ?? undefined,
-  senderName: myDisplayName,
-  nsec,
-  relayUrl,
-}).then(result => {
-  if (!result.success) {
-    console.warn('[Groups] publishGroupMessage attachments failed:', result.error);
-    return;
-  }
+        publishGroupMessage({
+          groupId,
+          clientMessageId,
+          ...replyMetadata,
+          media: uploadedMedia,
+          mediaUrl: primaryMedia.uri,
+          mediaType: primaryMedia.type,
+          thumbnailUrl: primaryMedia.thumbnailUrl,
+          imageUrl: primaryMedia.type === 'image' ? primaryMedia.uri : undefined,
+          senderNpub: npub ?? undefined,
+          senderName: myDisplayName,
+          nsec,
+          relayUrl,
+        }).then(result => {
+          if (!result.success) {
+            console.warn('[Groups] publishGroupMessage attachments failed:', result.error);
+            return;
+          }
 
-  if (!npub) {
-    console.log('[Groups] remote group attachment push skipped; missing sender npub');
-    return;
-  }
+          if (!npub) {
+            console.log('[Groups] remote group attachment push skipped; missing sender npub');
+            return;
+          }
 
-  sendRemoteGroupNotification({
-    groupId,
-    groupName,
-    relayUrl,
-    senderNpub: npub,
-    senderName: myDisplayName,
-    body: getRemotePushPreviewText({
-      media: uploadedMedia,
-      mediaType: primaryMedia.type,
-    }),
-    eventId: result.eventId,
-  }).catch(error => {
-    console.warn('[Groups] remote group attachment push failed:', error);
-  });
-}).catch(error => {
-  console.warn('[Groups] publishGroupMessage attachments error:', error);
-});
+          sendRemoteGroupNotification({
+            groupId,
+            groupName,
+            relayUrl,
+            senderNpub: npub,
+            senderName: myDisplayName,
+            body: getRemotePushPreviewText({
+              media: uploadedMedia,
+              mediaType: primaryMedia.type,
+            }),
+            eventId: result.eventId,
+          }).catch(error => {
+            console.warn('[Groups] remote group attachment push failed:', error);
+          });
+        }).catch(error => {
+          console.warn('[Groups] publishGroupMessage attachments error:', error);
+        });
       }
     } catch (e: any) {
       setPendingUploads(prev => prev.filter(item => item.id !== pendingId));
@@ -1824,8 +1824,8 @@ publishGroupMessage({
     setPollDetailsMessage(message);
   }, []);
 
-const renderMessage = useCallback(
-  ({ item }: { item: VisibleGroupMessage }) => {
+  const renderMessage = useCallback(
+    ({ item }: { item: VisibleGroupMessage }) => {
     if ((item.message as any).kind === 'system') {
       return (
         <View style={s.systemMessageWrap}>
@@ -1849,18 +1849,17 @@ const renderMessage = useCallback(
       />
     );
   },
-  [handlePressMessageMedia, handleMessageLongPress, handlePollVote, handlePollDetails, s]
-);
-
+    [handlePressMessageMedia, handleMessageLongPress, handlePollVote, handlePollDetails, s]
+  );
   const shouldHideInitialList = false;
 
   return (
     <SafeAreaView style={s.safe}>
       <KeyboardAvoidingView
-  style={s.safe}
-  behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-  keyboardVerticalOffset={0}
->
+        style={s.safe}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={0}
+      >
         <View style={s.container}>
           <View style={s.header}>
             <TouchableOpacity
@@ -2081,22 +2080,22 @@ const renderMessage = useCallback(
               activeOpacity={0.8}
             >
               {uploadingImage ? (
-  <ActivityIndicator size="small" color={theme.gold} />
-) : (
-  <Text style={s.attachText}>＋</Text>
-)}
+                <ActivityIndicator size="small" color={theme.gold} />
+              ) : (
+                <Text style={s.attachText}>＋</Text>
+              )}
             </TouchableOpacity>
 
-             <TextInput
-ref={inputRef}
-style={[
-  s.input,
-  { 
-    height: Math.max(40, Math.min(120, inputHeight)),
-    color: theme.text,
-    backgroundColor: theme.raised
-  }
-]}
+            <TextInput
+              ref={inputRef}
+              style={[
+                s.input,
+                {
+                  height: Math.max(40, Math.min(120, inputHeight)),
+                  color: theme.text,
+                  backgroundColor: theme.raised,
+                },
+              ]}
               placeholder={editingMessage ? 'Edit message…' : `Message ${groupName}…`}
               placeholderTextColor={theme.textMuted}
               value={draft}
@@ -2124,7 +2123,7 @@ style={[
                 <Text style={s.sendText}>{editingMessage ? '✓' : '↑'}</Text>
               )}
             </TouchableOpacity>
-                    </View>
+          </View>
 
           <Modal
             visible={!!actionMessage}
