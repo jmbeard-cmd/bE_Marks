@@ -55,6 +55,7 @@ import {
 import {
   archiveGroup,
   getGroupById,
+  getGroupMembers,
   isGroupAdmin,
   isGroupMember,
   regenerateInviteCode,
@@ -329,200 +330,230 @@ const { id, tab: routeTab } = useLocalSearchParams<{
 
     setGroup(g);
 
-    // ✅ Members
-    const syncedMembers = await syncGroupMembersFromRelay(
-      id,
-      g.relayUrl ? [g.relayUrl] : []
-    );
+    const buildGalleryItemsFromMessages = (messages: any[], source: 'local-chat' | 'chat') => {
+      return messages.flatMap(message => {
+        if (message.isDeleted) return [];
 
-    setMembers(syncedMembers);
+        const mediaItems = Array.isArray(message.media)
+          ? message.media
+          : [];
 
-    syncedMembers
-      .filter(member => member.status === 'active')
-      .forEach(member => {
-        registerGroupMemberForPush({
-          groupId: g.id,
-          groupName: g.name,
-          relayUrl: g.relayUrl,
-          memberNpub: member.npub,
-          role: member.role,
-          status: 'active',
-          displayName: member.displayName,
-        }).catch(error => {
-          console.warn('[Group Detail] push member backfill failed:', error);
+        if (mediaItems.length > 0) {
+          return mediaItems
+            .filter((item: any) => {
+              const mediaType = item.type || item.mediaType;
+              return !!item.uri && (mediaType === 'image' || mediaType === 'video');
+            })
+            .map((item: any, index: number) => {
+              const mediaType: 'image' | 'video' =
+                item.type === 'video' || item.mediaType === 'video' ? 'video' : 'image';
+
+              const stableId =
+                message.clientMessageId ||
+                message.id ||
+                `${source}_${index}_${item.uri}`;
+
+              return {
+                id: `chat_gallery_${stableId}_${item.id || index}_${item.uri}`,
+                mediaUrl: item.uri,
+                mediaType,
+                thumbnailUrl: item.thumbnailUrl || item.thumbnailUri || message.thumbnailUrl,
+                createdAt: message.createdAt,
+                source,
+              };
+            });
+        }
+
+        const legacyUrl = message.mediaUrl || message.imageUrl;
+
+        if (!legacyUrl) return [];
+
+        const legacyType: 'image' | 'video' =
+          message.mediaType === 'video' ? 'video' : 'image';
+
+        const stableId =
+          message.clientMessageId ||
+          message.id ||
+          `${source}_${legacyUrl}`;
+
+        return [
+          {
+            id: `chat_gallery_${stableId}_${legacyUrl}`,
+            mediaUrl: legacyUrl,
+            mediaType: legacyType,
+            thumbnailUrl: message.thumbnailUrl,
+            createdAt: message.createdAt,
+            source,
+          },
+        ];
+      });
+    };
+
+    const mergeGalleryItems = (items: any[]) => {
+      const galleryMap = new Map<string, any>();
+
+      items.forEach(item => {
+        const key = item.mediaUrl || item.id;
+        const existing = galleryMap.get(key);
+
+        if (!existing) {
+          galleryMap.set(key, item);
+          return;
+        }
+
+        galleryMap.set(key, {
+          ...existing,
+          ...item,
+          thumbnailUrl: item.thumbnailUrl || existing.thumbnailUrl,
+          createdAt: Math.max(existing.createdAt || 0, item.createdAt || 0),
         });
       });
 
-    hydrateMemberProfiles(id, syncedMembers).catch(error => {
-      console.warn('[Group Members] profile hydration failed:', error);
-    });
+      return Array.from(galleryMap.values()).sort(
+        (a, b) => b.createdAt - a.createdAt
+      );
+    };
 
-    // 🔥 THIS is the NEW sticky sync
-    const syncedStickies = g.relayUrl
-      ? await syncGroupStickiesFromRelay(id, g.relayUrl)
-      : await getStickiesForGroup(id);
-
-    setStickies(syncedStickies);
-
-    if (g.relayUrl) {
-      await syncCalendarEventsFromRelay(id, g.relayUrl);
-    }
-
-    // 🔥 Force re-read AFTER sync (ensures deletes applied)
-    const upcoming = await getUpcomingEventsForGroup(id);
-    setUpcomingCount(upcoming.length);
-
-    // 🔥 GALLERY FROM CHAT IMAGES + LOCAL SAVED HIGHLIGHT MEDIA
+    // FAST LOCAL LOAD FIRST
     try {
-      let chatMediaItems: any[] = [];
-
-  const mapMessageToGalleryItems = (message: any, source: 'local-chat' | 'chat') => {
-    if (message.isDeleted) return [];
-
-    const mediaItems = Array.isArray(message.media)
-      ? message.media
-      : [];
-
-    if (mediaItems.length > 0) {
-      return mediaItems
-        .filter((item: any) => {
-          const mediaType = item.type || item.mediaType;
-          return !!item.uri && (mediaType === 'image' || mediaType === 'video');
-        })
-        .map((item: any, index: number) => {
-          const mediaType: 'image' | 'video' =
-            item.type === 'video' || item.mediaType === 'video' ? 'video' : 'image';
-
-          const stableId =
-            message.clientMessageId ||
-            message.id ||
-            `${source}_${index}_${item.uri}`;
-
-          return {
-            id: `chat_gallery_${stableId}_${item.id || index}_${item.uri}`,
-            mediaUrl: item.uri,
-            mediaType,
-            thumbnailUrl: item.thumbnailUrl || item.thumbnailUri || message.thumbnailUrl,
-            createdAt: message.createdAt,
-            source,
-          };
-        });
-    }
-
-    const legacyUrl = message.mediaUrl || message.imageUrl;
-
-    if (!legacyUrl) return [];
-
-    const legacyType: 'image' | 'video' =
-      message.mediaType === 'video' ? 'video' : 'image';
-
-    const stableId =
-      message.clientMessageId ||
-      message.id ||
-      `${source}_${legacyUrl}`;
-
-    return [
-      {
-        id: `chat_gallery_${stableId}_${legacyUrl}`,
-        mediaUrl: legacyUrl,
-        mediaType: legacyType,
-        thumbnailUrl: message.thumbnailUrl,
-        createdAt: message.createdAt,
-        source,
-      },
-    ];
-  };
-
-  const localMessages = await getMessagesForGroup(id);
-
-  const localChatMediaItems = localMessages.flatMap(message =>
-    mapMessageToGalleryItems(message, 'local-chat')
-  );
-
-  let relayChatMediaItems: any[] = [];
-
-  if (g.relayUrl) {
-    const [events, deleteEvents] = await Promise.all([
-      fetchGroupMessages(id, g.relayUrl),
-      fetchGroupMessageDeletes(id, g.relayUrl),
-    ]);
-
-    const deletedMessageIds = new Set<string>();
-    const deletedClientMessageIds = new Set<string>();
-
-    deleteEvents.forEach(deleteEvent => {
-      if (deleteEvent.messageId) {
-        deletedMessageIds.add(deleteEvent.messageId);
-        deletedMessageIds.add(`nostr_group_${deleteEvent.messageId}`);
-      }
-
-      if (deleteEvent.clientMessageId) {
-        deletedClientMessageIds.add(deleteEvent.clientMessageId);
-      }
-    });
-
-    relayChatMediaItems = events
-      .filter(event => {
-        const eventClientMessageId = (event as any).clientMessageId;
-
-        return (
-          !deletedMessageIds.has(event.id) &&
-          !deletedMessageIds.has(`nostr_group_${event.id}`) &&
-          (!eventClientMessageId || !deletedClientMessageIds.has(eventClientMessageId))
-        );
-      })
-      .flatMap(event => mapMessageToGalleryItems(event, 'chat'));
-  }
-
-  const galleryByMediaUrl = new Map<string, any>();
-
-  [...relayChatMediaItems, ...localChatMediaItems].forEach(item => {
-    const existing = galleryByMediaUrl.get(item.mediaUrl);
-
-    if (!existing) {
-      galleryByMediaUrl.set(item.mediaUrl, item);
-      return;
-    }
-
-    galleryByMediaUrl.set(item.mediaUrl, {
-      ...existing,
-      ...item,
-      thumbnailUrl: item.thumbnailUrl || existing.thumbnailUrl,
-      createdAt: Math.max(existing.createdAt || 0, item.createdAt || 0),
-    });
-  });
-
-  chatMediaItems = Array.from(galleryByMediaUrl.values());
-
-  const localGalleryItems = await readLocalGalleryItems();
-
-  const savedHighlightItems = localGalleryItems.filter(
-    item => item.groupId === id
-  );
-
-  const galleryMap = new Map<string, any>();
-
-  [...chatMediaItems, ...savedHighlightItems].forEach(item => {
-    galleryMap.set(item.id, item);
-  });
-
-  const mediaItems = Array.from(galleryMap.values()).sort(
-    (a, b) => b.createdAt - a.createdAt
-  );
-
-  setGalleryItems(mediaItems);
-} catch (e) {
-  console.warn('[Gallery] failed to load media', e);
-}
-
-    if (npub && g) {
-      const [admin, member] = await Promise.all([
-        isGroupAdmin(id, npub),
-        isGroupMember(id, npub),
+      const [localMembers, localStickies, upcoming, localMessages, localGalleryItems] = await Promise.all([
+        getGroupMembers(id),
+        getStickiesForGroup(id),
+        getUpcomingEventsForGroup(id),
+        getMessagesForGroup(id),
+        readLocalGalleryItems(),
       ]);
-      setIsAdmin(admin);
-      setIsMember(member);
+
+      setMembers(localMembers);
+      setStickies(localStickies);
+      setUpcomingCount(upcoming.length);
+
+      const localChatMediaItems = buildGalleryItemsFromMessages(localMessages, 'local-chat');
+      const savedHighlightItems = localGalleryItems.filter((item: LocalGalleryItem) => item.groupId === id);
+
+      setGalleryItems(mergeGalleryItems([
+        ...localChatMediaItems,
+        ...savedHighlightItems,
+      ]));
+
+      if (npub) {
+        const [admin, member] = await Promise.all([
+          isGroupAdmin(id, npub),
+          isGroupMember(id, npub),
+        ]);
+
+        setIsAdmin(admin);
+        setIsMember(member);
+      }
+    } catch (error) {
+      console.warn('[Group Detail] local cache load failed:', error);
     }
+
+    // BACKGROUND RELAY SYNC AFTER SCREEN IS USABLE
+    Promise.resolve().then(async () => {
+      try {
+        const syncedMembers = await syncGroupMembersFromRelay(
+          id,
+          g.relayUrl ? [g.relayUrl] : []
+        );
+
+        setMembers(syncedMembers);
+
+        syncedMembers
+          .filter(member => member.status === 'active')
+          .forEach(member => {
+            registerGroupMemberForPush({
+              groupId: g.id,
+              groupName: g.name,
+              relayUrl: g.relayUrl,
+              memberNpub: member.npub,
+              role: member.role,
+              status: 'active',
+              displayName: member.displayName,
+            }).catch(error => {
+              console.warn('[Group Detail] push member backfill failed:', error);
+            });
+          });
+
+        hydrateMemberProfiles(id, syncedMembers).catch(error => {
+          console.warn('[Group Members] profile hydration failed:', error);
+        });
+      } catch (error) {
+        console.warn('[Group Detail] background member sync failed:', error);
+      }
+
+      try {
+        const syncedStickies = g.relayUrl
+          ? await syncGroupStickiesFromRelay(id, g.relayUrl)
+          : await getStickiesForGroup(id);
+
+        setStickies(syncedStickies);
+      } catch (error) {
+        console.warn('[Group Detail] background highlight sync failed:', error);
+      }
+
+      try {
+        if (g.relayUrl) {
+          await syncCalendarEventsFromRelay(id, g.relayUrl);
+        }
+
+        const upcoming = await getUpcomingEventsForGroup(id);
+        setUpcomingCount(upcoming.length);
+      } catch (error) {
+        console.warn('[Group Detail] background calendar sync failed:', error);
+      }
+
+      try {
+        const localMessages = await getMessagesForGroup(id);
+        const localChatMediaItems = buildGalleryItemsFromMessages(localMessages, 'local-chat');
+
+        let relayChatMediaItems: any[] = [];
+
+        if (g.relayUrl) {
+          const [events, deleteEvents] = await Promise.all([
+            fetchGroupMessages(id, g.relayUrl),
+            fetchGroupMessageDeletes(id, g.relayUrl),
+          ]);
+
+          const deletedMessageIds = new Set<string>();
+          const deletedClientMessageIds = new Set<string>();
+
+          deleteEvents.forEach(deleteEvent => {
+            if (deleteEvent.messageId) {
+              deletedMessageIds.add(deleteEvent.messageId);
+              deletedMessageIds.add(`nostr_group_${deleteEvent.messageId}`);
+            }
+
+            if (deleteEvent.clientMessageId) {
+              deletedClientMessageIds.add(deleteEvent.clientMessageId);
+            }
+          });
+
+          relayChatMediaItems = events
+            .filter(event => {
+              const eventClientMessageId = (event as any).clientMessageId;
+
+              return (
+                !deletedMessageIds.has(event.id) &&
+                !deletedMessageIds.has(`nostr_group_${event.id}`) &&
+                (!eventClientMessageId || !deletedClientMessageIds.has(eventClientMessageId))
+              );
+            })
+            .flatMap(event => buildGalleryItemsFromMessages([event], 'chat'));
+        }
+
+        const localGalleryItems = await readLocalGalleryItems();
+        const savedHighlightItems = localGalleryItems.filter((item: LocalGalleryItem) => item.groupId === id);
+
+        setGalleryItems(mergeGalleryItems([
+          ...relayChatMediaItems,
+          ...localChatMediaItems,
+          ...savedHighlightItems,
+        ]));
+      } catch (error) {
+        console.warn('[Group Detail] background gallery sync failed:', error);
+      }
+    });
   }, [id, npub, hydrateMemberProfiles]);
 
   useEffect(() => { load(); }, [load]);
