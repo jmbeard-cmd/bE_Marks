@@ -19,12 +19,31 @@ const PUSH_GROUP_MEMBER_URL = 'https://be-marks-push.jmbeard.workers.dev/push/re
 const PUSH_REMOVE_GROUP_MEMBER_URL = 'https://be-marks-push.jmbeard.workers.dev/push/remove-group-member';
 const PUSH_GROUP_MESSAGE_URL = 'https://be-marks-push.jmbeard.workers.dev/push/group-message';
 
+export type BEGroupNotificationEventType =
+  | 'chat_message'
+  | 'chat_media'
+  | 'chat_file'
+  | 'poll_created'
+  | 'highlight_created'
+  | 'calendar_created'
+  | 'calendar_updated'
+  | 'calendar_deleted'
+  | 'member_joined'
+  | 'member_removed'
+  | 'member_role_changed';
+
+export type BEMarkNotificationEventType = 'mark_created';
+
 export type BENotificationData = {
   type?: 'dm' | 'group' | 'mark' | 'test';
 
   // Shared/future Spaces fields
   spaceId?: string;
   spaceKind?: 'dm' | 'group';
+
+  // Routing fields
+  routeTarget?: 'dm-thread' | 'group-thread' | 'group-detail' | 'mark-detail';
+  groupTab?: 'stickies' | 'calendar' | 'gallery' | 'members';
 
   // DM fields
   threadId?: string;
@@ -37,10 +56,20 @@ export type BENotificationData = {
   groupId?: string;
   groupName?: string;
   relayUrl?: string;
+  groupEventType?: BEGroupNotificationEventType;
+  highlightId?: string;
+  calendarEventId?: string;
+  pollId?: string;
+  memberNpub?: string;
+
+  // Mark fields
+  markId?: string;
+  markEventType?: BEMarkNotificationEventType;
+  authorNpub?: string;
+  authorName?: string;
 
   // Event fields
   eventId?: string;
-  markId?: string;
 };
 
 Notifications.setNotificationHandler({
@@ -89,6 +118,79 @@ function truncatePreview(text: string, limit = 90) {
 function shortKey(value?: string | null) {
   if (!value) return 'Someone';
   return value.length > 12 ? `${value.slice(0, 8)}…` : value;
+}
+
+function getDisplayName(name?: string | null, fallback?: string | null) {
+  const trimmed = name?.trim();
+
+  if (trimmed) return trimmed;
+
+  return shortKey(fallback);
+}
+
+function buildGroupEventBody(input: {
+  eventType: BEGroupNotificationEventType;
+  actorName?: string;
+  actorNpub?: string;
+  preview?: string;
+  title?: string;
+  memberName?: string;
+  role?: string;
+}) {
+  const actorName = getDisplayName(input.actorName, input.actorNpub);
+  const preview = input.preview?.trim();
+  const title = input.title?.trim();
+  const memberName = input.memberName?.trim() || 'a member';
+
+  switch (input.eventType) {
+    case 'chat_message':
+      return preview || 'New group message';
+
+    case 'chat_media':
+      return preview || `${actorName} sent media`;
+
+    case 'chat_file':
+      return preview || `${actorName} sent a file`;
+
+    case 'poll_created':
+      return title
+        ? `${actorName} created a poll: ${title}`
+        : `${actorName} created a poll`;
+
+    case 'highlight_created':
+      return title
+        ? `${actorName} posted a Highlight: ${title}`
+        : `${actorName} posted a Highlight`;
+
+    case 'calendar_created':
+      return title
+        ? `${actorName} added a calendar event: ${title}`
+        : `${actorName} added a calendar event`;
+
+    case 'calendar_updated':
+      return title
+        ? `${actorName} updated a calendar event: ${title}`
+        : `${actorName} updated a calendar event`;
+
+    case 'calendar_deleted':
+      return title
+        ? `${actorName} removed a calendar event: ${title}`
+        : `${actorName} removed a calendar event`;
+
+    case 'member_joined':
+      return `${actorName} joined the group`;
+
+    case 'member_removed':
+      return `${actorName} removed ${memberName} from the group`;
+
+    case 'member_role_changed':
+      return input.role
+        ? `${actorName} changed ${memberName} to ${input.role}`
+        : `${actorName} changed ${memberName}'s role`;
+
+    default:
+      return preview || 'New group activity';
+  }
 }
 
 export async function getStoredExpoPushToken() {
@@ -343,6 +445,13 @@ export async function sendRemoteGroupNotification(input: {
   senderName?: string;
   body: string;
   eventId?: string;
+  groupEventType?: BEGroupNotificationEventType;
+  routeTarget?: 'group-thread' | 'group-detail';
+  groupTab?: 'stickies' | 'calendar' | 'gallery' | 'members';
+  highlightId?: string;
+  calendarEventId?: string;
+  pollId?: string;
+  memberNpub?: string;
 }) {
   if (!input.groupId || !input.senderNpub) {
     console.log('[Push] skipped remote group push; missing groupId/senderNpub');
@@ -357,11 +466,65 @@ export async function sendRemoteGroupNotification(input: {
       relayUrl: input.relayUrl || 'wss://relay.beginningend.com',
       senderNpub: input.senderNpub,
       senderName: input.senderName,
-      body: input.body || 'New group message',
+      body: input.body || 'New group activity',
       eventId: input.eventId,
+      groupEventType: input.groupEventType,
+      routeTarget: input.routeTarget,
+      groupTab: input.groupTab,
+      highlightId: input.highlightId,
+      calendarEventId: input.calendarEventId,
+      pollId: input.pollId,
+      memberNpub: input.memberNpub,
     },
     'remote group push'
   );
+}
+
+export async function notifyGroupEvent(input: {
+  groupId: string;
+  groupName: string;
+  relayUrl: string;
+  actorNpub: string;
+  actorName?: string;
+  eventType: BEGroupNotificationEventType;
+  preview?: string;
+  title?: string;
+  eventId?: string;
+  routeTarget?: 'group-thread' | 'group-detail';
+  groupTab?: 'stickies' | 'calendar' | 'gallery' | 'members';
+  highlightId?: string;
+  calendarEventId?: string;
+  pollId?: string;
+  memberNpub?: string;
+  memberName?: string;
+  role?: string;
+}) {
+  const body = buildGroupEventBody({
+    eventType: input.eventType,
+    actorName: input.actorName,
+    actorNpub: input.actorNpub,
+    preview: input.preview,
+    title: input.title,
+    memberName: input.memberName,
+    role: input.role,
+  });
+
+  return sendRemoteGroupNotification({
+    groupId: input.groupId,
+    groupName: input.groupName,
+    relayUrl: input.relayUrl,
+    senderNpub: input.actorNpub,
+    senderName: input.actorName,
+    body,
+    eventId: input.eventId,
+    groupEventType: input.eventType,
+    routeTarget: input.routeTarget,
+    groupTab: input.groupTab,
+    highlightId: input.highlightId,
+    calendarEventId: input.calendarEventId,
+    pollId: input.pollId,
+    memberNpub: input.memberNpub,
+  });
 }
 
 export async function sendRemoteTestPushToSelf(npub: string) {
@@ -452,6 +615,13 @@ export async function sendLocalGroupNotification(input: {
   senderName?: string;
   preview: string;
   eventId?: string;
+  groupEventType?: BEGroupNotificationEventType;
+  routeTarget?: 'group-thread' | 'group-detail';
+  groupTab?: 'stickies' | 'calendar' | 'gallery' | 'members';
+  highlightId?: string;
+  calendarEventId?: string;
+  pollId?: string;
+  memberNpub?: string;
 }) {
   try {
     const group = await getGroupById(input.groupId);
@@ -487,6 +657,13 @@ export async function sendLocalGroupNotification(input: {
           senderNpub: input.senderNpub,
           senderPubkey: input.senderPubkey,
           eventId: input.eventId,
+          groupEventType: input.groupEventType,
+          routeTarget: input.routeTarget,
+          groupTab: input.groupTab,
+          highlightId: input.highlightId,
+          calendarEventId: input.calendarEventId,
+          pollId: input.pollId,
+          memberNpub: input.memberNpub,
         } satisfies BENotificationData,
       },
       trigger: null,
@@ -569,6 +746,21 @@ if (data.type === 'group') {
 
   if (!groupId) {
     console.warn('[Push] group notification missing groupId');
+    return;
+  }
+
+  if (data.routeTarget === 'group-detail' || data.groupTab) {
+    router.push({
+      pathname: '/group-detail',
+      params: {
+        id: groupId,
+        tab: data.groupTab,
+        highlightId: data.highlightId,
+        calendarEventId: data.calendarEventId,
+        memberNpub: data.memberNpub,
+      },
+    } as any);
+
     return;
   }
 
