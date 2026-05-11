@@ -5,6 +5,7 @@ import {
   Image,
   Modal,
   PanResponder,
+  StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -126,18 +127,21 @@ export default function ImageViewerModal({
 
   const activeMedia = images[activeIndex];
 
-  useEffect(() => {
-    if (!selectedUri) {
-      setAppActivity('media-viewer', false);
-      return;
-    }
+useEffect(() => {
+  if (!selectedUri) {
+    setAppActivity('media-viewer', false);
+    StatusBar.setHidden(false, 'fade');
+    return;
+  }
 
-    setAppActivity('media-viewer', true);
+  setAppActivity('media-viewer', true);
+  StatusBar.setHidden(true, 'fade');
 
-    return () => {
-      setAppActivity('media-viewer', false);
-    };
-  }, [selectedUri]);
+  return () => {
+    setAppActivity('media-viewer', false);
+    StatusBar.setHidden(false, 'fade');
+  };
+}, [selectedUri]);
 
   useEffect(() => {
     let cancelled = false;
@@ -271,19 +275,22 @@ export default function ImageViewerModal({
     !!activeMedia;
 
   return (
-    <Modal
-      visible={!!selectedUri}
-      transparent
-      animationType="fade"
-      onRequestClose={handleClose}
-      supportedOrientations={[
-        'portrait',
-        'portrait-upside-down',
-        'landscape',
-        'landscape-left',
-        'landscape-right',
-      ]}
-    >
+<Modal
+  visible={!!selectedUri}
+  transparent={false}
+  animationType="fade"
+  onRequestClose={handleClose}
+  statusBarTranslucent
+  navigationBarTranslucent
+  hardwareAccelerated
+  supportedOrientations={[
+    'portrait',
+    'portrait-upside-down',
+    'landscape',
+    'landscape-left',
+    'landscape-right',
+  ]}
+>
       <View style={s.overlay}>
         <TouchableOpacity style={s.closeBtn} onPress={handleClose}>
           <Text style={s.closeText}>✕</Text>
@@ -351,33 +358,33 @@ const s = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000',
   },
-  closeBtn: {
-    position: 'absolute',
-    top: 50,
-    right: 24,
-    zIndex: 30,
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: 'rgba(26,26,26,0.9)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+closeBtn: {
+  position: 'absolute',
+  top: 18,
+  right: 18,
+  zIndex: 30,
+  width: 46,
+  height: 46,
+  borderRadius: 23,
+  backgroundColor: 'rgba(0,0,0,0.72)',
+  alignItems: 'center',
+  justifyContent: 'center',
+},
   closeText: {
     color: '#fff',
     fontSize: 22,
     fontWeight: '700',
   },
-  counter: {
-    position: 'absolute',
-    top: 56,
-    alignSelf: 'center',
-    zIndex: 30,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: 'rgba(26,26,26,0.75)',
-  },
+counter: {
+  position: 'absolute',
+  top: 24,
+  alignSelf: 'center',
+  zIndex: 30,
+  paddingHorizontal: 12,
+  paddingVertical: 6,
+  borderRadius: 999,
+  backgroundColor: 'rgba(0,0,0,0.72)',
+},
   counterText: {
     color: '#fff',
     fontSize: 13,
