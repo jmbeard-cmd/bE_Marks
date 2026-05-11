@@ -47,21 +47,21 @@ const GROUP_TYPE_ICONS: Record<string, string> = {
   crosscountry: '🏃',
   soccer: '⚽',
   wrestling: '🤼',
-golf: '⛳',
-tennis: '🎾',
-swimming: '🏊',
-cheer: '📣',
+  golf: '⛳',
+  tennis: '🎾',
+  swimming: '🏊',
+  cheer: '📣',
   band: '🎵',
   choir: '🎶',
   theater: '🎭',
   nhs: '🎓',
   class: '📚',
   booster: '⭐',
-faculty: '🧑‍🏫',
-staff: '🧑‍🏫',
-teacher: '🧑‍🏫',
-teachers: '🧑‍🏫',
-default: '👥',
+  faculty: '🧑‍🏫',
+  staff: '🧑‍🏫',
+  teacher: '🧑‍🏫',
+  teachers: '🧑‍🏫',
+  default: '👥',
 };
 
 function normalizeGroupType(value?: string): string {
@@ -139,12 +139,12 @@ export default function GroupsScreen() {
   const [joining, setJoining] = useState(false);
 
   const myDisplayName = useMemo(() => {
-  return (
-    profile?.display_name ||
-    profile?.name ||
-    (npub ? `${npub.slice(0, 12)}…` : 'You')
-  );
-}, [profile, npub]);
+    return (
+      profile?.display_name ||
+      profile?.name ||
+      (npub ? `${npub.slice(0, 12)}…` : 'You')
+    );
+  }, [profile, npub]);
 
   // Swipe to close
   const sheetY = useRef(new Animated.Value(0)).current;
@@ -208,16 +208,16 @@ export default function GroupsScreen() {
         nsec: nsec ?? undefined,
       });
       registerGroupMemberForPush({
-  groupId: group.id,
-  groupName: group.name,
-  relayUrl: group.relayUrl,
-  memberNpub: npub,
-  role: 'owner',
-  status: 'active',
-  displayName: myDisplayName,
-}).catch(error => {
-  console.warn('[Groups] push member registration failed after create:', error);
-});
+        groupId: group.id,
+        groupName: group.name,
+        relayUrl: group.relayUrl,
+        memberNpub: npub,
+        role: 'owner',
+        status: 'active',
+        displayName: myDisplayName,
+      }).catch(error => {
+        console.warn('[Groups] push member registration failed after create:', error);
+      });
       closeSheet();
       await loadGroups();
       router.push({ pathname: '/group-thread', params: { id: group.id } } as any);
@@ -241,63 +241,64 @@ export default function GroupsScreen() {
         relayUrl: DEFAULT_RELAY,
         nsec: nsec ?? undefined,
       });
-if (result.success && result.group) {
-  registerGroupMemberForPush({
-    groupId: result.group.id,
-    groupName: result.group.name,
-    relayUrl: result.group.relayUrl,
-    memberNpub: npub,
-    role: 'member',
-    status: 'active',
-    displayName: myDisplayName,
-  }).catch(error => {
-    console.warn('[Groups] push member registration failed after join:', error);
-  });
+      if (result.success && result.group) {
+        registerGroupMemberForPush({
+          groupId: result.group.id,
+          groupName: result.group.name,
+          relayUrl: result.group.relayUrl,
+          memberNpub: npub,
+          role: 'member',
+          status: 'active',
+          displayName: myDisplayName,
+        }).catch(error => {
+          console.warn('[Groups] push member registration failed after join:', error);
+        });
 
-  sendRemoteGroupNotification({
-    groupId: result.group.id,
-    groupName: result.group.name,
-    relayUrl: result.group.relayUrl,
-    senderNpub: npub,
-    senderName: myDisplayName,
-    body: 'joined the group',
-  }).catch(error => {
-    console.warn('[Groups] remote join notification failed:', error);
-  });
-  await saveLocalGroupSystemMessage({
-  groupId: result.group.id,
-  text: `${myDisplayName} joined the group`,
-  systemType: 'join',
-  actorNpub: npub,
-  actorName: myDisplayName,
-});
+        sendRemoteGroupNotification({
+          groupId: result.group.id,
+          groupName: result.group.name,
+          relayUrl: result.group.relayUrl,
+          senderNpub: npub,
+          senderName: myDisplayName,
+          body: 'joined the group',
+        }).catch(error => {
+          console.warn('[Groups] remote join notification failed:', error);
+        });
 
-if (nsec) {
-  publishGroupMessage({
-    groupId: result.group.id,
-    clientMessageId: `system_join_${result.group.id}_${npub}_${Date.now()}`,
-    text: `${myDisplayName} joined the group`,
-    kind: 'system',
-    systemType: 'join',
-    senderNpub: npub,
-    senderName: myDisplayName,
-    nsec,
-    relayUrl: result.group.relayUrl,
-  }).then(result => {
-    if (!result.success) {
-      console.warn('[Groups] publish join system message failed:', result.error);
-    }
-  }).catch(error => {
-    console.warn('[Groups] publish join system message error:', error);
-  });
-}
+        await saveLocalGroupSystemMessage({
+          groupId: result.group.id,
+          text: `${myDisplayName} joined the group`,
+          systemType: 'join',
+          actorNpub: npub,
+          actorName: myDisplayName,
+        });
 
-  closeSheet();
-  await loadGroups();
-  router.push({ pathname: '/group-thread', params: { id: result.group.id } } as any);
-} else {
-  Alert.alert('Could not join', result.error ?? 'Invalid invite code.');
-}
+        if (nsec) {
+          publishGroupMessage({
+            groupId: result.group.id,
+            clientMessageId: `system_join_${result.group.id}_${npub}_${Date.now()}`,
+            text: `${myDisplayName} joined the group`,
+            kind: 'system',
+            systemType: 'join',
+            senderNpub: npub,
+            senderName: myDisplayName,
+            nsec,
+            relayUrl: result.group.relayUrl,
+          }).then(result => {
+            if (!result.success) {
+              console.warn('[Groups] publish join system message failed:', result.error);
+            }
+          }).catch(error => {
+            console.warn('[Groups] publish join system message error:', error);
+          });
+        }
+
+        closeSheet();
+        await loadGroups();
+        router.push({ pathname: '/group-thread', params: { id: result.group.id } } as any);
+      } else {
+        Alert.alert('Could not join', result.error ?? 'Invalid invite code.');
+      }
     } catch (e: any) {
       Alert.alert('Error', e.message || 'Could not join group.');
     }
@@ -305,18 +306,18 @@ if (nsec) {
   };
 
   function getRelayLabel(group: BEGroup): {
-  text: string;
-  icon: string;
-  type: 'default' | 'custom' | 'both';
-} {
-  const mode = group.relayMode ?? 'default';
+    text: string;
+    icon: string;
+    type: 'default' | 'custom' | 'both';
+  } {
+    const mode = group.relayMode ?? 'default';
 
-  if (mode === 'custom') return { text: 'Private', icon: '◆', type: 'custom' };
-  if (mode === 'both') return { text: 'Both', icon: '↔', type: 'both' };
-  return { text: 'bE', icon: '●', type: 'default' };
-}
-  
-    const renderGroup = ({ item }: { item: BEGroup }) => {
+    if (mode === 'custom') return { text: 'Private', icon: '◆', type: 'custom' };
+    if (mode === 'both') return { text: 'Both', icon: '↔', type: 'both' };
+    return { text: 'bE', icon: '●', type: 'default' };
+  }
+
+  const renderGroup = ({ item }: { item: BEGroup }) => {
     const relay = getRelayLabel(item);
     const preview =
       item.lastPostPreview ||
@@ -621,7 +622,7 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
   emptyBtnOutline: { borderWidth: 0.5, borderColor: theme.gold, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12, width: '100%', alignItems: 'center' },
   emptyBtnOutlineText: { color: theme.gold, fontWeight: '600', fontSize: 14 },
 
-    // Group card
+  // Group card
   card: {
     flexDirection: 'row',
     gap: 13,
@@ -725,7 +726,7 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     borderColor: theme.border,
     fontWeight: '600',
   },
-    relayBadge: {
+  relayBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
@@ -763,17 +764,26 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
   // FABs
   fabRow: { position: 'absolute', bottom: 24, right: 24, flexDirection: 'row', gap: 12, alignItems: 'center' },
   fabSecondary: {
-    paddingHorizontal: 20, paddingVertical: 14, borderRadius: 28,
-    borderWidth: 1.5, borderColor: theme.gold, backgroundColor: theme.bg,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderRadius: 28,
+    borderWidth: 1.5,
+    borderColor: theme.gold,
+    backgroundColor: theme.bg,
   },
   fabSecondaryText: { color: theme.gold, fontWeight: '700', fontSize: 14 },
   fab: {
-    width: 56, height: 56, borderRadius: 28,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: theme.gold,
-    
-    alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#c9973a', shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4, shadowRadius: 8, elevation: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#c9973a',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 8,
   },
   fabIcon: { fontSize: 30, color: theme.surface, fontWeight: '300', lineHeight: 34 },
 
@@ -800,7 +810,7 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     backgroundColor: theme.gold,
     borderColor: theme.gold,
   },
-    iconPill: {
+  iconPill: {
     width: 40,
     height: 40,
     borderRadius: 20,
@@ -837,13 +847,13 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
   },
   inputMulti: { minHeight: 80, textAlignVertical: 'top', lineHeight: 22 },
   codeInput: { textAlign: 'center', fontSize: 28, fontWeight: '700', letterSpacing: 8 },
-inputMeta: {
-  fontSize: 11,
-  color: theme.textMuted,
-  marginTop: 8,
-  marginBottom: 4,
-  lineHeight: 17,
-},
+  inputMeta: {
+    fontSize: 11,
+    color: theme.textMuted,
+    marginTop: 8,
+    marginBottom: 4,
+    lineHeight: 17,
+  },
   sheetActions: { flexDirection: 'row', gap: 10, marginTop: 20 },
   cancelBtn: {
     flex: 1,
