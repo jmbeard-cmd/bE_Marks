@@ -20,14 +20,15 @@ import AudioRecorder from '../../components/AudioRecorder';
 import BEHeader from '../../components/BEHeader';
 import { compressMediaForUpload } from '../../src/utils/media-compression';
 import { publishFamilyMilestone, signAndPublish } from '../../src/utils/nostr';
+import { notifyMarkEvent } from '../../src/utils/push-notifications';
 import { uploadMilestoneMedia } from '../../src/utils/r2';
-import { saveMilestone } from '../../src/utils/storage';
+import { getFamilyMembers, saveMilestone } from '../../src/utils/storage';
 import { useIdentity } from '../_layout';
 
 const PRESET_TAGS = ['Family', 'Faith', 'Career', 'School', 'Travel', 'Health', 'Achievement', 'Personal'];
 
 export default function LogScreen() {
-    const { nsec, npub, family, relays, theme } = useIdentity();
+  const { nsec, npub, family, relays, profile, theme } = useIdentity();
   const router = useRouter();
   const [title, setTitle] = useState('');
   const [note, setNote] = useState('');
@@ -45,6 +46,11 @@ const [progress, setProgress] = useState(0);
 const [publishToNostr, setPublishToNostr] = useState(true);
   const [shareWithFamily, setShareWithFamily] = useState(false);
   const [audioUri, setAudioUri] = useState<string | undefined>();
+
+  const myDisplayName =
+  profile?.display_name ||
+  profile?.name ||
+  (npub ? `${npub.slice(0, 12)}…` : 'Someone');
 
   const pickPhoto = async () => {
   const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -345,24 +351,45 @@ if (audioUri) {
       setProgress(95);
       if (shareWithFamily && family && nsec && npub) {
         publishFamilyMilestone(
-  {
-    id: savedMilestone.id,
-    note: fullNote,
-    tags,
-    photoUri: uploadedPhoto,
-    videoUri: uploadedVideo,
-    audioUri: uploadedAudio,
-    media: uploadedMedia,
-    createdAt: savedMilestone.createdAt,
-    familyId: family.id,
-    authorNpub: npub,
-  },
+          {
+            id: savedMilestone.id,
+            note: fullNote,
+            tags,
+            photoUri: uploadedPhoto,
+            videoUri: uploadedVideo,
+            audioUri: uploadedAudio,
+            media: uploadedMedia,
+            createdAt: savedMilestone.createdAt,
+            familyId: family.id,
+            authorNpub: npub,
+          },
           nsec,
           relays
         ).then(result => {
           if (!result.success) console.warn('[Family Sync] Failed to publish:', result.error);
           else console.log('[Family Sync] Published:', result.eventId);
         });
+
+        getFamilyMembers(family.id)
+          .then(familyMembers => {
+            const recipientNpubs = familyMembers
+              .map(member => member.npub)
+              .filter(memberNpub => memberNpub !== npub);
+
+            return notifyMarkEvent({
+              recipientNpubs,
+              authorNpub: npub,
+              authorName: myDisplayName,
+              markId: savedMilestone.id,
+              title: title.trim() || undefined,
+              preview: note.trim() || fullNote,
+              eventId: nostrEventId,
+              familyId: family.id,
+            });
+          })
+          .catch(error => {
+            console.warn('[Mark Notification] failed:', error);
+          });
       }
 
       // ── Reset form ──

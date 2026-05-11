@@ -16,6 +16,7 @@ const PUSH_SEND_TEST_URL = 'https://be-marks-push.jmbeard.workers.dev/push/send-
 const PUSH_SECRET = 'be_marks_pull_short_precise_announce_1980_2006_10_03';
 const PUSH_DM_MESSAGE_URL = 'https://be-marks-push.jmbeard.workers.dev/push/dm-message';
 const PUSH_GROUP_MEMBER_URL = 'https://be-marks-push.jmbeard.workers.dev/push/register-group-member';
+const PUSH_MARK_URL = 'https://be-marks-push.jmbeard.workers.dev/push/mark';
 const PUSH_REMOVE_GROUP_MEMBER_URL = 'https://be-marks-push.jmbeard.workers.dev/push/remove-group-member';
 const PUSH_GROUP_MESSAGE_URL = 'https://be-marks-push.jmbeard.workers.dev/push/group-message';
 
@@ -191,6 +192,27 @@ function buildGroupEventBody(input: {
     default:
       return preview || 'New group activity';
   }
+}
+
+function buildMarkEventBody(input: {
+  authorName?: string;
+  authorNpub?: string;
+  title?: string;
+  preview?: string;
+}) {
+  const authorName = getDisplayName(input.authorName, input.authorNpub);
+  const title = input.title?.trim();
+  const preview = input.preview?.trim();
+
+  if (title) {
+    return `${authorName} posted a new Mark: ${title}`;
+  }
+
+  if (preview) {
+    return `${authorName} posted a new Mark: ${truncatePreview(preview, 60)}`;
+  }
+
+  return `${authorName} posted a new Mark`;
 }
 
 export async function getStoredExpoPushToken() {
@@ -525,6 +547,90 @@ export async function notifyGroupEvent(input: {
     pollId: input.pollId,
     memberNpub: input.memberNpub,
   });
+}
+
+export async function sendRemoteMarkNotification(input: {
+  recipientNpub: string;
+  authorNpub: string;
+  authorName?: string;
+  markId: string;
+  title?: string;
+  preview?: string;
+  eventId?: string;
+  familyId?: string;
+}) {
+  const recipientNpub = input.recipientNpub?.trim();
+  const authorNpub = input.authorNpub?.trim();
+
+  if (!recipientNpub || !authorNpub || !input.markId) {
+    console.log('[Push] skipped remote mark push; missing recipient/author/markId');
+    return false;
+  }
+
+  const body = buildMarkEventBody({
+    authorName: input.authorName,
+    authorNpub,
+    title: input.title,
+    preview: input.preview,
+  });
+
+  return postToPushWorker(
+    PUSH_MARK_URL,
+    {
+      recipientNpub,
+      authorNpub,
+      authorName: input.authorName,
+      markId: input.markId,
+      title: input.title,
+      body,
+      preview: input.preview,
+      eventId: input.eventId,
+      familyId: input.familyId,
+      type: 'mark',
+      markEventType: 'mark_created',
+      routeTarget: 'mark-detail',
+    },
+    'remote mark push'
+  );
+}
+
+export async function notifyMarkEvent(input: {
+  recipientNpubs: string[];
+  authorNpub: string;
+  authorName?: string;
+  markId: string;
+  title?: string;
+  preview?: string;
+  eventId?: string;
+  familyId?: string;
+}) {
+  const uniqueRecipients = Array.from(
+    new Set(
+      input.recipientNpubs
+        .map(npub => npub.trim())
+        .filter(npub => !!npub && npub !== input.authorNpub)
+    )
+  );
+
+  if (uniqueRecipients.length === 0) {
+    console.log('[Push] skipped mark notification; no recipients');
+    return [];
+  }
+
+  return Promise.all(
+    uniqueRecipients.map(recipientNpub =>
+      sendRemoteMarkNotification({
+        recipientNpub,
+        authorNpub: input.authorNpub,
+        authorName: input.authorName,
+        markId: input.markId,
+        title: input.title,
+        preview: input.preview,
+        eventId: input.eventId,
+        familyId: input.familyId,
+      })
+    )
+  );
 }
 
 export async function sendRemoteTestPushToSelf(npub: string) {
