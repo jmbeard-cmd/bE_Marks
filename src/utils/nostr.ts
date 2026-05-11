@@ -1148,6 +1148,7 @@ export interface NostrGroupPayload {
   description?: string;
   season?: string;
   sport?: string;
+  icon?: string;
   schoolId?: string;
   inviteCode: string;
   status: 'active' | 'archived';
@@ -1177,23 +1178,25 @@ export async function publishGroup(
       ['client', 'bE-Marks'],
     ];
 
-    if (group.season) tags.push(['season', group.season]);
-    if (group.sport) tags.push(['sport', group.sport]);
-    if (group.schoolId) tags.push(['school', group.schoolId]);
+if (group.season) tags.push(['season', group.season]);
+if (group.sport) tags.push(['sport', group.sport]);
+if (group.icon) tags.push(['icon', group.icon]);
+if (group.schoolId) tags.push(['school', group.schoolId]);
 
-    const content = JSON.stringify({
-      id: group.id,
-      name: group.name,
-      description: group.description,
-      season: group.season,
-      sport: group.sport,
-      schoolId: group.schoolId,
-      inviteCode: group.inviteCode,
-      status: group.status,
-      relayUrl: group.relayUrl,
-      createdAt: group.createdAt,
-      ownerNpub: group.ownerNpub,
-    });
+const content = JSON.stringify({
+  id: group.id,
+  name: group.name,
+  description: group.description,
+  season: group.season,
+  sport: group.sport,
+  icon: group.icon,
+  schoolId: group.schoolId,
+  inviteCode: group.inviteCode,
+  status: group.status,
+  relayUrl: group.relayUrl,
+  createdAt: group.createdAt,
+  ownerNpub: group.ownerNpub,
+});
 
     const unsigned: UnsignedEvent = {
       kind: GROUP_KIND,

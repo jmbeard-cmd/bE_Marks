@@ -37,7 +37,7 @@ import {
 } from '../../src/utils/push-notifications';
 import { useIdentity } from '../_layout';
 
-const SPORT_ICONS: Record<string, string> = {
+const GROUP_TYPE_ICONS: Record<string, string> = {
   softball: '🥎',
   baseball: '⚾',
   basketball: '🏀',
@@ -47,25 +47,55 @@ const SPORT_ICONS: Record<string, string> = {
   crosscountry: '🏃',
   soccer: '⚽',
   wrestling: '🤼',
-  golf: '⛳',
-  swimming: '🏊',
-  cheer: '📣',
+golf: '⛳',
+tennis: '🎾',
+swimming: '🏊',
+cheer: '📣',
   band: '🎵',
   choir: '🎶',
   theater: '🎭',
   nhs: '🎓',
   class: '📚',
   booster: '⭐',
-  faculty: '👩‍🏫',
-  default: '👥',
+faculty: '🧑‍🏫',
+staff: '🧑‍🏫',
+teacher: '🧑‍🏫',
+teachers: '🧑‍🏫',
+default: '👥',
 };
 
+function normalizeGroupType(value?: string): string {
+  return (value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
 function getGroupIcon(group: BEGroup): string {
-  if (group.sport) {
-    const key = group.sport.toLowerCase().replace(/\s/g, '');
-    return SPORT_ICONS[key] ?? SPORT_ICONS.default;
+  const customIcon = group.icon?.trim();
+
+  if (customIcon) {
+    return customIcon;
   }
-  return SPORT_ICONS.default;
+
+  const directKey = normalizeGroupType(group.sport);
+
+  if (directKey && GROUP_TYPE_ICONS[directKey]) {
+    return GROUP_TYPE_ICONS[directKey];
+  }
+
+  const searchText = normalizeGroupType(`${group.name} ${group.description ?? ''}`);
+
+  if (searchText.includes('faculty') || searchText.includes('teacher') || searchText.includes('staff')) {
+    return GROUP_TYPE_ICONS.faculty;
+  }
+
+  if (searchText.includes('class')) {
+    return GROUP_TYPE_ICONS.class;
+  }
+
+  if (searchText.includes('booster')) {
+    return GROUP_TYPE_ICONS.booster;
+  }
+
+  return GROUP_TYPE_ICONS.default;
 }
 
 function formatGroupTime(unixSecs?: number): string {
@@ -84,7 +114,7 @@ type Sheet = 'none' | 'create' | 'join';
 
 export default function GroupsScreen() {
   const router = useRouter();
-const { npub, nsec, profile, themeMode } = useIdentity();
+  const { npub, nsec, profile, themeMode } = useIdentity();
 
   const theme = themeMode === 'light' ? Colors.light : Colors.dark;
   const s = useMemo(() => createStyles(theme), [theme]);
@@ -99,6 +129,7 @@ const { npub, nsec, profile, themeMode } = useIdentity();
   const [cgName, setCgName] = useState('');
   const [cgSeason, setCgSeason] = useState('');
   const [cgSport, setCgSport] = useState('');
+  const [cgIcon, setCgIcon] = useState('');
   const [cgDescription, setCgDescription] = useState('');
   const [cgSchool, setCgSchool] = useState('');
   const [creating, setCreating] = useState(false);
@@ -153,7 +184,7 @@ const { npub, nsec, profile, themeMode } = useIdentity();
 
   const closeSheet = () => {
     setSheet('none');
-    setCgName(''); setCgSeason(''); setCgSport('');
+    setCgName(''); setCgSeason(''); setCgSport(''); setCgIcon('');
     setCgDescription(''); setCgSchool('');
     setJoinCode('');
   };
@@ -169,6 +200,7 @@ const { npub, nsec, profile, themeMode } = useIdentity();
         description: cgDescription.trim() || undefined,
         season: cgSeason.trim() || undefined,
         sport: cgSport.trim() || undefined,
+        icon: cgIcon.trim() || undefined,
         schoolId: cgSchool.trim() || undefined,
         relayUrl: DEFAULT_RELAY,
         ownerNpub: npub,
@@ -337,9 +369,28 @@ if (nsec) {
     );
   };
 
-  const SPORTS = ['softball', 'baseball', 'basketball', 'football', 'volleyball',
-    'track', 'soccer', 'wrestling', 'golf', 'tennis', 'cheer', 'band', 'choir',
-    'theater', 'nhs', 'class', 'booster', 'faculty'];
+  const GROUP_TYPES = [
+    'softball',
+    'baseball',
+    'basketball',
+    'football',
+    'volleyball',
+    'track',
+    'soccer',
+    'wrestling',
+    'golf',
+    'tennis',
+    'cheer',
+    'band',
+    'choir',
+    'theater',
+    'nhs',
+    'class',
+    'booster',
+    'faculty',
+  ];
+
+  const QUICK_ICONS = ['👥', '🧑‍🏫', '🏫', '📚', '⭐', '🏀', '🏈', '⚾', '🥎', '⚽', '🏐', '🎵', '🎭', '🤖', '✝️'];
 
   return (
     <SafeAreaView style={s.safe}>
@@ -435,16 +486,40 @@ if (nsec) {
                     onChangeText={setCgSeason}
                   />
 
+                  <Text style={s.inputLabel}>ICON (OPTIONAL)</Text>
+                  <TextInput
+                    style={s.input}
+                    placeholder="Type or paste an emoji, e.g. 🧑‍🏫"
+                    placeholderTextColor={theme.textMuted}
+                    value={cgIcon}
+                    onChangeText={setCgIcon}
+                    maxLength={4}
+                  />
+
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.sportPills}>
+                    {QUICK_ICONS.map(icon => (
+                      <TouchableOpacity
+                        key={icon}
+                        style={[s.iconPill, cgIcon === icon && s.sportPillActive]}
+                        onPress={() => setCgIcon(cgIcon === icon ? '' : icon)}
+                      >
+                        <Text style={[s.iconPillText, cgIcon === icon && s.sportPillTextActive]}>
+                          {icon}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+
                   <Text style={s.inputLabel}>TYPE (OPTIONAL)</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.sportPills}>
-                    {SPORTS.map(sport => (
+                    {GROUP_TYPES.map(sport => (
                       <TouchableOpacity
                         key={sport}
                         style={[s.sportPill, cgSport === sport && s.sportPillActive]}
                         onPress={() => setCgSport(cgSport === sport ? '' : sport)}
                       >
                         <Text style={[s.sportPillText, cgSport === sport && s.sportPillTextActive]}>
-                          {SPORT_ICONS[sport] ?? '👥'} {sport.charAt(0).toUpperCase() + sport.slice(1)}
+                          {GROUP_TYPE_ICONS[sport] ?? GROUP_TYPE_ICONS.default} {sport.charAt(0).toUpperCase() + sport.slice(1)}
                         </Text>
                       </TouchableOpacity>
                     ))}
@@ -724,6 +799,21 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
   sportPillActive: {
     backgroundColor: theme.gold,
     borderColor: theme.gold,
+  },
+    iconPill: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    backgroundColor: theme.raised,
+    marginRight: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconPillText: {
+    fontSize: 20,
+    color: theme.text,
   },
   sportPillText: {
     fontSize: 12,

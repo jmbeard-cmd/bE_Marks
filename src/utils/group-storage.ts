@@ -25,9 +25,10 @@ export type BEGroup = {
   name: string;
   description?: string;
   season?: string;            // e.g. "2025-2026"
-  sport?: string;             // for theming e.g. "softball", "basketball"
-  schoolId?: string;          // "washington" | "rush_springs" | custom
-  coverImage?: string;        // R2 URL
+sport?: string;             // for theming e.g. "softball", "basketball"
+icon?: string;              // owner-selected emoji/icon for group avatar
+schoolId?: string;          // "washington" | "rush_springs" | custom
+coverImage?: string;        // R2 URL
   inviteCode: string;         // 6-char alphanumeric
   inviteCodeExpiry?: number;  // unix timestamp, optional
   status: GroupStatus;
@@ -297,9 +298,10 @@ export async function createGroup(input: {
   name: string;
   description?: string;
   season?: string;
-  sport?: string;
-  schoolId?: string;
-  relayUrl: string;
+sport?: string;
+icon?: string;
+schoolId?: string;
+relayUrl: string;
   ownerNpub: string;
   ownerPubkeyHex: string;
   ownerDisplayName?: string;
@@ -313,9 +315,10 @@ export async function createGroup(input: {
     name: input.name.trim(),
     description: input.description?.trim(),
     season: input.season?.trim(),
-    sport: input.sport,
-    schoolId: input.schoolId,
-    inviteCode: generateInviteCode(),
+sport: input.sport,
+icon: input.icon?.trim() || undefined,
+schoolId: input.schoolId,
+inviteCode: generateInviteCode(),
     status: 'active',
     createdAt: now,
     updatedAt: now,
@@ -344,9 +347,10 @@ export async function createGroup(input: {
     name: group.name,
     description: group.description,
     season: group.season,
-    sport: group.sport,
-    schoolId: group.schoolId,
-    inviteCode: group.inviteCode,
+sport: group.sport,
+icon: group.icon,
+schoolId: group.schoolId,
+inviteCode: group.inviteCode,
     status: group.status,
     relayUrl: group.relayUrl,
     createdAt: group.createdAt,
@@ -589,9 +593,10 @@ export async function joinGroupByCode(input: {
         name: remoteGroup.name,
         description: remoteGroup.description,
         season: remoteGroup.season,
-        sport: remoteGroup.sport,
-        schoolId: remoteGroup.schoolId,
-        inviteCode: remoteGroup.inviteCode,
+sport: remoteGroup.sport,
+icon: remoteGroup.icon,
+schoolId: remoteGroup.schoolId,
+inviteCode: remoteGroup.inviteCode,
         status: remoteGroup.status,
         createdAt: remoteGroup.createdAt,
         updatedAt: now,
@@ -739,9 +744,10 @@ export async function restoreGroupsFromRelay(input: {
           name: groupEvent.name,
           description: groupEvent.description,
           season: groupEvent.season,
-          sport: groupEvent.sport,
-          schoolId: groupEvent.schoolId,
-          inviteCode: groupEvent.inviteCode,
+sport: groupEvent.sport,
+icon: groupEvent.icon,
+schoolId: groupEvent.schoolId,
+inviteCode: groupEvent.inviteCode,
           status: groupEvent.status,
           createdAt: groupEvent.createdAt,
           updatedAt: now,
