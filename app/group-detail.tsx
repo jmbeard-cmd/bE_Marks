@@ -80,9 +80,9 @@ import {
 } from '../src/utils/nostr';
 import { normalizeNostrIdentity } from '../src/utils/nostr-identity';
 import {
+  notifyGroupEvent,
   registerGroupMemberForPush,
   removeGroupMemberFromPush,
-  sendRemoteGroupNotification,
 } from '../src/utils/push-notifications';
 import { uploadToR2 } from '../src/utils/r2';
 import { useIdentity } from './_layout';
@@ -807,14 +807,32 @@ export default function GroupDetailScreen() {
     setHighlightProgress(1);
     setHighlightUploadStatus('Posting highlight...');
 
-    await createGroupSticky({
+    const createdSticky = await createGroupSticky({
       groupId: group.id,
       title,
       body,
+      authorName: myDisplayName,
       authorNpub: npub ?? undefined,
       relayUrl: group.relayUrl,
       media: uploadedHighlightMedia,
     } as any);
+
+    if (npub) {
+      notifyGroupEvent({
+        groupId: group.id,
+        groupName: group.name,
+        relayUrl: group.relayUrl,
+        actorNpub: npub,
+        actorName: myDisplayName,
+        eventType: 'highlight_created',
+        title,
+        highlightId: createdSticky.id,
+        routeTarget: 'group-detail',
+        groupTab: 'stickies',
+      }).catch(error => {
+        console.warn('[Group Detail] highlight notification failed:', error);
+      });
+    }
 
     setStickyTitle('');
     setStickyBody('');
@@ -1087,13 +1105,17 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
               });
             }
 
-            sendRemoteGroupNotification({
+            notifyGroupEvent({
               groupId: group.id,
               groupName: group.name,
               relayUrl: group.relayUrl,
-              senderNpub: npub,
-              senderName: myDisplayName,
-              body: `removed ${removedName} from the group`,
+              actorNpub: npub,
+              actorName: myDisplayName,
+              eventType: 'member_removed',
+              memberNpub: member.npub,
+              memberName: removedName,
+              routeTarget: 'group-detail',
+              groupTab: 'members',
             }).catch(error => {
               console.warn('[Group Members] remote remove notification failed:', error);
             });
@@ -1103,6 +1125,35 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
         },
       ]
     );
+  };
+
+    const handleChangeMemberRole = async (
+    member: BEGroupMember,
+    nextRole: 'admin' | 'member'
+  ) => {
+    if (!group || !npub) return;
+
+    const memberName = member.displayName || `${member.npub.slice(0, 12)}…`;
+
+    await updateMemberRole(group.id, member.npub, nextRole);
+
+    notifyGroupEvent({
+      groupId: group.id,
+      groupName: group.name,
+      relayUrl: group.relayUrl,
+      actorNpub: npub,
+      actorName: myDisplayName,
+      eventType: 'member_role_changed',
+      memberNpub: member.npub,
+      memberName,
+      role: nextRole,
+      routeTarget: 'group-detail',
+      groupTab: 'members',
+    }).catch(error => {
+      console.warn('[Group Members] role-change notification failed:', error);
+    });
+
+    await load();
   };
 
   const handlePromoteAdmin = (member: BEGroupMember) => {
@@ -1116,8 +1167,7 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
           onPress: async () => {
             if (!group) return;
 
-            await updateMemberRole(group.id, member.npub, 'admin');
-            await load();
+            await handleChangeMemberRole(member, 'admin');
           },
         },
       ]
@@ -1789,7 +1839,7 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
                   if (member.role === 'member') {
                     handlePromoteAdmin(member);
                   } else {
-                    updateMemberRole(group.id, member.npub, 'member').then(load);
+                    handleChangeMemberRole(member, 'member');
                   }
                 }}
               >
