@@ -99,12 +99,17 @@ export async function registerForPushNotifications(npub: string) {
   try {
     console.log('[Push] registering push notifications for:', npub.slice(0, 12));
 
-    if (!Device.isDevice) {
-      console.log('[Push] physical device required for push notifications');
-      return null;
-    }
+if (!Device.isDevice) {
+  console.log('[Push] physical device required for push notifications');
+  return null;
+}
 
-    await ensureAndroidNotificationChannel();
+if (Constants.appOwnership === 'expo') {
+  console.log('[Push] skipped backend push registration in Expo Go');
+  return null;
+}
+
+await ensureAndroidNotificationChannel();
 
     const existingPermission = await Notifications.getPermissionsAsync();
     let finalStatus = existingPermission.status;
