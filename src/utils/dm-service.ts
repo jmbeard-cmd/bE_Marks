@@ -1,4 +1,3 @@
-import * as Notifications from 'expo-notifications';
 import { getPublicKey, nip19 } from 'nostr-tools';
 import { AppState, type AppStateStatus } from 'react-native';
 import { isAppBusy } from './app-activity';
@@ -11,35 +10,9 @@ import {
   saveRemoteDMMessage,
   saveRemoteDMMessagesBatch,
 } from './dm-storage';
+import { sendLocalDMNotification } from './push-notifications';
 
 import { FAST_RELAYS, fetchNostrDMs, getStoredIdentity, subscribeToNostrDMs } from './nostr';
-
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
-
-async function sendDMNotification(senderName: string, preview: string) {
-  try {
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: `New message from ${senderName}`,
-        body: preview.length > 80 ? preview.slice(0, 80) + '…' : preview,
-        sound: true,
-        badge: 1,
-        data: { type: 'dm' },
-      },
-      trigger: null,
-    });
-  } catch (e) {
-    console.warn('[DMService] notification failed:', e);
-  }
-}
 
 let _running = false;
 let _unsubscribe: (() => void) | null = null;
@@ -189,8 +162,14 @@ const existing = await getMessagesForThread(activeThread.id);
       console.log('[DMService] saved incoming DM:', activeThread.id);
 emitDMChanged(activeThread.id);
 
-      const senderName = activeThread.title || otherPubkey.slice(0, 8);
-      await sendDMNotification(senderName, message.content);
+const senderName = activeThread.title || otherPubkey.slice(0, 8);
+
+await sendLocalDMNotification({
+  senderName,
+  senderPubkey: otherPubkey,
+  threadId: activeThread.id,
+  preview: message.content,
+});
 
     } catch (err) {
       console.warn('[DMService] failed processing DM:', err);

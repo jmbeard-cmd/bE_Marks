@@ -5,6 +5,7 @@ import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
+import { getGroupById, getGroupMembers } from './group-storage';
 
 const PUSH_TOKEN_KEY = 'be_expo_push_token_v1';
 const PUSH_TOKEN_OWNER_KEY = 'be_expo_push_token_owner_v1';
@@ -12,6 +13,18 @@ const PUSH_TOKEN_OWNER_KEY = 'be_expo_push_token_owner_v1';
 const PUSH_REGISTER_URL = 'https://be-marks-push.jmbeard.workers.dev/push/register';
 const PUSH_SEND_TEST_URL = 'https://be-marks-push.jmbeard.workers.dev/push/send-test';
 const PUSH_SECRET = 'be_marks_pull_short_precise_announce_1980_2006_10_03';
+
+export type BENotificationData = {
+  type?: 'dm' | 'group' | 'mark' | 'test';
+  threadId?: string;
+  participantPubkey?: string;
+  senderPubkey?: string;
+  senderNpub?: string;
+  groupId?: string;
+  relayUrl?: string;
+  eventId?: string;
+  markId?: string;
+};
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -48,6 +61,17 @@ async function ensureAndroidNotificationChannel() {
     lightColor: '#C9973A',
     sound: 'default',
   });
+}
+
+function truncatePreview(text: string, limit = 90) {
+  const trimmed = text.trim();
+  if (trimmed.length <= limit) return trimmed;
+  return `${trimmed.slice(0, limit)}…`;
+}
+
+function shortKey(value?: string | null) {
+  if (!value) return 'Someone';
+  return value.length > 12 ? `${value.slice(0, 8)}…` : value;
 }
 
 export async function getStoredExpoPushToken() {
@@ -126,10 +150,10 @@ async function registerTokenWithBackend({
   try {
     const response = await fetch(PUSH_REGISTER_URL, {
       method: 'POST',
-headers: {
-  'Content-Type': 'application/json',
-  Authorization: `Bearer ${PUSH_SECRET}`,
-},
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${PUSH_SECRET}`,
+      },
       body: JSON.stringify({
         npub,
         expoPushToken,
@@ -171,6 +195,9 @@ export async function sendRemoteTestPushToSelf(npub: string) {
         npub,
         title: 'bE Marks',
         body: 'Remote push notifications are working.',
+        data: {
+          type: 'test',
+        },
       }),
     });
 
@@ -201,4 +228,174 @@ export async function sendLocalTestNotification() {
     },
     trigger: null,
   });
+}
+
+export async function sendLocalDMNotification(input: {
+  senderName?: string;
+  senderPubkey: string;
+  threadId: string;
+  preview: string;
+}) {
+  try {
+    const senderName = input.senderName?.trim() || shortKey(input.senderPubkey);
+
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: senderName,
+        body: truncatePreview(input.preview),
+        sound: true,
+        badge: 1,
+        data: {
+          type: 'dm',
+          threadId: input.threadId,
+          participantPubkey: input.senderPubkey,
+          senderPubkey: input.senderPubkey,
+        } satisfies BENotificationData,
+      },
+      trigger: null,
+    });
+  } catch (error) {
+    console.warn('[Push] local DM notification failed:', error);
+  }
+}
+
+export async function sendLocalGroupNotification(input: {
+  groupId: string;
+  senderNpub?: string;
+  senderPubkey?: string;
+  senderName?: string;
+  preview: string;
+  eventId?: string;
+}) {
+  try {
+    const group = await getGroupById(input.groupId);
+
+    if (!group) {
+      console.log('[Push] skipped group notification; group not found:', input.groupId);
+      return;
+    }
+
+    let senderName = input.senderName?.trim();
+
+    if (!senderName && input.senderNpub) {
+      const members = await getGroupMembers(input.groupId);
+      const member = members.find(m => m.npub === input.senderNpub);
+      senderName = member?.displayName?.trim();
+    }
+
+    const safeSenderName =
+      senderName ||
+      shortKey(input.senderNpub) ||
+      shortKey(input.senderPubkey);
+
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: group.name || 'Group message',
+        body: `${safeSenderName}: ${truncatePreview(input.preview)}`,
+        sound: true,
+        badge: 1,
+        data: {
+          type: 'group',
+          groupId: input.groupId,
+          relayUrl: group.relayUrl,
+          senderNpub: input.senderNpub,
+          senderPubkey: input.senderPubkey,
+          eventId: input.eventId,
+        } satisfies BENotificationData,
+      },
+      trigger: null,
+    });
+  } catch (error) {
+    console.warn('[Push] local group notification failed:', error);
+  }
+}
+
+export function installNotificationResponseHandler(router: {
+  push: (href: any) => void;
+}) {
+  async function routeFromData(rawData: any) {
+    const data = rawData as BENotificationData;
+
+    if (!data?.type || data.type === 'test') {
+      return;
+    }
+
+    console.log('[Push] notification tapped:', data);
+
+    if (data.type === 'dm') {
+      const threadTarget = data.threadId || data.participantPubkey || data.senderPubkey;
+
+      if (!threadTarget) {
+        console.warn('[Push] DM notification missing thread target');
+        return;
+      }
+
+      router.push({
+        pathname: '/dm-thread',
+        params: {
+          threadId: threadTarget,
+          participantPubkey: data.participantPubkey || data.senderPubkey || threadTarget,
+        },
+      } as any);
+
+      return;
+    }
+
+    if (data.type === 'group') {
+      if (!data.groupId) {
+        console.warn('[Push] group notification missing groupId');
+        return;
+      }
+
+      router.push({
+        pathname: '/group-thread',
+        params: {
+          groupId: data.groupId,
+          relayUrl: data.relayUrl,
+        },
+      } as any);
+
+      return;
+    }
+
+    if (data.type === 'mark') {
+      if (!data.markId) {
+        console.warn('[Push] mark notification missing markId');
+        return;
+      }
+
+      router.push({
+        pathname: '/mark-detail',
+        params: {
+          id: data.markId,
+        },
+      } as any);
+    }
+  }
+
+  const subscription = Notifications.addNotificationResponseReceivedListener(response => {
+    routeFromData(response.notification.request.content.data).catch(error => {
+      console.warn('[Push] notification response route failed:', error);
+    });
+  });
+
+  Notifications.getLastNotificationResponseAsync()
+    .then(response => {
+      const data = response?.notification.request.content.data;
+
+      if (!data) return;
+
+      setTimeout(() => {
+        routeFromData(data).catch(error => {
+          console.warn('[Push] initial notification route failed:', error);
+        });
+      }, 650);
+    })
+    .catch(error => {
+      console.warn('[Push] getLastNotificationResponseAsync failed:', error);
+    });
+
+  return () => {
+    subscription.remove();
+  };
 }

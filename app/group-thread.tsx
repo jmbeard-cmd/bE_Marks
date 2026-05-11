@@ -60,6 +60,7 @@ import {
   subscribeToGroupMessages,
   subscribeToGroupPollVotes,
 } from '../src/utils/nostr';
+import { sendLocalGroupNotification } from '../src/utils/push-notifications';
 import { uploadToR2 } from '../src/utils/r2';
 import { useIdentity } from './_layout';
 function createClientMessageId(groupId: string): string {
@@ -259,6 +260,41 @@ const [pollDetailsMessage, setPollDetailsMessage] = useState<GroupMessage | Pend
     () => [...visibleMessages].reverse(),
     [visibleMessages]
   );
+
+  const getNotificationPreviewText = useCallback((message: {
+  text?: string;
+  media?: GroupMessageMedia[];
+  mediaUrl?: string;
+  imageUrl?: string;
+  mediaType?: GroupMediaType;
+  poll?: any;
+}): string => {
+  const text = message.text?.trim();
+
+  if (text) return text;
+
+  if (message.poll?.question) {
+    return `Poll: ${message.poll.question}`;
+  }
+
+  const mediaItems = Array.isArray(message.media) ? message.media : [];
+
+  if (mediaItems.length > 1) {
+    return `${mediaItems.length} attachments`;
+  }
+
+  const firstMedia = mediaItems[0];
+
+  if (firstMedia?.type === 'video') return 'Video';
+  if (firstMedia?.type === 'file') return firstMedia.fileName || 'File';
+  if (firstMedia?.type === 'image') return 'Photo';
+
+  if (message.mediaType === 'video') return 'Video';
+  if (message.mediaType === 'file') return 'File';
+  if (message.mediaUrl || message.imageUrl) return 'Photo';
+
+  return 'New group message';
+}, []);
 
   const getReplyPreviewText = useCallback((message: GroupMessage | PendingUploadMessage): string => {
     if ((message as any).isDeleted) return 'Message deleted';
@@ -644,6 +680,23 @@ const [pollDetailsMessage, setPollDetailsMessage] = useState<GroupMessage | Pend
             createdAt: msg.createdAt,
           });
 
+          if (!mine) {
+  await sendLocalGroupNotification({
+    groupId,
+    senderNpub: msg.senderNpub,
+    senderName: msg.senderName,
+    preview: getNotificationPreviewText({
+      text: msg.text,
+      media: msg.media,
+      mediaUrl: msg.mediaUrl,
+      imageUrl: msg.imageUrl,
+      mediaType: msg.mediaType || (msg.imageUrl ? 'image' : undefined),
+      poll: msg.poll,
+    }),
+    eventId: msg.id,
+  });
+}
+
           const next = await getMessagesForGroup(groupId);
           setMessages(next);
 
@@ -773,7 +826,7 @@ const [pollDetailsMessage, setPollDetailsMessage] = useState<GroupMessage | Pend
       if (unsubscribeEdits) unsubscribeEdits();
       if (unsubscribePollVotes) unsubscribePollVotes();
     };
-  }, [groupId, relayUrl, npub, scrollToBottomIfAppropriate]);
+}, [groupId, relayUrl, npub, scrollToBottomIfAppropriate, getNotificationPreviewText]);
 
   const handleSend = async () => {
     const text = draft.trim();

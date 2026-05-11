@@ -8,7 +8,10 @@ import { Colors } from '../src/constants/theme';
 import { startDMService, stopDMService } from '../src/utils/dm-service';
 import { clearDMStorage } from '../src/utils/dm-storage';
 import { fetchNostrProfile, getStoredIdentity, type NostrProfile } from '../src/utils/nostr';
-import { registerForPushNotifications } from '../src/utils/push-notifications';
+import {
+  installNotificationResponseHandler,
+  registerForPushNotifications,
+} from '../src/utils/push-notifications';
 import { clearStartupJobs, enqueueStartupJob, startStartupScheduler } from '../src/utils/startup-scheduler';
 import {
   getFamily,
@@ -70,6 +73,16 @@ export default function RootLayout() {
   const segments = useSegments() as any;
   const [themeMode, setThemeModeState] = useState<'dark' | 'light'>('dark');
   const theme = Colors[themeMode];
+
+  useEffect(() => {
+  if (!ready) return;
+
+  const removeNotificationHandler = installNotificationResponseHandler(router);
+
+  return () => {
+    removeNotificationHandler();
+  };
+}, [ready, router]);
 
     useEffect(() => {
   AsyncStorage.getItem('be_theme_mode').then(saved => {
