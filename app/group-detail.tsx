@@ -215,7 +215,7 @@ async function saveHighlightMediaToLocalGallery(groupId: string, sticky: GroupSt
 export default function GroupDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-const { npub, nsec, profile, themeMode } = useIdentity();
+  const { npub, nsec, profile, themeMode } = useIdentity();
   const theme = Colors[themeMode];
   const s = useMemo(() => createStyles(theme), [theme]);
 
@@ -225,44 +225,44 @@ const { npub, nsec, profile, themeMode } = useIdentity();
   const [galleryItems, setGalleryItems] = useState<any[]>([]);
   const [selectedGalleryImage, setSelectedGalleryImage] = useState<string | null>(null);
   const [activeViewerImages, setActiveViewerImages] = useState<ViewerImage[]>([]);
-const [showStickyModal, setShowStickyModal] = useState(false);
-const [stickyTitle, setStickyTitle] = useState('');
-const [stickyBody, setStickyBody] = useState('');
-const [stickyVisibility, setStickyVisibility] = useState<'private' | 'organization' | 'public'>('private');
-type HighlightAttachment = {
-  uri: string;
-  type: 'image' | 'video' | 'file';
-  name?: string;
-  mimeType?: string;
-};
+  const [showStickyModal, setShowStickyModal] = useState(false);
+  const [stickyTitle, setStickyTitle] = useState('');
+  const [stickyBody, setStickyBody] = useState('');
+  const [stickyVisibility, setStickyVisibility] = useState<'private' | 'organization' | 'public'>('private');
+  type HighlightAttachment = {
+    uri: string;
+    type: 'image' | 'video' | 'file';
+    name?: string;
+    mimeType?: string;
+  };
 
-const [selectedHighlightMedia, setSelectedHighlightMedia] = useState<HighlightAttachment | null>(null);
+  const [selectedHighlightMedia, setSelectedHighlightMedia] = useState<HighlightAttachment | null>(null);
 
-const [selectedHighlightMediaList, setSelectedHighlightMediaList] = useState<HighlightAttachment[]>([]);
-const [highlightPosting, setHighlightPosting] = useState(false);
-const [highlightUploadStatus, setHighlightUploadStatus] = useState<string | null>(null);
-const [highlightProgress, setHighlightProgress] = useState(0);
+  const [selectedHighlightMediaList, setSelectedHighlightMediaList] = useState<HighlightAttachment[]>([]);
+  const [highlightPosting, setHighlightPosting] = useState(false);
+  const [highlightUploadStatus, setHighlightUploadStatus] = useState<string | null>(null);
+  const [highlightProgress, setHighlightProgress] = useState(0);
   const [tab, setTab] = useState<Tab>('stickies');
   const [isAdmin, setIsAdmin] = useState(false);
   const [isMember, setIsMember] = useState(false);
-    const [showInvite, setShowInvite] = useState(false);
+  const [showInvite, setShowInvite] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   const [editingGroupRelay, setEditingGroupRelay] = useState(false);
-const [groupRelayMode, setGroupRelayMode] = useState<GroupRelayMode>('default');
-const [groupRelayUrl, setGroupRelayUrl] = useState('');
-const [upcomingCount, setUpcomingCount] = useState(0);
-const [selectedMemberAction, setSelectedMemberAction] = useState<BEGroupMember | null>(null);
+  const [groupRelayMode, setGroupRelayMode] = useState<GroupRelayMode>('default');
+  const [groupRelayUrl, setGroupRelayUrl] = useState('');
+  const [upcomingCount, setUpcomingCount] = useState(0);
+  const [selectedMemberAction, setSelectedMemberAction] = useState<BEGroupMember | null>(null);
 
-const myDisplayName = useMemo(() => {
-  return (
-    profile?.display_name ||
-    profile?.name ||
-    (npub ? `${npub.slice(0, 12)}…` : 'Admin')
-  );
-}, [profile, npub]);
+  const myDisplayName = useMemo(() => {
+    return (
+      profile?.display_name ||
+      profile?.name ||
+      (npub ? `${npub.slice(0, 12)}…` : 'Admin')
+    );
+  }, [profile, npub]);
 
-const hydrateMemberProfiles = useCallback(async (groupId: string, groupMembers: BEGroupMember[]) => {
+  const hydrateMemberProfiles = useCallback(async (groupId: string, groupMembers: BEGroupMember[]) => {
   const activeMembers = groupMembers.filter(member => member.status === 'active');
 
   if (activeMembers.length === 0) return;
@@ -308,61 +308,63 @@ const hydrateMemberProfiles = useCallback(async (groupId: string, groupMembers: 
       console.warn('[Group Members] failed to hydrate profile:', error);
     }
   }
-}, []);
+  }, []);
 
   const load = useCallback(async () => {
     if (!id) return;
+
     const g = await getGroupById(id);
 
-if (!g) return;
+    if (!g) return;
 
-setGroup(g);
+    setGroup(g);
 
-// ✅ Members
-const syncedMembers = await syncGroupMembersFromRelay(
-  id,
-  g.relayUrl ? [g.relayUrl] : []
-);
+    // ✅ Members
+    const syncedMembers = await syncGroupMembersFromRelay(
+      id,
+      g.relayUrl ? [g.relayUrl] : []
+    );
 
-setMembers(syncedMembers);
+    setMembers(syncedMembers);
 
-syncedMembers
-  .filter(member => member.status === 'active')
-  .forEach(member => {
-    registerGroupMemberForPush({
-      groupId: g.id,
-      groupName: g.name,
-      relayUrl: g.relayUrl,
-      memberNpub: member.npub,
-      role: member.role,
-      status: 'active',
-      displayName: member.displayName,
-    }).catch(error => {
-      console.warn('[Group Detail] push member backfill failed:', error);
+    syncedMembers
+      .filter(member => member.status === 'active')
+      .forEach(member => {
+        registerGroupMemberForPush({
+          groupId: g.id,
+          groupName: g.name,
+          relayUrl: g.relayUrl,
+          memberNpub: member.npub,
+          role: member.role,
+          status: 'active',
+          displayName: member.displayName,
+        }).catch(error => {
+          console.warn('[Group Detail] push member backfill failed:', error);
+        });
+      });
+
+    hydrateMemberProfiles(id, syncedMembers).catch(error => {
+      console.warn('[Group Members] profile hydration failed:', error);
     });
-  });
 
-hydrateMemberProfiles(id, syncedMembers).catch(error => {
-  console.warn('[Group Members] profile hydration failed:', error);
-});
+    // 🔥 THIS is the NEW sticky sync
+    const syncedStickies = g.relayUrl
+      ? await syncGroupStickiesFromRelay(id, g.relayUrl)
+      : await getStickiesForGroup(id);
 
-// 🔥 THIS is the NEW sticky sync
-const syncedStickies = g.relayUrl
-  ? await syncGroupStickiesFromRelay(id, g.relayUrl)
-  : await getStickiesForGroup(id);
+    setStickies(syncedStickies);
 
-setStickies(syncedStickies);
+    if (g.relayUrl) {
+      await syncCalendarEventsFromRelay(id, g.relayUrl);
+    }
 
-if (g.relayUrl) {
-  await syncCalendarEventsFromRelay(id, g.relayUrl);
-}
+    // 🔥 Force re-read AFTER sync (ensures deletes applied)
+    const upcoming = await getUpcomingEventsForGroup(id);
+    setUpcomingCount(upcoming.length);
 
-// 🔥 Force re-read AFTER sync (ensures deletes applied)
-const upcoming = await getUpcomingEventsForGroup(id);
-setUpcomingCount(upcoming.length);
-// 🔥 GALLERY FROM CHAT IMAGES + LOCAL SAVED HIGHLIGHT MEDIA
-try {
-  let chatMediaItems: any[] = [];
+    // 🔥 GALLERY FROM CHAT IMAGES + LOCAL SAVED HIGHLIGHT MEDIA
+    try {
+      let chatMediaItems: any[] = [];
 
   const mapMessageToGalleryItems = (message: any, source: 'local-chat' | 'chat') => {
     if (message.isDeleted) return [];
@@ -515,7 +517,7 @@ try {
 
   useEffect(() => { load(); }, [load]);
 
-    const onRefresh = async () => {
+  const onRefresh = async () => {
     setRefreshing(true);
     await load();
     setRefreshing(false);
@@ -644,7 +646,7 @@ try {
     }
   };
 
-    const handlePickHighlightFiles = async () => {
+  const handlePickHighlightFiles = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
         multiple: true,
@@ -1044,59 +1046,59 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
           onPress: async () => {
             if (!group) return;
 
-await removeMember(group.id, member.npub, npub);
+            await removeMember(group.id, member.npub, npub);
 
-removeGroupMemberFromPush({
-  groupId: group.id,
-  memberNpub: member.npub,
-}).catch(error => {
-  console.warn('[Group Members] push member removal failed:', error);
-});
+            removeGroupMemberFromPush({
+              groupId: group.id,
+              memberNpub: member.npub,
+            }).catch(error => {
+              console.warn('[Group Members] push member removal failed:', error);
+            });
 
-const removedName =
-  member.displayName ||
-  `${member.npub.slice(0, 12)}…`;
+            const removedName =
+              member.displayName ||
+              `${member.npub.slice(0, 12)}…`;
 
-await saveLocalGroupSystemMessage({
-  groupId: group.id,
-  text: `${removedName} was removed from the group`,
-  systemType: 'remove',
-  actorNpub: member.npub,
-  actorName: removedName,
-});
+            await saveLocalGroupSystemMessage({
+              groupId: group.id,
+              text: `${removedName} was removed from the group`,
+              systemType: 'remove',
+              actorNpub: member.npub,
+              actorName: removedName,
+            });
 
-if (nsec) {
-  publishGroupMessage({
-    groupId: group.id,
-    clientMessageId: `system_remove_${group.id}_${member.npub}_${Date.now()}`,
-    text: `${removedName} was removed from the group`,
-    kind: 'system',
-    systemType: 'remove',
-    senderNpub: npub,
-    senderName: myDisplayName,
-    nsec,
-    relayUrl: group.relayUrl,
-  }).then(result => {
-    if (!result.success) {
-      console.warn('[Group Members] publish remove system message failed:', result.error);
-    }
-  }).catch(error => {
-    console.warn('[Group Members] publish remove system message error:', error);
-  });
-}
+            if (nsec) {
+              publishGroupMessage({
+                groupId: group.id,
+                clientMessageId: `system_remove_${group.id}_${member.npub}_${Date.now()}`,
+                text: `${removedName} was removed from the group`,
+                kind: 'system',
+                systemType: 'remove',
+                senderNpub: npub,
+                senderName: myDisplayName,
+                nsec,
+                relayUrl: group.relayUrl,
+              }).then(result => {
+                if (!result.success) {
+                  console.warn('[Group Members] publish remove system message failed:', result.error);
+                }
+              }).catch(error => {
+                console.warn('[Group Members] publish remove system message error:', error);
+              });
+            }
 
-sendRemoteGroupNotification({
-  groupId: group.id,
-  groupName: group.name,
-  relayUrl: group.relayUrl,
-  senderNpub: npub,
-  senderName: myDisplayName,
-  body: `removed ${removedName} from the group`,
-}).catch(error => {
-  console.warn('[Group Members] remote remove notification failed:', error);
-});
+            sendRemoteGroupNotification({
+              groupId: group.id,
+              groupName: group.name,
+              relayUrl: group.relayUrl,
+              senderNpub: npub,
+              senderName: myDisplayName,
+              body: `removed ${removedName} from the group`,
+            }).catch(error => {
+              console.warn('[Group Members] remote remove notification failed:', error);
+            });
 
-await load();
+            await load();
           },
         },
       ]
@@ -1127,12 +1129,12 @@ await load();
   };
 
   if (!group) return (
-  <SafeAreaView style={s.safe}>
-    <View style={s.loading}>
-      <Text style={s.loadingText}>Loading…</Text>
-    </View>
-  </SafeAreaView>
-);
+    <SafeAreaView style={s.safe}>
+      <View style={s.loading}>
+        <Text style={s.loadingText}>Loading…</Text>
+      </View>
+    </SafeAreaView>
+  );
 
 const deepLink = `https://beginningend.com/join/${group.inviteCode}`;
 
