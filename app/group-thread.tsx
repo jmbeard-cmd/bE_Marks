@@ -62,8 +62,8 @@ import {
   subscribeToGroupPollVotes,
 } from '../src/utils/nostr';
 import {
+  notifyGroupEvent,
   sendLocalGroupNotification,
-  sendRemoteGroupNotification,
 } from '../src/utils/push-notifications';
 import { uploadToR2 } from '../src/utils/r2';
 import { useIdentity } from './_layout';
@@ -404,36 +404,44 @@ export default function GroupThreadScreen() {
   }, []);
 
   const getRemotePushPreviewText = useCallback((message: {
-  text?: string;
-  media?: GroupMessageMedia[];
-  mediaType?: GroupMediaType;
-  poll?: any;
-}): string => {
-  const text = message.text?.trim();
+    text?: string;
+    media?: GroupMessageMedia[];
+    mediaType?: GroupMediaType;
+    poll?: any;
+  }): string => {
+    const text = message.text?.trim();
 
-  if (text) return text;
+    if (text) return text;
 
-  if (message.poll?.question) {
-    return `Poll: ${message.poll.question}`;
-  }
+    if (message.poll?.question) {
+      return `Poll: ${message.poll.question}`;
+    }
 
-  const mediaItems = Array.isArray(message.media) ? message.media : [];
+    const mediaItems = Array.isArray(message.media) ? message.media : [];
 
-  if (mediaItems.length > 1) {
-    return `${mediaItems.length} attachments`;
-  }
+    if (mediaItems.length > 1) {
+      return `${mediaItems.length} attachments`;
+    }
 
-  const firstMedia = mediaItems[0];
+    const firstMedia = mediaItems[0];
 
-  if (firstMedia?.type === 'video') return 'Video';
-  if (firstMedia?.type === 'file') return firstMedia.fileName || 'File';
-  if (firstMedia?.type === 'image') return 'Photo';
+    if (firstMedia?.type === 'video') return 'Video';
+    if (firstMedia?.type === 'file') return firstMedia.fileName || 'File';
+    if (firstMedia?.type === 'image') return 'Photo';
 
-  if (message.mediaType === 'video') return 'Video';
-  if (message.mediaType === 'file') return 'File';
+    if (message.mediaType === 'video') return 'Video';
+    if (message.mediaType === 'file') return 'File';
 
-  return 'New group message';
-}, []);
+    return 'New group message';
+  }, []);
+
+  const getGroupNotificationTypeForMedia = useCallback((mediaItems: GroupMessageMedia[]) => {
+    if (mediaItems.some(item => item.type === 'file')) {
+      return 'chat_file' as const;
+    }
+
+    return 'chat_media' as const;
+  }, []);
 
   const getCopyTextForMessage = useCallback((message: GroupMessage | PendingUploadMessage): string => {
     if ((message as any).isDeleted) return 'Message deleted';
@@ -799,6 +807,15 @@ export default function GroupThreadScreen() {
                 poll: msg.poll,
               }),
               eventId: msg.id,
+              groupEventType: msg.poll
+                ? 'poll_created'
+                : Array.isArray(msg.media) && msg.media.some(item => item.type === 'file')
+                  ? 'chat_file'
+                  : Array.isArray(msg.media) && msg.media.length > 0
+                    ? 'chat_media'
+                    : 'chat_message',
+              routeTarget: 'group-thread',
+              pollId: msg.poll?.id,
             });
           }
 
@@ -1065,16 +1082,18 @@ export default function GroupThreadScreen() {
             return;
           }
 
-          sendRemoteGroupNotification({
+          notifyGroupEvent({
             groupId,
             groupName,
             relayUrl,
-            senderNpub: npub,
-            senderName: myDisplayName,
-            body: text,
+            actorNpub: npub,
+            actorName: myDisplayName,
+            eventType: 'chat_message',
+            preview: text,
             eventId: result.eventId,
+            routeTarget: 'group-thread',
           }).catch(error => {
-            console.warn('[Groups] remote group push failed:', error);
+            console.warn('[Groups] remote group chat notification failed:', error);
           });
         }).catch(error => {
           console.warn('[Groups] publishGroupMessage error:', error);
@@ -1300,19 +1319,21 @@ export default function GroupThreadScreen() {
             return;
           }
 
-          sendRemoteGroupNotification({
+          notifyGroupEvent({
             groupId,
             groupName,
             relayUrl,
-            senderNpub: npub,
-            senderName: myDisplayName,
-            body: getRemotePushPreviewText({
+            actorNpub: npub,
+            actorName: myDisplayName,
+            eventType: getGroupNotificationTypeForMedia(uploadedMedia),
+            preview: getRemotePushPreviewText({
               media: uploadedMedia,
               mediaType: primaryMedia.type,
             }),
             eventId: result.eventId,
+            routeTarget: 'group-thread',
           }).catch(error => {
-            console.warn('[Groups] remote group attachment push failed:', error);
+            console.warn('[Groups] remote group attachment notification failed:', error);
           });
         }).catch(error => {
           console.warn('[Groups] publishGroupMessage attachments error:', error);
@@ -1540,7 +1561,28 @@ export default function GroupThreadScreen() {
         }).then(result => {
           if (!result.success) {
             console.warn('[Groups] publishGroupMessage poll failed:', result.error);
+            return;
           }
+
+          if (!npub) {
+            console.log('[Groups] remote group poll notification skipped; missing sender npub');
+            return;
+          }
+
+          notifyGroupEvent({
+            groupId,
+            groupName,
+            relayUrl,
+            actorNpub: npub,
+            actorName: myDisplayName,
+            eventType: 'poll_created',
+            title: localPollMessage.poll?.question,
+            eventId: result.eventId,
+            pollId: localPollMessage.poll?.id,
+            routeTarget: 'group-thread',
+          }).catch(error => {
+            console.warn('[Groups] remote group poll notification failed:', error);
+          });
         }).catch(error => {
           console.warn('[Groups] publishGroupMessage poll error:', error);
         });
