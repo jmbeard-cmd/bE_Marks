@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { createContext, useContext, useEffect, useState } from 'react';
+import { AppState } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-get-random-values';
 import { Colors } from '../src/constants/theme';
@@ -83,6 +84,50 @@ export default function RootLayout() {
     removeNotificationHandler();
   };
 }, [ready, router]);
+
+useEffect(() => {
+  if (!ready || !npub) return;
+
+  let cancelled = false;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const registerPush = async (reason: string) => {
+    if (cancelled || !npub) return;
+
+    console.log('[LAYOUT] registering push notifications:', reason);
+
+    const token = await registerForPushNotifications(npub);
+
+    if (!token && !cancelled) {
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+      }
+
+      retryTimer = setTimeout(() => {
+        registerPush('retry');
+      }, 8000);
+    }
+  };
+
+  registerPush('identity-ready');
+
+  const appStateSub = AppState.addEventListener('change', state => {
+    if (state === 'active') {
+      registerPush('app-active');
+    }
+  });
+
+  return () => {
+    cancelled = true;
+
+    if (retryTimer) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
+
+    appStateSub.remove();
+  };
+}, [ready, npub]);
 
     useEffect(() => {
   AsyncStorage.getItem('be_theme_mode').then(saved => {
