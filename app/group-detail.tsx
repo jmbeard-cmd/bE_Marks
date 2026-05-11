@@ -101,6 +101,68 @@ type LocalGalleryItem = {
   source: 'highlight';
 };
 
+const GROUP_TYPE_ICONS: Record<string, string> = {
+  softball: '🥎',
+  baseball: '⚾',
+  basketball: '🏀',
+  football: '🏈',
+  volleyball: '🏐',
+  track: '🏃',
+  crosscountry: '🏃',
+  soccer: '⚽',
+  wrestling: '🤼',
+  golf: '⛳',
+  tennis: '🎾',
+  swimming: '🏊',
+  cheer: '📣',
+  band: '🎵',
+  choir: '🎶',
+  theater: '🎭',
+  nhs: '🎓',
+  class: '📚',
+  classroom: '📚',
+  booster: '⭐',
+  faculty: '🧑‍🏫',
+  staff: '🧑‍🏫',
+  teacher: '🧑‍🏫',
+  teachers: '🧑‍🏫',
+  default: '👥',
+};
+
+function normalizeGroupType(value?: string): string {
+  return (value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function getGroupIcon(group: BEGroup): string {
+  const customIcon = group.icon?.trim();
+
+  if (customIcon) {
+    return customIcon;
+  }
+
+  const directKey = normalizeGroupType(group.sport);
+
+  if (directKey && GROUP_TYPE_ICONS[directKey]) {
+    return GROUP_TYPE_ICONS[directKey];
+  }
+
+  const searchText = normalizeGroupType(`${group.name} ${group.description ?? ''}`);
+
+  if (searchText.includes('faculty') || searchText.includes('teacher') || searchText.includes('staff')) {
+    return GROUP_TYPE_ICONS.faculty;
+  }
+
+  if (searchText.includes('class')) {
+    return GROUP_TYPE_ICONS.class;
+  }
+
+  if (searchText.includes('booster')) {
+    return GROUP_TYPE_ICONS.booster;
+  }
+
+  return GROUP_TYPE_ICONS.default;
+}
+
 async function readLocalGalleryItems(): Promise<LocalGalleryItem[]> {
   try {
     const raw = await AsyncStorage.getItem(GROUP_LOCAL_GALLERY_KEY);
@@ -1148,7 +1210,13 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
           <Text style={s.backText}>← Back</Text>
         </TouchableOpacity>
         <View style={s.headerCenter}>
-          <Text style={s.headerTitle} numberOfLines={1}>{group.name}</Text>
+          <View style={s.groupTitleRow}>
+            <View style={s.groupHeaderIcon}>
+              <Text style={s.groupHeaderIconText}>{getGroupIcon(group)}</Text>
+            </View>
+
+            <Text style={s.headerTitle} numberOfLines={1}>{group.name}</Text>
+          </View>
 
           <TouchableOpacity
             onPress={() => setTab('members')}
@@ -2112,7 +2180,33 @@ visibilitySoon: {
   backBtn: { width: 58 },
   backText: { color: theme.gold, fontSize: 14, fontWeight: '700' },
   headerCenter: { flex: 1, alignItems: 'center', paddingHorizontal: 8 },
-  headerTitle: { color: theme.text, fontSize: 16, fontWeight: '800', letterSpacing: -0.2 },
+  groupTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    maxWidth: '100%',
+  },
+  groupHeaderIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: theme.surface,
+    borderWidth: 0.5,
+    borderColor: theme.gold + '33',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  groupHeaderIconText: {
+    fontSize: 16,
+  },
+  headerTitle: {
+    color: theme.text,
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+    flexShrink: 1,
+  },
   headerSub: { color: theme.textMuted, fontSize: 11, marginTop: 2, fontWeight: '600' },
   memberHeaderPill: {
     marginTop: 4,

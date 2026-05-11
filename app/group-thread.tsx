@@ -38,6 +38,7 @@ import {
 import {
   getGroupById,
   getGroupMembers,
+  type BEGroup,
 } from '../src/utils/group-storage';
 import {
   compressImageForUpload,
@@ -91,6 +92,69 @@ type VisibleGroupMessage = {
 
 const QUICK_REACTIONS = ['❤️', '👍', '😂', '🎉', '🔥', '😮'];
 
+const GROUP_TYPE_ICONS: Record<string, string> = {
+  softball: '🥎',
+  baseball: '⚾',
+  basketball: '🏀',
+  football: '🏈',
+  volleyball: '🏐',
+  track: '🏃',
+  crosscountry: '🏃',
+  soccer: '⚽',
+  wrestling: '🤼',
+  golf: '⛳',
+  tennis: '🎾',
+  swimming: '🏊',
+  cheer: '📣',
+  band: '🎵',
+  choir: '🎶',
+  theater: '🎭',
+  nhs: '🎓',
+  class: '📚',
+  classroom: '📚',
+  booster: '⭐',
+  faculty: '🧑‍🏫',
+  staff: '🧑‍🏫',
+  teacher: '🧑‍🏫',
+  teachers: '🧑‍🏫',
+  default: '👥',
+};
+
+function normalizeGroupType(value?: string): string {
+  return (value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function getGroupIcon(group: BEGroup): string {
+  const customIcon = group.icon?.trim();
+
+  if (customIcon) {
+    return customIcon;
+  }
+
+  const directKey = normalizeGroupType(group.sport);
+
+  if (directKey && GROUP_TYPE_ICONS[directKey]) {
+    return GROUP_TYPE_ICONS[directKey];
+  }
+
+  const searchText = normalizeGroupType(`${group.name} ${group.description ?? ''}`);
+
+  if (searchText.includes('faculty') || searchText.includes('teacher') || searchText.includes('staff')) {
+    return GROUP_TYPE_ICONS.faculty;
+  }
+
+  if (searchText.includes('class')) {
+    return GROUP_TYPE_ICONS.class;
+  }
+
+  if (searchText.includes('booster')) {
+    return GROUP_TYPE_ICONS.booster;
+  }
+
+  return GROUP_TYPE_ICONS.default;
+}
+
+
 const REACTION_PACKS = [
   {
     title: 'Popular',
@@ -120,6 +184,7 @@ export default function GroupThreadScreen() {
   const groupId = useMemo(() => params.id || '', [params.id]);
 
   const [groupName, setGroupName] = useState('Group');
+  const [groupIcon, setGroupIcon] = useState('👥');
   const [relayUrl, setRelayUrl] = useState('wss://relay.beginningend.com');
   const [draft, setDraft] = useState('');
     const [inputHeight, setInputHeight] = useState(40);
@@ -499,6 +564,7 @@ const [pollDetailsMessage, setPollDetailsMessage] = useState<GroupMessage | Pend
 
     if (group) {
       setGroupName(group.name);
+      setGroupIcon(getGroupIcon(group));
       setRelayUrl(group.relayUrl);
     }
 
@@ -1806,9 +1872,16 @@ const renderMessage = useCallback(
             </TouchableOpacity>
 
             <View style={s.headerCenter}>
-              <Text style={s.headerTitle} numberOfLines={1}>
-                {groupName}
-              </Text>
+              <View style={s.groupTitleRow}>
+                <View style={s.groupHeaderIcon}>
+                  <Text style={s.groupHeaderIconText}>{groupIcon}</Text>
+                </View>
+
+                <Text style={s.headerTitle} numberOfLines={1}>
+                  {groupName}
+                </Text>
+              </View>
+
               <Text style={s.headerSub}>Group chat</Text>
             </View>
 
@@ -2374,6 +2447,31 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
   },
+    headerCenter: {
+    flex: 1,
+    alignItems: 'center',
+    paddingHorizontal: 8,
+  },
+  groupTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    maxWidth: '100%',
+  },
+  groupHeaderIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: theme.surface,
+    borderWidth: 0.5,
+    borderColor: theme.gold + '33',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  groupHeaderIconText: {
+    fontSize: 16,
+  },
     uploadBanner: {
   paddingVertical: 6,
   paddingHorizontal: 12,
@@ -2407,7 +2505,6 @@ uploadText: {
 },
   backBtn: { width: 60 },
   backText: { color: theme.gold, fontSize: 14, fontWeight: '600' },
-  headerCenter: { flex: 1, alignItems: 'center' },
   headerTitle: { color: theme.text, fontSize: 15, fontWeight: '700', maxWidth: 180 },
   headerSub: { color: theme.textMuted, fontSize: 10, marginTop: 2 },
   infoBtn: { minWidth: 60, alignItems: 'flex-end' },
