@@ -2120,54 +2120,54 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
   loadingText: { color: theme.textMuted, fontSize: 15 },
 
   visibilityBox: {
-  gap: 8,
-  marginTop: 4,
-},
-visibilityOption: {
-  flexDirection: 'row',
-  alignItems: 'center',
-  gap: 10,
-  padding: 12,
-  borderRadius: 12,
-  borderWidth: 0.5,
-  borderColor: theme.border,
-  backgroundColor: theme.surface,
-},
-visibilityOptionActive: {
-  borderColor: theme.gold,
-  backgroundColor: theme.raised,
-},
-visibilityOptionDisabled: {
-  opacity: 0.55,
-},
-visibilityIcon: {
-  fontSize: 20,
-},
-visibilityTitle: {
-  color: theme.text,
-  fontSize: 14,
-  fontWeight: '700',
-},
-visibilityTitleDim: {
-  color: theme.textMuted,
-  fontSize: 14,
-  fontWeight: '700',
-},
-visibilityHint: {
-  color: theme.textMuted,
-  fontSize: 11,
-  marginTop: 2,
-},
-visibilityStatus: {
-  color: theme.gold,
-  fontSize: 11,
-  fontWeight: '800',
-},
-visibilitySoon: {
-  color: theme.textMuted,
-  fontSize: 11,
-  fontWeight: '700',
-},
+    gap: 8,
+    marginTop: 4,
+  },
+  visibilityOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    backgroundColor: theme.surface,
+  },
+  visibilityOptionActive: {
+    borderColor: theme.gold,
+    backgroundColor: theme.raised,
+  },
+  visibilityOptionDisabled: {
+    opacity: 0.55,
+  },
+  visibilityIcon: {
+    fontSize: 20,
+  },
+  visibilityTitle: {
+    color: theme.text,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  visibilityTitleDim: {
+    color: theme.textMuted,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  visibilityHint: {
+    color: theme.textMuted,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  visibilityStatus: {
+    color: theme.gold,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  visibilitySoon: {
+    color: theme.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+  },
 
   header: {
     flexDirection: 'row',
@@ -2230,13 +2230,13 @@ visibilitySoon: {
     borderRadius: 999,
     backgroundColor: theme.gold,
   },
-inviteBtnText: {
-  color: theme.bg,
-  fontWeight: '700',
-  fontSize: 15,
-  letterSpacing: 0.3,
-},
-    stickyCard: {
+  inviteBtnText: {
+    color: theme.bg,
+    fontWeight: '700',
+    fontSize: 15,
+    letterSpacing: 0.3,
+  },
+  stickyCard: {
     backgroundColor: theme.surface,
     borderWidth: 0.5,
     borderColor: theme.border,
@@ -2245,115 +2245,101 @@ inviteBtnText: {
     marginBottom: 13,
   },
   highlightCollageWrap: {
-  marginTop: 12,
-  borderRadius: 12,
-  overflow: 'hidden',
-  borderWidth: 0.5,
-  borderColor: '#2a2a2a',
-  backgroundColor: '#000',
-  flexDirection: 'row',
-  flexWrap: 'wrap',
-  height: 220,
-},
-
-highlightCollageTileOne: {
-  width: '100%',
-  height: '100%',
-},
-
-highlightCollageTileTwo: {
-  width: '50%',
-  height: '100%',
-},
-
-highlightCollageTileThreeLarge: {
-  width: '60%',
-  height: '100%',
-},
-
-highlightCollageTileThreeSmall: {
-  width: '40%',
-  height: '50%',
-},
-
-highlightCollageTileFour: {
-  width: '50%',
-  height: '50%',
-},
-
-highlightCollageImage: {
-  width: '100%',
-  height: '100%',
-  backgroundColor: '#000',
-},
-
-highlightCollageVideoOverlay: {
-  position: 'absolute',
-  top: 0,
-  left: 0,
-  right: 0,
-  bottom: 0,
-  alignItems: 'center',
-  justifyContent: 'center',
-  backgroundColor: 'rgba(0,0,0,0.22)',
-},
-
-highlightCollagePlay: {
-  color: '#c9973a',
-  fontSize: 26,
-  fontWeight: '900',
-},
-
-highlightMoreOverlay: {
-  position: 'absolute',
-  top: 0,
-  left: 0,
-  right: 0,
-  bottom: 0,
-  alignItems: 'center',
-  justifyContent: 'center',
-  backgroundColor: 'rgba(0,0,0,0.55)',
-},
-
-highlightMoreText: {
-  color: '#fff',
-  fontSize: 24,
-  fontWeight: '900',
-},
+    marginTop: 12,
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: 0.5,
+    borderColor: '#2a2a2a',
+    backgroundColor: '#000',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    height: 220,
+  },
+  highlightCollageTileOne: {
+    width: '100%',
+    height: '100%',
+  },
+  highlightCollageTileTwo: {
+    width: '50%',
+    height: '100%',
+  },
+  highlightCollageTileThreeLarge: {
+    width: '60%',
+    height: '100%',
+  },
+  highlightCollageTileThreeSmall: {
+    width: '40%',
+    height: '50%',
+  },
+  highlightCollageTileFour: {
+    width: '50%',
+    height: '50%',
+  },
+  highlightCollageImage: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#000',
+  },
+  highlightCollageVideoOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.22)',
+  },
+  highlightCollagePlay: {
+    color: '#c9973a',
+    fontSize: 26,
+    fontWeight: '900',
+  },
+  highlightMoreOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  highlightMoreText: {
+    color: '#fff',
+    fontSize: 24,
+    fontWeight: '900',
+  },
   highlightMediaWrap: {
-  marginTop: 12,
-  borderRadius: 12,
-  overflow: 'hidden',
-  borderWidth: 0.5,
-  borderColor: '#2a2a2a',
-},
-
-highlightMedia: {
-  width: '100%',
-  height: 180,
-  backgroundColor: '#000',
-},
-
-highlightVideoWrap: {
-  position: 'relative',
-},
-
-highlightVideoOverlay: {
-  position: 'absolute',
-  top: 0,
-  left: 0,
-  right: 0,
-  bottom: 0,
-  alignItems: 'center',
-  justifyContent: 'center',
-  backgroundColor: 'rgba(0,0,0,0.25)',
-},
-
-highlightVideoPlay: {
-  color: '#c9973a',
-  fontSize: 28,
-  fontWeight: '800',
-},
+    marginTop: 12,
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: 0.5,
+    borderColor: '#2a2a2a',
+  },
+  highlightMedia: {
+    width: '100%',
+    height: 180,
+    backgroundColor: '#000',
+  },
+  highlightVideoWrap: {
+    position: 'relative',
+  },
+  highlightVideoOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.25)',
+  },
+  highlightVideoPlay: {
+    color: '#c9973a',
+    fontSize: 28,
+    fontWeight: '800',
+  },
   stickyTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -2477,7 +2463,7 @@ highlightVideoPlay: {
     borderColor: theme.border,
     backgroundColor: theme.bg,
   },
-   groupRelayOptionActive: {
+  groupRelayOptionActive: {
     borderColor: theme.gold,
     backgroundColor: theme.raised,
   },
@@ -2524,7 +2510,7 @@ highlightVideoPlay: {
   },
   inviteMeta: { fontSize: 11, color: '#444', marginTop: 10, lineHeight: 16 },
 
-    // Tabs
+  // Tabs
   tabRow: {
     flexDirection: 'row',
     borderBottomWidth: 0.5,
@@ -2847,7 +2833,7 @@ highlightVideoPlay: {
     fontSize: 14,
     fontWeight: '900',
   },
-    // Admin bar
+  // Admin bar
   adminBar: {
     position: 'absolute',
     bottom: 0,
@@ -2874,13 +2860,13 @@ highlightVideoPlay: {
     alignItems: 'center',
     justifyContent: 'center',
   },
-adminBtnText: {
-  color: theme.textMuted,
-  fontSize: 13,
-  fontWeight: '800',
-  textAlign: 'center',
-  lineHeight: 16,
-},
+  adminBtnText: {
+    color: theme.textMuted,
+    fontSize: 13,
+    fontWeight: '800',
+    textAlign: 'center',
+    lineHeight: 16,
+  },
   adminBtnGold: {
     flex: 1.5,
     minHeight: 48,
@@ -2890,195 +2876,207 @@ adminBtnText: {
     alignItems: 'center',
     justifyContent: 'center',
   },
-adminBtnGoldText: {
-  color: theme.bg,
-  fontWeight: '700',
-  fontSize: 15,
-  letterSpacing: 0.3,
-},
-modalScrollContent: {
-  flexGrow: 1,
-  justifyContent: 'flex-end',
-},
-modalOverlay: {
-  flex: 1,
-  backgroundColor: 'rgba(0,0,0,0.4)',
-  justifyContent: 'flex-end',
-},
-modalCard: {
-  backgroundColor: theme.surface,
-  borderTopLeftRadius: 18,
-  borderTopRightRadius: 18,
-  borderTopWidth: 0.5,
-  borderTopColor: theme.border,
-  padding: 20,
-},
-modalTitle: {
-  color: theme.text,
-  fontSize: 18,
-  fontWeight: '700',
-  marginBottom: 16,
-},
-highlightUploadStatus: {
-  color: '#c9973a',
-  fontSize: 12,
-  fontWeight: '700',
-  marginTop: 12,
-  textAlign: 'center',
-},
-confirmBtnDisabled: {
-  opacity: 0.65,
-},
-inputLabel: {
-  fontSize: 11,
-  color: theme.textMuted,
-  fontWeight: '600',
-  letterSpacing: 0.8,
-  marginBottom: 6,
-  marginTop: 10,
-},
-input: {
-  borderWidth: 0.5,
-  borderColor: theme.border,
-  borderRadius: 10,
-  padding: 12,
-  fontSize: 15,
-  color: theme.text,
-  backgroundColor: theme.surface,
-},
-inputMulti: {
-  minHeight: 120,
-},
-modalActions: {
-  flexDirection: 'row',
-  gap: 10,
-  marginTop: 16,
-},
-cancelBtn: {
-  flex: 1,
-  padding: 12,
-  borderRadius: 10,
-  borderWidth: 0.5,
-  borderColor: theme.border,
-  backgroundColor: theme.surface,
-  alignItems: 'center',
-},
-cancelText: {
-  color: theme.textMuted,
-  fontSize: 14,
-  fontWeight: '700',
-},
-confirmBtn: {
-  flex: 2,
-  padding: 12,
-  borderRadius: 10,
-  backgroundColor: theme.gold,  
-  alignItems: 'center',
-},
-confirmText: {
-  color: theme.bg,
-  fontWeight: '700',
-  fontSize: 14,
-},
-  
-highlightAddMediaBtn: {
-  borderWidth: 0.5,
-  borderColor: theme.border,
-  borderRadius: 12,
-  padding: 14,
-  backgroundColor: theme.surface,
-  alignItems: 'center',
-},
-highlightAddMediaText: {
-  color: theme.gold,
-  fontSize: 14,
-  fontWeight: '800',
-},
-highlightAddMediaHint: {
-  color: theme.textMuted,
-  fontSize: 11,
-  marginTop: 4,
-},
-highlightRemoveMediaBtn: {
-  padding: 11,
-  alignItems: 'center',
-  backgroundColor: theme.raised,
-  borderWidth: 0.5,
-  borderColor: theme.border,
-  borderRadius: 10,
-},
-highlightRemoveMediaText: {
-  color: theme.textMuted,
-  fontSize: 13,
-  fontWeight: '800',
-},
-highlightAttachmentRow: {
-  flexDirection: 'row',
-  gap: 10,
-  marginTop: 10,
-},
-highlightAttachmentHalf: {
-  flex: 1,
-},
-highlightFileList: {
-  gap: 8,
-  marginTop: 10,
-  marginBottom: 10,
-},
-highlightFileRow: {
-  flexDirection: 'row',
-  alignItems: 'center',
-  gap: 10,
-  padding: 11,
-  borderRadius: 10,
-  borderWidth: 0.5,
-  borderColor: theme.border,
-  backgroundColor: theme.raised,
-},
-highlightFileIcon: {
-  fontSize: 16,
-},
-highlightFileName: {
-  flex: 1,
-  color: theme.text,
-  fontSize: 13,
-  fontWeight: '700',
-},
-highlightMediaPreviewWrap: {
-  borderRadius: 14,
-  overflow: 'hidden',
-  borderWidth: 0.5,
-  borderColor: '#2a2a2a',
-  backgroundColor: '#181818',
-},
-highlightMediaPreview: {
-  width: '100%',
-  height: 180,
-  backgroundColor: '#000',
-},
-highlightVideoBadge: {
-  position: 'absolute',
-  top: 10,
-  left: 10,
-  paddingHorizontal: 10,
-  paddingVertical: 6,
-  borderRadius: 999,
-  backgroundColor: 'rgba(0,0,0,0.7)',
-},
-highlightVideoBadgeText: {
-  color: '#c9973a',
-  fontSize: 12,
-  fontWeight: '800',
-},
- 
-// FAB
-  fab: {
-    position: 'absolute', bottom: 24, right: 24,
-    width: 56, height: 56, borderRadius: 28,
-    backgroundColor: theme.gold, alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#c9973a', shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4, shadowRadius: 8, elevation: 8,
+  adminBtnGoldText: {
+    color: theme.bg,
+    fontWeight: '700',
+    fontSize: 15,
+    letterSpacing: 0.3,
   },
- 
-  fabIcon: { fontSize: 30, color: theme.bg, fontWeight: '300', lineHeight: 34 },
+  modalScrollContent: {
+    flexGrow: 1,
+    justifyContent: 'flex-end',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
+  },
+  modalCard: {
+    backgroundColor: theme.surface,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    borderTopWidth: 0.5,
+    borderTopColor: theme.border,
+    padding: 20,
+  },
+  modalTitle: {
+    color: theme.text,
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 16,
+  },
+  highlightUploadStatus: {
+    color: '#c9973a',
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 12,
+    textAlign: 'center',
+  },
+  confirmBtnDisabled: {
+    opacity: 0.65,
+  },
+  inputLabel: {
+    fontSize: 11,
+    color: theme.textMuted,
+    fontWeight: '600',
+    letterSpacing: 0.8,
+    marginBottom: 6,
+    marginTop: 10,
+  },
+  input: {
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    borderRadius: 10,
+    padding: 12,
+    fontSize: 15,
+    color: theme.text,
+    backgroundColor: theme.surface,
+  },
+  inputMulti: {
+    minHeight: 120,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 16,
+  },
+  cancelBtn: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    backgroundColor: theme.surface,
+    alignItems: 'center',
+  },
+  cancelText: {
+    color: theme.textMuted,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  confirmBtn: {
+    flex: 2,
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: theme.gold,
+    alignItems: 'center',
+  },
+  confirmText: {
+    color: theme.bg,
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  highlightAddMediaBtn: {
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    borderRadius: 12,
+    padding: 14,
+    backgroundColor: theme.surface,
+    alignItems: 'center',
+  },
+  highlightAddMediaText: {
+    color: theme.gold,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  highlightAddMediaHint: {
+    color: theme.textMuted,
+    fontSize: 11,
+    marginTop: 4,
+  },
+  highlightRemoveMediaBtn: {
+    padding: 11,
+    alignItems: 'center',
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    borderRadius: 10,
+  },
+  highlightRemoveMediaText: {
+    color: theme.textMuted,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  highlightAttachmentRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 10,
+  },
+  highlightAttachmentHalf: {
+    flex: 1,
+  },
+  highlightFileList: {
+    gap: 8,
+    marginTop: 10,
+    marginBottom: 10,
+  },
+  highlightFileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 11,
+    borderRadius: 10,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    backgroundColor: theme.raised,
+  },
+  highlightFileIcon: {
+    fontSize: 16,
+  },
+  highlightFileName: {
+    flex: 1,
+    color: theme.text,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  highlightMediaPreviewWrap: {
+    borderRadius: 14,
+    overflow: 'hidden',
+    borderWidth: 0.5,
+    borderColor: '#2a2a2a',
+    backgroundColor: '#181818',
+  },
+  highlightMediaPreview: {
+    width: '100%',
+    height: 180,
+    backgroundColor: '#000',
+  },
+  highlightVideoBadge: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+  },
+  highlightVideoBadgeText: {
+    color: '#c9973a',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+
+  // FAB
+  fab: {
+    position: 'absolute',
+    bottom: 24,
+    right: 24,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: theme.gold,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#c9973a',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  fabIcon: {
+    fontSize: 30,
+    color: theme.bg,
+    fontWeight: '300',
+    lineHeight: 34,
+  },
 });
