@@ -1,19 +1,19 @@
+import * as ScreenOrientation from 'expo-screen-orientation';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Dimensions,
   Image,
   Modal,
   PanResponder,
   StyleSheet,
   Text,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import ImageZoom from 'react-native-image-pan-zoom';
 import { setAppActivity } from '../src/utils/app-activity';
 
-const { width, height } = Dimensions.get('window');
 const ZoomableImage = ImageZoom as any;
 
 export type ViewerImage = {
@@ -26,12 +26,16 @@ export type ViewerImage = {
 function ViewerVideo({
   uri,
   thumbnailUrl,
+  width,
+  height,
   goNext,
   goPrev,
   onClose,
 }: {
   uri: string;
   thumbnailUrl?: string;
+  width: number;
+  height: number;
   goNext: () => void;
   goPrev: () => void;
   onClose: () => void;
@@ -47,50 +51,50 @@ function ViewerVideo({
     p.play();
   });
 
-const panResponder = useRef(
-  PanResponder.create({
-    onStartShouldSetPanResponder: () => true,
-    onMoveShouldSetPanResponder: () => true,
-    onPanResponderRelease: (_, gesture) => {
-      const absX = Math.abs(gesture.dx);
-      const absY = Math.abs(gesture.dy);
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderRelease: (_, gesture) => {
+        const absX = Math.abs(gesture.dx);
+        const absY = Math.abs(gesture.dy);
 
-      if (gesture.dy > 70 && absY > absX) {
-        onClose();
-        return;
-      }
+        if (gesture.dy > 70 && absY > absX) {
+          onClose();
+          return;
+        }
 
-      if (gesture.dx < -55 && absX > absY) {
-        goNext();
-        return;
-      }
+        if (gesture.dx < -55 && absX > absY) {
+          goNext();
+          return;
+        }
 
-      if (gesture.dx > 55 && absX > absY) {
-        goPrev();
-      }
-    },
-  })
-).current;
+        if (gesture.dx > 55 && absX > absY) {
+          goPrev();
+        }
+      },
+    })
+  ).current;
 
   return (
-    <View style={s.videoScreen}>
+    <View style={[s.videoScreen, { width, height }]}>
       {!!thumbnailUrl && !ready && (
         <Image
           source={{ uri: thumbnailUrl }}
-          style={s.videoThumbnail}
+          style={[s.videoThumbnail, { width, height }]}
           resizeMode="contain"
         />
       )}
 
       {!thumbnailUrl && !ready && (
-        <View style={s.videoFallback}>
+        <View style={[s.videoFallback, { width, height }]}>
           <Text style={s.videoFallbackText}>Loading video...</Text>
         </View>
       )}
 
       <VideoView
         player={player}
-        style={[s.video, !ready && { opacity: 0 }]}
+        style={[s.video, { width, height }, !ready && { opacity: 0 }]}
         contentFit="contain"
         nativeControls={false}
         onFirstFrameRender={() => setReady(true)}
@@ -110,6 +114,8 @@ export default function ImageViewerModal({
   selectedUri: string | null;
   onClose: () => void;
 }) {
+  const { width, height } = useWindowDimensions();
+
   const [activeIndex, setActiveIndex] = useState(0);
   const [zoomKey, setZoomKey] = useState(0);
   const [modalSeedUri, setModalSeedUri] = useState<string | null>(null);
@@ -130,6 +136,53 @@ export default function ImageViewerModal({
 
     return () => {
       setAppActivity('media-viewer', false);
+    };
+  }, [selectedUri]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function updateOrientationLock() {
+      try {
+        if (selectedUri) {
+          const supportsFlexibleViewer =
+            await ScreenOrientation.supportsOrientationLockAsync(
+              ScreenOrientation.OrientationLock.ALL
+            );
+
+          if (cancelled) return;
+
+          if (supportsFlexibleViewer) {
+            await ScreenOrientation.lockAsync(
+            ScreenOrientation.OrientationLock.ALL
+            );
+          } else {
+            await ScreenOrientation.unlockAsync();
+          }
+
+          return;
+        }
+
+        await ScreenOrientation.lockAsync(
+          ScreenOrientation.OrientationLock.PORTRAIT_UP
+        );
+      } catch (error) {
+        console.warn('[ImageViewerModal] Orientation lock failed:', error);
+      }
+    }
+
+    updateOrientationLock();
+
+    return () => {
+      cancelled = true;
+
+      if (selectedUri) {
+        ScreenOrientation.lockAsync(
+          ScreenOrientation.OrientationLock.PORTRAIT_UP
+        ).catch(error => {
+          console.warn('[ImageViewerModal] Portrait relock failed:', error);
+        });
+      }
     };
   }, [selectedUri]);
 
@@ -157,6 +210,10 @@ export default function ImageViewerModal({
     setZoomKey(k => k + 1);
     setModalSeedUri(selectedUri);
   }, [selectedUri, images]);
+
+  useEffect(() => {
+    setZoomKey(k => k + 1);
+  }, [width, height]);
 
   function unlockSwipeSoon() {
     setTimeout(() => {
@@ -219,6 +276,13 @@ export default function ImageViewerModal({
       transparent
       animationType="fade"
       onRequestClose={handleClose}
+      supportedOrientations={[
+        'portrait',
+        'portrait-upside-down',
+        'landscape',
+        'landscape-left',
+        'landscape-right',
+      ]}
     >
       <View style={s.overlay}>
         <TouchableOpacity style={s.closeBtn} onPress={handleClose}>
@@ -238,13 +302,15 @@ export default function ImageViewerModal({
             key={activeMedia.uri}
             uri={activeMedia.uri}
             thumbnailUrl={activeMedia.thumbnailUrl}
+            width={width}
+            height={height}
             goNext={goNext}
             goPrev={goPrev}
             onClose={handleClose}
           />
         ) : contentReady && activeMedia ? (
           <ZoomableImage
-            key={`${activeMedia.id}-${zoomKey}`}
+            key={`${activeMedia.id}-${zoomKey}-${width}-${height}`}
             cropWidth={width}
             cropHeight={height}
             imageWidth={width}
@@ -270,7 +336,7 @@ export default function ImageViewerModal({
           >
             <Image
               source={{ uri: activeMedia.uri }}
-              style={s.image}
+              style={{ width, height }}
               resizeMode="contain"
             />
           </ZoomableImage>
@@ -317,31 +383,21 @@ const s = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
   },
-  image: {
-    width,
-    height,
-  },
   videoGestureLayer: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 25,
   },
   videoScreen: {
-    width,
-    height,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#000',
   },
   videoThumbnail: {
     position: 'absolute',
-    width,
-    height,
     zIndex: 1,
   },
   videoFallback: {
     position: 'absolute',
-    width,
-    height,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -350,22 +406,6 @@ const s = StyleSheet.create({
     fontSize: 13,
   },
   video: {
-    width,
-    height,
     zIndex: 2,
-  },
-  videoLeftTapZone: {
-    position: 'absolute',
-    left: 0,
-    top: 120,
-    bottom: 120,
-    width: 70,
-  },
-  videoRightTapZone: {
-    position: 'absolute',
-    right: 0,
-    top: 120,
-    bottom: 120,
-    width: 70,
   },
 });
