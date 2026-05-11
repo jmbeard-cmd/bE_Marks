@@ -32,8 +32,8 @@ import {
   publishGroupMessage,
 } from '../../src/utils/nostr';
 import {
+  notifyGroupEvent,
   registerGroupMemberForPush,
-  sendRemoteGroupNotification,
 } from '../../src/utils/push-notifications';
 import { useIdentity } from '../_layout';
 
@@ -254,13 +254,17 @@ export default function GroupsScreen() {
           console.warn('[Groups] push member registration failed after join:', error);
         });
 
-        sendRemoteGroupNotification({
+        notifyGroupEvent({
           groupId: result.group.id,
           groupName: result.group.name,
           relayUrl: result.group.relayUrl,
-          senderNpub: npub,
-          senderName: myDisplayName,
-          body: 'joined the group',
+          actorNpub: npub,
+          actorName: myDisplayName,
+          eventType: 'member_joined',
+          memberNpub: npub,
+          memberName: myDisplayName,
+          routeTarget: 'group-detail',
+          groupTab: 'members',
         }).catch(error => {
           console.warn('[Groups] remote join notification failed:', error);
         });
