@@ -12,6 +12,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getGroupById } from './group-storage';
 import {
   fetchGroupCalendarDeletes,
   fetchGroupCalendarEvents,
@@ -20,7 +21,7 @@ import {
   publishGroupCalendarEvent,
   publishGroupRSVP,
 } from './nostr';
-
+import { notifyGroupEvent } from './push-notifications';
 const GROUP_CALENDAR_KEY = 'be_group_calendar_v1';
 const GROUP_RSVP_KEY = 'be_group_rsvps_v1';
 const GROUP_CALENDAR_DELETED_KEY = 'be_group_calendar_deleted_v1';
@@ -88,6 +89,38 @@ async function writeJson<T>(key: string, value: T): Promise<void> {
   } catch (error) {
     console.warn('[Group Calendar] write failed:', error);
   }
+}
+
+async function notifyCalendarEventChange(
+  event: GroupCalendarEvent,
+  eventType: 'calendar_created' | 'calendar_updated' | 'calendar_deleted'
+): Promise<void> {
+  if (!event.authorNpub || !event.relayUrl) {
+    console.log('[Group Calendar] notification skipped; missing authorNpub/relayUrl');
+    return;
+  }
+
+  const group = await getGroupById(event.groupId);
+
+  if (!group) {
+    console.log('[Group Calendar] notification skipped; missing group');
+    return;
+  }
+
+  notifyGroupEvent({
+    groupId: event.groupId,
+    groupName: group.name,
+    relayUrl: event.relayUrl,
+    actorNpub: event.authorNpub,
+    actorName: event.authorName,
+    eventType,
+    title: event.title,
+    calendarEventId: event.id,
+    routeTarget: 'group-detail',
+    groupTab: 'calendar',
+  }).catch(error => {
+    console.warn('[Group Calendar] notification failed:', error);
+  });
 }
 
 // ─── Calendar Events ──────────────────────────────────────────────────────────
@@ -179,6 +212,8 @@ export async function createCalendarEvent(input: {
     }
   }
 
+    await notifyCalendarEventChange(event, 'calendar_created');
+
   return event;
 }
 
@@ -215,6 +250,10 @@ export async function deleteCalendarEvent(eventId: string): Promise<void> {
       );
     }
   }
+
+  if (event) {
+    await notifyCalendarEventChange(event, 'calendar_deleted');
+  }
 }
 
 export async function updateCalendarEvent(
@@ -222,12 +261,25 @@ export async function updateCalendarEvent(
   updates: Partial<GroupCalendarEvent>
 ): Promise<void> {
   const all = await readJson<GroupCalendarEvent[]>(GROUP_CALENDAR_KEY, []);
-  const updated = all.map(e =>
-    e.id === eventId
-      ? { ...e, ...updates, updatedAt: Math.floor(Date.now() / 1000) }
-      : e
-  );
+  let updatedEvent: GroupCalendarEvent | null = null;
+
+  const updated = all.map(e => {
+    if (e.id !== eventId) return e;
+
+    updatedEvent = {
+      ...e,
+      ...updates,
+      updatedAt: Math.floor(Date.now() / 1000),
+    };
+
+    return updatedEvent;
+  });
+
   await writeJson(GROUP_CALENDAR_KEY, updated);
+
+  if (updatedEvent) {
+    await notifyCalendarEventChange(updatedEvent, 'calendar_updated');
+  }
 }
 
 // ─── RSVPs ────────────────────────────────────────────────────────────────────
