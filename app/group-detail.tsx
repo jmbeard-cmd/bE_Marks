@@ -1292,12 +1292,12 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
         ))}
       </View>
 
-    {/* Stickies tab */}
-{tab === 'stickies' && (
-  <ScrollView
-    contentContainerStyle={s.timelineContainer}
-    refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#c9973a" />}
-  >
+      {/* Stickies tab */}
+      {tab === 'stickies' && (
+        <ScrollView
+          contentContainerStyle={s.timelineContainer}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#c9973a" />}
+        >
     {isAdmin && (
       <View style={s.groupRelayCard}>
         <View style={s.groupRelayHeader}>
@@ -1414,9 +1414,9 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
       <View style={s.empty}>
         <Text style={s.emptyIcon}>📌</Text>
         <Text style={s.emptyText}>No highlights yet</Text>
-<Text style={s.emptyHint}>
-  Admins can add highlights, reminders, or important notes here.
-</Text>
+        <Text style={s.emptyHint}>
+          Admins can add highlights, reminders, or important notes here.
+        </Text>
       </View>
     ) : (
       stickies.map(sticky => (
@@ -1431,19 +1431,19 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
           </View>
 
           {sticky.body ? (
-  <Text style={s.stickyBody}>{sticky.body}</Text>
-) : null}
+            <Text style={s.stickyBody}>{sticky.body}</Text>
+          ) : null}
 
-{getStickyVisualMediaItems(sticky).length > 0 && (
-  <MediaCollage
-    media={getStickyVisualMediaItems(sticky)}
-    onPressMedia={(index) => openViewerForSticky(sticky, index)}
-  />
-)}
+          {getStickyVisualMediaItems(sticky).length > 0 && (
+            <MediaCollage
+              media={getStickyVisualMediaItems(sticky)}
+              onPressMedia={(index) => openViewerForSticky(sticky, index)}
+            />
+          )}
 
-{getStickyFileItems(sticky).length > 0 && (
-  <View style={s.stickyFileList}>
-    {getStickyFileItems(sticky).map((file, index) => (
+          {getStickyFileItems(sticky).length > 0 && (
+            <View style={s.stickyFileList}>
+              {getStickyFileItems(sticky).map((file, index) => (
       <TouchableOpacity
         key={`${sticky.id}_file_${index}`}
         style={s.stickyFileRow}
@@ -1466,20 +1466,20 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
 
         <Text style={s.stickyFileOpen}>Open</Text>
       </TouchableOpacity>
-    ))}
-  </View>
-)}
+              ))}
+            </View>
+          )}
 
-<Text style={s.stickyMeta}>
-  {formatStickyDate(sticky.createdAt)}
-</Text>
+          <Text style={s.stickyMeta}>
+            {formatStickyDate(sticky.createdAt)}
+          </Text>
         </View>
       ))
     )}
-  </ScrollView>
-)}
+        </ScrollView>
+      )}
 
-{/* Calendar tab */}
+      {/* Calendar tab */}
       {tab === 'calendar' && (
         <GroupCalendarTab
           group={group}
@@ -1506,14 +1506,14 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
             />
           }
           renderItem={({ item }) => {
-  const tileThumbnailUrl =
-    item.thumbnailUrl ||
-    item.thumbnailUri ||
-    item.videoThumbnailUrl ||
-    item.previewUrl;
+            const tileThumbnailUrl =
+              item.thumbnailUrl ||
+              item.thumbnailUri ||
+              item.videoThumbnailUrl ||
+              item.previewUrl;
 
-  return (
-            <View style={s.galleryTileWrap}>
+            return (
+              <View style={s.galleryTileWrap}>
               <TouchableOpacity
                 style={s.galleryTile}
                 onPress={() => openViewerForGalleryItem(item.mediaUrl)}
@@ -1521,20 +1521,20 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
               >
                 {item.mediaType === 'video' ? (
                   <View style={s.galleryVideoTile}>
-{tileThumbnailUrl ? (
-  <Image
-    source={{ uri: tileThumbnailUrl }}
-    style={s.galleryTileImage}
-    resizeMode="cover"
-    onError={(error) => {
-      console.warn('[Gallery] thumbnail image failed:', {
-        thumbnailUrl: tileThumbnailUrl,
-        mediaUrl: item.mediaUrl,
-        error: error.nativeEvent,
-      });
-    }}
-  />
-) : null}
+                    {tileThumbnailUrl ? (
+                      <Image
+                        source={{ uri: tileThumbnailUrl }}
+                        style={s.galleryTileImage}
+                        resizeMode="cover"
+                        onError={(error) => {
+                          console.warn('[Gallery] thumbnail image failed:', {
+                            thumbnailUrl: tileThumbnailUrl,
+                            mediaUrl: item.mediaUrl,
+                            error: error.nativeEvent,
+                          });
+                        }}
+                      />
+                    ) : null}
 
                     <View style={s.galleryVideoOverlay}>
                       <Text style={s.galleryVideoPlay}>▶</Text>
@@ -1548,10 +1548,10 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
                   />
                 )}
               </TouchableOpacity>
-            </View>
-    );
-  }}
-    ListEmptyComponent={
+              </View>
+            );
+          }}
+          ListEmptyComponent={
             <View style={s.empty}>
               <Text style={s.emptyIcon}>🖼️</Text>
               <Text style={s.emptyText}>No media yet</Text>
@@ -1660,10 +1660,11 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
       {isAdmin && group.status === 'active' && (
         <View style={s.adminBar}>
           <TouchableOpacity style={s.adminBtn} onPress={handleArchive}>
-  <Text style={s.adminBtnText} numberOfLines={1}>
-    📦 Archive
-  </Text>
-</TouchableOpacity>
+            <Text style={s.adminBtnText} numberOfLines={1}>
+              📦 Archive
+            </Text>
+          </TouchableOpacity>
+
           {isMember && (
             <TouchableOpacity
               style={s.adminBtnGold}
@@ -1675,13 +1676,13 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
         </View>
       )}
 
-<Modal
-  visible={!!selectedMemberAction}
-  transparent
-  animationType="fade"
-  onRequestClose={() => setSelectedMemberAction(null)}
->
-  <View style={s.memberActionOverlay}>
+      <Modal
+        visible={!!selectedMemberAction}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedMemberAction(null)}
+      >
+        <View style={s.memberActionOverlay}>
     <TouchableOpacity
       style={s.memberActionBackdrop}
       activeOpacity={1}
@@ -1831,35 +1832,34 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
         </TouchableOpacity>
       </View>
     )}
-  </View>
-</Modal>
+        </View>
+      </Modal>
 
+      <ImageViewerModal
+        images={activeViewerImages.length > 0 ? activeViewerImages : galleryViewerImages}
+        selectedUri={selectedGalleryImage}
+        onClose={() => {
+          setSelectedGalleryImage(null);
+          setActiveViewerImages([]);
+        }}
+      />
 
-<ImageViewerModal
-  images={activeViewerImages.length > 0 ? activeViewerImages : galleryViewerImages}
-  selectedUri={selectedGalleryImage}
-  onClose={() => {
-    setSelectedGalleryImage(null);
-    setActiveViewerImages([]);
-  }}
-/>
-
-<Modal
-  visible={showStickyModal}
-  transparent
-  animationType="slide"
-  onRequestClose={() => setShowStickyModal(false)}
->
-    <KeyboardAvoidingView
-    style={s.modalOverlay}
-    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-  >
+      <Modal
+        visible={showStickyModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowStickyModal(false)}
+      >
+        <KeyboardAvoidingView
+          style={s.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
     <ScrollView
       keyboardShouldPersistTaps="handled"
       contentContainerStyle={s.modalScrollContent}
     >
-      <View style={s.modalCard}>
-      <Text style={s.modalTitle}>New Highlight</Text>
+          <View style={s.modalCard}>
+            <Text style={s.modalTitle}>New Highlight</Text>
 
       <Text style={s.inputLabel}>TITLE</Text>
       <TextInput
@@ -1961,11 +1961,11 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
 
       <Text style={s.inputLabel}>VISIBILITY</Text>
 
-<View style={s.visibilityBox}>
-  <TouchableOpacity
-    style={[s.visibilityOption, stickyVisibility === 'private' && s.visibilityOptionActive]}
-    onPress={() => setStickyVisibility('private')}
-  >
+      <View style={s.visibilityBox}>
+        <TouchableOpacity
+          style={[s.visibilityOption, stickyVisibility === 'private' && s.visibilityOptionActive]}
+          onPress={() => setStickyVisibility('private')}
+        >
     <Text style={s.visibilityIcon}>🔒</Text>
     <View style={{ flex: 1 }}>
       <Text style={s.visibilityTitle}>Private</Text>
@@ -1997,7 +1997,7 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
     </View>
     <Text style={s.visibilitySoon}>Soon</Text>
   </TouchableOpacity>
-</View>
+      </View>
 
       {highlightUploadStatus && (
         <View style={{ marginTop: 12 }}>
@@ -2066,11 +2066,11 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
           )}
         </TouchableOpacity>
 
-      </View>
+            </View>
           </View>
-    </ScrollView>
-  </KeyboardAvoidingView>
-</Modal>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </Modal>
 
     </SafeAreaView>
   );
