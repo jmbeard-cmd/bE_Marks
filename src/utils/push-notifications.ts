@@ -5,6 +5,7 @@ import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
+import { createThread, getDMThreads } from './dm-storage';
 import { getGroupById, getGroupMembers } from './group-storage';
 
 const PUSH_TOKEN_KEY = 'be_expo_push_token_v1';
@@ -16,12 +17,24 @@ const PUSH_SECRET = 'be_marks_pull_short_precise_announce_1980_2006_10_03';
 
 export type BENotificationData = {
   type?: 'dm' | 'group' | 'mark' | 'test';
+
+  // Shared/future Spaces fields
+  spaceId?: string;
+  spaceKind?: 'dm' | 'group';
+
+  // DM fields
   threadId?: string;
   participantPubkey?: string;
   senderPubkey?: string;
   senderNpub?: string;
+  senderName?: string;
+
+  // Group fields
   groupId?: string;
+  groupName?: string;
   relayUrl?: string;
+
+  // Event fields
   eventId?: string;
   markId?: string;
 };
@@ -310,53 +323,91 @@ export async function sendLocalGroupNotification(input: {
   }
 }
 
+async function getOrCreateThreadForNotification(input: {
+  participantPubkey?: string;
+  senderPubkey?: string;
+  senderName?: string;
+  threadId?: string;
+}) {
+  const threads = await getDMThreads();
+
+  if (input.threadId) {
+    const existingById = threads.find(thread => thread.id === input.threadId);
+
+    if (existingById) {
+      return existingById;
+    }
+  }
+
+  const participantPubkey =
+    input.participantPubkey ||
+    input.senderPubkey;
+
+  if (!participantPubkey) {
+    return null;
+  }
+
+  const existingByPubkey = threads.find(thread =>
+    thread.participantPubkey?.toLowerCase() === participantPubkey.toLowerCase()
+  );
+
+  if (existingByPubkey) {
+    return existingByPubkey;
+  }
+
+  return await createThread({
+    title: input.senderName?.trim() || shortKey(participantPubkey),
+    participantPubkey,
+  });
+}
+
 export function installNotificationResponseHandler(router: {
   push: (href: any) => void;
 }) {
   async function routeFromData(rawData: any) {
     const data = rawData as BENotificationData;
 
-    if (!data?.type || data.type === 'test') {
-      return;
-    }
+if (data.type === 'dm') {
+  const thread = await getOrCreateThreadForNotification({
+    threadId: data.threadId,
+    participantPubkey: data.participantPubkey,
+    senderPubkey: data.senderPubkey,
+    senderName: data.senderName,
+  });
 
-    console.log('[Push] notification tapped:', data);
+  if (!thread) {
+    console.warn('[Push] DM notification missing usable thread target');
+    return;
+  }
 
-    if (data.type === 'dm') {
-      const threadTarget = data.threadId || data.participantPubkey || data.senderPubkey;
+  router.push({
+    pathname: '/dm-thread',
+    params: {
+      id: thread.id,
+      title: data.senderName || thread.title || 'Conversation',
+    },
+  } as any);
 
-      if (!threadTarget) {
-        console.warn('[Push] DM notification missing thread target');
-        return;
-      }
+  return;
+}
 
-      router.push({
-        pathname: '/dm-thread',
-        params: {
-          threadId: threadTarget,
-          participantPubkey: data.participantPubkey || data.senderPubkey || threadTarget,
-        },
-      } as any);
+if (data.type === 'group') {
+  const groupId = data.groupId || data.spaceId;
 
-      return;
-    }
+  if (!groupId) {
+    console.warn('[Push] group notification missing groupId');
+    return;
+  }
 
-    if (data.type === 'group') {
-      if (!data.groupId) {
-        console.warn('[Push] group notification missing groupId');
-        return;
-      }
+  router.push({
+    pathname: '/group-thread',
+    params: {
+      id: groupId,
+    },
+  } as any);
 
-      router.push({
-        pathname: '/group-thread',
-        params: {
-          groupId: data.groupId,
-          relayUrl: data.relayUrl,
-        },
-      } as any);
-
-      return;
-    }
+  return;
+}
 
     if (data.type === 'mark') {
       if (!data.markId) {
