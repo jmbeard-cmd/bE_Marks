@@ -12,7 +12,42 @@ import {
 } from './dm-storage';
 import { sendLocalDMNotification } from './push-notifications';
 
-import { FAST_RELAYS, fetchNostrDMs, getStoredIdentity, subscribeToNostrDMs } from './nostr';
+import {
+  FAST_RELAYS,
+  fetchNostrDMs,
+  fetchNostrProfile,
+  getStoredIdentity,
+  subscribeToNostrDMs,
+} from './nostr';
+
+async function resolveDMSenderName(input: {
+  senderPubkey: string;
+  fallbackName?: string;
+}) {
+  const fallback = input.fallbackName?.trim();
+
+  if (fallback && !fallback.match(/^[a-f0-9]{6,}$/i)) {
+    return fallback;
+  }
+
+  try {
+    const senderNpub = nip19.npubEncode(input.senderPubkey);
+    const profile = await fetchNostrProfile(senderNpub);
+
+    const profileName =
+      profile?.display_name ||
+      profile?.name;
+
+    if (profileName?.trim()) {
+      return profileName.trim();
+    }
+
+    return `${senderNpub.slice(0, 12)}…`;
+  } catch (error) {
+    console.warn('[DMService] failed to resolve sender profile for notification:', error);
+    return input.senderPubkey.slice(0, 8);
+  }
+}
 
 let _running = false;
 let _unsubscribe: (() => void) | null = null;
@@ -162,7 +197,10 @@ const existing = await getMessagesForThread(activeThread.id);
       console.log('[DMService] saved incoming DM:', activeThread.id);
 emitDMChanged(activeThread.id);
 
-const senderName = activeThread.title || otherPubkey.slice(0, 8);
+const senderName = await resolveDMSenderName({
+  senderPubkey: otherPubkey,
+  fallbackName: activeThread.title,
+});
 
 await sendLocalDMNotification({
   senderName,
