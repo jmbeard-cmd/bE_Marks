@@ -25,10 +25,11 @@ import {
   type DMMessage
 } from '../src/utils/dm-storage';
 import { fetchNostrProfile, sendNostrDM } from '../src/utils/nostr';
+import { sendRemoteDMNotification } from '../src/utils/push-notifications';
 import { useIdentity } from './_layout';
 
 export default function DmThreadScreen() {
-  const { themeMode } = useIdentity();
+  const { themeMode, npub, profile } = useIdentity();
   const theme = themeMode === 'light' ? Colors.light : Colors.dark;
   const s = useMemo(() => createStyles(theme), [theme]);
 
@@ -55,6 +56,14 @@ export default function DmThreadScreen() {
 
   const threadId = useMemo(() => params.id || '', [params.id]);
   const title = useMemo(() => params.title || 'Conversation', [params.title]);
+
+  const myDisplayName = useMemo(() => {
+  return (
+    profile?.display_name ||
+    profile?.name ||
+    (npub ? `${npub.slice(0, 12)}…` : 'You')
+  );
+}, [profile, npub]);
 
   const scrollToLatest = useCallback((animated = false) => {
     if (leavingRef.current) return;
@@ -249,14 +258,56 @@ export default function DmThreadScreen() {
         console.log('[DM THREAD SEND] participantPubkey:', thread.participantPubkey);
         console.log('[DM THREAD SEND] participantNpub:', thread.participantNpub);
 
-        sendNostrDM({
-          toPubkey: thread.participantPubkey,
-          content: text,
-        }).then(result => {
-          if (!result.success) {
-            console.warn('[DM] Nostr send failed:', result.error);
-          }
-        });
+sendNostrDM({
+  toPubkey: thread.participantPubkey,
+  content: text,
+}).then(result => {
+  if (!result.success) {
+    console.warn('[DM] Nostr send failed:', result.error);
+    return;
+  }
+
+  if (!npub) {
+    console.log('[DM] remote push skipped; missing sender npub');
+    return;
+  }
+
+  let senderPubkey = '';
+
+  try {
+    const decoded = nip19.decode(npub);
+
+    if (decoded.type === 'npub') {
+      senderPubkey = decoded.data as string;
+    }
+  } catch (error) {
+    console.warn('[DM] failed to decode sender npub for push:', error);
+  }
+
+  if (!senderPubkey) {
+    console.log('[DM] remote push skipped; missing sender pubkey');
+    return;
+  }
+
+if (!thread.participantPubkey) {
+  console.log('[DM] remote push skipped; missing recipient pubkey');
+  return;
+}
+
+const recipientNpub =
+  thread.participantNpub ||
+  nip19.npubEncode(thread.participantPubkey);
+
+  sendRemoteDMNotification({
+    recipientNpub,
+    senderNpub: npub,
+    senderPubkey,
+    senderName: myDisplayName,
+    body: text,
+  }).catch(error => {
+    console.warn('[DM] remote push failed:', error);
+  });
+});
       }
     } catch (err) {
       console.error('[DM] Send error:', err);

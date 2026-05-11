@@ -18,6 +18,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import BEHeader from '../../components/BEHeader';
 import { Colors } from '../../src/constants/theme';
+import { saveLocalGroupSystemMessage } from '../../src/utils/group-messages';
 import {
   createGroup,
   getActiveGroups,
@@ -25,7 +26,15 @@ import {
   joinGroupByCode,
   type BEGroup
 } from '../../src/utils/group-storage';
-import { DEFAULT_RELAY, npubToHex } from '../../src/utils/nostr';
+import {
+  DEFAULT_RELAY,
+  npubToHex,
+  publishGroupMessage,
+} from '../../src/utils/nostr';
+import {
+  registerGroupMemberForPush,
+  sendRemoteGroupNotification,
+} from '../../src/utils/push-notifications';
 import { useIdentity } from '../_layout';
 
 const SPORT_ICONS: Record<string, string> = {
@@ -75,7 +84,7 @@ type Sheet = 'none' | 'create' | 'join';
 
 export default function GroupsScreen() {
   const router = useRouter();
-  const { npub, nsec, themeMode } = useIdentity();
+const { npub, nsec, profile, themeMode } = useIdentity();
 
   const theme = themeMode === 'light' ? Colors.light : Colors.dark;
   const s = useMemo(() => createStyles(theme), [theme]);
@@ -97,6 +106,14 @@ export default function GroupsScreen() {
   // Join form
   const [joinCode, setJoinCode] = useState('');
   const [joining, setJoining] = useState(false);
+
+  const myDisplayName = useMemo(() => {
+  return (
+    profile?.display_name ||
+    profile?.name ||
+    (npub ? `${npub.slice(0, 12)}…` : 'You')
+  );
+}, [profile, npub]);
 
   // Swipe to close
   const sheetY = useRef(new Animated.Value(0)).current;
@@ -158,6 +175,17 @@ export default function GroupsScreen() {
         ownerPubkeyHex: pubkeyHex,
         nsec: nsec ?? undefined,
       });
+      registerGroupMemberForPush({
+  groupId: group.id,
+  groupName: group.name,
+  relayUrl: group.relayUrl,
+  memberNpub: npub,
+  role: 'owner',
+  status: 'active',
+  displayName: myDisplayName,
+}).catch(error => {
+  console.warn('[Groups] push member registration failed after create:', error);
+});
       closeSheet();
       await loadGroups();
       router.push({ pathname: '/group-thread', params: { id: group.id } } as any);
@@ -181,13 +209,63 @@ export default function GroupsScreen() {
         relayUrl: DEFAULT_RELAY,
         nsec: nsec ?? undefined,
       });
-      if (result.success && result.group) {
-        closeSheet();
-        await loadGroups();
-        router.push({ pathname: '/group-thread', params: { id: result.group.id } } as any);
-      } else {
-        Alert.alert('Could not join', result.error ?? 'Invalid invite code.');
-      }
+if (result.success && result.group) {
+  registerGroupMemberForPush({
+    groupId: result.group.id,
+    groupName: result.group.name,
+    relayUrl: result.group.relayUrl,
+    memberNpub: npub,
+    role: 'member',
+    status: 'active',
+    displayName: myDisplayName,
+  }).catch(error => {
+    console.warn('[Groups] push member registration failed after join:', error);
+  });
+
+  sendRemoteGroupNotification({
+    groupId: result.group.id,
+    groupName: result.group.name,
+    relayUrl: result.group.relayUrl,
+    senderNpub: npub,
+    senderName: myDisplayName,
+    body: 'joined the group',
+  }).catch(error => {
+    console.warn('[Groups] remote join notification failed:', error);
+  });
+  await saveLocalGroupSystemMessage({
+  groupId: result.group.id,
+  text: `${myDisplayName} joined the group`,
+  systemType: 'join',
+  actorNpub: npub,
+  actorName: myDisplayName,
+});
+
+if (nsec) {
+  publishGroupMessage({
+    groupId: result.group.id,
+    clientMessageId: `system_join_${result.group.id}_${npub}_${Date.now()}`,
+    text: `${myDisplayName} joined the group`,
+    kind: 'system',
+    systemType: 'join',
+    senderNpub: npub,
+    senderName: myDisplayName,
+    nsec,
+    relayUrl: result.group.relayUrl,
+  }).then(result => {
+    if (!result.success) {
+      console.warn('[Groups] publish join system message failed:', result.error);
+    }
+  }).catch(error => {
+    console.warn('[Groups] publish join system message error:', error);
+  });
+}
+
+  closeSheet();
+  await loadGroups();
+  router.push({ pathname: '/group-thread', params: { id: result.group.id } } as any);
+} else {
+  Alert.alert('Could not join', result.error ?? 'Invalid invite code.');
+}
     } catch (e: any) {
       Alert.alert('Error', e.message || 'Could not join group.');
     }

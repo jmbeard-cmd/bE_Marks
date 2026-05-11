@@ -41,7 +41,10 @@ import {
   createThread,
   getDMThreads,
 } from '../src/utils/dm-storage';
-import { getMessagesForGroup } from '../src/utils/group-messages';
+import {
+  getMessagesForGroup,
+  saveLocalGroupSystemMessage,
+} from '../src/utils/group-messages';
 import {
   createGroupSticky,
   getStickiesForGroup,
@@ -73,8 +76,14 @@ import {
   fetchGroupMessageDeletes,
   fetchGroupMessages,
   fetchNostrProfile,
+  publishGroupMessage,
 } from '../src/utils/nostr';
 import { normalizeNostrIdentity } from '../src/utils/nostr-identity';
+import {
+  registerGroupMemberForPush,
+  removeGroupMemberFromPush,
+  sendRemoteGroupNotification,
+} from '../src/utils/push-notifications';
 import { uploadToR2 } from '../src/utils/r2';
 import { useIdentity } from './_layout';
 
@@ -144,7 +153,7 @@ async function saveHighlightMediaToLocalGallery(groupId: string, sticky: GroupSt
 export default function GroupDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { npub, themeMode } = useIdentity();
+const { npub, nsec, profile, themeMode } = useIdentity();
   const theme = Colors[themeMode];
   const s = useMemo(() => createStyles(theme), [theme]);
 
@@ -182,6 +191,14 @@ const [groupRelayMode, setGroupRelayMode] = useState<GroupRelayMode>('default');
 const [groupRelayUrl, setGroupRelayUrl] = useState('');
 const [upcomingCount, setUpcomingCount] = useState(0);
 const [selectedMemberAction, setSelectedMemberAction] = useState<BEGroupMember | null>(null);
+
+const myDisplayName = useMemo(() => {
+  return (
+    profile?.display_name ||
+    profile?.name ||
+    (npub ? `${npub.slice(0, 12)}…` : 'Admin')
+  );
+}, [profile, npub]);
 
 const hydrateMemberProfiles = useCallback(async (groupId: string, groupMembers: BEGroupMember[]) => {
   const activeMembers = groupMembers.filter(member => member.status === 'active');
@@ -246,6 +263,22 @@ const syncedMembers = await syncGroupMembersFromRelay(
 );
 
 setMembers(syncedMembers);
+
+syncedMembers
+  .filter(member => member.status === 'active')
+  .forEach(member => {
+    registerGroupMemberForPush({
+      groupId: g.id,
+      groupName: g.name,
+      relayUrl: g.relayUrl,
+      memberNpub: member.npub,
+      role: member.role,
+      status: 'active',
+      displayName: member.displayName,
+    }).catch(error => {
+      console.warn('[Group Detail] push member backfill failed:', error);
+    });
+  });
 
 hydrateMemberProfiles(id, syncedMembers).catch(error => {
   console.warn('[Group Members] profile hydration failed:', error);
@@ -949,8 +982,59 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
           onPress: async () => {
             if (!group) return;
 
-            await removeMember(group.id, member.npub, npub);
-            await load();
+await removeMember(group.id, member.npub, npub);
+
+removeGroupMemberFromPush({
+  groupId: group.id,
+  memberNpub: member.npub,
+}).catch(error => {
+  console.warn('[Group Members] push member removal failed:', error);
+});
+
+const removedName =
+  member.displayName ||
+  `${member.npub.slice(0, 12)}…`;
+
+await saveLocalGroupSystemMessage({
+  groupId: group.id,
+  text: `${removedName} was removed from the group`,
+  systemType: 'remove',
+  actorNpub: member.npub,
+  actorName: removedName,
+});
+
+if (nsec) {
+  publishGroupMessage({
+    groupId: group.id,
+    clientMessageId: `system_remove_${group.id}_${member.npub}_${Date.now()}`,
+    text: `${removedName} was removed from the group`,
+    kind: 'system',
+    systemType: 'remove',
+    senderNpub: npub,
+    senderName: myDisplayName,
+    nsec,
+    relayUrl: group.relayUrl,
+  }).then(result => {
+    if (!result.success) {
+      console.warn('[Group Members] publish remove system message failed:', result.error);
+    }
+  }).catch(error => {
+    console.warn('[Group Members] publish remove system message error:', error);
+  });
+}
+
+sendRemoteGroupNotification({
+  groupId: group.id,
+  groupName: group.name,
+  relayUrl: group.relayUrl,
+  senderNpub: npub,
+  senderName: myDisplayName,
+  body: `removed ${removedName} from the group`,
+}).catch(error => {
+  console.warn('[Group Members] remote remove notification failed:', error);
+});
+
+await load();
           },
         },
       ]

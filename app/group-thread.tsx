@@ -33,7 +33,7 @@ import {
   sendLocalGroupPoll,
   type GroupMediaType,
   type GroupMessage,
-  type GroupMessageMedia,
+  type GroupMessageMedia
 } from '../src/utils/group-messages';
 import {
   getGroupById,
@@ -60,7 +60,10 @@ import {
   subscribeToGroupMessages,
   subscribeToGroupPollVotes,
 } from '../src/utils/nostr';
-import { sendLocalGroupNotification } from '../src/utils/push-notifications';
+import {
+  sendLocalGroupNotification,
+  sendRemoteGroupNotification,
+} from '../src/utils/push-notifications';
 import { uploadToR2 } from '../src/utils/r2';
 import { useIdentity } from './_layout';
 function createClientMessageId(groupId: string): string {
@@ -335,6 +338,38 @@ const [pollDetailsMessage, setPollDetailsMessage] = useState<GroupMessage | Pend
     return message.senderName || 'Member';
   }, []);
 
+  const getRemotePushPreviewText = useCallback((message: {
+  text?: string;
+  media?: GroupMessageMedia[];
+  mediaType?: GroupMediaType;
+  poll?: any;
+}): string => {
+  const text = message.text?.trim();
+
+  if (text) return text;
+
+  if (message.poll?.question) {
+    return `Poll: ${message.poll.question}`;
+  }
+
+  const mediaItems = Array.isArray(message.media) ? message.media : [];
+
+  if (mediaItems.length > 1) {
+    return `${mediaItems.length} attachments`;
+  }
+
+  const firstMedia = mediaItems[0];
+
+  if (firstMedia?.type === 'video') return 'Video';
+  if (firstMedia?.type === 'file') return firstMedia.fileName || 'File';
+  if (firstMedia?.type === 'image') return 'Photo';
+
+  if (message.mediaType === 'video') return 'Video';
+  if (message.mediaType === 'file') return 'File';
+
+  return 'New group message';
+}, []);
+
   const getCopyTextForMessage = useCallback((message: GroupMessage | PendingUploadMessage): string => {
     if ((message as any).isDeleted) return 'Message deleted';
 
@@ -520,6 +555,8 @@ const [pollDetailsMessage, setPollDetailsMessage] = useState<GroupMessage | Pend
             clientMessageId: msg.clientMessageId,
             groupId,
             text: msg.text,
+              kind: (msg as any).kind,
+            systemType: (msg as any).systemType,
             replyToMessageId: msg.replyToMessageId,
             replyToClientMessageId: msg.replyToClientMessageId,
             replyPreviewText: msg.replyPreviewText,
@@ -664,6 +701,8 @@ const [pollDetailsMessage, setPollDetailsMessage] = useState<GroupMessage | Pend
             clientMessageId: msg.clientMessageId,
             groupId,
             text: msg.text,
+              kind: (msg as any).kind,
+            systemType: (msg as any).systemType,
             replyToMessageId: msg.replyToMessageId,
             replyToClientMessageId: msg.replyToClientMessageId,
             replyPreviewText: msg.replyPreviewText,
@@ -940,22 +979,40 @@ const [pollDetailsMessage, setPollDetailsMessage] = useState<GroupMessage | Pend
       });
 
       if (nsec) {
-        publishGroupMessage({
-          groupId,
-          clientMessageId,
-          text,
-          ...replyMetadata,
-          senderNpub: npub ?? undefined,
-          senderName: myDisplayName,
-          nsec,
-          relayUrl,
-        }).then(result => {
-          if (!result.success) {
-            console.warn('[Groups] publishGroupMessage failed:', result.error);
-          }
-        }).catch(error => {
-          console.warn('[Groups] publishGroupMessage error:', error);
-        });
+publishGroupMessage({
+  groupId,
+  clientMessageId,
+  text,
+  ...replyMetadata,
+  senderNpub: npub ?? undefined,
+  senderName: myDisplayName,
+  nsec,
+  relayUrl,
+}).then(result => {
+  if (!result.success) {
+    console.warn('[Groups] publishGroupMessage failed:', result.error);
+    return;
+  }
+
+  if (!npub) {
+    console.log('[Groups] remote group push skipped; missing sender npub');
+    return;
+  }
+
+  sendRemoteGroupNotification({
+    groupId,
+    groupName,
+    relayUrl,
+    senderNpub: npub,
+    senderName: myDisplayName,
+    body: text,
+    eventId: result.eventId,
+  }).catch(error => {
+    console.warn('[Groups] remote group push failed:', error);
+  });
+}).catch(error => {
+  console.warn('[Groups] publishGroupMessage error:', error);
+});
       }
     } catch (error: any) {
       setSending(false);
@@ -1153,26 +1210,47 @@ const [pollDetailsMessage, setPollDetailsMessage] = useState<GroupMessage | Pend
       forceScrollToBottom(true);
 
       if (nsec) {
-        publishGroupMessage({
-          groupId,
-          clientMessageId,
-          ...replyMetadata,
-          media: uploadedMedia,
-          mediaUrl: primaryMedia.uri,
-          mediaType: primaryMedia.type,
-          thumbnailUrl: primaryMedia.thumbnailUrl,
-          imageUrl: primaryMedia.type === 'image' ? primaryMedia.uri : undefined,
-          senderNpub: npub ?? undefined,
-          senderName: myDisplayName,
-          nsec,
-          relayUrl,
-        }).then(result => {
-          if (!result.success) {
-            console.warn('[Groups] publishGroupMessage attachments failed:', result.error);
-          }
-        }).catch(error => {
-          console.warn('[Groups] publishGroupMessage attachments error:', error);
-        });
+publishGroupMessage({
+  groupId,
+  clientMessageId,
+  ...replyMetadata,
+  media: uploadedMedia,
+  mediaUrl: primaryMedia.uri,
+  mediaType: primaryMedia.type,
+  thumbnailUrl: primaryMedia.thumbnailUrl,
+  imageUrl: primaryMedia.type === 'image' ? primaryMedia.uri : undefined,
+  senderNpub: npub ?? undefined,
+  senderName: myDisplayName,
+  nsec,
+  relayUrl,
+}).then(result => {
+  if (!result.success) {
+    console.warn('[Groups] publishGroupMessage attachments failed:', result.error);
+    return;
+  }
+
+  if (!npub) {
+    console.log('[Groups] remote group attachment push skipped; missing sender npub');
+    return;
+  }
+
+  sendRemoteGroupNotification({
+    groupId,
+    groupName,
+    relayUrl,
+    senderNpub: npub,
+    senderName: myDisplayName,
+    body: getRemotePushPreviewText({
+      media: uploadedMedia,
+      mediaType: primaryMedia.type,
+    }),
+    eventId: result.eventId,
+  }).catch(error => {
+    console.warn('[Groups] remote group attachment push failed:', error);
+  });
+}).catch(error => {
+  console.warn('[Groups] publishGroupMessage attachments error:', error);
+});
       }
     } catch (e: any) {
       setPendingUploads(prev => prev.filter(item => item.id !== pendingId));
@@ -1680,23 +1758,33 @@ const [pollDetailsMessage, setPollDetailsMessage] = useState<GroupMessage | Pend
     setPollDetailsMessage(message);
   }, []);
 
-  const renderMessage = useCallback(
-    ({ item }: { item: VisibleGroupMessage }) => {
+const renderMessage = useCallback(
+  ({ item }: { item: VisibleGroupMessage }) => {
+    if ((item.message as any).kind === 'system') {
       return (
-        <MessageBubble
-          item={item.message}
-          showName={item.showName}
-          avatarUrl={item.avatarUrl}
-          onPressMedia={handlePressMessageMedia}
-          onLongPress={handleMessageLongPress}
-          onPollVote={handlePollVote}
-          onPollDetails={handlePollDetails}
-          s={s}
-        />
+        <View style={s.systemMessageWrap}>
+          <Text style={s.systemMessageText}>
+            {item.message.text}
+          </Text>
+        </View>
       );
-    },
-    [handlePressMessageMedia, handleMessageLongPress, handlePollVote, handlePollDetails, s]
-  );
+    }
+
+    return (
+      <MessageBubble
+        item={item.message}
+        showName={item.showName}
+        avatarUrl={item.avatarUrl}
+        onPressMedia={handlePressMessageMedia}
+        onLongPress={handleMessageLongPress}
+        onPollVote={handlePollVote}
+        onPollDetails={handlePollDetails}
+        s={s}
+      />
+    );
+  },
+  [handlePressMessageMedia, handleMessageLongPress, handlePollVote, handlePollDetails, s]
+);
 
   const shouldHideInitialList = false;
 
@@ -2293,7 +2381,23 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
   borderTopWidth: 0.5,
   borderTopColor: theme.border,
 },
-
+  systemMessageWrap: {
+    alignSelf: 'center',
+    maxWidth: '86%',
+    marginVertical: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: theme.surface,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+  },
+  systemMessageText: {
+    color: theme.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
 uploadText: {
   color: theme.gold,
   fontSize: 12,

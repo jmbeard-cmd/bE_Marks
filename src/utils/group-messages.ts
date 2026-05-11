@@ -55,6 +55,8 @@ export type GroupMessage = {
   clientMessageId: string;
   groupId: string;
   text?: string;
+    kind?: 'message' | 'system';
+  systemType?: 'join' | 'leave' | 'remove';
 
   // Reply metadata
   replyToMessageId?: string;
@@ -258,6 +260,53 @@ export async function getAllGroupMessages(): Promise<GroupMessage[]> {
 
 export async function saveAllGroupMessages(messages: GroupMessage[]): Promise<void> {
   await writeJson(GROUP_MESSAGES_KEY, messages);
+}
+
+export async function saveLocalGroupSystemMessage(input: {
+  groupId: string;
+  text: string;
+  systemType: 'join' | 'leave' | 'remove';
+  actorNpub?: string;
+  actorName?: string;
+  createdAt?: number;
+}): Promise<GroupMessage> {
+  const allMessages = await getAllGroupMessages();
+  const now = input.createdAt ?? Math.floor(Date.now() / 1000);
+  const safeText = input.text.trim();
+
+  const clientMessageId = `system_${input.systemType}_${input.groupId}_${input.actorNpub || 'unknown'}_${now}`;
+
+  const alreadyExists = allMessages.some(message =>
+    message.groupId === input.groupId &&
+    message.clientMessageId === clientMessageId
+  );
+
+  if (alreadyExists) {
+    const existing = allMessages.find(message => message.clientMessageId === clientMessageId);
+
+    if (existing) return existing;
+  }
+
+  const systemMessage: GroupMessage = {
+    id: clientMessageId,
+    clientMessageId,
+    groupId: input.groupId,
+    text: safeText,
+    kind: 'system',
+    systemType: input.systemType,
+    mine: false,
+    senderNpub: input.actorNpub,
+    senderName: input.actorName || 'System',
+    createdAt: now,
+  };
+
+  allMessages.push(systemMessage);
+  allMessages.sort((a, b) => a.createdAt - b.createdAt);
+
+  await saveAllGroupMessages(allMessages);
+  await recordGroupPost(input.groupId, safeText);
+
+  return systemMessage;
 }
 
 export async function getMessagesForGroup(groupId: string): Promise<GroupMessage[]> {
@@ -502,6 +551,8 @@ export async function saveRemoteGroupMessage(input: {
   clientMessageId?: string;
   groupId: string;
   text?: string;
+  kind?: 'message' | 'system';
+  systemType?: 'join' | 'leave' | 'remove';
 
   // Reply metadata
   replyToMessageId?: string;
@@ -631,6 +682,8 @@ export async function saveRemoteGroupMessage(input: {
     clientMessageId,
     groupId: input.groupId,
     text: input.text,
+    kind: input.kind,
+    systemType: input.systemType,
 
     replyToMessageId: input.replyToMessageId,
     replyToClientMessageId: input.replyToClientMessageId,

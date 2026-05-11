@@ -14,6 +14,10 @@ const PUSH_TOKEN_OWNER_KEY = 'be_expo_push_token_owner_v1';
 const PUSH_REGISTER_URL = 'https://be-marks-push.jmbeard.workers.dev/push/register';
 const PUSH_SEND_TEST_URL = 'https://be-marks-push.jmbeard.workers.dev/push/send-test';
 const PUSH_SECRET = 'be_marks_pull_short_precise_announce_1980_2006_10_03';
+const PUSH_DM_MESSAGE_URL = 'https://be-marks-push.jmbeard.workers.dev/push/dm-message';
+const PUSH_GROUP_MEMBER_URL = 'https://be-marks-push.jmbeard.workers.dev/push/register-group-member';
+const PUSH_REMOVE_GROUP_MEMBER_URL = 'https://be-marks-push.jmbeard.workers.dev/push/remove-group-member';
+const PUSH_GROUP_MESSAGE_URL = 'https://be-marks-push.jmbeard.workers.dev/push/group-message';
 
 export type BENotificationData = {
   type?: 'dm' | 'group' | 'mark' | 'test';
@@ -189,6 +193,142 @@ async function registerTokenWithBackend({
 
 export async function clearStoredPushToken() {
   await AsyncStorage.multiRemove([PUSH_TOKEN_KEY, PUSH_TOKEN_OWNER_KEY]);
+}
+
+async function postToPushWorker(
+  url: string,
+  body: Record<string, any>,
+  label: string
+): Promise<boolean> {
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${PUSH_SECRET}`,
+      },
+      body: JSON.stringify(body),
+    });
+
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      console.warn(`[Push] ${label} failed:`, response.status, result);
+      return false;
+    }
+
+    console.log(`[Push] ${label} ok:`, result);
+    return true;
+  } catch (error) {
+    console.warn(`[Push] ${label} error:`, error);
+    return false;
+  }
+}
+
+export async function sendRemoteDMNotification(input: {
+  recipientNpub: string;
+  senderNpub: string;
+  senderPubkey: string;
+  senderName?: string;
+  body?: string;
+}) {
+  const recipientNpub = input.recipientNpub?.trim();
+  const senderNpub = input.senderNpub?.trim();
+  const senderPubkey = input.senderPubkey?.trim();
+
+  if (!recipientNpub || !senderNpub || !senderPubkey) {
+    console.log('[Push] skipped remote DM push; missing recipient/sender fields');
+    return false;
+  }
+
+  return postToPushWorker(
+    PUSH_DM_MESSAGE_URL,
+    {
+      recipientNpub,
+      senderNpub,
+      senderPubkey,
+      senderName: input.senderName?.trim() || undefined,
+      body: input.body?.trim() || 'New private message',
+    },
+    'remote DM push'
+  );
+}
+
+export async function registerGroupMemberForPush(input: {
+  groupId: string;
+  groupName: string;
+  relayUrl: string;
+  memberNpub: string;
+  role?: 'owner' | 'admin' | 'member';
+  status?: 'active' | 'removed';
+  displayName?: string;
+}) {
+  if (!input.groupId || !input.memberNpub) {
+    console.log('[Push] skipped group member push registration; missing groupId/memberNpub');
+    return false;
+  }
+
+  return postToPushWorker(
+    PUSH_GROUP_MEMBER_URL,
+    {
+      groupId: input.groupId,
+      groupName: input.groupName || 'Group',
+      relayUrl: input.relayUrl || 'wss://relay.beginningend.com',
+      memberNpub: input.memberNpub,
+      role: input.role || 'member',
+      status: input.status || 'active',
+      displayName: input.displayName,
+    },
+    'group member push registration'
+  );
+}
+
+export async function removeGroupMemberFromPush(input: {
+  groupId: string;
+  memberNpub: string;
+}) {
+  if (!input.groupId || !input.memberNpub) {
+    console.log('[Push] skipped group member push removal; missing groupId/memberNpub');
+    return false;
+  }
+
+  return postToPushWorker(
+    PUSH_REMOVE_GROUP_MEMBER_URL,
+    {
+      groupId: input.groupId,
+      memberNpub: input.memberNpub,
+    },
+    'group member push removal'
+  );
+}
+
+export async function sendRemoteGroupNotification(input: {
+  groupId: string;
+  groupName: string;
+  relayUrl: string;
+  senderNpub: string;
+  senderName?: string;
+  body: string;
+  eventId?: string;
+}) {
+  if (!input.groupId || !input.senderNpub) {
+    console.log('[Push] skipped remote group push; missing groupId/senderNpub');
+    return false;
+  }
+
+  return postToPushWorker(
+    PUSH_GROUP_MESSAGE_URL,
+    {
+      groupId: input.groupId,
+      groupName: input.groupName || 'Group',
+      relayUrl: input.relayUrl || 'wss://relay.beginningend.com',
+      senderNpub: input.senderNpub,
+      senderName: input.senderName,
+      body: input.body || 'New group message',
+      eventId: input.eventId,
+    },
+    'remote group push'
+  );
 }
 
 export async function sendRemoteTestPushToSelf(npub: string) {

@@ -1436,6 +1436,8 @@ export interface NostrGroupMessage {
   senderNpub?: string;
   senderName?: string;
   text?: string;
+    kind?: 'message' | 'system';
+  systemType?: 'join' | 'leave' | 'remove';
 
   // Reply metadata
   replyToMessageId?: string;
@@ -1559,6 +1561,8 @@ export async function publishGroupMessage(input: {
   groupId: string;
   clientMessageId?: string;
   text?: string;
+  kind?: 'message' | 'system';
+  systemType?: 'join' | 'leave' | 'remove';
 
   // Reply metadata
   replyToMessageId?: string;
@@ -1657,6 +1661,8 @@ export async function publishGroupMessage(input: {
       groupId: input.groupId,
       clientMessageId,
       text: trimmedText || undefined,
+        kind: input.kind || 'message',
+        systemType: input.systemType,
 
       replyToMessageId: input.replyToMessageId,
       replyToClientMessageId: input.replyToClientMessageId,
@@ -2120,6 +2126,8 @@ export function fetchGroupMessages(
               senderNpub: parsed.senderNpub,
               senderName: parsed.senderName,
               text: parsed.text,
+              kind: (parsed as any).kind,
+              systemType: (parsed as any).systemType,
 
               replyToMessageId: parsed.replyToMessageId,
               replyToClientMessageId: parsed.replyToClientMessageId,
