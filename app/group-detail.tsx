@@ -213,7 +213,13 @@ async function saveHighlightMediaToLocalGallery(groupId: string, sticky: GroupSt
 }
 
 export default function GroupDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+const { id, tab: routeTab } = useLocalSearchParams<{
+  id: string;
+  tab?: Tab;
+  highlightId?: string;
+  calendarEventId?: string;
+  memberNpub?: string;
+}>();
   const router = useRouter();
   const { npub, nsec, profile, themeMode } = useIdentity();
   const theme = Colors[themeMode];
@@ -242,7 +248,11 @@ export default function GroupDetailScreen() {
   const [highlightPosting, setHighlightPosting] = useState(false);
   const [highlightUploadStatus, setHighlightUploadStatus] = useState<string | null>(null);
   const [highlightProgress, setHighlightProgress] = useState(0);
-  const [tab, setTab] = useState<Tab>('stickies');
+  const [tab, setTab] = useState<Tab>(
+  routeTab === 'calendar' || routeTab === 'gallery' || routeTab === 'members'
+    ? routeTab
+    : 'stickies'
+);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isMember, setIsMember] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
@@ -516,6 +526,12 @@ export default function GroupDetailScreen() {
   }, [id, npub, hydrateMemberProfiles]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+  if (routeTab === 'stickies' || routeTab === 'calendar' || routeTab === 'gallery' || routeTab === 'members') {
+    setTab(routeTab);
+  }
+}, [routeTab]);
 
   const onRefresh = async () => {
     setRefreshing(true);
