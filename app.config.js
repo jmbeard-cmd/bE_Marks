@@ -20,15 +20,16 @@ export default {
         NSPhotoLibraryAddUsageDescription: "Allow bE Marks to save photos and videos you choose to keep.",
       },
     },
-    android: {
-      adaptiveIcon: {
-        foregroundImage: "./assets/images/icon.png",
-        backgroundColor: "#111111",
-      },
-      edgeToEdgeEnabled: true,
-      predictiveBackGestureEnabled: false,
-      package: "com.beginningend.marks",
-      permissions: [
+android: {
+  adaptiveIcon: {
+    foregroundImage: "./assets/images/icon.png",
+    backgroundColor: "#111111",
+  },
+  edgeToEdgeEnabled: true,
+  predictiveBackGestureEnabled: false,
+  package: "com.beginningend.marks",
+  googleServicesFile: process.env.GOOGLE_SERVICES_JSON || "./google-services.json",
+  permissions: [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
         "android.permission.READ_CONTACTS",
