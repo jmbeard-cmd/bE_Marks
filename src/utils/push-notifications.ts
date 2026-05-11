@@ -104,38 +104,58 @@ if (!Device.isDevice) {
   return null;
 }
 
-if (Constants.appOwnership === 'expo') {
-  console.log('[Push] skipped backend push registration in Expo Go');
+const appOwnership = Constants.appOwnership;
+const executionEnvironment = (Constants as any).executionEnvironment;
+const appId =
+  Constants.expoConfig?.android?.package ||
+  Constants.expoConfig?.ios?.bundleIdentifier ||
+  'unknown';
+
+console.log('[Push] runtime info:', {
+  appOwnership,
+  executionEnvironment,
+  appId,
+});
+
+if (appOwnership === 'expo' && executionEnvironment === 'storeClient') {
+  console.log('[Push] skipped backend push registration in Expo Go store client');
   return null;
 }
 
 await ensureAndroidNotificationChannel();
 
-    const existingPermission = await Notifications.getPermissionsAsync();
-    let finalStatus = existingPermission.status;
+const existingPermission = await Notifications.getPermissionsAsync();
+console.log('[Push] existing permission:', existingPermission);
 
-    if (existingPermission.status !== 'granted') {
-      const requestedPermission = await Notifications.requestPermissionsAsync();
-      finalStatus = requestedPermission.status;
-    }
+let finalStatus = existingPermission.status;
+
+if (existingPermission.status !== 'granted') {
+  const requestedPermission = await Notifications.requestPermissionsAsync();
+  console.log('[Push] requested permission:', requestedPermission);
+  finalStatus = requestedPermission.status;
+}
 
     if (finalStatus !== 'granted') {
       console.log('[Push] notification permission not granted');
       return null;
     }
 
-    const projectId = getProjectId();
+const projectId = getProjectId();
 
-    if (!projectId) {
-      console.warn('[Push] missing EAS projectId');
-      return null;
-    }
+console.log('[Push] projectId:', projectId);
 
-    const tokenResult = await Notifications.getExpoPushTokenAsync({
-      projectId,
-    });
+if (!projectId) {
+  console.warn('[Push] missing EAS projectId');
+  return null;
+}
 
-    const token = tokenResult.data;
+const tokenResult = await Notifications.getExpoPushTokenAsync({
+  projectId,
+});
+
+console.log('[Push] token result:', tokenResult);
+
+const token = tokenResult.data;
 
     await AsyncStorage.setItem(PUSH_TOKEN_KEY, token);
     await AsyncStorage.setItem(PUSH_TOKEN_OWNER_KEY, npub);
@@ -185,12 +205,20 @@ async function registerTokenWithBackend({
       }),
     });
 
-    if (!response.ok) {
-      console.warn('[Push] backend registration failed:', response.status);
-      return;
-    }
+const result = await response.json().catch(() => null);
 
-    console.log('[Push] token registered with backend');
+console.log('[Push] backend registration response:', {
+  status: response.status,
+  ok: response.ok,
+  result,
+});
+
+if (!response.ok) {
+  console.warn('[Push] backend registration failed:', response.status, result);
+  return;
+}
+
+console.log('[Push] token registered with backend');
   } catch (error) {
     console.warn('[Push] backend registration error:', error);
   }
