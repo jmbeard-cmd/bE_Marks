@@ -1178,25 +1178,25 @@ export async function publishGroup(
       ['client', 'bE-Marks'],
     ];
 
-if (group.season) tags.push(['season', group.season]);
-if (group.sport) tags.push(['sport', group.sport]);
-if (group.icon) tags.push(['icon', group.icon]);
-if (group.schoolId) tags.push(['school', group.schoolId]);
+    if (group.season) tags.push(['season', group.season]);
+    if (group.sport) tags.push(['sport', group.sport]);
+    if (group.icon) tags.push(['icon', group.icon]);
+    if (group.schoolId) tags.push(['school', group.schoolId]);
 
-const content = JSON.stringify({
-  id: group.id,
-  name: group.name,
-  description: group.description,
-  season: group.season,
-  sport: group.sport,
-  icon: group.icon,
-  schoolId: group.schoolId,
-  inviteCode: group.inviteCode,
-  status: group.status,
-  relayUrl: group.relayUrl,
-  createdAt: group.createdAt,
-  ownerNpub: group.ownerNpub,
-});
+    const content = JSON.stringify({
+      id: group.id,
+      name: group.name,
+      description: group.description,
+      season: group.season,
+      sport: group.sport,
+      icon: group.icon,
+      schoolId: group.schoolId,
+      inviteCode: group.inviteCode,
+      status: group.status,
+      relayUrl: group.relayUrl,
+      createdAt: group.createdAt,
+      ownerNpub: group.ownerNpub,
+    });
 
     const unsigned: UnsignedEvent = {
       kind: GROUP_KIND,
@@ -1390,6 +1390,7 @@ export async function publishGroupMembership(input: {
     return { success: false, error: e.message };
   }
 }
+
 export const GROUP_MESSAGE_KIND = 30082;
 export const GROUP_STICKY_KIND = 30083;
 export const GROUP_MESSAGE_DELETE_KIND = 30087;
@@ -1439,7 +1440,7 @@ export interface NostrGroupMessage {
   senderNpub?: string;
   senderName?: string;
   text?: string;
-    kind?: 'message' | 'system';
+  kind?: 'message' | 'system';
   systemType?: 'join' | 'leave' | 'remove';
 
   // Reply metadata
@@ -1559,7 +1560,6 @@ function normalizeNostrGroupPoll(input?: {
   };
 }
 
-
 export async function publishGroupMessage(input: {
   groupId: string;
   clientMessageId?: string;
@@ -1664,8 +1664,8 @@ export async function publishGroupMessage(input: {
       groupId: input.groupId,
       clientMessageId,
       text: trimmedText || undefined,
-        kind: input.kind || 'message',
-        systemType: input.systemType,
+      kind: input.kind || 'message',
+      systemType: input.systemType,
 
       replyToMessageId: input.replyToMessageId,
       replyToClientMessageId: input.replyToClientMessageId,
@@ -1922,7 +1922,6 @@ export async function publishGroupPollVote(input: {
   }
 }
 
-
 export async function publishGroupSticky(input: {
   stickyId: string;
   groupId: string;
@@ -1996,7 +1995,6 @@ export async function publishGroupSticky(input: {
   }
 }
 
-
 export async function fetchGroupStickies(
   groupId: string,
   relayUrl: string,
@@ -2021,6 +2019,7 @@ export async function fetchGroupStickies(
     pool.close([relayUrl]);
   }
 }
+
 export async function fetchGroupMemberships(
   groupId: string,
   relayUrls: string[],
