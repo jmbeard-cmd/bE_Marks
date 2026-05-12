@@ -225,8 +225,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   memberNpub?: string;
 }>();
   const router = useRouter();
-  const { npub, nsec, profile, themeMode } = useIdentity();
-  const theme = Colors[themeMode];
+  const { npub, nsec, profile, theme, themeMode } = useIdentity();
   const s = useMemo(() => createStyles(theme), [theme]);
 
   const [group, setGroup] = useState<BEGroup | null>(null);
@@ -1551,12 +1550,12 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
               </View>
             </View>
             <View style={s.qrBlock}>
-              <QRCode
-                value={deepLink}
-                size={100}
-                backgroundColor="#1a1a1a"
-                color="#c9973a"
-              />
+<QRCode
+  value={deepLink}
+  size={100}
+  backgroundColor={theme.surface}
+  color={theme.gold}
+/>
             </View>
           </View>
           <Text style={s.inviteMeta}>
@@ -1590,7 +1589,7 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
       {tab === 'stickies' && (
         <ScrollView
           contentContainerStyle={s.timelineContainer}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#c9973a" />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.gold} />}
         >
     {isAdmin && (
       <View style={s.groupRelayCard}>
@@ -1864,7 +1863,7 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
           npub={npub ?? undefined}
           nsec={nsec ?? undefined}
           displayName={myDisplayName}
-          themeMode={themeMode}
+          theme={theme}
           onGroupUpdated={load}
         />
       )}
@@ -3398,7 +3397,7 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     backgroundColor: theme.gold,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#c9973a',
+    shadowColor: theme.gold,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
     shadowRadius: 8,

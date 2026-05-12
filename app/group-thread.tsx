@@ -180,8 +180,7 @@ const REACTION_PACKS = [
 export default function GroupThreadScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string }>();
-  const { npub, nsec, profile, themeMode } = useIdentity();
-  const theme = Colors[themeMode];
+  const { npub, nsec, profile, theme } = useIdentity();
   const s = useMemo(() => createStyles(theme), [theme]);
 
   const groupId = useMemo(() => params.id || '', [params.id]);

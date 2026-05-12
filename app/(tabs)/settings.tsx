@@ -19,6 +19,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { DEFAULT_RELAYS, RELAY_LABELS } from '../../src/constants/relays';
+import {
+  AccentPalettes,
+  type AccentPaletteKey,
+} from '../../src/constants/theme';
 import { compressImageForUpload } from '../../src/utils/media-compression';
 import {
   clearIdentity,
@@ -51,30 +55,10 @@ export default function SettingsScreen() {
     setRelays,
     themeMode,
     setThemeMode,
+    accentPalette,
+    setAccentPalette,
+    theme,
   } = useIdentity();
-
-  const theme =
-    themeMode === 'light'
-      ? {
-          bg: '#f7f3ea',
-          surface: '#fffaf0',
-          raised: '#ffffff',
-          border: '#dfd4bf',
-          text: '#1f1a14',
-          textSecondary: '#5f5548',
-          textMuted: '#948875',
-          gold: '#b8872f',
-        }
-      : {
-          bg: '#111111',
-          surface: '#1a1a1a',
-          raised: '#222222',
-          border: '#2a2a2a',
-          text: '#ffffff',
-          textSecondary: '#aaaaaa',
-          textMuted: '#555555',
-          gold: '#c9973a',
-        };
 useEffect(() => {
   console.log('[SETTINGS] npub:', npub);
 
@@ -140,6 +124,11 @@ useEffect(() => {
 
   republishFamilyNameIfNeeded();
 }, [family?.id, family?.name, family?.role, npub, nsec]);
+
+  const accentPaletteOptions = Object.entries(AccentPalettes) as [
+    AccentPaletteKey,
+    typeof AccentPalettes[AccentPaletteKey]
+  ][];
 
   const displayName = profile?.display_name || profile?.name || null;
   const avatarUri = profile?.picture || null;
@@ -584,7 +573,7 @@ const handleJoinFamily = async () => {
   disabled={uploadingPhoto}
 >
                   {uploadingPhoto ? (
-                    <ActivityIndicator color="#c9973a" />
+                    <ActivityIndicator color={theme.gold} />
                   ) : editPicture ? (
                     <View style={s.photoPickerPreview}>
                       <Image source={{ uri: editPicture }} style={s.photoPickerImg} />
@@ -1072,14 +1061,72 @@ borderColor: '#7a1a1a',
     </View>
 
     <TouchableOpacity
-      style={[s.themeToggle, themeMode === 'light' && s.themeToggleOn]}
+      style={[
+        s.themeToggle,
+        { borderColor: theme.border, backgroundColor: theme.surface },
+        themeMode === 'light' && { borderColor: theme.gold, backgroundColor: theme.gold },
+      ]}
       onPress={() => setThemeMode(themeMode === 'dark' ? 'light' : 'dark')}
       activeOpacity={0.85}
     >
-      <Text style={[s.themeToggleText, themeMode === 'light' && s.themeToggleTextOn]}>
+      <Text
+        style={[
+          s.themeToggleText,
+          { color: theme.gold },
+          themeMode === 'light' && { color: theme.bg },
+        ]}
+      >
         {themeMode === 'dark' ? 'Dark' : 'Light'}
       </Text>
     </TouchableOpacity>
+  </View>
+
+  <View style={[s.paletteBlock, { borderBottomColor: theme.border }]}>
+    <View style={s.paletteHeader}>
+      <View>
+        <Text style={[s.rowLabel, { color: theme.textSecondary }]}>Accent Palette</Text>
+        <Text style={[s.rowHint, { color: theme.textMuted }]}>Choose the app’s highlight color</Text>
+      </View>
+
+      <Text style={[s.paletteCurrent, { color: theme.gold }]}>
+        {AccentPalettes[accentPalette]?.label ?? 'Classic Gold'}
+      </Text>
+    </View>
+
+    <View style={s.paletteGrid}>
+      {accentPaletteOptions.map(([key, palette]) => {
+        const selected = accentPalette === key;
+
+        return (
+          <TouchableOpacity
+            key={key}
+            style={[
+              s.paletteOption,
+              {
+                borderColor: selected ? palette.gold : theme.border,
+                backgroundColor: theme.surface,
+              },
+            ]}
+            activeOpacity={0.85}
+            onPress={() => setAccentPalette(key)}
+          >
+            <View style={s.paletteSwatches}>
+              <View style={[s.paletteSwatch, { backgroundColor: palette.gold }]} />
+              <View style={[s.paletteSwatch, { backgroundColor: palette.goldLight }]} />
+              <View style={[s.paletteSwatch, { backgroundColor: palette.goldDim }]} />
+            </View>
+
+            <Text style={[s.paletteName, { color: selected ? palette.gold : theme.textSecondary }]}>
+              {palette.label}
+            </Text>
+
+            <Text style={[s.paletteStatus, { color: selected ? palette.gold : theme.textMuted }]}>
+              {selected ? 'Selected' : 'Tap to use'}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
   </View>
 
   <View style={[s.row, { borderBottomColor: theme.border }]}>
@@ -1120,7 +1167,7 @@ const s = StyleSheet.create({
   marginBottom: 32, paddingBottom: 24, borderBottomWidth: 0.5, borderBottomColor: '#222' },
   logo: { width: 52, height: 52 },
   appName: { fontSize: 20, fontWeight: '700', color: '#fff', letterSpacing: -0.3 },
-  tagline: { fontSize: 11, color: '#c9973a', marginTop: 2, letterSpacing: 1, textTransform: 'uppercase' },
+  tagline: { fontSize: 11, marginTop: 2, letterSpacing: 1, textTransform: 'uppercase' },
   section: { marginBottom: 32 },
 sectionLabel: {
   fontSize: 11,
@@ -1148,17 +1195,60 @@ themeToggle: {
   borderColor: '#2a2a2a',
   backgroundColor: '#1a1a1a',
 },
-themeToggleOn: {
-  borderColor: '#c9973a',
-  backgroundColor: '#c9973a',
-},
+themeToggleOn: {},
 themeToggleText: {
   fontSize: 12,
-  color: '#c9973a',
   fontWeight: '700',
 },
 themeToggleTextOn: {
   color: '#111',
+},
+paletteBlock: {
+  paddingVertical: 14,
+  borderBottomWidth: 0.5,
+},
+paletteHeader: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  alignItems: 'flex-start',
+  gap: 12,
+  marginBottom: 12,
+},
+paletteCurrent: {
+  fontSize: 12,
+  fontWeight: '800',
+  maxWidth: '42%',
+  textAlign: 'right',
+},
+paletteGrid: {
+  flexDirection: 'row',
+  flexWrap: 'wrap',
+  gap: 10,
+},
+paletteOption: {
+  width: '48%',
+  borderWidth: 0.5,
+  borderRadius: 14,
+  padding: 12,
+},
+paletteSwatches: {
+  flexDirection: 'row',
+  gap: 5,
+  marginBottom: 9,
+},
+paletteSwatch: {
+  width: 22,
+  height: 22,
+  borderRadius: 11,
+},
+paletteName: {
+  fontSize: 13,
+  fontWeight: '800',
+},
+paletteStatus: {
+  fontSize: 11,
+  marginTop: 3,
+  fontWeight: '600',
 },
 sectionHeaderRow: {
   flexDirection: 'row',

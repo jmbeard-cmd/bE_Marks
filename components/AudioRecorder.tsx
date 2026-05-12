@@ -111,10 +111,21 @@ export default function AudioRecorder({ onRecordingComplete, existingUri }: Prop
       )}
 
       {isRecording && (
-        <TouchableOpacity style={s.recordingBtn} onPress={stopRecording}>
-          <View style={s.recordingDot} />
-          <Text style={s.recordingText}>Recording... {duration}s / 30s — tap to stop</Text>
-        </TouchableOpacity>
+<TouchableOpacity
+  style={[
+    s.recordingBtn,
+    {
+      borderColor: theme.gold,
+      backgroundColor: theme.raised,
+    },
+  ]}
+  onPress={stopRecording}
+>
+  <View style={[s.recordingDot, { backgroundColor: theme.gold }]} />
+  <Text style={[s.recordingText, { color: theme.gold }]}>
+    Recording... {duration}s / 30s — tap to stop
+  </Text>
+</TouchableOpacity>
       )}
 
       {audioUri && !isRecording && (
@@ -123,7 +134,9 @@ export default function AudioRecorder({ onRecordingComplete, existingUri }: Prop
             style={[s.playBtn, { backgroundColor: theme.surface, borderColor: theme.border }]}
             onPress={isPlaying ? stopAudio : playAudio}
           >
-            <Text style={s.playIcon}>{isPlaying ? '⏹' : '▶'}</Text>
+<Text style={[s.playIcon, { color: theme.gold }]}>
+  {isPlaying ? '⏹' : '▶'}
+</Text>
             <Text style={[s.playText, { color: theme.gold }]}>{isPlaying ? 'Stop' : 'Play voice note'}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={s.deleteBtn} onPress={deleteAudio}>
@@ -140,13 +153,13 @@ const s = StyleSheet.create({
   recordBtn: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 10, borderWidth: 0.5, borderColor: '#2a2a2a', backgroundColor: '#1a1a1a' },
   recordIcon: { fontSize: 20 },
   recordText: { fontSize: 14, color: '#888', fontWeight: '500' },
-  recordingBtn: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 10, borderWidth: 0.5, borderColor: '#c9973a', backgroundColor: '#1e1600' },
-  recordingDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#c9973a' },
-  recordingText: { fontSize: 13, color: '#c9973a', fontWeight: '500' },
+  recordingBtn: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 10, borderWidth: 0.5 },
+  recordingDot: { width: 10, height: 10, borderRadius: 5 },
+  recordingText: { fontSize: 13, fontWeight: '500' },
   playbackRow: { flexDirection: 'row', gap: 10, alignItems: 'center' },
   playBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 10, borderWidth: 0.5 },
   playIcon: { fontSize: 16 },
-  playText: { fontSize: 14, color: '#c9973a', fontWeight: '500' },
+  playText: { fontSize: 14, fontWeight: '500' },
   deleteBtn: { padding: 14 },
   deleteText: { fontSize: 13 },
 });

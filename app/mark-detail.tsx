@@ -512,12 +512,16 @@ const openMediaViewer = (uri: string) => {
   autoCapitalize="words"
   onSubmitEditing={() => addEditTag(editTagInput)}
 />
-                <TouchableOpacity
-                  style={[s.tagAddBtn, !editTagInput.trim() && s.tagAddBtnDim]}
+<TouchableOpacity
+  style={[
+    s.tagAddBtn,
+    { backgroundColor: theme.gold },
+    !editTagInput.trim() && s.tagAddBtnDim,
+  ]}
                   onPress={() => addEditTag(editTagInput)}
                   disabled={!editTagInput.trim()}
                 >
-                  <Text style={s.tagAddBtnText}>+ Add</Text>
+                  <Text style={[s.tagAddBtnText, { color: theme.bg }]}>+ Add</Text>
                 </TouchableOpacity>
               </View>
               {editTags.length > 0 && (
@@ -539,7 +543,7 @@ const openMediaViewer = (uri: string) => {
                   <Text style={[s.cancelEditText, { color: theme.textMuted }]}>Cancel</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[s.saveEditBtn, { backgroundColor: theme.gold }]} onPress={saveEdit}>
-                  <Text style={s.saveEditText}>Save changes</Text>
+                  <Text style={[s.saveEditText, { color: theme.bg }]}>Save changes</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -621,7 +625,7 @@ const openMediaViewer = (uri: string) => {
               <Text style={[s.sectionLabel, { color: theme.textMuted }]}>REFLECTIONS</Text>
               {!isAddingReflection && (
                 <TouchableOpacity onPress={() => setIsAddingReflection(true)}>
-                  <Text style={s.addReflectionBtn}>+ Add</Text>
+                  <Text style={[s.addReflectionBtn, { color: theme.gold }]}>+ Add</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -677,14 +681,14 @@ const openMediaViewer = (uri: string) => {
   autoFocus
 />
                 <View style={s.editActions}>
-                  <TouchableOpacity
-                    style={s.cancelEditBtn}
-                    onPress={() => { setIsAddingReflection(false); setReflectionText(''); }}
-                  >
-                    <Text style={s.cancelEditText}>Cancel</Text>
-                  </TouchableOpacity>
+<TouchableOpacity
+  style={[s.cancelEditBtn, { borderColor: theme.border }]}
+  onPress={() => { setIsAddingReflection(false); setReflectionText(''); }}
+>
+  <Text style={[s.cancelEditText, { color: theme.textMuted }]}>Cancel</Text>
+</TouchableOpacity>
                   <TouchableOpacity style={[s.saveEditBtn, { backgroundColor: theme.gold }]} onPress={saveReflection}>
-                    <Text style={s.saveEditText}>Save reflection</Text>
+                    <Text style={[s.saveEditText, { color: theme.bg }]}>Save reflection</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -788,28 +792,28 @@ const s = StyleSheet.create({
   editInput: { borderWidth: 0.5, borderRadius: 10, padding: 12, fontSize: 15 },
   editTextarea: { minHeight: 120, lineHeight: 22, textAlignVertical: 'top' },
   editActions: { flexDirection: 'row', gap: 10, marginTop: 14 },
- cancelEditBtn: { flex: 1, padding: 13, borderRadius: 10, borderWidth: 0.5, alignItems: 'center' },
+  cancelEditBtn: { flex: 1, padding: 13, borderRadius: 10, borderWidth: 0.5, alignItems: 'center' },
   cancelEditText: { fontSize: 14, color: '#555' },
   saveEditBtn: { flex: 2, padding: 13, borderRadius: 10, alignItems: 'center' },
-  saveEditText: { fontSize: 14, color: '#111', fontWeight: '700' },
+  saveEditText: { fontSize: 14, fontWeight: '700' },
 
   // Tag editing
   tagInputRow: { flexDirection: 'row', gap: 8, alignItems: 'center', marginTop: 8 },
-  tagAddBtn: { paddingHorizontal: 14, paddingVertical: 12, borderRadius: 10, backgroundColor: '#c9973a' },
+  tagAddBtn: { paddingHorizontal: 14, paddingVertical: 12, borderRadius: 10 },
   tagAddBtnDim: { opacity: 0.35 },
-  tagAddBtnText: { fontSize: 13, color: '#111', fontWeight: '700' },
+  tagAddBtnText: { fontSize: 13, fontWeight: '700' },
   presetTagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginBottom: 4 },
   presetTag: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 0.5, borderColor: '#2a2a2a', backgroundColor: '#1a1a1a' },
-  presetTagActive: { backgroundColor: '#c9973a', borderColor: '#c9973a' },
+  presetTagActive: {},
   presetTagText: { fontSize: 12, color: '#666' },
   presetTagTextActive: { color: '#111', fontWeight: '600' },
   selectedTagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
   selectedTag: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 0.5 },
-  selectedTagText: { fontSize: 12, color: '#c9973a' },
+  selectedTagText: { fontSize: 12 },
 
   // Reflections
   reflectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  addReflectionBtn: { fontSize: 13, color: '#c9973a', fontWeight: '600' },
+  addReflectionBtn: { fontSize: 13, fontWeight: '600' },
   reflectionEmpty: { fontSize: 14, fontStyle: 'italic', lineHeight: 22 },
   reflectionAuthorRow: {
   flexDirection: 'row',
@@ -830,7 +834,6 @@ reflectionAuthorFallback: {
   justifyContent: 'center',
 },
 reflectionAuthorLetter: {
-  color: '#c9973a',
   fontSize: 13,
   fontWeight: '700',
 },

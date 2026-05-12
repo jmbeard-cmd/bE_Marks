@@ -157,8 +157,7 @@ async function resolveDiscoveryInput(input: string): Promise<DiscoveryProfile> {
 }
 
 export default function MessagesScreen() {
-  const { themeMode } = useIdentity();
-  const theme = themeMode === 'light' ? Colors.light : Colors.dark;
+  const { theme } = useIdentity();
   const s = useMemo(() => createStyles(theme), [theme]);
   const router = useRouter();
 

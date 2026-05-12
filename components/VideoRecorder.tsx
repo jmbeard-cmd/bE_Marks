@@ -1,6 +1,7 @@
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useIdentity } from '../app/_layout';
 
 interface Props {
   onVideoComplete: (uri: string) => void;
@@ -8,6 +9,7 @@ interface Props {
 }
 
 export default function VideoRecorder({ onVideoComplete, existingUri }: Props) {
+  const { theme } = useIdentity();
   const [cameraOpen, setCameraOpen] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [videoUri, setVideoUri] = useState<string | undefined>(existingUri);
@@ -89,7 +91,7 @@ useEffect(() => {
                 <Text style={s.cancelText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity style={s.startBtn} onPress={startRecording}>
-                <View style={s.startDot} />
+                <View style={[s.startDot, { backgroundColor: theme.gold }]} />
               </TouchableOpacity>
               <TouchableOpacity 
   style={s.flipBtn} 
@@ -103,7 +105,7 @@ useEffect(() => {
             <>
               <Text style={s.timerText}>{duration}s / 30s</Text>
               <TouchableOpacity style={s.stopBtn} onPress={stopRecording}>
-                <View style={s.stopSquare} />
+                <View style={[s.stopSquare, { backgroundColor: theme.gold }]} />
               </TouchableOpacity>
               <View style={{ width: 70 }} />
             </>
@@ -126,7 +128,7 @@ useEffect(() => {
         <View style={s.previewRow}>
           <View style={s.videoThumb}>
             <Text style={s.videoThumbIcon}>🎥</Text>
-            <Text style={s.videoThumbText}>Video recorded</Text>
+            <Text style={[s.videoThumbText, { color: theme.gold }]}>Video recorded</Text>
           </View>
           <TouchableOpacity style={s.deleteBtn} onPress={deleteVideo}>
             <Text style={s.deleteText}>Remove</Text>
@@ -148,14 +150,14 @@ const s = StyleSheet.create({
   cancelBtn: { width: 70 },
   cancelText: { color: '#fff', fontSize: 14 },
   startBtn: { width: 64, height: 64, borderRadius: 32, borderWidth: 3, borderColor: '#fff', alignItems: 'center', justifyContent: 'center' },
-  startDot: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#c9973a' },
+  startDot: { width: 48, height: 48, borderRadius: 24 },
   stopBtn: { width: 64, height: 64, borderRadius: 32, borderWidth: 3, borderColor: '#fff', alignItems: 'center', justifyContent: 'center' },
-  stopSquare: { width: 28, height: 28, borderRadius: 4, backgroundColor: '#c9973a' },
+  stopSquare: { width: 28, height: 28, borderRadius: 4 },
   timerText: { color: '#fff', fontSize: 14, fontWeight: '600', width: 70 },
   previewRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   videoThumb: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 10, borderWidth: 0.5, borderColor: '#2a2a2a', backgroundColor: '#1a1a1a' },
   videoThumbIcon: { fontSize: 20 },
-  videoThumbText: { fontSize: 14, color: '#c9973a', fontWeight: '500' },
+  videoThumbText: { fontSize: 14, fontWeight: '500' },
   deleteBtn: { padding: 14 },
   deleteText: { fontSize: 13, color: '#555' },
   flipBtn: { width: 70, alignItems: 'flex-end' },

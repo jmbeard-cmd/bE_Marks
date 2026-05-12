@@ -118,10 +118,9 @@ type Sheet = 'none' | 'create' | 'join';
 
 export default function GroupsScreen() {
   const router = useRouter();
-  const { npub, nsec, profile, themeMode } = useIdentity();
+const { npub, nsec, profile, theme } = useIdentity();
 
-  const theme = themeMode === 'light' ? Colors.light : Colors.dark;
-  const s = useMemo(() => createStyles(theme), [theme]);
+const s = useMemo(() => createStyles(theme), [theme]);
 
   const [activeGroups, setActiveGroups] = useState<BEGroup[]>([]);
   const [archivedGroups, setArchivedGroups] = useState<BEGroup[]>([]);
@@ -854,7 +853,7 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     backgroundColor: theme.gold,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#c9973a',
+    shadowColor: theme.gold,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
     shadowRadius: 8,

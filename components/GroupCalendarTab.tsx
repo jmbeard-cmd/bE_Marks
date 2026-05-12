@@ -81,8 +81,7 @@ export default function GroupCalendarTab({
   refreshing,
   onRefresh,
 }: Props) {
-  const { themeMode } = useIdentity();
-  const theme = Colors[themeMode];
+  const { theme } = useIdentity();
   const s = useMemo(() => createStyles(theme), [theme]);
   const [events, setEvents]         = useState<GroupCalendarEvent[]>([]);
   const [loading, setLoading]       = useState(true);
@@ -413,7 +412,7 @@ export default function GroupCalendarTab({
                 value={evDate}
                 onChangeText={setEvDate}
                 placeholder="05/15/2025"
-                placeholderTextColor="#444"
+                placeholderTextColor={theme.textMuted}
                 keyboardType="numbers-and-punctuation"
                 maxLength={10}
               />
@@ -426,7 +425,7 @@ export default function GroupCalendarTab({
                 <Switch
                   value={evIsAllDay}
                   onValueChange={setEvIsAllDay}
-                  trackColor={{ false: '#2a2a2a', true: '#c9973a' }}
+                  trackColor={{ false: theme.raised, true: theme.gold }}
                   thumbColor="#fff"
                 />
               </View>
@@ -490,7 +489,7 @@ export default function GroupCalendarTab({
                   disabled={saving}
                 >
                   {saving
-                    ? <ActivityIndicator size="small" color="#111" />
+                    ? <ActivityIndicator size="small" color={theme.bg} />
                     : <Text style={s.confirmText}>Post event</Text>}
                 </TouchableOpacity>
               </View>
@@ -772,8 +771,8 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 14,
     borderRadius: 28,
-    backgroundColor: '#c9973a',
-    shadowColor: '#c9973a',
+    backgroundColor: theme.gold,
+    shadowColor: theme.gold,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
     shadowRadius: 8,

@@ -29,8 +29,7 @@ import { sendRemoteDMNotification } from '../src/utils/push-notifications';
 import { useIdentity } from './_layout';
 
 export default function DmThreadScreen() {
-  const { themeMode, npub, profile } = useIdentity();
-  const theme = themeMode === 'light' ? Colors.light : Colors.dark;
+  const { theme, npub, profile } = useIdentity();
   const s = useMemo(() => createStyles(theme), [theme]);
 
   const router = useRouter();

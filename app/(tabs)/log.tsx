@@ -497,7 +497,7 @@ setProgress(0);
           <TextInput
   style={[s.textarea, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]}
             placeholder="What happened? How did it feel?"
-            placeholderTextColor="#444"
+            placeholderTextColor={theme.textMuted}
             value={note}
             onChangeText={setNote}
             multiline
@@ -543,19 +543,23 @@ setProgress(0);
             <TextInput
   style={[s.tagInput, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]}
               placeholder="Custom tag..."
-              placeholderTextColor="#444"
+              placeholderTextColor={theme.textMuted}
               value={tagInput}
               onChangeText={setTagInput}
               onSubmitEditing={() => addTag(tagInput)}
               returnKeyType="done"
               autoCapitalize="words"
             />
-            <TouchableOpacity
-              style={[s.tagAddBtn, !tagInput.trim() && s.tagAddBtnDim]}
+<TouchableOpacity
+  style={[
+    s.tagAddBtn,
+    { backgroundColor: theme.gold },
+    !tagInput.trim() && s.tagAddBtnDim,
+  ]}
               onPress={() => addTag(tagInput)}
               disabled={!tagInput.trim()}
             >
-              <Text style={s.tagAddBtnText}>+ Add</Text>
+            <Text style={[s.tagAddBtnText, { color: theme.bg }]}>+ Add</Text>
             </TouchableOpacity>
           </View>
 
@@ -577,7 +581,11 @@ setProgress(0);
             <Text style={[s.relayHint, { color: theme.textMuted }]}>relay.beginningend.com</Text>
           </View>
           <TouchableOpacity
-            style={[s.toggle, publishToNostr && s.toggleOn]}
+          style={[
+  s.toggle,
+  { backgroundColor: theme.raised },
+  publishToNostr && { backgroundColor: theme.gold },
+]}
             onPress={() => setPublishToNostr(v => !v)}
           >
             <View style={[s.toggleThumb, publishToNostr && s.toggleThumbOn]} />
@@ -591,7 +599,11 @@ setProgress(0);
               <Text style={[s.relayHint, { color: theme.textMuted }]}>{family.name}</Text>
             </View>
             <TouchableOpacity
-              style={[s.toggle, shareWithFamily && s.toggleOn]}
+              style={[
+  s.toggle,
+  { backgroundColor: theme.raised },
+  shareWithFamily && { backgroundColor: theme.gold },
+]}
               onPress={() => setShareWithFamily(v => !v)}
             >
               <View style={[s.toggleThumb, shareWithFamily && s.toggleThumbOn]} />
@@ -623,15 +635,19 @@ setProgress(0);
 
       {saving && (
         <View style={s.savingOverlay}>
-          <View style={s.savingCard}>
-            <ActivityIndicator color="#c9973a" />
-            <Text style={s.savingTitle}>{saveStatus || 'Saving Mark...'}</Text>
+          <View style={[s.savingCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <ActivityIndicator color={theme.gold} />
+<Text style={[s.savingTitle, { color: theme.text }]}>
+  {saveStatus || 'Saving Mark...'}
+</Text>
 
-            <View style={s.progressWrap}>
-              <View style={[s.progressBar, { width: `${progress}%` }]} />
-            </View>
+<View style={[s.progressWrap, { backgroundColor: theme.raised }]}>
+  <View style={[s.progressBar, { width: `${progress}%`, backgroundColor: theme.gold }]} />
+</View>
 
-            <Text style={s.progressText}>{progress}%</Text>
+            <Text style={[s.progressText, { color: theme.textMuted }]}>
+              {progress}%
+           </Text>
           </View>
         </View>
       )}
@@ -658,7 +674,7 @@ const s = StyleSheet.create({
   textarea: { borderWidth: 0.5, borderRadius: 8, padding: 12, fontSize: 15, minHeight: 100, lineHeight: 22 },
   presets: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginBottom: 10 },
   presetChip: { paddingHorizontal: 13, paddingVertical: 7, borderRadius: 20, borderWidth: 0.5 },
-  presetChipActive: { backgroundColor: '#c9973a', borderColor: '#c9973a' },
+  presetChipActive: {},
   presetText: { fontSize: 13, color: '#666' },
   presetTextActive: { color: '#111', fontWeight: '600' },
 
@@ -700,7 +716,6 @@ progressWrap: {
 },
 progressBar: {
   height: '100%',
-  backgroundColor: '#c9973a',
 },
 savingOverlay: {
   ...StyleSheet.absoluteFillObject,
@@ -749,17 +764,17 @@ videoBadgeText: {
   // Custom tag row
   tagInputRow: { flexDirection: 'row', gap: 8, alignItems: 'center', marginTop: 4 },
   tagInput: { flex: 1, borderWidth: 0.5, borderRadius: 8, padding: 10, fontSize: 14 },
-  tagAddBtn: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 8, backgroundColor: '#c9973a' },
+  tagAddBtn: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 8 },
   tagAddBtnDim: { opacity: 0.35 },
-  tagAddBtnText: { fontSize: 13, color: '#111', fontWeight: '700' },
+  tagAddBtnText: { fontSize: 13, fontWeight: '700' },
   selectedTags: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10 },
   tagChip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 0.5 },
-  tagChipText: { fontSize: 12, color: '#c9973a' },
+  tagChipText: { fontSize: 12 },
   relayRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22, paddingVertical: 12, borderTopWidth: 0.5, borderBottomWidth: 0.5 },
   relayLabel: { fontSize: 14, fontWeight: '500' },
   relayHint: { fontSize: 11, marginTop: 2 },
   toggle: { width: 44, height: 24, borderRadius: 12, backgroundColor: '#2a2a2a', justifyContent: 'center', padding: 2 },
-  toggleOn: { backgroundColor: '#c9973a' },
+  toggleOn: {},
   toggleThumb: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#fff' },
   toggleThumbOn: { alignSelf: 'flex-end' },
   saveBtn: { borderRadius: 10, padding: 16, alignItems: 'center', marginTop: 4 },

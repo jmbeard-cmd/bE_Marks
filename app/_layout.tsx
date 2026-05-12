@@ -5,7 +5,12 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import { AppState } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-get-random-values';
-import { Colors } from '../src/constants/theme';
+import {
+  ACCENT_PALETTE_STORAGE_KEY,
+  Colors,
+  getColors,
+  type AccentPaletteKey,
+} from '../src/constants/theme';
 import { startDMService, stopDMService } from '../src/utils/dm-service';
 import { clearDMStorage } from '../src/utils/dm-storage';
 import { fetchNostrProfile, getStoredIdentity, type NostrProfile } from '../src/utils/nostr';
@@ -36,8 +41,10 @@ interface IdentityContextType {
   relays: string[];
   setRelays: (r: string[]) => void;
   themeMode: 'dark' | 'light';
-setThemeMode: (mode: 'dark' | 'light') => void;
-theme: typeof Colors.dark;
+  setThemeMode: (mode: 'dark' | 'light') => void;
+  accentPalette: AccentPaletteKey;
+  setAccentPalette: (palette: AccentPaletteKey) => void;
+  theme: typeof Colors.dark;
 }
 
 export const IdentityContext = createContext<IdentityContextType>({
@@ -54,8 +61,10 @@ export const IdentityContext = createContext<IdentityContextType>({
   relays: ['wss://relay.beginningend.com'],
   setRelays: () => {},
   themeMode: 'dark',
-setThemeMode: () => {},
-theme: Colors.dark,
+  setThemeMode: () => {},
+  accentPalette: 'classic',
+  setAccentPalette: () => {},
+  theme: Colors.dark,
 });
 
 export function useIdentity() {
@@ -73,7 +82,8 @@ export default function RootLayout() {
   const router = useRouter() as any;
   const segments = useSegments() as any;
   const [themeMode, setThemeModeState] = useState<'dark' | 'light'>('dark');
-  const theme = Colors[themeMode];
+  const [accentPalette, setAccentPaletteState] = useState<AccentPaletteKey>('classic');
+  const theme = getColors(themeMode, accentPalette);
 
   useEffect(() => {
   if (!ready) return;
@@ -137,13 +147,26 @@ useEffect(() => {
   };
 }, [ready, npub]);
 
-    useEffect(() => {
-  AsyncStorage.getItem('be_theme_mode').then(saved => {
-    if (saved === 'light' || saved === 'dark') {
-      setThemeModeState(saved);
-    }
-  });
-}, []);
+  useEffect(() => {
+    Promise.all([
+      AsyncStorage.getItem('be_theme_mode'),
+      AsyncStorage.getItem(ACCENT_PALETTE_STORAGE_KEY),
+    ]).then(([savedThemeMode, savedAccentPalette]) => {
+      if (savedThemeMode === 'light' || savedThemeMode === 'dark') {
+        setThemeModeState(savedThemeMode);
+      }
+
+      if (
+        savedAccentPalette === 'classic' ||
+        savedAccentPalette === 'blue' ||
+        savedAccentPalette === 'green' ||
+        savedAccentPalette === 'crimson' ||
+        savedAccentPalette === 'purple'
+      ) {
+        setAccentPaletteState(savedAccentPalette);
+      }
+    });
+  }, []);
   
   useEffect(() => {
     let cancelled = false;
@@ -260,9 +283,14 @@ enqueueStartupJob({
 }, [ready, npub, segments]);
 
   const setThemeMode = async (mode: 'dark' | 'light') => {
-  setThemeModeState(mode);
-  await AsyncStorage.setItem('be_theme_mode', mode);
-};
+    setThemeModeState(mode);
+    await AsyncStorage.setItem('be_theme_mode', mode);
+  };
+
+  const setAccentPalette = async (palette: AccentPaletteKey) => {
+    setAccentPaletteState(palette);
+    await AsyncStorage.setItem(ACCENT_PALETTE_STORAGE_KEY, palette);
+  };
   
  const setIdentity = (p: string, s: string) => {
   stopDMService();
@@ -349,6 +377,8 @@ enqueueStartupJob({
   relays, setRelays,
   themeMode,
   setThemeMode,
+  accentPalette,
+  setAccentPalette,
   theme,
 }}>
       <StatusBar style={themeMode === 'dark' ? 'light' : 'dark'} />

@@ -1,7 +1,6 @@
 import { memo } from 'react';
 import { ActivityIndicator, Image, Linking, Text, TouchableOpacity, View } from 'react-native';
 import { useIdentity } from '../app/_layout';
-import { Colors } from '../src/constants/theme';
 
 type MessageMediaType = 'image' | 'video' | 'file';
 
@@ -284,8 +283,7 @@ function MessageBubble({
   onPollDetails,
   s,
 }: Props) {
-  const { themeMode, npub } = useIdentity();
-  const theme = Colors[themeMode];
+  const { theme, npub } = useIdentity();
 
   const isPending = item?.pending;
   const isDeleted = !!item?.isDeleted;

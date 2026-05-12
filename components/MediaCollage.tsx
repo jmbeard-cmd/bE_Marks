@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   Image,
@@ -9,6 +9,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useIdentity } from '../app/_layout';
+import { Colors } from '../src/constants/theme';
 
 export type CollageMediaItem = {
   id?: string;
@@ -54,9 +56,11 @@ function getPreviewUri(item: CollageMediaItem): string | null {
 function MediaPreviewImage({
   uri,
   type,
+  s,
 }: {
   uri: string | null;
   type: 'image' | 'video';
+  s: ReturnType<typeof createStyles>;
 }) {
   const [failed, setFailed] = useState(false);
 
@@ -84,6 +88,8 @@ export default function MediaCollage({
   audioUri,
   onPressMedia,
 }: Props) {
+  const { theme } = useIdentity();
+  const s = useMemo(() => createStyles(theme), [theme]);
   const listRef = useRef<FlatList<CollageMediaItem>>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [carouselWidth, setCarouselWidth] = useState(0);
@@ -165,6 +171,7 @@ export default function MediaCollage({
               <MediaPreviewImage
                 uri={previewUri}
                 type={type === 'video' ? 'video' : 'image'}
+                s={s}
               />
 
             </TouchableOpacity>
@@ -214,7 +221,7 @@ export default function MediaCollage({
   );
 }
 
-const s = StyleSheet.create({
+const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
   wrap: {
     width: '100%',
     height: CARD_MEDIA_HEIGHT,
@@ -242,7 +249,7 @@ slide: {
     gap: 6,
   },
   fallbackIcon: {
-    color: '#c9973a',
+    color: theme.gold,
     fontSize: 28,
     fontWeight: '900',
   },
@@ -285,7 +292,7 @@ slide: {
     width: 7,
     height: 7,
     borderRadius: 3.5,
-    backgroundColor: '#c9973a',
+    backgroundColor: theme.gold,
   },
   badgeRow: {
     position: 'absolute',

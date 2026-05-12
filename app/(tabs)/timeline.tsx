@@ -673,7 +673,11 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
 >
   {family ? `${family.name} (${familyMemberCount})` : 'Family'}
 </Text>
-            {showBanner && newFamilyCount > 0 && <View style={s.tabBadge}><Text style={s.tabBadgeText}>{newFamilyCount}</Text></View>}
+{showBanner && newFamilyCount > 0 && (
+  <View style={[s.tabBadge, { backgroundColor: theme.gold }]}>
+    <Text style={[s.tabBadgeText, { color: theme.bg }]}>{newFamilyCount}</Text>
+  </View>
+)}
              {syncing && tab === 'family' && <ActivityIndicator size="small" color={theme.gold} style={{ marginLeft: 4 }} />}
           </View>
         </TouchableOpacity>
@@ -697,14 +701,26 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
           <Text style={[s.emptyIcon, themed.mutedText]}>👨‍👩‍👧‍👦</Text>
           <Text style={[s.emptyText, themed.primaryText]}>No family group yet</Text>
           <Text style={[s.emptyHint, themed.mutedText]}>Go to Settings to create or join a family.</Text>
-          <TouchableOpacity style={s.emptyActionBtn} onPress={() => router.push('/(tabs)/settings' as any)}><Text style={s.emptyActionText}>Go to Settings</Text></TouchableOpacity>
+    <TouchableOpacity
+  style={[s.emptyActionBtn, { backgroundColor: theme.gold }]}
+  onPress={() => router.push('/(tabs)/settings' as any)}
+>
+  <Text style={[s.emptyActionText, { color: theme.bg }]}>Go to Settings</Text>
+</TouchableOpacity>
         </View>
       ) : filtered.length === 0 ? (
         <View style={s.empty}>
           <Text style={[s.emptyIcon, themed.mutedText]}>{activeFilterCount > 0 ? '🔍' : syncing ? '⟳' : '◎'}</Text>
           <Text style={[s.emptyText, themed.primaryText]}>{syncing ? 'Syncing…' : activeFilterCount > 0 ? 'No matches' : tab === 'family' ? 'No family Marks yet' : 'No Marks yet'}</Text>
           <Text style={[s.emptyHint, themed.mutedText]}>{syncing ? '' : activeFilterCount > 0 ? 'Try adjusting your filters.' : tab === 'family' ? 'Save a Mark and tag it to your family.' : 'Tap + to capture your first Mark.'}</Text>
-          {activeFilterCount > 0 && <TouchableOpacity style={s.emptyActionBtn} onPress={clearFilters}><Text style={s.emptyActionText}>Clear filters</Text></TouchableOpacity>}
+{activeFilterCount > 0 && (
+  <TouchableOpacity
+    style={[s.emptyActionBtn, { backgroundColor: theme.gold }]}
+    onPress={clearFilters}
+  >
+    <Text style={[s.emptyActionText, { color: theme.bg }]}>Clear filters</Text>
+  </TouchableOpacity>
+)}
         </View>
       ) : (
         <FlatList
@@ -912,13 +928,58 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
                 <View style={s.drawerSection}>
                   <Text style={[s.drawerSectionLabel, themed.mutedText]}>FAMILY MEMBER</Text>
                   <View style={s.drawerChips}>
-                    <TouchableOpacity style={[s.drawerChip, pendingFilters.authorNpub === null && s.drawerChipActive]} onPress={() => setPendingFilters(prev => ({ ...prev, authorNpub: null }))}>
-                      <Text style={[s.drawerChipText, pendingFilters.authorNpub === null && s.drawerChipTextActive]}>Everyone</Text>
-                    </TouchableOpacity>
+<TouchableOpacity
+  style={[
+    s.drawerChip,
+    themed.raised,
+    themed.border,
+    pendingFilters.authorNpub === null && {
+      backgroundColor: theme.gold,
+      borderColor: theme.gold,
+    },
+  ]}
+  onPress={() => setPendingFilters(prev => ({ ...prev, authorNpub: null }))}
+>
+  <Text
+    style={[
+      s.drawerChipText,
+      themed.primaryText,
+      pendingFilters.authorNpub === null && {
+        color: theme.bg,
+        fontWeight: '600',
+      },
+    ]}
+  >
+    Everyone
+  </Text>
+</TouchableOpacity>
                     {familyAuthors.map(a => (
-                      <TouchableOpacity key={a} style={[s.drawerChip, pendingFilters.authorNpub === a && s.drawerChipActive]} onPress={() => setPendingFilters(prev => ({ ...prev, authorNpub: a }))}>
-                        <Text style={[s.drawerChipText, pendingFilters.authorNpub === a && s.drawerChipTextActive]}>{a === npub ? 'Me' : `${a.slice(0, 8)}…`}</Text>
-                      </TouchableOpacity>
+<TouchableOpacity
+  key={a}
+  style={[
+    s.drawerChip,
+    themed.raised,
+    themed.border,
+    pendingFilters.authorNpub === a && {
+      backgroundColor: theme.gold,
+      borderColor: theme.gold,
+    },
+  ]}
+  onPress={() => setPendingFilters(prev => ({ ...prev, authorNpub: a }))}
+>
+  <Text
+    style={[
+      s.drawerChipText,
+      themed.primaryText,
+      pendingFilters.authorNpub === a && {
+        color: theme.bg,
+        fontWeight: '600',
+      },
+    ]}
+  >
+    {a === npub ? 'Me' : `${a.slice(0, 8)}…`}
+  </Text>
+</TouchableOpacity>
                     ))}
                   </View>
                 </View>
@@ -994,22 +1055,22 @@ const s = StyleSheet.create({
   bannerDismissText: { fontSize: 14, color: '#555' },
   tabRow: { flexDirection: 'row', borderBottomWidth: 0.5 },
   tabBtn: { flex: 1, paddingVertical: 12, alignItems: 'center' },
-  tabBtnActive: { borderBottomWidth: 2, borderBottomColor: '#c9973a' },
+  tabBtnActive: { borderBottomWidth: 2 },
   tabText: { fontSize: 13, color: '#444', fontWeight: '500' },
-  tabTextActive: { color: '#c9973a', fontWeight: '700' },
+  tabTextActive: { fontWeight: '700' },
   tabLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  tabBadge: { backgroundColor: '#c9973a', borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2, minWidth: 18, alignItems: 'center' },
-  tabBadgeText: { fontSize: 10, color: '#111', fontWeight: '700' },
+  tabBadge: { borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2, minWidth: 18, alignItems: 'center' },
+  tabBadgeText: { fontSize: 10, fontWeight: '700' },
   filterBar: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: 0.5, paddingRight: 12 },
   filterBarInner: { paddingHorizontal: 12, paddingVertical: 9, gap: 6, flexDirection: 'row', alignItems: 'center' },
   activeChip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, backgroundColor: '#1e1600', borderWidth: 0.5, borderColor: '#c9973a33' },
-  activeChipText: { fontSize: 11, color: '#c9973a' },
+  activeChipText: { fontSize: 11 },
   clearChip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, backgroundColor: '#2a1a1a', borderWidth: 0.5, borderColor: '#c00' },
   clearChipText: { fontSize: 11, color: '#c00' },
   filterBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 0.5, borderColor: '#2a2a2a', backgroundColor: '#1a1a1a', marginLeft: 4 },
-  filterBtnActive: { borderColor: '#c9973a', backgroundColor: '#1e1600' },
+  filterBtnActive: {},
   filterBtnText: { fontSize: 12, color: '#555', fontWeight: '500' },
-  filterBtnTextActive: { color: '#c9973a', fontWeight: '600' },
+  filterBtnTextActive: { fontWeight: '600' },
   list: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 100 },
   item: { flexDirection: 'row', gap: 14, marginBottom: 20 },
   timelineCol: { alignItems: 'center', width: 12, paddingTop: 4 },
@@ -1196,7 +1257,7 @@ markCollagePlay: {
     fontWeight: '900',
   },
   videoThumb: { width: '100%', height: 120, backgroundColor: '#0d0d0d', alignItems: 'center', justifyContent: 'center', gap: 8, borderBottomWidth: 0.5, borderBottomColor: '#222' },
-  videoPlayCircle: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(201,151,58,0.85)', alignItems: 'center', justifyContent: 'center' },
+  videoPlayCircle: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
   videoPlayIcon: { fontSize: 16, color: '#111', marginLeft: 3 },
   videoThumbLabel: { fontSize: 12, color: '#555' },
   audioThumb: { width: '100%', height: 56, backgroundColor: '#0d0d0d', alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8, borderBottomWidth: 0.5, borderBottomColor: '#222' },
@@ -1207,17 +1268,17 @@ markCollagePlay: {
   cardTitle: { fontSize: 16, fontWeight: '700', color: '#fff', marginBottom: 4 },
   note: { fontSize: 14, color: '#888', lineHeight: 20 },
   tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 10 },
-  tag: { fontSize: 11, color: '#c9973a', backgroundColor: '#1e1600', paddingHorizontal: 9, paddingVertical: 4, borderRadius: 20, borderWidth: 0.5, borderColor: '#3a2800' },
+  tag: { fontSize: 11, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 20, borderWidth: 0.5 },
   cardMeta: { flexDirection: 'row', gap: 10, marginTop: 8, flexWrap: 'wrap' },
   relayBadge: { fontSize: 10, color: '#444' },
-  reflectionBadge: { fontSize: 10, color: '#c9973a' },
+  reflectionBadge: { fontSize: 10 },
   authorBadge: { fontSize: 10, color: '#555' },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 48 },
   emptyIcon: { fontSize: 36, marginBottom: 12 },
   emptyText: { fontSize: 17, fontWeight: '500' },
   emptyHint: { fontSize: 13, marginTop: 6, textAlign: 'center' },
-  emptyActionBtn: { marginTop: 20, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8, borderWidth: 0.5, borderColor: '#c9973a' },
-  emptyActionText: { fontSize: 14, color: '#c9973a', fontWeight: '500' },
+  emptyActionBtn: { marginTop: 20, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8, borderWidth: 0.5, },
+  emptyActionText: { fontSize: 14, fontWeight: '500' },
  fab: {
   position: 'absolute',
   bottom: 24,

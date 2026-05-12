@@ -14,7 +14,6 @@ import { Colors } from '../src/constants/theme';
 import {
     createGroupBookEntry,
     getBookSummaryForGroup,
-    publishUnsyncedGroupBookEntries,
     subscribeToGroupBooks,
     syncGroupBookEntriesFromRelay,
     updateGroupBookEntryStatus,
@@ -34,7 +33,7 @@ type Props = {
   npub?: string;
   nsec?: string;
   displayName?: string;
-  themeMode: 'dark' | 'light';
+  theme: typeof Colors.dark;
   onGroupUpdated?: () => void;
 };
 
@@ -71,15 +70,26 @@ function getEntryCreatorLabel(entry: GroupBookEntry): string {
   );
 }
 
+const ACCOUNTING_BLACK_LIGHT = '#111111';
+const ACCOUNTING_BLACK_DARK = '#F2EDE6';
+const ACCOUNTING_RED = '#B00000';
+
+function getAccountingBlack(theme: typeof Colors.dark): string {
+  return theme.bg === '#0D0F0E' ? ACCOUNTING_BLACK_DARK : ACCOUNTING_BLACK_LIGHT;
+}
+
+function getAccountingAmountColor(cents: number, theme: typeof Colors.dark): string {
+  return cents < 0 ? ACCOUNTING_RED : getAccountingBlack(theme);
+}
+
 export default function GroupBookTab({
   group,
   npub,
   nsec,
   displayName,
-  themeMode,
+  theme,
   onGroupUpdated,
 }: Props) {
-  const theme = Colors[themeMode];
   const s = useMemo(() => createStyles(theme), [theme]);
 
   const [summary, setSummary] = useState<GroupBookSummary | null>(null);
@@ -98,22 +108,13 @@ export default function GroupBookTab({
     const cachedSummary = await getBookSummaryForGroup(group.id);
     setSummary(cachedSummary);
 
-    if (canManage && nsec && group.relayUrl) {
-      await publishUnsyncedGroupBookEntries({
-        groupId: group.id,
-        nsec,
-        relayUrl: group.relayUrl,
-        force: true,
-      });
-    }
-
     if (group.relayUrl) {
       await syncGroupBookEntriesFromRelay(group.id, group.relayUrl);
 
       const syncedSummary = await getBookSummaryForGroup(group.id);
       setSummary(syncedSummary);
     }
-  }, [group.id, group.relayUrl]);
+   }, [group.id, group.relayUrl]);
 
   const loadPermission = useCallback(async () => {
     if (!npub) {
@@ -280,17 +281,28 @@ export default function GroupBookTab({
 
         <View style={s.snapshotCard}>
           <Text style={s.snapshotLabel}>Annual Balance</Text>
-          <Text style={s.snapshotBalance}>{formatMoney(balanceCents)}</Text>
+<Text
+  style={[
+    s.snapshotBalance,
+    { color: getAccountingAmountColor(balanceCents, theme) },
+  ]}
+>
+  {formatMoney(balanceCents)}
+</Text>
 
           <View style={s.snapshotGrid}>
             <View style={s.snapshotItem}>
               <Text style={s.snapshotItemLabel}>Income</Text>
-              <Text style={s.snapshotIncome}>{formatMoney(incomeCents)}</Text>
+<Text style={[s.snapshotIncome, { color: getAccountingBlack(theme) }]}>
+  {formatMoney(incomeCents)}
+</Text>
             </View>
 
             <View style={s.snapshotItem}>
               <Text style={s.snapshotItemLabel}>Expenses</Text>
-              <Text style={s.snapshotExpense}>{formatMoney(expenseCents)}</Text>
+<Text style={[s.snapshotExpense, { color: ACCOUNTING_RED }]}>
+  {formatMoney(expenseCents)}
+</Text>
             </View>
           </View>
 
@@ -341,15 +353,19 @@ export default function GroupBookTab({
                 </Text>
               </View>
 
-              <Text
-                style={[
-                  s.entryAmount,
-                  item.type === 'expense' && s.entryAmountExpense,
-                ]}
-              >
-                {item.type === 'expense' ? '-' : '+'}
-                {formatMoney(item.amountCents)}
-              </Text>
+<Text
+  style={[
+    s.entryAmount,
+    {
+color: item.type === 'expense'
+  ? ACCOUNTING_RED
+  : getAccountingBlack(theme),
+    },
+  ]}
+>
+  {item.type === 'expense' ? '-' : '+'}
+  {formatMoney(item.amountCents)}
+</Text>
             </View>
 
             <Text style={s.entryTitle}>{item.title}</Text>
@@ -426,15 +442,19 @@ export default function GroupBookTab({
                 <Text style={s.actionSubtitle}>{selectedEntry.contributorName}</Text>
               )}
 
-              <Text
-                style={[
-                  s.actionAmount,
-                  selectedEntry.type === 'expense' && s.actionAmountExpense,
-                ]}
-              >
-                {selectedEntry.type === 'expense' ? '-' : '+'}
-                {formatMoney(selectedEntry.amountCents)}
-              </Text>
+<Text
+  style={[
+    s.actionAmount,
+    {
+color: selectedEntry.type === 'expense'
+  ? ACCOUNTING_RED
+  : getAccountingBlack(theme),
+    },
+  ]}
+>
+  {selectedEntry.type === 'expense' ? '-' : '+'}
+  {formatMoney(selectedEntry.amountCents)}
+</Text>
 
               <View style={s.actionStatusRow}>
                 <Text style={s.actionStatusLabel}>Current status</Text>
@@ -695,7 +715,6 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     textTransform: 'uppercase',
   },
   snapshotBalance: {
-    color: theme.gold,
     fontSize: 34,
     fontWeight: '900',
     marginTop: 5,
@@ -720,12 +739,10 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     marginBottom: 4,
   },
   snapshotIncome: {
-    color: theme.gold,
     fontSize: 15,
     fontWeight: '900',
   },
   snapshotExpense: {
-    color: theme.danger,
     fontSize: 15,
     fontWeight: '900',
   },
@@ -789,13 +806,10 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     color: theme.danger,
   },
   entryAmount: {
-    color: theme.gold,
     fontSize: 15,
     fontWeight: '900',
   },
-  entryAmountExpense: {
-    color: theme.danger,
-  },
+  entryAmountExpense: {},
   entryTitle: {
     color: theme.text,
     fontSize: 15,
@@ -879,14 +893,11 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     marginBottom: 12,
   },
   actionAmount: {
-    color: theme.gold,
     fontSize: 28,
     fontWeight: '900',
     marginBottom: 14,
   },
-  actionAmountExpense: {
-    color: theme.danger,
-  },
+  actionAmountExpense: {},
   actionStatusRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
