@@ -23,7 +23,9 @@ import {
   createGroup,
   getActiveGroups,
   getArchivedGroups,
+  isGroupMember,
   joinGroupByCode,
+  syncGroupMembersFromRelay,
   type BEGroup
 } from '../../src/utils/group-storage';
 import {
@@ -171,16 +173,75 @@ export default function GroupsScreen() {
         getArchivedGroups(),
       ]);
 
-      setActiveGroups(active);
-      setArchivedGroups(archived);
+      if (!npub) {
+        setActiveGroups([]);
+        setArchivedGroups([]);
+        setLoadingInitialGroups(false);
+        return;
+      }
+
+      const visibleActive: BEGroup[] = [];
+      const visibleArchived: BEGroup[] = [];
+
+      for (const group of active) {
+        const isActiveMember = await isGroupMember(group.id, npub);
+
+        if (isActiveMember || group.ownerNpub === npub) {
+          visibleActive.push(group);
+        }
+      }
+
+      for (const group of archived) {
+        const isActiveMember = await isGroupMember(group.id, npub);
+
+        if (isActiveMember || group.ownerNpub === npub) {
+          visibleArchived.push(group);
+        }
+      }
+
+      setActiveGroups(visibleActive);
+      setArchivedGroups(visibleArchived);
     } catch (error) {
       console.warn('[Groups] failed to load groups:', error);
     } finally {
       setLoadingInitialGroups(false);
     }
-  }, []);
+  }, [npub]);
 
-  useFocusEffect(useCallback(() => { loadGroups(); }, [loadGroups]));
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+
+      loadGroups();
+
+      Promise.resolve().then(async () => {
+        if (!npub) return;
+
+        try {
+          const active = await getActiveGroups();
+
+          for (const group of active) {
+            if (cancelled) return;
+
+            await syncGroupMembersFromRelay(
+              group.id,
+              group.relayUrl ? [group.relayUrl] : [DEFAULT_RELAY]
+            );
+          }
+
+          if (!cancelled) {
+            await loadGroups();
+          }
+        } catch (error) {
+          console.warn('[Groups] background membership refresh failed:', error);
+        }
+      });
+
+      return () => {
+        cancelled = true;
+      };
+    }, [loadGroups, npub])
+  );
 
   const closeSheet = () => {
     setSheet('none');
