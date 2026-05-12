@@ -36,6 +36,18 @@ function scheduleNext(delayMs: number) {
   }, delayMs);
 }
 
+function scheduleNextQueuedJob() {
+  sortQueue();
+
+  const nextJob = queue[0];
+
+  if (!nextJob) return;
+
+  const delayMs = Math.max(0, nextJob.notBefore - Date.now());
+
+  scheduleNext(delayMs);
+}
+
 function sortQueue() {
   queue.sort((a, b) => {
     if (a.notBefore !== b.notBefore) {
@@ -65,7 +77,7 @@ async function processQueue() {
   if (!nextJob) return;
 
   if (nextJob.notBefore > now) {
-    scheduleNext(nextJob.notBefore - now);
+    scheduleNextQueuedJob();
     return;
   }
 
@@ -91,7 +103,7 @@ async function processQueue() {
   }
 
   if (queue.length > 0) {
-    scheduleNext(BETWEEN_JOBS_DELAY_MS);
+    scheduleNext(Math.max(BETWEEN_JOBS_DELAY_MS, queue[0].notBefore - Date.now()));
   }
 }
 
@@ -119,7 +131,7 @@ export function enqueueStartupJob(job: StartupJob) {
     delayMs
   );
 
-  scheduleNext(delayMs);
+  scheduleNextQueuedJob();  scheduleNext(delayMs);
 }
 
 export function startStartupScheduler() {
