@@ -20,8 +20,19 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ImageViewerModal, { ViewerImage } from '../components/ImageViewerModal';
 import { setAppActivity } from '../src/utils/app-activity';
-import { fetchNostrProfile, publishFamilyMilestone, type NostrProfile } from '../src/utils/nostr';
-import { formatDate, getMilestones, updateMilestone, type Milestone } from '../src/utils/storage';
+import {
+  fetchFamilyMilestones,
+  fetchNostrProfile,
+  publishFamilyMilestone,
+  type NostrProfile,
+} from '../src/utils/nostr';
+import {
+  formatDate,
+  getMilestones,
+  saveRemoteMilestone,
+  updateMilestone,
+  type Milestone,
+} from '../src/utils/storage';
 import { useIdentity } from './_layout';
 
 const { width } = Dimensions.get('window');
@@ -62,7 +73,7 @@ function MilestonePhoto({ uri }: { uri: string }) {
 export default function MilestoneDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { npub, nsec, relays, theme } = useIdentity();
+  const { npub, nsec, relays, family, theme } = useIdentity();
   const [milestone, setMilestone] = useState<Milestone | null>(null);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
@@ -76,6 +87,7 @@ export default function MilestoneDetail() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [detailMediaIndex, setDetailMediaIndex] = useState(0);
   const [reflectionProfiles, setReflectionProfiles] = useState<Record<string, NostrProfile>>({});
+  const [attemptedRemoteLookup, setAttemptedRemoteLookup] = useState(false);
 
   const audioPlayer = useAudioPlayer(
     milestone?.audioUri ? { uri: milestone.audioUri } : null
@@ -87,11 +99,70 @@ export default function MilestoneDetail() {
   );
 
   useEffect(() => {
-    getMilestones().then(all => {
+    let cancelled = false;
+
+    async function loadMilestone() {
+      if (!id) return;
+
+      const all = await getMilestones();
       const found = all.find(m => m.id === id);
-      if (found) setMilestone(found);
-    });
-  }, [id]);
+
+      if (cancelled) return;
+
+      if (found) {
+        setMilestone(found);
+        return;
+      }
+
+      if (!family || attemptedRemoteLookup) {
+        return;
+      }
+
+      setAttemptedRemoteLookup(true);
+
+      try {
+        const remoteEvents = await fetchFamilyMilestones(family.id);
+
+        for (const event of remoteEvents) {
+          try {
+            const data = JSON.parse(event.content);
+
+            await saveRemoteMilestone({
+              id: data.id,
+              note: data.note ?? '',
+              tags: data.tags ?? [],
+              photoUri: data.photoUri,
+              videoUri: data.videoUri,
+              audioUri: data.audioUri,
+              media: Array.isArray(data.media) ? data.media : [],
+              reflections: Array.isArray(data.reflections) ? data.reflections : [],
+              createdAt: data.createdAt ?? event.created_at,
+              familyId: family.id,
+              authorNpub: data.authorNpub,
+              authorName: data.authorName,
+              publishedToRelay: true,
+              nostrEventId: event.id,
+            });
+          } catch {}
+        }
+
+        const refreshed = await getMilestones();
+        const refreshedFound = refreshed.find(m => m.id === id);
+
+        if (!cancelled && refreshedFound) {
+          setMilestone(refreshedFound);
+        }
+      } catch (error) {
+        console.warn('[Mark Detail] remote Mark lookup failed:', error);
+      }
+    }
+
+    loadMilestone();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [id, family, attemptedRemoteLookup]);
 
   useEffect(() => {
   if (!milestone?.reflections?.length) return;
@@ -205,6 +276,7 @@ const getReflectionAuthorLabel = (authorNpub?: string) => {
         createdAt: updatedMilestone.createdAt,
         familyId: updatedMilestone.familyId,
         authorNpub: updatedMilestone.authorNpub ?? npub,
+        authorName: updatedMilestone.authorName,
       },
       nsec,
       relays
