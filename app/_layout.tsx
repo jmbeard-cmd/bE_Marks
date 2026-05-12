@@ -90,9 +90,19 @@ useEffect(() => {
 
   let cancelled = false;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let lastRegisterAttempt = 0;
 
   const registerPush = async (reason: string) => {
     if (cancelled || !npub) return;
+
+    const now = Date.now();
+
+    if (now - lastRegisterAttempt < 10000) {
+      console.log('[LAYOUT] skipped push registration; recently attempted:', reason);
+      return;
+    }
+
+    lastRegisterAttempt = now;
 
     console.log('[LAYOUT] registering push notifications:', reason);
 
@@ -108,8 +118,6 @@ useEffect(() => {
       }, 8000);
     }
   };
-
-  registerPush('identity-ready');
 
   const appStateSub = AppState.addEventListener('change', state => {
     if (state === 'active') {
@@ -205,8 +213,25 @@ enqueueStartupJob({
   }, []);
 
   useEffect(() => {
-    if (!npub) { setProfile(null); return; }
-    fetchNostrProfile(npub).then(p => { if (p) setProfile(p); });
+    if (!npub) {
+      setProfile(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const timer = setTimeout(() => {
+      fetchNostrProfile(npub).then(p => {
+        if (!cancelled && p) {
+          setProfile(p);
+        }
+      });
+    }, 600);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [npub]);
 
   useEffect(() => {
