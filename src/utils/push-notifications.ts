@@ -19,6 +19,7 @@ const PUSH_GROUP_MEMBER_URL = 'https://be-marks-push.jmbeard.workers.dev/push/re
 const PUSH_MARK_URL = 'https://be-marks-push.jmbeard.workers.dev/push/mark';
 const PUSH_REMOVE_GROUP_MEMBER_URL = 'https://be-marks-push.jmbeard.workers.dev/push/remove-group-member';
 const PUSH_GROUP_MESSAGE_URL = 'https://be-marks-push.jmbeard.workers.dev/push/group-message';
+const handledNotificationResponseIds = new Set<string>();
 
 export type BEGroupNotificationEventType =
   | 'chat_message'
@@ -817,6 +818,29 @@ async function getOrCreateThreadForNotification(input: {
   });
 }
 
+function shouldHandleNotificationResponse(response: Notifications.NotificationResponse) {
+  const requestId = response.notification.request.identifier;
+
+  if (!requestId) return true;
+
+  if (handledNotificationResponseIds.has(requestId)) {
+    console.log('[Push] skipped duplicate notification response:', requestId);
+    return false;
+  }
+
+  handledNotificationResponseIds.add(requestId);
+
+  if (handledNotificationResponseIds.size > 30) {
+    const oldest = handledNotificationResponseIds.values().next().value;
+
+    if (oldest) {
+      handledNotificationResponseIds.delete(oldest);
+    }
+  }
+
+  return true;
+}
+
 export function installNotificationResponseHandler(router: {
   push: (href: any) => void;
 }) {
@@ -892,10 +916,14 @@ if (data.type === 'group') {
           id: data.markId,
         },
       } as any);
+
+      return;
     }
   }
 
   const subscription = Notifications.addNotificationResponseReceivedListener(response => {
+    if (!shouldHandleNotificationResponse(response)) return;
+
     routeFromData(response.notification.request.content.data).catch(error => {
       console.warn('[Push] notification response route failed:', error);
     });
@@ -903,7 +931,10 @@ if (data.type === 'group') {
 
   Notifications.getLastNotificationResponseAsync()
     .then(response => {
-      const data = response?.notification.request.content.data;
+      if (!response) return;
+      if (!shouldHandleNotificationResponse(response)) return;
+
+      const data = response.notification.request.content.data;
 
       if (!data) return;
 
