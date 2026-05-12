@@ -9,12 +9,13 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as VideoThumbnails from 'expo-video-thumbnails';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   FlatList,
   Image,
+  InteractionManager,
   KeyboardAvoidingView,
   Linking,
   Modal,
@@ -265,6 +266,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   const [groupRelayUrl, setGroupRelayUrl] = useState('');
   const [upcomingCount, setUpcomingCount] = useState(0);
   const [selectedMemberAction, setSelectedMemberAction] = useState<BEGroupMember | null>(null);
+  const groupDetailLoadRunIdRef = useRef(0);
 
   const myDisplayName = useMemo(() => {
     return (
@@ -324,6 +326,9 @@ const { id, tab: routeTab } = useLocalSearchParams<{
 
   const load = useCallback(async () => {
     if (!id) return;
+
+    const runId = groupDetailLoadRunIdRef.current + 1;
+    groupDetailLoadRunIdRef.current = runId;
 
     const g = await getGroupById(id);
 
@@ -451,15 +456,18 @@ const { id, tab: routeTab } = useLocalSearchParams<{
     }
 
     // BACKGROUND RELAY SYNC AFTER SCREEN IS USABLE
-    Promise.resolve().then(async () => {
+    InteractionManager.runAfterInteractions(() => {
+      Promise.resolve().then(async () => {
+        if (groupDetailLoadRunIdRef.current !== runId) return;
       try {
         const syncedMembers = await syncGroupMembersFromRelay(
           id,
           g.relayUrl ? [g.relayUrl] : []
         );
 
-        setMembers(syncedMembers);
+        if (groupDetailLoadRunIdRef.current !== runId) return;
 
+        setMembers(syncedMembers);
         syncedMembers
           .filter(member => member.status === 'active')
           .forEach(member => {
@@ -483,6 +491,8 @@ const { id, tab: routeTab } = useLocalSearchParams<{
         console.warn('[Group Detail] background member sync failed:', error);
       }
 
+      if (groupDetailLoadRunIdRef.current !== runId) return;
+
       try {
         const syncedStickies = g.relayUrl
           ? await syncGroupStickiesFromRelay(id, g.relayUrl)
@@ -492,6 +502,8 @@ const { id, tab: routeTab } = useLocalSearchParams<{
       } catch (error) {
         console.warn('[Group Detail] background highlight sync failed:', error);
       }
+
+      if (groupDetailLoadRunIdRef.current !== runId) return;
 
       try {
         if (g.relayUrl) {
@@ -503,6 +515,8 @@ const { id, tab: routeTab } = useLocalSearchParams<{
       } catch (error) {
         console.warn('[Group Detail] background calendar sync failed:', error);
       }
+
+      if (groupDetailLoadRunIdRef.current !== runId) return;
 
       try {
         const localMessages = await getMessagesForGroup(id);
@@ -554,10 +568,17 @@ const { id, tab: routeTab } = useLocalSearchParams<{
       } catch (error) {
         console.warn('[Group Detail] background gallery sync failed:', error);
       }
+      });
     });
   }, [id, npub, hydrateMemberProfiles]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+
+    return () => {
+      groupDetailLoadRunIdRef.current += 1;
+    };
+  }, [load]);
 
   useEffect(() => {
   if (routeTab === 'stickies' || routeTab === 'calendar' || routeTab === 'gallery' || routeTab === 'members') {
