@@ -124,6 +124,8 @@ export default function ImageViewerModal({
 
   const swipeLockedRef = useRef(false);
   const activeIndexRef = useRef(0);
+  const isZoomedRef = useRef(false);
+  const lastZoomScaleRef = useRef(1);
 
   const activeMedia = images[activeIndex];
 
@@ -198,6 +200,8 @@ useEffect(() => {
     if (!selectedUri) {
       setModalSeedUri(null);
       setIsZoomed(false);
+      isZoomedRef.current = false;
+      lastZoomScaleRef.current = 1;
       swipeLockedRef.current = false;
       activeIndexRef.current = 0;
       return;
@@ -208,6 +212,8 @@ useEffect(() => {
 
     swipeLockedRef.current = false;
     activeIndexRef.current = safeIndex;
+    isZoomedRef.current = false;
+    lastZoomScaleRef.current = 1;
 
     setActiveIndex(safeIndex);
     setIsZoomed(false);
@@ -218,6 +224,13 @@ useEffect(() => {
   useEffect(() => {
     setZoomKey(k => k + 1);
   }, [width, height]);
+
+    function setZoomedSafely(nextZoomed: boolean) {
+    if (isZoomedRef.current === nextZoomed) return;
+
+    isZoomedRef.current = nextZoomed;
+    setIsZoomed(nextZoomed);
+  }
 
   function unlockSwipeSoon() {
     setTimeout(() => {
@@ -235,6 +248,9 @@ useEffect(() => {
 
     swipeLockedRef.current = true;
     activeIndexRef.current = nextIndex;
+
+    isZoomedRef.current = false;
+    lastZoomScaleRef.current = 1;
 
     setActiveIndex(nextIndex);
     setIsZoomed(false);
@@ -254,6 +270,9 @@ useEffect(() => {
     swipeLockedRef.current = true;
     activeIndexRef.current = nextIndex;
 
+    isZoomedRef.current = false;
+    lastZoomScaleRef.current = 1;
+
     setActiveIndex(nextIndex);
     setIsZoomed(false);
     setZoomKey(k => k + 1);
@@ -264,6 +283,8 @@ useEffect(() => {
   function handleClose() {
     swipeLockedRef.current = false;
     activeIndexRef.current = 0;
+    isZoomedRef.current = false;
+    lastZoomScaleRef.current = 1;
     setIsZoomed(false);
     setModalSeedUri(null);
     onClose();
@@ -273,6 +294,19 @@ useEffect(() => {
     !!selectedUri &&
     modalSeedUri === selectedUri &&
     !!activeMedia;
+
+      useEffect(() => {
+    if (!contentReady || !activeMedia) return;
+
+    const adjacentImages = [
+      images[activeIndex - 1],
+      images[activeIndex + 1],
+    ].filter(item => item?.type !== 'video' && !!item?.uri);
+
+    adjacentImages.forEach(item => {
+      Image.prefetch(item.uri).catch(() => {});
+    });
+  }, [contentReady, activeIndex, activeMedia, images]);
 
   return (
 <Modal
@@ -332,7 +366,13 @@ useEffect(() => {
             swipeDownThreshold={80}
             onMove={(position: any) => {
               const scale = position?.scale || 1;
-              setIsZoomed(scale > 1.02);
+
+              if (Math.abs(scale - lastZoomScaleRef.current) < 0.03) {
+                return;
+              }
+
+              lastZoomScaleRef.current = scale;
+              setZoomedSafely(scale > 1.02);
             }}
             horizontalOuterRangeOffset={(offsetX: number) => {
               if (isZoomed) return;
