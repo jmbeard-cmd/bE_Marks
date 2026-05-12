@@ -77,6 +77,7 @@ import {
   fetchGroupMessageDeletes,
   fetchGroupMessages,
   fetchNostrProfile,
+  publishGroupMembership,
   publishGroupMessage,
 } from '../src/utils/nostr';
 import { normalizeNostrIdentity } from '../src/utils/nostr-identity';
@@ -1113,6 +1114,28 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
 
             await removeMember(group.id, member.npub, npub);
 
+            setMembers(current =>
+              current.filter(item => item.npub !== member.npub)
+            );
+
+            if (nsec) {
+              publishGroupMembership({
+                groupId: group.id,
+                memberNpub: member.npub,
+                memberPubkeyHex: member.pubkeyHex,
+                action: 'remove',
+                role: member.role,
+                nsec,
+                relayUrl: group.relayUrl,
+              }).then(result => {
+                if (!result.success) {
+                  console.warn('[Group Members] publish member removal failed:', result.error);
+                }
+              }).catch(error => {
+                console.warn('[Group Members] publish member removal error:', error);
+              });
+            }
+
             removeGroupMemberFromPush({
               groupId: group.id,
               memberNpub: member.npub,
@@ -1183,6 +1206,32 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
     const memberName = member.displayName || `${member.npub.slice(0, 12)}…`;
 
     await updateMemberRole(group.id, member.npub, nextRole);
+
+    setMembers(current =>
+      current.map(item =>
+        item.npub === member.npub
+          ? { ...item, role: nextRole }
+          : item
+      )
+    );
+
+    if (nsec) {
+      publishGroupMembership({
+        groupId: group.id,
+        memberNpub: member.npub,
+        memberPubkeyHex: member.pubkeyHex,
+        action: 'join',
+        role: nextRole,
+        nsec,
+        relayUrl: group.relayUrl,
+      }).then(result => {
+        if (!result.success) {
+          console.warn('[Group Members] publish role change failed:', result.error);
+        }
+      }).catch(error => {
+        console.warn('[Group Members] publish role change error:', error);
+      });
+    }
 
     notifyGroupEvent({
       groupId: group.id,
