@@ -276,6 +276,23 @@ const { id, tab: routeTab } = useLocalSearchParams<{
     );
   }, [profile, npub]);
 
+    const currentMember = useMemo(() => {
+    if (!npub) return null;
+
+    return members.find(member => member.npub === npub) ?? null;
+  }, [members, npub]);
+
+  const canLeaveGroup = useMemo(() => {
+    return (
+      !!group &&
+      group.status === 'active' &&
+      !!npub &&
+      !!currentMember &&
+      currentMember.status === 'active' &&
+      currentMember.role !== 'owner'
+    );
+  }, [group, npub, currentMember]);
+
   const hydrateMemberProfiles = useCallback(async (groupId: string, groupMembers: BEGroupMember[]) => {
   const activeMembers = groupMembers.filter(member => member.status === 'active');
 
@@ -1218,6 +1235,107 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
     );
   };
 
+    const handleLeaveGroup = () => {
+    if (!group || !npub || !currentMember || currentMember.role === 'owner') return;
+
+    Alert.alert(
+      `Leave ${group.name}?`,
+      'You will lose access to this group. Past messages may remain visible to other members.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Leave',
+          style: 'destructive',
+          onPress: async () => {
+            if (!group || !npub || !currentMember) return;
+
+            const normalizedSelf = normalizeNostrIdentity(npub);
+            const memberPubkeyHex = currentMember.pubkeyHex || normalizedSelf.pubkey;
+            const leftName = myDisplayName;
+
+            await removeMember(group.id, npub, npub);
+
+            setMembers(current =>
+              current.filter(item => item.npub !== npub)
+            );
+            setIsMember(false);
+            setIsAdmin(false);
+
+            removeGroupMemberFromPush({
+              groupId: group.id,
+              memberNpub: npub,
+            }).catch(error => {
+              console.warn('[Group Members] leave push removal failed:', error);
+            });
+
+            if (nsec) {
+              publishGroupMembership({
+                groupId: group.id,
+                memberNpub: npub,
+                memberPubkeyHex,
+                action: 'leave',
+                role: currentMember.role,
+                nsec,
+                relayUrl: group.relayUrl,
+              }).then(result => {
+                if (!result.success) {
+                  console.warn('[Group Members] publish leave membership failed:', result.error);
+                }
+              }).catch(error => {
+                console.warn('[Group Members] publish leave membership error:', error);
+              });
+            }
+
+            await saveLocalGroupSystemMessage({
+              groupId: group.id,
+              text: `${leftName} left the group`,
+              systemType: 'leave',
+              actorNpub: npub,
+              actorName: leftName,
+            });
+
+            if (nsec) {
+              publishGroupMessage({
+                groupId: group.id,
+                clientMessageId: `system_leave_${group.id}_${npub}_${Date.now()}`,
+                text: `${leftName} left the group`,
+                kind: 'system',
+                systemType: 'leave',
+                senderNpub: npub,
+                senderName: leftName,
+                nsec,
+                relayUrl: group.relayUrl,
+              }).then(result => {
+                if (!result.success) {
+                  console.warn('[Group Members] publish leave system message failed:', result.error);
+                }
+              }).catch(error => {
+                console.warn('[Group Members] publish leave system message error:', error);
+              });
+            }
+
+            notifyGroupEvent({
+              groupId: group.id,
+              groupName: group.name,
+              relayUrl: group.relayUrl,
+              actorNpub: npub,
+              actorName: leftName,
+              eventType: 'member_left',
+              memberNpub: npub,
+              memberName: leftName,
+              routeTarget: 'group-detail',
+              groupTab: 'members',
+            }).catch(error => {
+              console.warn('[Group Members] leave notification failed:', error);
+            });
+
+            router.replace('/(tabs)/groups' as any);
+          },
+        },
+      ]
+    );
+  };
+
     const handleChangeMemberRole = async (
     member: BEGroupMember,
     nextRole: 'admin' | 'member'
@@ -1822,22 +1940,33 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
           }
         />
       )}
-
-      {/* Admin actions bar */}
-      {isAdmin && group.status === 'active' && (
+      {/* Group actions bar */}
+      {group.status === 'active' && (isAdmin || canLeaveGroup) && (
         <View style={s.adminBar}>
-          <TouchableOpacity style={s.adminBtn} onPress={handleArchive}>
-            <Text style={s.adminBtnText} numberOfLines={1}>
-              📦 Archive
-            </Text>
-          </TouchableOpacity>
+          {isAdmin && (
+            <TouchableOpacity style={s.adminBtn} onPress={handleArchive}>
+              <Text style={s.adminBtnText} numberOfLines={1}>
+                📦 Archive
+              </Text>
+            </TouchableOpacity>
+          )}
 
-          {isMember && (
+          {isAdmin && isMember && (
             <TouchableOpacity
               style={s.adminBtnGold}
               onPress={() => setShowStickyModal(true)}
             >
               <Text style={s.adminBtnGoldText}>+ Highlight</Text>
+            </TouchableOpacity>
+          )}
+
+          {canLeaveGroup && (
+            <TouchableOpacity
+              style={s.adminBtnDanger}
+              onPress={handleLeaveGroup}
+              activeOpacity={0.85}
+            >
+              <Text style={s.adminBtnDangerText}>Leave Group</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -3048,6 +3177,20 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     fontWeight: '700',
     fontSize: 15,
     letterSpacing: 0.3,
+  },
+    adminBtnDanger: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 999,
+    borderWidth: 0.8,
+    borderColor: theme.danger,
+    backgroundColor: theme.surface,
+    alignItems: 'center',
+  },
+  adminBtnDangerText: {
+    color: theme.danger,
+    fontWeight: '800',
+    fontSize: 13,
   },
   modalScrollContent: {
     flexGrow: 1,
