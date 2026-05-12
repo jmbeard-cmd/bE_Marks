@@ -175,15 +175,46 @@ export async function syncGroupMembersFromRelay(
     memberMap.set(member.npub, member);
   }
 
-  for (const event of membershipEvents) {
+  const sortedMembershipEvents = [...membershipEvents].sort(
+    (a, b) => a.created_at - b.created_at
+  );
+
+  for (const event of sortedMembershipEvents) {
     const npubTag = event.tags.find(tag => tag[0] === 'npub');
     const roleTag = event.tags.find(tag => tag[0] === 'role');
+    const actionTag = event.tags.find(tag => tag[0] === 'action');
+    const statusTag = event.tags.find(tag => tag[0] === 'status');
     const pTag = event.tags.find(tag => tag[0] === 'p');
 
     const memberNpub = npubTag?.[1];
     if (!memberNpub) continue;
 
-    const rawRole = roleTag?.[1];
+    let content: any = null;
+
+    try {
+      content = event.content ? JSON.parse(event.content) : null;
+    } catch {
+      content = null;
+    }
+
+    const rawRole =
+      roleTag?.[1] ||
+      content?.role;
+
+    const rawAction =
+      actionTag?.[1] ||
+      content?.action;
+
+    const rawStatus =
+      statusTag?.[1] ||
+      content?.status;
+
+    const isRemovedEvent =
+      rawAction === 'remove' ||
+      rawAction === 'leave' ||
+      rawRole === 'removed' ||
+      rawStatus === 'removed';
+
     const relayRole: MemberRole =
       rawRole === 'owner' || rawRole === 'admin' || rawRole === 'member'
         ? rawRole
@@ -196,9 +227,7 @@ export async function syncGroupMembersFromRelay(
         ? 'owner'
         : relayRole === 'owner'
           ? 'owner'
-          : existing?.role === 'admin'
-            ? 'admin'
-            : relayRole;
+          : relayRole;
 
     memberMap.set(memberNpub, {
       id: existing?.id ?? `member_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -208,8 +237,10 @@ export async function syncGroupMembersFromRelay(
       displayName: existing?.displayName,
       avatarUrl: existing?.avatarUrl,
       role: resolvedRole,
-      status: 'active',
+      status: isRemovedEvent ? 'removed' : 'active',
       joinedAt: existing?.joinedAt ?? event.created_at,
+      removedAt: isRemovedEvent ? event.created_at : undefined,
+      removedBy: isRemovedEvent ? event.pubkey : undefined,
     });
   }
 
@@ -254,15 +285,16 @@ export async function syncGroupMembersFromRelay(
   }
 
   const mergedGroupMembers = Array.from(memberMap.values());
+  const activeGroupMembers = mergedGroupMembers.filter(m => m.status === 'active');
   const otherMembers = allMembers.filter(m => m.groupId !== groupId);
 
   await writeMembers([...otherMembers, ...mergedGroupMembers]);
 
   await updateGroup(groupId, {
-    memberCount: mergedGroupMembers.filter(m => m.status === 'active').length,
+    memberCount: activeGroupMembers.length,
   });
 
-  return mergedGroupMembers.sort((a, b) => {
+  return activeGroupMembers.sort((a, b) => {
     const roleOrder = { owner: 0, admin: 1, member: 2 };
     return roleOrder[a.role] - roleOrder[b.role];
   });

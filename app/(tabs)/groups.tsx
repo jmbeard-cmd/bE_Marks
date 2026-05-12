@@ -4,6 +4,7 @@ import {
   Alert,
   Animated,
   FlatList,
+  InteractionManager,
   KeyboardAvoidingView,
   Modal,
   PanResponder,
@@ -139,6 +140,8 @@ export default function GroupsScreen() {
   // Join form
   const [joinCode, setJoinCode] = useState('');
   const [joining, setJoining] = useState(false);
+  const hasLoadedGroupsOnceRef = useRef(false);
+  const groupsRefreshRunIdRef = useRef(0);
 
   const myDisplayName = useMemo(() => {
     return (
@@ -166,7 +169,13 @@ export default function GroupsScreen() {
     })
   ).current;
 
-  const loadGroups = useCallback(async () => {
+  const loadGroups = useCallback(async (options?: { showInitialLoading?: boolean }) => {
+    const showInitialLoading = options?.showInitialLoading ?? !hasLoadedGroupsOnceRef.current;
+
+    if (showInitialLoading) {
+      setLoadingInitialGroups(true);
+    }
+
     try {
       const [active, archived] = await Promise.all([
         getActiveGroups(),
@@ -176,31 +185,39 @@ export default function GroupsScreen() {
       if (!npub) {
         setActiveGroups([]);
         setArchivedGroups([]);
+        hasLoadedGroupsOnceRef.current = true;
         setLoadingInitialGroups(false);
         return;
       }
 
-      const visibleActive: BEGroup[] = [];
-      const visibleArchived: BEGroup[] = [];
+      const [activeVisibility, archivedVisibility] = await Promise.all([
+        Promise.all(
+          active.map(async group => {
+            const isActiveMember = await isGroupMember(group.id, npub);
+            return { group, visible: isActiveMember || group.ownerNpub === npub };
+          })
+        ),
+        Promise.all(
+          archived.map(async group => {
+            const isActiveMember = await isGroupMember(group.id, npub);
+            return { group, visible: isActiveMember || group.ownerNpub === npub };
+          })
+        ),
+      ]);
 
-      for (const group of active) {
-        const isActiveMember = await isGroupMember(group.id, npub);
+      setActiveGroups(
+        activeVisibility
+          .filter(item => item.visible)
+          .map(item => item.group)
+      );
 
-        if (isActiveMember || group.ownerNpub === npub) {
-          visibleActive.push(group);
-        }
-      }
+      setArchivedGroups(
+        archivedVisibility
+          .filter(item => item.visible)
+          .map(item => item.group)
+      );
 
-      for (const group of archived) {
-        const isActiveMember = await isGroupMember(group.id, npub);
-
-        if (isActiveMember || group.ownerNpub === npub) {
-          visibleArchived.push(group);
-        }
-      }
-
-      setActiveGroups(visibleActive);
-      setArchivedGroups(visibleArchived);
+      hasLoadedGroupsOnceRef.current = true;
     } catch (error) {
       console.warn('[Groups] failed to load groups:', error);
     } finally {
@@ -211,34 +228,52 @@ export default function GroupsScreen() {
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
+      const runId = groupsRefreshRunIdRef.current + 1;
+      groupsRefreshRunIdRef.current = runId;
 
-      loadGroups();
+      loadGroups({ showInitialLoading: !hasLoadedGroupsOnceRef.current });
 
-      Promise.resolve().then(async () => {
-        if (!npub) return;
+      const interactionTask = InteractionManager.runAfterInteractions(() => {
+        setTimeout(() => {
+          Promise.resolve().then(async () => {
+            if (cancelled || groupsRefreshRunIdRef.current !== runId || !npub) return;
 
-        try {
-          const active = await getActiveGroups();
+            try {
+              if (cancelled || groupsRefreshRunIdRef.current !== runId) return;
 
-          for (const group of active) {
-            if (cancelled) return;
+              const active = await getActiveGroups();
 
-            await syncGroupMembersFromRelay(
-              group.id,
-              group.relayUrl ? [group.relayUrl] : [DEFAULT_RELAY]
-            );
-          }
+              if (cancelled || groupsRefreshRunIdRef.current !== runId) return;
 
-          if (!cancelled) {
-            await loadGroups();
-          }
-        } catch (error) {
-          console.warn('[Groups] background membership refresh failed:', error);
-        }
+              for (const group of active) {
+                if (cancelled || groupsRefreshRunIdRef.current !== runId) return;
+
+                await syncGroupMembersFromRelay(
+                  group.id,
+                  group.relayUrl ? [group.relayUrl] : [DEFAULT_RELAY]
+                );
+
+                await new Promise(resolve => setTimeout(resolve, 0));
+              }
+
+              if (!cancelled && groupsRefreshRunIdRef.current === runId) {
+                Promise.resolve().then(() => {
+                  if (!cancelled && groupsRefreshRunIdRef.current === runId) {
+                    loadGroups({ showInitialLoading: false });
+                  }
+                });
+              }
+            } catch (error) {
+              console.warn('[Groups] background membership refresh failed:', error);
+            }
+          });
+        }, 2000);
       });
 
       return () => {
         cancelled = true;
+        groupsRefreshRunIdRef.current += 1;
+        interactionTask.cancel?.();
       };
     }, [loadGroups, npub])
   );
@@ -470,7 +505,7 @@ export default function GroupsScreen() {
           (loadingInitialGroups || activeGroups.length === 0) && s.listEmpty,
         ]}
         ListEmptyComponent={
-          loadingInitialGroups ? (
+          loadingInitialGroups && !hasLoadedGroupsOnceRef.current ? (
             <View style={s.empty}>
               <Text style={s.emptyHint}>Loading groups…</Text>
             </View>
