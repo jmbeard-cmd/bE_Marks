@@ -103,22 +103,42 @@ export default function GroupCalendarTab({
 
   // ── Load ──────────────────────────────────────────────────────────────────
 
+  const hydrateRSVPState = useCallback((loadedEvents: GroupCalendarEvent[]) => {
+    Promise.resolve().then(async () => {
+      const stateMap: Record<string, RSVPEntry> = {};
+
+      for (const ev of loadedEvents) {
+        try {
+          const [counts, myRsvp] = await Promise.all([
+            getRSVPCounts(ev.id),
+            npub ? getMyRSVP(ev.id, npub) : Promise.resolve(null),
+          ]);
+
+          stateMap[ev.id] = { ...counts, mine: myRsvp?.status ?? null };
+
+          setRsvpState(current => ({
+            ...current,
+            [ev.id]: stateMap[ev.id],
+          }));
+
+          await new Promise(resolve => setTimeout(resolve, 0));
+        } catch (error) {
+          console.warn('[Group Calendar] RSVP hydrate failed:', error);
+        }
+      }
+    });
+  }, [npub]);
+
   const loadEvents = useCallback(async () => {
     if (!group?.id) return;
+
     const loaded = await getCalendarEventsForGroup(group.id);
+
     setEvents(loaded);
     setLoading(false);
 
-    const stateMap: Record<string, RSVPEntry> = {};
-    for (const ev of loaded) {
-      const [counts, myRsvp] = await Promise.all([
-        getRSVPCounts(ev.id),
-        npub ? getMyRSVP(ev.id, npub) : Promise.resolve(null),
-      ]);
-      stateMap[ev.id] = { ...counts, mine: myRsvp?.status ?? null };
-    }
-    setRsvpState(stateMap);
-  }, [group?.id, npub]);
+    hydrateRSVPState(loaded);
+  }, [group?.id, hydrateRSVPState]);
 
   useEffect(() => { loadEvents(); }, [loadEvents]);
 
@@ -235,7 +255,7 @@ export default function GroupCalendarTab({
         }
       }
 
-      await createCalendarEvent({
+      const createdEvent = await createCalendarEvent({
         groupId:     group.id,
         title:       evTitle.trim(),
         description: evDescription.trim() || undefined,
@@ -249,9 +269,14 @@ export default function GroupCalendarTab({
         relayUrl:    group.relayUrl,
       });
 
+      setEvents(current =>
+        [createdEvent, ...current].sort((a, b) => a.startTime - b.startTime)
+      );
+
+      hydrateRSVPState([createdEvent]);
+
       resetForm();
       setShowModal(false);
-      await loadEvents();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Could not create event.';
       Alert.alert('Error', msg);
