@@ -240,11 +240,19 @@ const getReflectionAuthorLabel = (authorNpub?: string) => {
     </SafeAreaView>
   );
 
-  const hasTitle = milestone.note?.includes('\n\n');
+const hasTitle = milestone.note?.includes('\n\n');
 const title = hasTitle ? milestone.note.split('\n\n')[0] : null;
 const body = hasTitle ? milestone.note.split('\n\n').slice(1).join('\n\n') : milestone.note;
 
 const isOwner = !milestone.authorNpub || milestone.authorNpub === npub;
+
+const authorLabel =
+  milestone.authorName?.trim() ||
+  (milestone.authorNpub && milestone.authorNpub === npub
+    ? 'You'
+    : milestone.authorNpub
+      ? `${milestone.authorNpub.slice(0, 10)}…`
+      : null);
 
 const openMediaViewer = (uri: string) => {
   setAppActivity('media-viewer', true);
@@ -277,7 +285,17 @@ const openMediaViewer = (uri: string) => {
         >
           <Text style={[s.backText, { color: theme.gold }]}>← Back</Text>
         </TouchableOpacity>
-        <Text style={[s.headerDate, { color: theme.textMuted }]}>{formatDate(milestone.createdAt)}</Text>
+        <View style={s.headerMeta}>
+          <Text style={[s.headerDate, { color: theme.textMuted }]}>
+            {formatDate(milestone.createdAt)}
+          </Text>
+
+          {authorLabel && (
+            <Text style={[s.headerAuthor, { color: theme.textMuted }]} numberOfLines={1}>
+              By {authorLabel}
+            </Text>
+          )}
+        </View>
         {!isEditing && isOwner && (
   <TouchableOpacity onPress={startEditing} style={s.editBtn}>
     <Text style={[s.editBtnText, { color: theme.gold }]}>Edit</Text>
@@ -638,6 +656,15 @@ const s = StyleSheet.create({
   backBtn: { padding: 4, minWidth: 60 },
   backText: { fontSize: 15, color: '#c9973a', fontWeight: '500' },
   headerDate: { fontSize: 12, color: '#444' },
+    headerMeta: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  headerAuthor: {
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 2,
+  },
   editBtn: { padding: 4, minWidth: 60, alignItems: 'flex-end' },
   editBtnText: { fontSize: 15, color: '#c9973a', fontWeight: '500' },
 

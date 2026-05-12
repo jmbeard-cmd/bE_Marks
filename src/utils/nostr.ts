@@ -922,6 +922,7 @@ export async function publishFamilyMilestone(
     createdAt: number;
     familyId: string;
     authorNpub: string;
+    authorName?: string;
   },
   nsec: string,
   relays: string[]
@@ -943,8 +944,8 @@ export async function publishFamilyMilestone(
   reflections: milestone.reflections ?? [],
   createdAt: milestone.createdAt,
   authorNpub: milestone.authorNpub,
+  authorName: milestone.authorName,
 });
-
     const eventTags: string[][] = [
       ['d', milestone.id],
       ['t', `family:${milestone.familyId}`],

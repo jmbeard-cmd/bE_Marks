@@ -344,6 +344,7 @@ if (audioUri) {
         publishedToRelay: published,
         familyId: shareWithFamily && family ? family.id : undefined,
         authorNpub: npub ?? undefined,
+        authorName: myDisplayName,
       });
 
       // ── Step 5: Publish to family relay if sharing ──
@@ -362,6 +363,7 @@ if (audioUri) {
             createdAt: savedMilestone.createdAt,
             familyId: family.id,
             authorNpub: npub,
+            authorName: myDisplayName,
           },
           nsec,
           relays

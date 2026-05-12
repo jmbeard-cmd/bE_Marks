@@ -310,6 +310,16 @@ function TimelineMediaCollage({
   );
 }
 
+function getMilestoneAuthorLabel(item: Milestone, currentNpub: string | null): string | null {
+  const savedName = item.authorName?.trim();
+
+  if (savedName) return savedName;
+  if (item.authorNpub && item.authorNpub === currentNpub) return 'You';
+  if (item.authorNpub) return `${item.authorNpub.slice(0, 10)}…`;
+
+  return null;
+}
+
 export default function TimelineScreen() {
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [refreshing, setRefreshing] = useState(false);
@@ -416,6 +426,7 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
             createdAt: data.createdAt ?? event.created_at,
             familyId: family.id,
             authorNpub: data.authorNpub,
+            authorName: data.authorName,
             publishedToRelay: true,
             nostrEventId: event.id,
           });
@@ -554,6 +565,7 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
     const hasAudioOnly = !hasVisualMedia && mediaItems.some(m => m.type === 'audio');
 
     const isPortrait = false;
+    const authorLabel = getMilestoneAuthorLabel(item, npub);
 
     return (
       <TouchableOpacity
@@ -577,7 +589,10 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
 )}
 
             <View style={s.cardBody}>
-              <Text style={[s.date, themed.mutedText]}>{formatDate(item.createdAt)}</Text>
+              <Text style={[s.date, themed.mutedText]}>
+                {formatDate(item.createdAt)}
+                {authorLabel ? ` · By ${authorLabel}` : ''}
+              </Text>
               {title && <Text style={[s.cardTitle, themed.primaryText]}>{title}</Text>}
               {body ? <Text style={[s.note, themed.secondaryText]} numberOfLines={title ? 2 : 3}>{body}</Text> : null}
 

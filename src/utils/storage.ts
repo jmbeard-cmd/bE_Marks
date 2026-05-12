@@ -28,6 +28,7 @@ videoUri?: string;
   reflections?: { text: string; createdAt: number; authorNpub?: string }[];
   familyId?: string;
   authorNpub?: string;
+  authorName?: string;
 }
 
 export type FamilyRelayMode = 'default' | 'custom' | 'both';
