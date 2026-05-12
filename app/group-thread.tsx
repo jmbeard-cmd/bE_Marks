@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  InteractionManager,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -186,6 +187,7 @@ export default function GroupThreadScreen() {
   const [groupName, setGroupName] = useState('Group');
   const [groupIcon, setGroupIcon] = useState('👥');
   const [relayUrl, setRelayUrl] = useState('wss://relay.beginningend.com');
+  const [groupLoaded, setGroupLoaded] = useState(false);
   const [draft, setDraft] = useState('');
   const [inputHeight, setInputHeight] = useState(40);
   const [messages, setMessages] = useState<GroupMessage[]>([]);
@@ -216,6 +218,8 @@ export default function GroupThreadScreen() {
   const didInitialAutoScrollRef = useRef(false);
   const forceNextAutoScrollRef = useRef(false);
   const initialRevealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const remoteSyncRunIdRef = useRef(0);
+  const remoteSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const myDisplayName =
     profile?.display_name ||
@@ -568,6 +572,8 @@ export default function GroupThreadScreen() {
   const loadGroup = useCallback(async () => {
     if (!groupId) return;
 
+    setGroupLoaded(false);
+
     const group = await getGroupById(groupId);
 
     if (group) {
@@ -575,6 +581,8 @@ export default function GroupThreadScreen() {
       setGroupIcon(getGroupIcon(group));
       setRelayUrl(group.relayUrl);
     }
+
+    setGroupLoaded(true);
 
     try {
       const groupMembers = await getGroupMembers(groupId);
@@ -591,7 +599,7 @@ export default function GroupThreadScreen() {
   }, [groupId]);
 
   const loadMessages = useCallback(async () => {
-    if (!groupId) return;
+    if (!groupId || !groupLoaded) return;
 
     setLoadingInitialMessages(true);
     setInitialListReady(false);
@@ -619,8 +627,19 @@ export default function GroupThreadScreen() {
       setLoadingInitialMessages(false);
     }
 
-    fetchGroupMessages(groupId, relayUrl)
-      .then(async remoteMessages => {
+    const runId = remoteSyncRunIdRef.current + 1;
+    remoteSyncRunIdRef.current = runId;
+
+    if (remoteSyncTimeoutRef.current) {
+      clearTimeout(remoteSyncTimeoutRef.current);
+      remoteSyncTimeoutRef.current = null;
+    }
+
+    InteractionManager.runAfterInteractions(() => {
+      remoteSyncTimeoutRef.current = setTimeout(() => {
+        fetchGroupMessages(groupId, relayUrl)
+          .then(async remoteMessages => {
+            if (remoteSyncRunIdRef.current !== runId) return;
         for (const msg of remoteMessages) {
           const mine = !!npub && msg.senderNpub === npub;
 
@@ -736,14 +755,18 @@ export default function GroupThreadScreen() {
           });
         }
 
-        const refreshedMessages = await getMessagesForGroup(groupId);
+            if (remoteSyncRunIdRef.current !== runId) return;
 
-        setMessages(refreshedMessages);
-      })
-      .catch(error => {
-        console.warn('[Groups] Remote fetch error:', error);
-      });
-  }, [groupId, relayUrl, npub]);
+            const refreshedMessages = await getMessagesForGroup(groupId);
+
+            setMessages(refreshedMessages);
+          })
+          .catch(error => {
+            console.warn('[Groups] Remote fetch error:', error);
+          });
+      }, 250);
+    });
+  }, [groupId, groupLoaded, relayUrl, npub]);
 
   useEffect(() => {
     loadGroup();
@@ -751,6 +774,15 @@ export default function GroupThreadScreen() {
 
   useEffect(() => {
     loadMessages();
+
+    return () => {
+      remoteSyncRunIdRef.current += 1;
+
+      if (remoteSyncTimeoutRef.current) {
+        clearTimeout(remoteSyncTimeoutRef.current);
+        remoteSyncTimeoutRef.current = null;
+      }
+    };
   }, [loadMessages]);
 
   useEffect(() => {
