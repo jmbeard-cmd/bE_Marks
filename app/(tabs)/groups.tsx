@@ -136,6 +136,7 @@ export default function GroupsScreen() {
   const [cgIcon, setCgIcon] = useState('');
   const [cgDescription, setCgDescription] = useState('');
   const [cgSchool, setCgSchool] = useState('');
+  const [cgBookEnabled, setCgBookEnabled] = useState(false);
   const [creating, setCreating] = useState(false);
 
   // Join form
@@ -231,6 +232,7 @@ export default function GroupsScreen() {
     setSheet('none');
     setCgName(''); setCgSeason(''); setCgSport(''); setCgIcon('');
     setCgDescription(''); setCgSchool('');
+    setCgBookEnabled(false);
     setJoinCode('');
   };
 
@@ -247,6 +249,7 @@ export default function GroupsScreen() {
         sport: cgSport.trim() || undefined,
         icon: cgIcon.trim() || undefined,
         schoolId: cgSchool.trim() || undefined,
+        bookEnabled: cgBookEnabled,
         relayUrl: DEFAULT_RELAY,
         ownerNpub: npub,
         ownerPubkeyHex: pubkeyHex,
@@ -595,6 +598,29 @@ export default function GroupsScreen() {
                     textAlignVertical="top"
                   />
 
+                  <TouchableOpacity
+                    style={[s.bookToggleCard, cgBookEnabled && s.bookToggleCardActive]}
+                    activeOpacity={0.85}
+                    onPress={() => setCgBookEnabled(value => !value)}
+                  >
+                    <View style={s.bookToggleTop}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.bookToggleTitle}>Enable The Book</Text>
+                        <Text style={s.bookToggleHint}>
+                          Track this group’s annual income, expenses, donations, fundraiser money, and carryover.
+                        </Text>
+                      </View>
+
+                      <View style={[s.bookToggleSwitch, cgBookEnabled && s.bookToggleSwitchActive]}>
+                        <View style={[s.bookToggleKnob, cgBookEnabled && s.bookToggleKnobActive]} />
+                      </View>
+                    </View>
+
+                    <Text style={s.bookToggleMeta}>
+                      Best for booster clubs, PTOs, school teams, trips, and fundraiser groups.
+                    </Text>
+                  </TouchableOpacity>
+
                   <Text style={s.inputMeta}>
                     An invite code and QR code will be generated automatically. Share it with your group members.
                   </Text>
@@ -902,6 +928,63 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     marginTop: 8,
     marginBottom: 4,
     lineHeight: 17,
+  },
+    bookToggleCard: {
+    marginTop: 14,
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    backgroundColor: theme.raised,
+  },
+  bookToggleCardActive: {
+    borderColor: theme.gold,
+    backgroundColor: theme.surface,
+  },
+  bookToggleTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  bookToggleTitle: {
+    color: theme.text,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  bookToggleHint: {
+    color: theme.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 4,
+  },
+  bookToggleMeta: {
+    color: theme.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 10,
+  },
+  bookToggleSwitch: {
+    width: 44,
+    height: 26,
+    borderRadius: 999,
+    padding: 3,
+    backgroundColor: theme.bg,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+  },
+  bookToggleSwitchActive: {
+    backgroundColor: theme.gold,
+    borderColor: theme.gold,
+  },
+  bookToggleKnob: {
+    width: 19,
+    height: 19,
+    borderRadius: 10,
+    backgroundColor: theme.textMuted,
+  },
+  bookToggleKnobActive: {
+    transform: [{ translateX: 17 }],
+    backgroundColor: theme.bg,
   },
   sheetActions: { flexDirection: 'row', gap: 10, marginTop: 20 },
   cancelBtn: {

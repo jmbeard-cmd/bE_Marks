@@ -1156,6 +1156,8 @@ export interface NostrGroupPayload {
   relayUrl: string;
   createdAt: number;
   ownerNpub: string;
+  bookEnabled?: boolean;
+  bookOfficerNpubs?: string[];
 }
 
 export async function publishGroup(
@@ -1183,6 +1185,7 @@ export async function publishGroup(
     if (group.sport) tags.push(['sport', group.sport]);
     if (group.icon) tags.push(['icon', group.icon]);
     if (group.schoolId) tags.push(['school', group.schoolId]);
+    if (group.bookEnabled) tags.push(['book', 'enabled']);
 
     const content = JSON.stringify({
       id: group.id,
@@ -1197,6 +1200,8 @@ export async function publishGroup(
       relayUrl: group.relayUrl,
       createdAt: group.createdAt,
       ownerNpub: group.ownerNpub,
+      bookEnabled: group.bookEnabled === true,
+      bookOfficerNpubs: group.bookOfficerNpubs ?? [],
     });
 
     const unsigned: UnsignedEvent = {
@@ -1398,6 +1403,7 @@ export const GROUP_MESSAGE_DELETE_KIND = 30087;
 export const GROUP_MESSAGE_REACTION_KIND = 30088;
 export const GROUP_MESSAGE_EDIT_KIND = 30089;
 export const GROUP_POLL_VOTE_KIND = 30090;
+export const GROUP_BOOK_ENTRY_KIND = 30086;
 
 export type NostrGroupMediaType = 'image' | 'video' | 'file';
 
@@ -1425,6 +1431,23 @@ export type NostrGroupPollVote = {
   voterNpub?: string;
   voterName?: string;
   createdAt: number;
+};
+
+export type NostrGroupBookEntry = {
+  id: string;
+  groupId: string;
+  type: 'income' | 'expense';
+  amountCents: number;
+  title: string;
+  description?: string;
+  contributorName?: string;
+  status: 'pending' | 'confirmed';
+  createdAt: number;
+  createdByPubkey: string;
+  createdByNpub?: string;
+  createdByName?: string;
+  relayUrl?: string;
+  nostrEventId?: string;
 };
 
 export type NostrGroupPoll = {
@@ -2549,6 +2572,155 @@ export function fetchGroupPollVotes(
       ws.onerror = () => {
         clearTimeout(timeout);
         resolve(votes);
+      };
+    } catch {
+      resolve([]);
+    }
+  });
+}
+
+export async function publishGroupBookEntry(input: {
+  id: string;
+  groupId: string;
+  type: 'income' | 'expense';
+  amountCents: number;
+  title: string;
+  description?: string;
+  contributorName?: string;
+  status: 'pending' | 'confirmed';
+  createdByNpub?: string;
+  createdByName?: string;
+  nsec: string;
+  relayUrl: string;
+}): Promise<{ success: boolean; eventId?: string; error?: string }> {
+  try {
+    const decoded = nip19.decode(input.nsec);
+    if (decoded.type !== 'nsec') throw new Error('Invalid nsec');
+
+    const sk = decoded.data as Uint8Array;
+    const pk = getPublicKey(sk);
+    const now = Math.floor(Date.now() / 1000);
+
+    const tags: string[][] = [
+      ['d', input.id],
+      ['t', `group-book:${input.groupId}`],
+      ['group', input.groupId],
+      ['type', input.type],
+      ['status', input.status],
+      ['amount_cents', String(input.amountCents)],
+      ['client', 'bE-Marks'],
+    ];
+
+    const unsigned: UnsignedEvent = {
+      kind: GROUP_BOOK_ENTRY_KIND,
+      created_at: now,
+      tags,
+      content: JSON.stringify({
+        id: input.id,
+        groupId: input.groupId,
+        type: input.type,
+        amountCents: input.amountCents,
+        title: input.title,
+        description: input.description,
+        contributorName: input.contributorName,
+        status: input.status,
+        createdAt: now,
+        createdByNpub: input.createdByNpub,
+        createdByName: input.createdByName,
+      }),
+      pubkey: pk,
+    };
+
+    const signed = finalizeEvent(unsigned, sk);
+    return await publishToSpecificRelay(signed, input.relayUrl);
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+}
+
+export function fetchGroupBookEntries(
+  groupId: string,
+  relayUrl: string = DEFAULT_RELAY
+): Promise<NostrGroupBookEntry[]> {
+  return new Promise(resolve => {
+    try {
+      const ws = new WebSocket(relayUrl);
+      const entries: NostrGroupBookEntry[] = [];
+      const seen = new Set<string>();
+
+      const timeout = setTimeout(() => {
+        ws.close();
+        resolve(entries);
+      }, 6000);
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify([
+          'REQ',
+          `group-book-fetch-${groupId}`,
+          {
+            kinds: [GROUP_BOOK_ENTRY_KIND],
+            '#t': [`group-book:${groupId}`],
+            limit: 1000,
+          },
+        ]));
+      };
+
+      ws.onmessage = (msg) => {
+        try {
+          const data = JSON.parse(msg.data);
+
+          if (data[0] === 'EVENT' && data[2]?.kind === GROUP_BOOK_ENTRY_KIND) {
+            const evt = data[2];
+
+            if (seen.has(evt.id)) return;
+            seen.add(evt.id);
+
+            const parsed = JSON.parse(evt.content || '{}');
+            const dTag = evt.tags?.find((tag: string[]) => tag[0] === 'd');
+            const typeTag = evt.tags?.find((tag: string[]) => tag[0] === 'type');
+            const statusTag = evt.tags?.find((tag: string[]) => tag[0] === 'status');
+            const amountTag = evt.tags?.find((tag: string[]) => tag[0] === 'amount_cents');
+
+            const entryGroupId = parsed.groupId || groupId;
+
+            if (entryGroupId !== groupId) return;
+
+            const amountCents = Number(parsed.amountCents ?? amountTag?.[1] ?? 0);
+            const entryType = parsed.type || typeTag?.[1];
+            const entryStatus = parsed.status || statusTag?.[1];
+
+            if (entryType !== 'income' && entryType !== 'expense') return;
+            if (entryStatus !== 'pending' && entryStatus !== 'confirmed') return;
+            if (!Number.isFinite(amountCents) || amountCents <= 0) return;
+
+            entries.push({
+              id: parsed.id || dTag?.[1] || evt.id,
+              groupId,
+              type: entryType,
+              amountCents,
+              title: parsed.title || 'Book entry',
+              description: parsed.description,
+              contributorName: parsed.contributorName,
+              status: entryStatus,
+              createdAt: parsed.createdAt || evt.created_at,
+              createdByPubkey: evt.pubkey,
+              createdByNpub: parsed.createdByNpub,
+              createdByName: parsed.createdByName,
+              relayUrl,
+              nostrEventId: evt.id,
+            });
+          } else if (data[0] === 'EOSE') {
+            clearTimeout(timeout);
+            ws.close();
+            entries.sort((a, b) => b.createdAt - a.createdAt);
+            resolve(entries);
+          }
+        } catch {}
+      };
+
+      ws.onerror = () => {
+        clearTimeout(timeout);
+        resolve(entries);
       };
     } catch {
       resolve([]);

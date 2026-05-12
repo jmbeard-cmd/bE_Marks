@@ -1,3 +1,4 @@
+import GroupBookTab from '@/components/GroupBookTab';
 import GroupCalendarTab from '@/components/GroupCalendarTab';
 import {
   getUpcomingEventsForGroup,
@@ -90,8 +91,8 @@ import {
 import { uploadToR2 } from '../src/utils/r2';
 import { useIdentity } from './_layout';
 
-type Tab = 'stickies' | 'calendar' | 'gallery' | 'members';
-type MainTab = 'stickies' | 'calendar' | 'gallery';
+type Tab = 'stickies' | 'calendar' | 'gallery' | 'members' | 'book';
+type MainTab = 'stickies' | 'calendar' | 'gallery' | 'book';
 const GROUP_LOCAL_GALLERY_KEY = 'be_group_local_gallery_v1';
 
 type LocalGalleryItem = {
@@ -252,7 +253,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   const [highlightUploadStatus, setHighlightUploadStatus] = useState<string | null>(null);
   const [highlightProgress, setHighlightProgress] = useState(0);
   const [tab, setTab] = useState<Tab>(
-  routeTab === 'calendar' || routeTab === 'gallery' || routeTab === 'members'
+  routeTab === 'calendar' || routeTab === 'gallery' || routeTab === 'members' || routeTab === 'book'
     ? routeTab
     : 'stickies'
 );
@@ -598,7 +599,13 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   }, [load]);
 
   useEffect(() => {
-  if (routeTab === 'stickies' || routeTab === 'calendar' || routeTab === 'gallery' || routeTab === 'members') {
+  if (
+    routeTab === 'stickies' ||
+    routeTab === 'calendar' ||
+    routeTab === 'gallery' ||
+    routeTab === 'members' ||
+    routeTab === 'book'
+  ) {
     setTab(routeTab);
   }
 }, [routeTab]);
@@ -1560,7 +1567,7 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
 
       {/* Tab bar */}
       <View style={s.tabRow}>
-        {(['stickies', 'calendar', 'gallery'] as MainTab[]).map(t => (
+        {(['stickies', 'calendar', 'gallery', 'book'] as MainTab[]).map(t => (
           <TouchableOpacity
             key={t}
             style={[s.tabBtn, tab === t && s.tabBtnActive]}
@@ -1571,7 +1578,9 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
                 ? `Highlights (${stickies.length})`
                 : t === 'calendar'
                   ? `Calendar${upcomingCount > 0 ? ` (${upcomingCount})` : ''}`
-                  : `Gallery (${galleryItems.length})`}
+                  : t === 'gallery'
+                    ? `Gallery (${galleryItems.length})`
+                    : 'Book'}
             </Text>
           </TouchableOpacity>
         ))}
@@ -1845,6 +1854,18 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
               </Text>
             </View>
           }
+        />
+      )}
+
+            {/* Book tab */}
+      {tab === 'book' && (
+        <GroupBookTab
+          group={group}
+          npub={npub ?? undefined}
+          nsec={nsec ?? undefined}
+          displayName={myDisplayName}
+          themeMode={themeMode}
+          onGroupUpdated={load}
         />
       )}
 

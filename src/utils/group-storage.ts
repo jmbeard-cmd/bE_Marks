@@ -49,6 +49,10 @@ export type BEGroup = {
   // Counts (cached locally)
   memberCount: number;
   postCount: number;
+
+  // Book / transparent group ledger
+  bookEnabled?: boolean;
+  bookOfficerNpubs?: string[];
 };
 
 export type BEGroupMember = {
@@ -374,6 +378,7 @@ export async function createGroup(input: {
   ownerNpub: string;
   ownerPubkeyHex: string;
   ownerDisplayName?: string;
+  bookEnabled?: boolean;
   nsec?: string;           // needed to sign and publish to relay
 }): Promise<BEGroup> {
   const groups = await readGroups();
@@ -395,6 +400,8 @@ export async function createGroup(input: {
     ownerNpub: input.ownerNpub,
     memberCount: 1,
     postCount: 0,
+    bookEnabled: input.bookEnabled === true,
+    bookOfficerNpubs: [],
   };
 
   groups.push(group);
@@ -424,6 +431,8 @@ export async function createGroup(input: {
       relayUrl: group.relayUrl,
       createdAt: group.createdAt,
       ownerNpub: input.ownerNpub,
+      bookEnabled: group.bookEnabled === true,
+      bookOfficerNpubs: group.bookOfficerNpubs ?? [],
     };
 
     const publishResult = await publishGroup(payload, input.nsec);
@@ -471,6 +480,43 @@ export async function updateGroup(id: string, updates: Partial<BEGroup>): Promis
 
 export async function archiveGroup(id: string): Promise<void> {
   await updateGroup(id, { status: 'archived' });
+}
+
+export async function isGroupBookEnabled(groupId: string): Promise<boolean> {
+  const group = await getGroupById(groupId);
+  return group?.bookEnabled === true;
+}
+
+export async function updateGroupBookSettings(
+  groupId: string,
+  updates: {
+    bookEnabled?: boolean;
+    bookOfficerNpubs?: string[];
+  }
+): Promise<void> {
+  await updateGroup(groupId, {
+    bookEnabled: updates.bookEnabled,
+    bookOfficerNpubs: updates.bookOfficerNpubs,
+  });
+}
+
+export async function canManageGroupBook(
+  groupId: string,
+  npub: string
+): Promise<boolean> {
+  const group = await getGroupById(groupId);
+
+  if (!group) return false;
+
+  if (group.ownerNpub === npub) return true;
+
+  const member = await getMemberByNpub(groupId, npub);
+
+  if (!member || member.status !== 'active') return false;
+
+  if (member.role === 'owner' || member.role === 'admin') return true;
+
+  return !!group.bookOfficerNpubs?.includes(npub);
 }
 
 export async function regenerateInviteCode(id: string): Promise<string> {
@@ -674,6 +720,8 @@ export async function joinGroupByCode(input: {
         ownerNpub: remoteGroup.ownerNpub,
         memberCount: remoteGroup.ownerNpub ? 1 : 0,
         postCount: 0,
+        bookEnabled: remoteGroup.bookEnabled === true,
+        bookOfficerNpubs: remoteGroup.bookOfficerNpubs ?? [],
       };
 
       groups.push(newGroup);
@@ -774,7 +822,6 @@ export async function restoreGroupsFromRelay(input: {
   console.log('[Groups] restoreGroupsFromRelay start');
 
   try {
-    // 1. Fetch ALL memberships for this user
     const membershipEvents = await fetchGroupMembershipsForPubkey(
       input.pubkeyHex,
       input.relayUrls
@@ -799,7 +846,6 @@ export async function restoreGroupsFromRelay(input: {
     const now = Math.floor(Date.now() / 1000);
 
     for (const groupId of groupIds) {
-      // 2. Fetch group definition
       const groupEvent = await fetchGroupById(groupId);
 
       if (!groupEvent) {
@@ -826,12 +872,29 @@ export async function restoreGroupsFromRelay(input: {
           ownerNpub: groupEvent.ownerNpub,
           memberCount: groupEvent.ownerNpub ? 1 : 0,
           postCount: 0,
+          bookEnabled: groupEvent.bookEnabled === true,
+          bookOfficerNpubs: groupEvent.bookOfficerNpubs ?? [],
         };
 
         existingGroups.push(newGroup);
+      } else {
+        Object.assign(alreadyExists, {
+          name: groupEvent.name,
+          description: groupEvent.description,
+          season: groupEvent.season,
+          sport: groupEvent.sport,
+          icon: groupEvent.icon,
+          schoolId: groupEvent.schoolId,
+          inviteCode: groupEvent.inviteCode,
+          status: groupEvent.status,
+          relayUrl: groupEvent.relayUrl,
+          ownerNpub: groupEvent.ownerNpub,
+          bookEnabled: groupEvent.bookEnabled === true,
+          bookOfficerNpubs: groupEvent.bookOfficerNpubs ?? [],
+          updatedAt: now,
+        });
       }
 
-      // 3. Sync members for this group
       await syncGroupMembersFromRelay(groupId, input.relayUrls);
     }
 
