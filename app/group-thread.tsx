@@ -39,6 +39,8 @@ import {
 import {
   getGroupById,
   getGroupMembers,
+  isGroupMember,
+  syncGroupMembersFromRelay,
   type BEGroup,
 } from '../src/utils/group-storage';
 import {
@@ -188,6 +190,8 @@ export default function GroupThreadScreen() {
   const [groupIcon, setGroupIcon] = useState('👥');
   const [relayUrl, setRelayUrl] = useState('wss://relay.beginningend.com');
   const [groupLoaded, setGroupLoaded] = useState(false);
+  const [canPostToGroup, setCanPostToGroup] = useState(true);
+  const [membershipChecked, setMembershipChecked] = useState(false);
   const [draft, setDraft] = useState('');
   const [inputHeight, setInputHeight] = useState(40);
   const [messages, setMessages] = useState<GroupMessage[]>([]);
@@ -225,6 +229,16 @@ export default function GroupThreadScreen() {
     profile?.display_name ||
     profile?.name ||
     (npub ? `${npub.slice(0, 12)}…` : 'You');
+
+      const memberBlockedMessage =
+    'You are no longer an active member of this group. You can view past messages, but posting is disabled.';
+
+  const guardCanPost = useCallback(() => {
+    if (canPostToGroup) return true;
+
+    Alert.alert('Posting disabled', memberBlockedMessage);
+    return false;
+  }, [canPostToGroup]);
 
   const normalizedPollOptions = useMemo(
     () => pollOptions.map(option => option.trim()).filter(Boolean),
@@ -582,6 +596,15 @@ export default function GroupThreadScreen() {
       setRelayUrl(group.relayUrl);
     }
 
+    if (npub) {
+      const activeMember = await isGroupMember(groupId, npub);
+      setCanPostToGroup(activeMember);
+      setMembershipChecked(true);
+    } else {
+      setCanPostToGroup(false);
+      setMembershipChecked(true);
+    }
+
     setGroupLoaded(true);
 
     try {
@@ -596,7 +619,7 @@ export default function GroupThreadScreen() {
     } catch (error) {
       console.warn('[Groups] failed to load member avatars:', error);
     }
-  }, [groupId]);
+  }, [groupId, npub]);
 
   const loadMessages = useCallback(async () => {
     if (!groupId || !groupLoaded) return;
@@ -771,6 +794,35 @@ export default function GroupThreadScreen() {
   useEffect(() => {
     loadGroup();
   }, [loadGroup]);
+
+    useEffect(() => {
+    if (!groupId || !groupLoaded || !relayUrl || !npub) return;
+
+    let cancelled = false;
+
+    InteractionManager.runAfterInteractions(() => {
+      Promise.resolve().then(async () => {
+        try {
+          await syncGroupMembersFromRelay(groupId, [relayUrl]);
+
+          if (cancelled) return;
+
+          const activeMember = await isGroupMember(groupId, npub);
+
+          if (!cancelled) {
+            setCanPostToGroup(activeMember);
+            setMembershipChecked(true);
+          }
+        } catch (error) {
+          console.warn('[Groups] background membership verification failed:', error);
+        }
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [groupId, groupLoaded, relayUrl, npub]);
 
   useEffect(() => {
     loadMessages();
@@ -985,6 +1037,7 @@ export default function GroupThreadScreen() {
   const handleSend = async () => {
     const text = draft.trim();
     if (!text || !groupId || sending) return;
+    if (!guardCanPost()) return;
 
     if (editingMessage) {
       setSending(true);
@@ -1246,6 +1299,7 @@ export default function GroupThreadScreen() {
     pendingLabel: string
   ) => {
     if (!groupId || uploadingImage || attachments.length === 0) return;
+    if (!guardCanPost()) return;
 
     const clientMessageId = createClientMessageId(groupId);
     const activeReplyTarget = replyTarget;
@@ -1387,6 +1441,7 @@ export default function GroupThreadScreen() {
     closeComposerMenu();
 
     if (!groupId || uploadingImage) return;
+    if (!guardCanPost()) return;
 
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (permission.status !== 'granted') {
@@ -1426,8 +1481,8 @@ export default function GroupThreadScreen() {
 
   const handlePickFiles = async () => {
     closeComposerMenu();
-
     if (!groupId || uploadingImage) return;
+    if (!guardCanPost()) return;
 
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -1462,6 +1517,7 @@ export default function GroupThreadScreen() {
     closeComposerMenu();
 
     if (!groupId || uploadingImage) return;
+    if (!guardCanPost()) return;
 
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (permission.status !== 'granted') {
@@ -1496,6 +1552,8 @@ export default function GroupThreadScreen() {
   };
 
   const openPollCreator = () => {
+    if (!guardCanPost()) return;
+
     closeComposerMenu();
     setPollQuestion('');
     setPollOptions(['', '']);
@@ -1534,7 +1592,7 @@ export default function GroupThreadScreen() {
     });
   };
 
-  const handleCreatePoll = async () => {
+    const handleCreatePoll = async () => {
     if (!groupId || creatingPoll) return;
 
     const question = pollQuestion.trim();
@@ -2017,6 +2075,13 @@ export default function GroupThreadScreen() {
             </View>
           )}
 
+          {membershipChecked && !canPostToGroup && (
+            <View style={s.memberBlockedBanner}>
+              <Text style={s.memberBlockedText}>
+                {memberBlockedMessage}
+              </Text>
+            </View>
+          )}
 
           {editingMessage && (
             <View style={s.replyComposerPreview}>
@@ -2146,11 +2211,11 @@ export default function GroupThreadScreen() {
             <TouchableOpacity
               style={[
                 s.attachBtn,
-                (uploadingImage || !!editingMessage) && s.attachBtnDim,
+                (uploadingImage || !!editingMessage || !canPostToGroup) && s.attachBtnDim,
                 showComposerMenu && s.attachBtnActive,
               ]}
               onPress={() => setShowComposerMenu(current => !current)}
-              disabled={uploadingImage || !!editingMessage}
+              disabled={uploadingImage || !!editingMessage || !canPostToGroup}
               activeOpacity={0.8}
             >
               {uploadingImage ? (
@@ -2162,6 +2227,7 @@ export default function GroupThreadScreen() {
 
             <TextInput
               ref={inputRef}
+              editable={canPostToGroup}
               style={[
                 s.input,
                 {
@@ -2170,7 +2236,13 @@ export default function GroupThreadScreen() {
                   backgroundColor: theme.raised,
                 },
               ]}
-              placeholder={editingMessage ? 'Edit message…' : `Message ${groupName}…`}
+              placeholder={
+                !canPostToGroup
+                  ? 'Posting disabled'
+                  : editingMessage
+                    ? 'Edit message…'
+                    : `Message ${groupName}…`
+              }
               placeholderTextColor={theme.textMuted}
               value={draft}
               onChangeText={setDraft}
@@ -2187,9 +2259,9 @@ export default function GroupThreadScreen() {
             />
 
             <TouchableOpacity
-              style={[s.sendBtn, (!draft.trim() || sending) && s.sendBtnDim]}
+              style={[s.sendBtn, (!draft.trim() || sending || !canPostToGroup) && s.sendBtnDim]}
               onPress={handleSend}
-              disabled={!draft.trim() || sending}
+              disabled={!draft.trim() || sending || !canPostToGroup}
             >
               {sending ? (
                 <ActivityIndicator size="small" color={theme.bg} />
@@ -2417,6 +2489,7 @@ export default function GroupThreadScreen() {
 
                 <TextInput
                   style={s.pollQuestionInput}
+
                   placeholder="Poll question"
                   placeholderTextColor={theme.textMuted}
                   value={pollQuestion}
@@ -2552,6 +2625,23 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
   borderTopWidth: 0.5,
   borderTopColor: theme.border,
 },
+  memberBlockedBanner: {
+    marginHorizontal: 12,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: theme.surface,
+    borderWidth: 0.5,
+    borderColor: theme.danger,
+  },
+  memberBlockedText: {
+    color: theme.textSecondary,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
   systemMessageWrap: {
     alignSelf: 'center',
     maxWidth: '86%',
