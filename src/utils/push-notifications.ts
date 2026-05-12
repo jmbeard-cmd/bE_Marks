@@ -31,6 +31,7 @@ export type BEGroupNotificationEventType =
   | 'calendar_updated'
   | 'calendar_deleted'
   | 'member_joined'
+  | 'member_left'
   | 'member_removed'
   | 'member_role_changed';
 
@@ -181,6 +182,9 @@ function buildGroupEventBody(input: {
 
     case 'member_joined':
       return `${actorName} joined the group`;
+
+    case 'member_left':
+      return `${actorName} left the group`;
 
     case 'member_removed':
       return `${actorName} removed ${memberName} from the group`;
