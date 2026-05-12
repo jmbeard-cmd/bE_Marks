@@ -65,6 +65,11 @@ export type BEGroupMember = {
   removedBy?: string;   // npub of admin who removed them
 };
 
+export type BEGroupVisibilitySnapshot = {
+  activeGroups: BEGroup[];
+  archivedGroups: BEGroup[];
+};
+
 // ─── Storage Helpers ──────────────────────────────────────────────
 // AsyncStorage is the primary storage for groups/members.
 // SecureStore is used only as a one-time fallback for older installs
@@ -312,6 +317,37 @@ export async function getArchivedGroups(): Promise<BEGroup[]> {
   return groups
     .filter(g => g.status === 'archived')
     .sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+export async function getVisibleGroupsForNpub(
+  npub: string
+): Promise<BEGroupVisibilitySnapshot> {
+  const [groups, members] = await Promise.all([
+    readGroups(),
+    readMembers(),
+  ]);
+
+  const activeMembershipGroupIds = new Set(
+    members
+      .filter(member => member.npub === npub && member.status === 'active')
+      .map(member => member.groupId)
+  );
+
+  const isVisible = (group: BEGroup) => {
+    return group.ownerNpub === npub || activeMembershipGroupIds.has(group.id);
+  };
+
+  const visibleGroups = groups.filter(isVisible);
+
+  return {
+    activeGroups: visibleGroups
+      .filter(group => group.status === 'active')
+      .sort((a, b) => (b.lastPostAt ?? b.updatedAt) - (a.lastPostAt ?? a.updatedAt)),
+
+    archivedGroups: visibleGroups
+      .filter(group => group.status === 'archived')
+      .sort((a, b) => b.updatedAt - a.updatedAt),
+  };
 }
 
 export async function getGroupById(id: string): Promise<BEGroup | null> {

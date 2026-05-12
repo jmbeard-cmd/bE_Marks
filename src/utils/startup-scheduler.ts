@@ -23,29 +23,11 @@ let nextTimer: ReturnType<typeof setTimeout> | null = null;
 
 const SOON_DELAY_MS = 2500;
 const IDLE_DELAY_MS = 10000;
-const BETWEEN_JOBS_DELAY_MS = 2500;
+const BETWEEN_JOBS_DELAY_MS = 1800;
 const RESUME_AFTER_ACTIVITY_MS = 1800;
 
-function scheduleNext(delayMs: number) {
-  if (nextTimer) {
-    clearTimeout(nextTimer);
-  }
-
-  nextTimer = setTimeout(() => {
-    void processQueue();
-  }, delayMs);
-}
-
-function scheduleNextQueuedJob() {
-  sortQueue();
-
-  const nextJob = queue[0];
-
-  if (!nextJob) return;
-
-  const delayMs = Math.max(0, nextJob.notBefore - Date.now());
-
-  scheduleNext(delayMs);
+function getDelayForPriority(priority?: StartupJobPriority) {
+  return priority === 'soon' ? SOON_DELAY_MS : IDLE_DELAY_MS;
 }
 
 function sortQueue() {
@@ -61,11 +43,61 @@ function sortQueue() {
   });
 }
 
+function clearNextTimer() {
+  if (nextTimer) {
+    clearTimeout(nextTimer);
+    nextTimer = null;
+  }
+}
+
+function scheduleProcess(delayMs: number) {
+  clearNextTimer();
+
+  nextTimer = setTimeout(() => {
+    nextTimer = null;
+    runWhenIdle(() => {
+      void processQueue();
+    });
+  }, Math.max(0, delayMs));
+}
+
+function scheduleNextQueuedJob() {
+  if (running) return;
+
+  sortQueue();
+
+  const nextJob = queue[0];
+
+  if (!nextJob) return;
+
+  const delayMs = Math.max(0, nextJob.notBefore - Date.now());
+
+  scheduleProcess(delayMs);
+}
+
+function runWhenIdle(callback: () => void) {
+  const requestIdle =
+    typeof globalThis !== 'undefined'
+      ? (globalThis as any).requestIdleCallback
+      : undefined;
+
+  if (typeof requestIdle === 'function') {
+    requestIdle(() => callback(), { timeout: 2500 });
+    return;
+  }
+
+  setTimeout(callback, 0);
+}
+
+async function yieldToUI() {
+  await new Promise(resolve => setTimeout(resolve, 0));
+}
+
 async function processQueue() {
   if (running) return;
 
   if (isAppBusy()) {
-    console.log('[startup-scheduler] app busy, waiting');
+    scheduleProcess(RESUME_AFTER_ACTIVITY_MS);
     return;
   }
 
@@ -82,19 +114,23 @@ async function processQueue() {
   }
 
   const job = queue.shift();
+
   if (!job) return;
 
   running = true;
 
   try {
     if (isAppBusy()) {
-      console.log('[startup-scheduler] paused before running:', job.label);
       queue.unshift(job);
       return;
     }
 
     console.log('[startup-scheduler] running:', job.label);
+
+    await yieldToUI();
     await job.run();
+    await yieldToUI();
+
     console.log('[startup-scheduler] complete:', job.label);
   } catch (error) {
     console.warn('[startup-scheduler] job failed:', job.label, error);
@@ -103,44 +139,55 @@ async function processQueue() {
   }
 
   if (queue.length > 0) {
-    scheduleNext(Math.max(BETWEEN_JOBS_DELAY_MS, queue[0].notBefore - Date.now()));
+    sortQueue();
+
+    const delayUntilNextJob = Math.max(
+      BETWEEN_JOBS_DELAY_MS,
+      queue[0].notBefore - Date.now()
+    );
+
+    scheduleProcess(delayUntilNextJob);
   }
 }
 
 export function enqueueStartupJob(job: StartupJob) {
-  const exists = queue.some((item) => item.id === job.id);
+  const delayMs = getDelayForPriority(job.priority);
+  const notBefore = Date.now() + delayMs;
 
-  if (exists) {
-    console.log('[startup-scheduler] duplicate skipped:', job.label);
+  const existingIndex = queue.findIndex(item => item.id === job.id);
+
+  if (existingIndex >= 0) {
+    queue[existingIndex] = {
+      ...job,
+      notBefore: Math.min(queue[existingIndex].notBefore, notBefore),
+    };
+
+    console.log('[startup-scheduler] updated existing job:', job.label);
+    scheduleNextQueuedJob();
     return;
   }
 
-  const delayMs = job.priority === 'soon' ? SOON_DELAY_MS : IDLE_DELAY_MS;
-
   queue.push({
     ...job,
-    notBefore: Date.now() + delayMs,
+    notBefore,
   });
 
   sortQueue();
 
-  console.log(
-    '[startup-scheduler] queued:',
-    job.label,
-    'delay:',
-    delayMs
-  );
+  console.log('[startup-scheduler] queued:', job.label, 'delay:', delayMs);
 
-  scheduleNextQueuedJob();  scheduleNext(delayMs);
+  scheduleNextQueuedJob();
 }
 
 export function startStartupScheduler() {
   if (started) return;
+
   started = true;
 
   subscribeToAppActivity(() => {
     if (resumeTimer) {
       clearTimeout(resumeTimer);
+      resumeTimer = null;
     }
 
     if (isAppBusy()) {
@@ -149,11 +196,14 @@ export function startStartupScheduler() {
     }
 
     resumeTimer = setTimeout(() => {
-      void processQueue();
+      resumeTimer = null;
+      runWhenIdle(() => {
+        void processQueue();
+      });
     }, RESUME_AFTER_ACTIVITY_MS);
   });
 
-  scheduleNext(3000);
+  scheduleProcess(3000);
 }
 
 export function clearStartupJobs() {
@@ -164,10 +214,7 @@ export function clearStartupJobs() {
     resumeTimer = null;
   }
 
-  if (nextTimer) {
-    clearTimeout(nextTimer);
-    nextTimer = null;
-  }
+  clearNextTimer();
 
   running = false;
 }
