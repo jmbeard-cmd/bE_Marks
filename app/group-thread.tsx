@@ -158,6 +158,33 @@ function getGroupIcon(group: BEGroup): string {
   return GROUP_TYPE_ICONS.default;
 }
 
+function isMembershipSystemText(text?: string): boolean {
+  const value = text?.trim();
+
+  if (!value) return false;
+
+  return (
+    value.endsWith(' joined the group') ||
+    value.endsWith(' left the group') ||
+    value.endsWith(' was removed from the group')
+  );
+}
+
+function isSystemNoticeMessage(message: GroupMessage | PendingUploadMessage): boolean {
+  return (
+    (message as any).kind === 'system' ||
+    isMembershipSystemText(message.text)
+  );
+}
+
+function getSystemNoticeText(message: GroupMessage | PendingUploadMessage): string | null {
+  if (!isSystemNoticeMessage(message)) return null;
+
+  const text = message.text?.trim();
+
+  return text || null;
+}
+
 const REACTION_PACKS = [
   {
     title: 'Popular',
@@ -223,6 +250,7 @@ export default function GroupThreadScreen() {
   const initialRevealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const remoteSyncRunIdRef = useRef(0);
   const remoteSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const catchUpInFlightRef = useRef(false);
 
   const myDisplayName =
     profile?.display_name ||
@@ -311,12 +339,28 @@ export default function GroupThreadScreen() {
         (profile as any)?.avatarUrl ||
         undefined;
 
-      const sortedMessages = [...messages, ...pendingUploads].sort(
-        (a, b) => a.createdAt - b.createdAt
-      );
+const sortedMessages = [...messages, ...pendingUploads].sort(
+  (a, b) => a.createdAt - b.createdAt
+);
 
-      return sortedMessages.map((message, index) => {
-        const previousMessage = index > 0 ? sortedMessages[index - 1] : null;
+const dedupedMessages = sortedMessages.reduce<(GroupMessage | PendingUploadMessage)[]>(
+  (acc, message) => {
+    const noticeText = getSystemNoticeText(message);
+    const previous = acc[acc.length - 1];
+    const previousNoticeText = previous ? getSystemNoticeText(previous) : null;
+
+    if (noticeText && previousNoticeText && noticeText === previousNoticeText) {
+      return acc;
+    }
+
+    acc.push(message);
+    return acc;
+  },
+  []
+);
+
+return dedupedMessages.map((message, index) => {
+        const previousMessage = index > 0 ? dedupedMessages[index - 1] : null;
         const senderNpub = (message as any).senderNpub;
 
         const avatarUrl =
@@ -326,9 +370,10 @@ export default function GroupThreadScreen() {
               ? memberAvatarMap[senderNpub]
               : undefined;
 
-        const showName =
-          !message.mine &&
-          (!previousMessage || previousMessage.senderName !== message.senderName);
+const showName =
+  !isSystemNoticeMessage(message) &&
+  !message.mine &&
+  (!previousMessage || previousMessage.senderName !== message.senderName);
 
         return {
           id: message.id,
@@ -790,6 +835,54 @@ export default function GroupThreadScreen() {
     });
   }, [groupId, groupLoaded, relayUrl, npub]);
 
+  const catchUpGroupMessages = useCallback(async () => {
+  if (!groupId || !groupLoaded || !relayUrl) return;
+  if (catchUpInFlightRef.current) return;
+
+  catchUpInFlightRef.current = true;
+
+  try {
+    const runId = remoteSyncRunIdRef.current;
+    const remoteMessages = await fetchGroupMessages(groupId, relayUrl);
+
+    if (remoteSyncRunIdRef.current !== runId) return;
+
+    for (const msg of remoteMessages) {
+      const mine = !!npub && msg.senderNpub === npub;
+
+      await saveRemoteGroupMessage({
+        id: `nostr_group_${msg.id}`,
+        clientMessageId: msg.clientMessageId,
+        groupId,
+        text: msg.text,
+        kind: (msg as any).kind,
+        systemType: (msg as any).systemType,
+        replyToMessageId: msg.replyToMessageId,
+        replyToClientMessageId: msg.replyToClientMessageId,
+        replyPreviewText: msg.replyPreviewText,
+        replyPreviewSenderName: msg.replyPreviewSenderName,
+        media: msg.media,
+        poll: msg.poll,
+        mediaUrl: msg.mediaUrl || msg.imageUrl,
+        mediaType: msg.mediaType || (msg.imageUrl ? 'image' : undefined),
+        thumbnailUrl: msg.thumbnailUrl,
+        imageUrl: msg.imageUrl,
+        mine,
+        senderNpub: msg.senderNpub,
+        senderName: msg.senderName,
+        createdAt: msg.createdAt,
+      });
+    }
+
+    const refreshedMessages = await getMessagesForGroup(groupId);
+    setMessages(refreshedMessages);
+  } catch (error) {
+    console.warn('[Groups] catch-up message fetch failed:', error);
+  } finally {
+    catchUpInFlightRef.current = false;
+  }
+}, [groupId, groupLoaded, relayUrl, npub]);
+
   useEffect(() => {
     loadGroup();
   }, [loadGroup]);
@@ -837,6 +930,23 @@ export default function GroupThreadScreen() {
   }, [loadMessages]);
 
   useEffect(() => {
+  if (!groupId || !groupLoaded || !relayUrl) return;
+
+  const initialCatchUpTimer = setTimeout(() => {
+    catchUpGroupMessages();
+  }, 2500);
+
+  const interval = setInterval(() => {
+    catchUpGroupMessages();
+  }, 15000);
+
+  return () => {
+    clearTimeout(initialCatchUpTimer);
+    clearInterval(interval);
+  };
+}, [groupId, groupLoaded, relayUrl, catchUpGroupMessages]);
+
+  useEffect(() => {
     if (!groupId || !relayUrl) return;
 
     let unsubscribeMessages: (() => void) | undefined;
@@ -876,30 +986,34 @@ export default function GroupThreadScreen() {
             createdAt: msg.createdAt,
           });
 
-          if (!mine) {
-            await sendLocalGroupNotification({
-              groupId,
-              senderNpub: msg.senderNpub,
-              senderName: msg.senderName,
-              preview: getNotificationPreviewText({
-                text: msg.text,
-                media: msg.media,
-                mediaUrl: msg.mediaUrl,
-                imageUrl: msg.imageUrl,
-                mediaType: msg.mediaType || (msg.imageUrl ? 'image' : undefined),
-                poll: msg.poll,
-              }),
-              eventId: msg.id,
-              groupEventType: msg.poll
-                ? 'poll_created'
-                : Array.isArray(msg.media) && msg.media.some(item => item.type === 'file')
-                  ? 'chat_file'
-                  : Array.isArray(msg.media) && msg.media.length > 0
-                    ? 'chat_media'
-                    : 'chat_message',
-              routeTarget: 'group-thread',
-              pollId: msg.poll?.id,
-            });
+          if (!mine && npub) {
+            const stillActiveMember = await isGroupMember(groupId, npub);
+
+            if (stillActiveMember) {
+              await sendLocalGroupNotification({
+                groupId,
+                senderNpub: msg.senderNpub,
+                senderName: msg.senderName,
+                preview: getNotificationPreviewText({
+                  text: msg.text,
+                  media: msg.media,
+                  mediaUrl: msg.mediaUrl,
+                  imageUrl: msg.imageUrl,
+                  mediaType: msg.mediaType || (msg.imageUrl ? 'image' : undefined),
+                  poll: msg.poll,
+                }),
+                eventId: msg.id,
+                groupEventType: msg.poll
+                  ? 'poll_created'
+                  : Array.isArray(msg.media) && msg.media.some(item => item.type === 'file')
+                    ? 'chat_file'
+                    : Array.isArray(msg.media) && msg.media.length > 0
+                      ? 'chat_media'
+                      : 'chat_message',
+                routeTarget: 'group-thread',
+                pollId: msg.poll?.id,
+              });
+            }
           }
 
           const next = await getMessagesForGroup(groupId);
@@ -1957,7 +2071,7 @@ export default function GroupThreadScreen() {
 
   const renderMessage = useCallback(
     ({ item }: { item: VisibleGroupMessage }) => {
-    if ((item.message as any).kind === 'system') {
+     if (isSystemNoticeMessage(item.message)) {
       return (
         <View style={s.systemMessageWrap}>
           <Text style={s.systemMessageText}>

@@ -220,6 +220,18 @@ function getMessagePreview(input: {
   return '📷 Photo';
 }
 
+function isMembershipSystemText(text?: string): boolean {
+  const value = text?.trim();
+
+  if (!value) return false;
+
+  return (
+    value.endsWith(' joined the group') ||
+    value.endsWith(' left the group') ||
+    value.endsWith(' was removed from the group')
+  );
+}
+
 function createPollOptionId(index: number): string {
   return `poll_option_${index + 1}_${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -273,19 +285,20 @@ export async function saveLocalGroupSystemMessage(input: {
   const allMessages = await getAllGroupMessages();
   const now = input.createdAt ?? Math.floor(Date.now() / 1000);
   const safeText = input.text.trim();
+  const actorKey = input.actorNpub || input.actorName || 'unknown';
+  const duplicateWindowSeconds = 5;
 
-  const clientMessageId = `system_${input.systemType}_${input.groupId}_${input.actorNpub || 'unknown'}_${now}`;
-
-  const alreadyExists = allMessages.some(message =>
+  const existing = allMessages.find(message =>
     message.groupId === input.groupId &&
-    message.clientMessageId === clientMessageId
+    message.kind === 'system' &&
+    message.systemType === input.systemType &&
+    message.text?.trim() === safeText &&
+    Math.abs(message.createdAt - now) <= duplicateWindowSeconds
   );
 
-  if (alreadyExists) {
-    const existing = allMessages.find(message => message.clientMessageId === clientMessageId);
+  if (existing) return existing;
 
-    if (existing) return existing;
-  }
+  const clientMessageId = `system_${input.systemType}_${input.groupId}_${actorKey}_${now}`;
 
   const systemMessage: GroupMessage = {
     id: clientMessageId,
@@ -601,6 +614,21 @@ export async function saveRemoteGroupMessage(input: {
   });
 
   if (existsByClientMessageId) return;
+
+const incomingText = input.text?.trim();
+
+if (incomingText && isMembershipSystemText(incomingText)) {
+  const duplicateWindowSeconds = 5;
+
+  const existingMembershipNotice = allMessages.some(message =>
+    message.groupId === input.groupId &&
+    isMembershipSystemText(message.text) &&
+    message.text?.trim() === incomingText &&
+    Math.abs(message.createdAt - input.createdAt) <= duplicateWindowSeconds
+  );
+
+  if (existingMembershipNotice) return;
+}
 
   const matchesDeletedLocalMessage = allMessages.some(message => {
     if (!message.isDeleted) return false;

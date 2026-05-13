@@ -10,6 +10,10 @@ import {
   publishGroupMembership,
   type NostrGroupPayload,
 } from './nostr';
+import {
+  registerGroupMemberForPush,
+  removeGroupMemberFromPush,
+} from './push-notifications';
 
 const GROUPS_KEY = 'be_groups_v1';
 const MEMBERS_KEY = 'be_group_members_v1';
@@ -573,16 +577,34 @@ export async function addGroupMember(input: {
     m => m.groupId === input.groupId && m.npub === input.npub
   );
 
-  if (existing) {
-    // Reinstate if removed
-    const updated = members.map(m =>
-      m.id === existing.id
-        ? { ...m, status: 'active' as MemberStatus, removedAt: undefined, removedBy: undefined, joinedAt: now }
-        : m
-    );
-    await writeMembers(updated);
-    return { ...existing, status: 'active', joinedAt: now };
+if (existing) {
+  // Reinstate if removed
+  const updated = members.map(m =>
+    m.id === existing.id
+      ? { ...m, status: 'active' as MemberStatus, removedAt: undefined, removedBy: undefined, joinedAt: now }
+      : m
+  );
+
+  await writeMembers(updated);
+
+  const group = await getGroupById(input.groupId);
+
+  if (group) {
+    registerGroupMemberForPush({
+      groupId: input.groupId,
+      groupName: group.name,
+      relayUrl: group.relayUrl,
+      memberNpub: input.npub,
+      role: input.role ?? existing.role,
+      status: 'active',
+      displayName: input.displayName ?? existing.displayName,
+    }).catch(error => {
+      console.warn('[Groups] push registration after rejoin failed:', error);
+    });
   }
+
+  return { ...existing, status: 'active', joinedAt: now };
+}
 
   const member: BEGroupMember = {
     id: `member_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -604,9 +626,25 @@ export async function addGroupMember(input: {
     m => m.groupId === input.groupId && m.status === 'active'
   );
 
-  await updateGroup(input.groupId, { memberCount: activeMembers.length });
+await updateGroup(input.groupId, { memberCount: activeMembers.length });
 
-  return member;
+const group = await getGroupById(input.groupId);
+
+if (group) {
+  registerGroupMemberForPush({
+    groupId: input.groupId,
+    groupName: group.name,
+    relayUrl: group.relayUrl,
+    memberNpub: input.npub,
+    role: input.role ?? 'member',
+    status: 'active',
+    displayName: input.displayName,
+  }).catch(error => {
+    console.warn('[Groups] push registration after join failed:', error);
+  });
+}
+
+return member;
 }
 
 export async function removeMember(
@@ -627,7 +665,14 @@ export async function removeMember(
   const activeCount = updated.filter(
     m => m.groupId === groupId && m.status === 'active'
   ).length;
-  await updateGroup(groupId, { memberCount: activeCount });
+await updateGroup(groupId, { memberCount: activeCount });
+
+removeGroupMemberFromPush({
+  groupId,
+  memberNpub: npub,
+}).catch(error => {
+  console.warn('[Groups] push removal after leave/remove failed:', error);
+});
 }
 
 export async function updateMemberRole(

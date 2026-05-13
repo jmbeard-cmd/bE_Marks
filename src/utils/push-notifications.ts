@@ -77,7 +77,6 @@ export type BENotificationData = {
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
     shouldPlaySound: true,
     shouldSetBadge: true,
     shouldShowBanner: true,
@@ -226,7 +225,7 @@ export async function getStoredExpoPushToken() {
 
 export async function registerForPushNotifications(npub: string) {
   try {
-    console.log('[Push] registering push notifications for:', npub.slice(0, 12));
+    console.log('[Push] registering push notifications');
 
 if (!Device.isDevice) {
   console.log('[Push] physical device required for push notifications');
@@ -235,16 +234,6 @@ if (!Device.isDevice) {
 
 const appOwnership = Constants.appOwnership;
 const executionEnvironment = (Constants as any).executionEnvironment;
-const appId =
-  Constants.expoConfig?.android?.package ||
-  Constants.expoConfig?.ios?.bundleIdentifier ||
-  'unknown';
-
-console.log('[Push] runtime info:', {
-  appOwnership,
-  executionEnvironment,
-  appId,
-});
 
 if (appOwnership === 'expo' && executionEnvironment === 'storeClient') {
   console.log('[Push] skipped backend push registration in Expo Go store client');
@@ -254,13 +243,13 @@ if (appOwnership === 'expo' && executionEnvironment === 'storeClient') {
 await ensureAndroidNotificationChannel();
 
 const existingPermission = await Notifications.getPermissionsAsync();
-console.log('[Push] existing permission:', existingPermission);
+console.log('[Push] permission status:', existingPermission.status);
 
 let finalStatus = existingPermission.status;
 
 if (existingPermission.status !== 'granted') {
   const requestedPermission = await Notifications.requestPermissionsAsync();
-  console.log('[Push] requested permission:', requestedPermission);
+  console.log('[Push] requested permission status:', requestedPermission.status);
   finalStatus = requestedPermission.status;
 }
 
@@ -271,7 +260,7 @@ if (existingPermission.status !== 'granted') {
 
 const projectId = getProjectId();
 
-console.log('[Push] projectId:', projectId);
+console.log('[Push] projectId found:', !!projectId);
 
 if (!projectId) {
   console.warn('[Push] missing EAS projectId');
@@ -282,14 +271,12 @@ const tokenResult = await Notifications.getExpoPushTokenAsync({
   projectId,
 });
 
-console.log('[Push] token result:', tokenResult);
-
 const token = tokenResult.data;
 
     await AsyncStorage.setItem(PUSH_TOKEN_KEY, token);
     await AsyncStorage.setItem(PUSH_TOKEN_OWNER_KEY, npub);
 
-    console.log('[Push] Expo token:', token);
+    console.log('[Push] Expo token created');
 
     await registerTokenWithBackend({
       npub,
@@ -336,12 +323,6 @@ async function registerTokenWithBackend({
 
 const result = await response.json().catch(() => null);
 
-console.log('[Push] backend registration response:', {
-  status: response.status,
-  ok: response.ok,
-  result,
-});
-
 if (!response.ok) {
   console.warn('[Push] backend registration failed:', response.status, result);
   return;
@@ -375,11 +356,21 @@ async function postToPushWorker(
     const result = await response.json().catch(() => null);
 
     if (!response.ok) {
+      const errorText =
+        typeof result?.error === 'string'
+          ? result.error.toLowerCase()
+          : '';
+
+      if (response.status === 404 && errorText.includes('no recipient tokens')) {
+        console.log(`[Push] ${label} skipped; recipient has no push token`);
+        return false;
+      }
+
       console.warn(`[Push] ${label} failed:`, response.status, result);
       return false;
     }
 
-    console.log(`[Push] ${label} ok:`, result);
+    console.log(`[Push] ${label} ok`);
     return true;
   } catch (error) {
     console.warn(`[Push] ${label} error:`, error);

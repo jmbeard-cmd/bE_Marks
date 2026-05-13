@@ -152,10 +152,7 @@ const wrappedEvent = nip17.wrapEvent(
 
 const wrappedEvents = [wrappedEvent];
 
-console.log('[DM SEND] myPubkey:', myPubkey.slice(0, 16));
-console.log('[DM SEND] toPubkey:', input.toPubkey.slice(0, 16));
-console.log('[DM SEND] wrapped event id:', wrappedEvent.id);
-console.log('[DM SEND] wrapped event p tags:', wrappedEvent.tags.filter(tag => tag[0] === 'p'));
+console.log('[DM SEND] publishing wrapped DM');
 
     const pool = new SimplePool();
 
@@ -179,7 +176,7 @@ console.log('[DM SEND] wrapped event p tags:', wrappedEvent.tags.filter(tag => t
 );
 
 const successfulIds = publishResults.filter((id): id is string => typeof id === 'string');
-console.log('[DM SEND] successful event ids:', successfulIds);
+console.log('[DM SEND] successful publishes:', successfulIds.length);
 
     return {
   success: successfulIds.length > 0,
@@ -223,27 +220,21 @@ function buildDMMessageFromGiftWrap(
 ): NostrDMMessage | null {
   const inner = nip17.unwrapEvent(wrapped, sk);
 
-  if (!inner || inner.kind !== 14) {
-    console.log('[DM RECEIVE] ignored unwrap result; not kind 14:', inner?.kind);
-    return null;
-  }
+if (!inner || inner.kind !== 14) {
+  return null;
+}
 
   const pTag = inner.tags.find((tag: string[]) => tag[0] === 'p');
   const recipientPubkey = pTag?.[1] || '';
   const otherPubkey = inner.pubkey === myPubkey ? recipientPubkey : inner.pubkey;
 
-  if (!otherPubkey) {
-    console.log('[DM RECEIVE] ignored inner DM because otherPubkey was empty:', inner.id);
-    return null;
-  }
+if (!otherPubkey) {
+  return null;
+}
 
-  if (withPubkey && otherPubkey !== withPubkey) {
-    console.log('[DM RECEIVE] ignored DM for different thread:', {
-      expected: withPubkey.slice(0, 16),
-      actual: otherPubkey.slice(0, 16),
-    });
-    return null;
-  }
+if (withPubkey && otherPubkey !== withPubkey) {
+  return null;
+}
 
   return {
     id: inner.id,
@@ -388,10 +379,10 @@ export async function fetchNostrDMs(input?: {
             }
           };
 
-          ws.onerror = (error) => {
-            console.warn(`[DM FETCH] ${relayLabel} websocket error:`, error);
-            finishRelay();
-          };
+ws.onerror = () => {
+  console.warn(`[DM FETCH] ${relayLabel} websocket error`);
+  finishRelay();
+};
 
           ws.onclose = () => {};
         } catch (error) {
@@ -1253,12 +1244,10 @@ export function fetchGroupByInviteCode(
           }
         ];
 
-        console.log('[Groups] sending REQ:', JSON.stringify(req));
         ws.send(JSON.stringify(req));
       };
 
       ws.onmessage = (msg) => {
-        console.log('[Groups] fetchGroupByInviteCode raw message:', msg.data);
 
         try {
           const data = JSON.parse(msg.data);
@@ -1266,7 +1255,7 @@ export function fetchGroupByInviteCode(
             clearTimeout(timeout);
             ws.close();
             const parsed = JSON.parse(data[2].content || '{}') as NostrGroupPayload;
-            console.log('[Groups] fetchGroupByInviteCode parsed EVENT:', parsed);
+            console.log('[Groups] invite code matched group');
             resolve(parsed);
           } else if (data[0] === 'EOSE') {
             clearTimeout(timeout);
@@ -1274,21 +1263,19 @@ export function fetchGroupByInviteCode(
             console.log('[Groups] fetchGroupByInviteCode got EOSE, no match');
             resolve(null);
           }
-        } catch (error) {
-          console.log('[Groups] fetchGroupByInviteCode parse error:', error);
-          resolve(null);
-        }
+} catch {
+  resolve(null);
+}
       };
 
-      ws.onerror = (error) => {
-        clearTimeout(timeout);
-        console.log('[Groups] fetchGroupByInviteCode websocket error:', error);
-        resolve(null);
-      };
-    } catch (error) {
-      console.log('[Groups] fetchGroupByInviteCode outer error:', error);
-      resolve(null);
-    }
+ws.onerror = () => {
+  clearTimeout(timeout);
+  console.log('[Groups] fetchGroupByInviteCode websocket error');
+  resolve(null);
+};
+} catch {
+  resolve(null);
+}
   });
 }
 
