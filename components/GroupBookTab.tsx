@@ -73,6 +73,30 @@ function getEntryCreatorLabel(entry: GroupBookEntry): string {
 const ACCOUNTING_BLACK_LIGHT = '#111111';
 const ACCOUNTING_BLACK_DARK = '#F2EDE6';
 const ACCOUNTING_RED = '#B00000';
+const INCOME_CATEGORIES = [
+  'Carryover',
+  'Donation',
+  'Fundraiser',
+  'Concessions',
+  'Sponsorship',
+  'Registration',
+  'Merchandise',
+  'Grant',
+  'Other Income',
+];
+
+const EXPENSE_CATEGORIES = [
+  'Meals',
+  'Equipment',
+  'Uniforms',
+  'Travel',
+  'Tournament Fees',
+  'Officials / Refs',
+  'Supplies',
+  'Facilities',
+  'Awards',
+  'Other Expense',
+];
 
 function getAccountingBlack(theme: typeof Colors.dark): string {
   return theme.bg === '#0D0F0E' ? ACCOUNTING_BLACK_DARK : ACCOUNTING_BLACK_LIGHT;
@@ -100,9 +124,11 @@ export default function GroupBookTab({
   const [entryType, setEntryType] = useState<GroupBookEntryType>('income');
   const [entryStatus, setEntryStatus] = useState<GroupBookEntryStatus>('confirmed');
   const [entryTitle, setEntryTitle] = useState('');
+  const [entryCategory, setEntryCategory] = useState('Carryover');
   const [entryContributor, setEntryContributor] = useState('');
   const [entryAmount, setEntryAmount] = useState('');
   const [entryDescription, setEntryDescription] = useState('');
+  const categoryOptions = entryType === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
 
   const loadBook = useCallback(async () => {
     const cachedSummary = await getBookSummaryForGroup(group.id);
@@ -150,15 +176,21 @@ export default function GroupBookTab({
     onGroupUpdated?.();
   };
 
-  const resetEntryModal = () => {
-    setEntryType('income');
-    setEntryStatus('confirmed');
-    setEntryTitle('');
-    setEntryContributor('');
-    setEntryAmount('');
-    setEntryDescription('');
-    setShowEntryModal(false);
-  };
+const resetEntryModal = () => {
+  setEntryType('income');
+  setEntryCategory('Carryover');
+  setEntryStatus('confirmed');
+  setEntryTitle('');
+  setEntryContributor('');
+  setEntryAmount('');
+  setEntryDescription('');
+  setShowEntryModal(false);
+};
+
+const handleEntryTypeChange = (nextType: GroupBookEntryType) => {
+  setEntryType(nextType);
+  setEntryCategory(nextType === 'income' ? INCOME_CATEGORIES[0] : EXPENSE_CATEGORIES[0]);
+};
 
   const handleCreateEntry = async () => {
     if (!npub) {
@@ -184,6 +216,7 @@ export default function GroupBookTab({
       type: entryType,
       amountCents,
       title,
+      category: entryCategory,
       contributorName: entryContributor,
       description: entryDescription,
       status: entryStatus,
@@ -370,6 +403,10 @@ color: item.type === 'expense'
 
             <Text style={s.entryTitle}>{item.title}</Text>
 
+            {!!item.category && (
+  <Text style={s.entryCategory}>{item.category}</Text>
+)}
+
             {!!item.contributorName && (
               <Text style={s.entryContributor}>{item.contributorName}</Text>
             )}
@@ -437,6 +474,10 @@ color: item.type === 'expense'
               <View style={s.actionHandle} />
 
               <Text style={s.actionTitle}>{selectedEntry.title}</Text>
+
+              {!!selectedEntry.category && (
+  <Text style={s.actionCategory}>{selectedEntry.category}</Text>
+)}
 
               {!!selectedEntry.contributorName && (
                 <Text style={s.actionSubtitle}>{selectedEntry.contributorName}</Text>
@@ -514,7 +555,7 @@ color: selectedEntry.type === 'expense'
             <View style={s.typeRow}>
               <TouchableOpacity
                 style={[s.typeBtn, entryType === 'income' && s.typeBtnActive]}
-                onPress={() => setEntryType('income')}
+                onPress={() => handleEntryTypeChange('income')}
               >
                 <Text style={[s.typeText, entryType === 'income' && s.typeTextActive]}>
                   Income
@@ -523,12 +564,36 @@ color: selectedEntry.type === 'expense'
 
               <TouchableOpacity
                 style={[s.typeBtn, entryType === 'expense' && s.typeBtnActive]}
-                onPress={() => setEntryType('expense')}
+                onPress={() => handleEntryTypeChange('expense')}
               >
                 <Text style={[s.typeText, entryType === 'expense' && s.typeTextActive]}>
                   Expense
                 </Text>
               </TouchableOpacity>
+            </View>
+
+                        <Text style={s.inputLabel}>CATEGORY</Text>
+            <View style={s.categoryWrap}>
+              {categoryOptions.map(category => (
+                <TouchableOpacity
+                  key={category}
+                  style={[
+                    s.categoryChip,
+                    entryCategory === category && s.categoryChipActive,
+                  ]}
+                  onPress={() => setEntryCategory(category)}
+                  activeOpacity={0.85}
+                >
+                  <Text
+                    style={[
+                      s.categoryChipText,
+                      entryCategory === category && s.categoryChipTextActive,
+                    ]}
+                  >
+                    {category}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
 
             <Text style={s.inputLabel}>STATUS</Text>
@@ -816,6 +881,20 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     fontWeight: '800',
     lineHeight: 20,
   },
+    entryCategory: {
+    alignSelf: 'flex-start',
+    color: theme.gold,
+    fontSize: 11,
+    fontWeight: '900',
+    marginTop: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.gold,
+    overflow: 'hidden',
+  },
   entryContributor: {
     color: theme.textSecondary,
     fontSize: 12,
@@ -886,6 +965,20 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     fontSize: 18,
     fontWeight: '900',
     marginBottom: 4,
+  },
+    actionCategory: {
+    alignSelf: 'flex-start',
+    color: theme.gold,
+    fontSize: 11,
+    fontWeight: '900',
+    marginBottom: 10,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.gold,
+    overflow: 'hidden',
   },
   actionSubtitle: {
     color: theme.textMuted,
@@ -1018,6 +1111,31 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     fontWeight: '800',
   },
   typeTextActive: {
+    color: theme.bg,
+  },
+    categoryWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  categoryChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: theme.bg,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+  },
+  categoryChipActive: {
+    backgroundColor: theme.gold,
+    borderColor: theme.gold,
+  },
+  categoryChipText: {
+    color: theme.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  categoryChipTextActive: {
     color: theme.bg,
   },
   modalActions: {

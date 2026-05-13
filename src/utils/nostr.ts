@@ -1439,6 +1439,7 @@ export type NostrGroupBookEntry = {
   type: 'income' | 'expense';
   amountCents: number;
   title: string;
+  category?: string;
   description?: string;
   contributorName?: string;
   status: 'pending' | 'confirmed';
@@ -2585,6 +2586,7 @@ export async function publishGroupBookEntry(input: {
   type: 'income' | 'expense';
   amountCents: number;
   title: string;
+  category?: string;
   description?: string;
   contributorName?: string;
   status: 'pending' | 'confirmed';
@@ -2621,6 +2623,7 @@ export async function publishGroupBookEntry(input: {
         type: input.type,
         amountCents: input.amountCents,
         title: input.title,
+        category: input.category,
         description: input.description,
         contributorName: input.contributorName,
         status: input.status,
@@ -2699,6 +2702,7 @@ export function fetchGroupBookEntries(
               type: entryType,
               amountCents,
               title: parsed.title || 'Book entry',
+              category: parsed.category,
               description: parsed.description,
               contributorName: parsed.contributorName,
               status: entryStatus,

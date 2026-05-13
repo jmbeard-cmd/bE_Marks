@@ -18,6 +18,7 @@ export type GroupBookEntry = {
   type: GroupBookEntryType;
   amountCents: number;
   title: string;
+  category?: string;
   description?: string;
   contributorName?: string;
   status: GroupBookEntryStatus;
@@ -103,6 +104,7 @@ export async function createGroupBookEntry(input: {
   type: GroupBookEntryType;
   amountCents: number;
   title: string;
+  category?: string;
   description?: string;
   contributorName?: string;
   status?: GroupBookEntryStatus;
@@ -119,8 +121,9 @@ export async function createGroupBookEntry(input: {
     groupId: input.groupId,
     type: input.type,
     amountCents: Math.max(0, Math.round(input.amountCents)),
-    title: input.title.trim(),
-    description: input.description?.trim() || undefined,
+title: input.title.trim(),
+category: input.category?.trim() || undefined,
+description: input.description?.trim() || undefined,
     contributorName: input.contributorName?.trim() || undefined,
     status: input.status ?? 'confirmed',
     createdAt: now,
@@ -133,19 +136,20 @@ export async function createGroupBookEntry(input: {
   emitGroupBooksChanged(input.groupId);
 
   if (input.nsec && input.relayUrl) {
-    publishGroupBookEntry({
-      id: entry.id,
-      groupId: entry.groupId,
-      type: entry.type,
-      amountCents: entry.amountCents,
-      title: entry.title,
-      description: entry.description,
-      contributorName: entry.contributorName,
-      status: entry.status,
-      createdByNpub: entry.createdByNpub,
-      createdByName: entry.createdByName,
-      nsec: input.nsec,
-      relayUrl: input.relayUrl,
+publishGroupBookEntry({
+  id: entry.id,
+  groupId: entry.groupId,
+  type: entry.type,
+  amountCents: entry.amountCents,
+  title: entry.title,
+  category: entry.category,
+  description: entry.description,
+  contributorName: entry.contributorName,
+  status: entry.status,
+  createdByNpub: entry.createdByNpub,
+  createdByName: entry.createdByName,
+  nsec: input.nsec,
+  relayUrl: input.relayUrl,
     }).then(async result => {
       if (!result.success) {
         console.warn('[Group Books] publish entry failed:', result.error);
@@ -200,19 +204,20 @@ export async function updateGroupBookEntryStatus(
   emitGroupBooksChanged(changedEntry.groupId);
 
   if (options?.nsec && options.relayUrl) {
-    publishGroupBookEntry({
-      id: changedEntry.id,
-      groupId: changedEntry.groupId,
-      type: changedEntry.type,
-      amountCents: changedEntry.amountCents,
-      title: changedEntry.title,
-      description: changedEntry.description,
-      contributorName: changedEntry.contributorName,
-      status: changedEntry.status,
-      createdByNpub: changedEntry.createdByNpub,
-      createdByName: changedEntry.createdByName,
-      nsec: options.nsec,
-      relayUrl: options.relayUrl,
+publishGroupBookEntry({
+  id: changedEntry.id,
+  groupId: changedEntry.groupId,
+  type: changedEntry.type,
+  amountCents: changedEntry.amountCents,
+  title: changedEntry.title,
+  category: changedEntry.category,
+  description: changedEntry.description,
+  contributorName: changedEntry.contributorName,
+  status: changedEntry.status,
+  createdByNpub: changedEntry.createdByNpub,
+  createdByName: changedEntry.createdByName,
+  nsec: options.nsec,
+  relayUrl: options.relayUrl,
     }).then(result => {
       if (!result.success) {
         console.warn('[Group Books] publish status update failed:', result.error);
@@ -248,8 +253,9 @@ export async function syncGroupBookEntriesFromRelay(
       groupId: remoteEntry.groupId,
       type: remoteEntry.type,
       amountCents: remoteEntry.amountCents,
-      title: remoteEntry.title,
-      description: remoteEntry.description,
+title: remoteEntry.title,
+category: remoteEntry.category || existing?.category,
+description: remoteEntry.description,
       contributorName: remoteEntry.contributorName,
       status: remoteEntry.status,
       createdAt: remoteEntry.createdAt,
@@ -298,6 +304,7 @@ export async function publishUnsyncedGroupBookEntries(input: {
         type: entry.type,
         amountCents: entry.amountCents,
         title: entry.title,
+        category: entry.category,
         description: entry.description,
         contributorName: entry.contributorName,
         status: entry.status,
