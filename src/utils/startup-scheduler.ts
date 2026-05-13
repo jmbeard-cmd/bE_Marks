@@ -24,10 +24,10 @@ let resumeTimer: ReturnType<typeof setTimeout> | null = null;
 let nextTimer: ReturnType<typeof setTimeout> | null = null;
 let unsubscribeActivity: (() => void) | null = null;
 
-const SOON_DELAY_MS = 2500;
-const IDLE_DELAY_MS = 10000;
-const BETWEEN_JOBS_DELAY_MS = 1800;
-const RESUME_AFTER_ACTIVITY_MS = 1800;
+const SOON_DELAY_MS = 3500;
+const IDLE_DELAY_MS = 30000;
+const BETWEEN_JOBS_DELAY_MS = 2500;
+const RESUME_AFTER_ACTIVITY_MS = 2500;
 
 function getDelayForPriority(priority?: StartupJobPriority) {
   return priority === 'soon' ? SOON_DELAY_MS : IDLE_DELAY_MS;

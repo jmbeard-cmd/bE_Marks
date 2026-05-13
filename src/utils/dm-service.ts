@@ -54,6 +54,27 @@ let _unsubscribe: (() => void) | null = null;
 let _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let _appStateSubscription: any = null;
 const _seenIds = new Set<string>();
+const RESTORE_CHUNK_SIZE = 20;
+const BUSY_WAIT_MS = 500;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function yieldRestoreWork(): Promise<void> {
+  if (isAppBusy()) {
+    await sleep(BUSY_WAIT_MS);
+    return;
+  }
+
+  await sleep(0);
+}
+
+async function waitUntilAppIsNotBusy(): Promise<void> {
+  while (isAppBusy()) {
+    await sleep(BUSY_WAIT_MS);
+  }
+}
 
 export async function startDMService(): Promise<void> {
   console.log('[DMService] startDMService called');
@@ -264,8 +285,8 @@ function _scheduleKeepAlive(): void {
 }
 export async function restoreDMsFromRelay(): Promise<void> {
   if (isAppBusy()) {
-    console.log('[DM RESTORE] app busy, skipping restore for now');
-    return;
+    console.log('[DM RESTORE] app busy, waiting to restore');
+    await waitUntilAppIsNotBusy();
   }
 
   console.log('[DM RESTORE] starting full restore');
@@ -300,6 +321,7 @@ export async function restoreDMsFromRelay(): Promise<void> {
         await deleteThread(thread.id);
       }
     }
+        await yieldRestoreWork();
 
     const messages = await fetchNostrDMs({
       relayUrls: FAST_RELAYS,
@@ -307,8 +329,8 @@ export async function restoreDMsFromRelay(): Promise<void> {
     });
 
     if (isAppBusy()) {
-      console.log('[DM RESTORE] app became busy after fetch, stopping before save');
-      return;
+      console.log('[DM RESTORE] app busy after fetch, waiting before save');
+      await waitUntilAppIsNotBusy();
     }
 
     console.log('[DM RESTORE] recent messages fetched:', messages.length);
@@ -359,13 +381,26 @@ export async function restoreDMsFromRelay(): Promise<void> {
         mine: msg.isMine,
         createdAt: msg.createdAt,
       });
+
+      if (messagesToSave.length % RESTORE_CHUNK_SIZE === 0) {
+        await yieldRestoreWork();
+      }
     }
 
     const touchedThreadIds = Array.from(
       new Set(messagesToSave.map(message => message.threadId))
     );
 
-    await saveRemoteDMMessagesBatch(messagesToSave);
+    for (let i = 0; i < messagesToSave.length; i += RESTORE_CHUNK_SIZE) {
+      const chunk = messagesToSave.slice(i, i + RESTORE_CHUNK_SIZE);
+
+      if (isAppBusy()) {
+        await waitUntilAppIsNotBusy();
+      }
+
+      await saveRemoteDMMessagesBatch(chunk);
+      await yieldRestoreWork();
+    }
 
     for (const threadId of touchedThreadIds) {
       emitDMChanged(threadId);

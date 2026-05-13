@@ -10,6 +10,7 @@ import {
   type UnsignedEvent,
 } from 'nostr-tools';
 import { Linking, Platform } from 'react-native';
+import { isAppBusy } from './app-activity';
 
 const SECKEY = 'nostr_nsec';
 const PUBKEY = 'nostr_npub';
@@ -206,6 +207,11 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function yieldToUI(): Promise<void> {
+  if (isAppBusy()) {
+    await sleep(500);
+    return;
+  }
+
   await sleep(0);
 }
 
@@ -401,7 +407,7 @@ export async function fetchNostrDMs(input?: {
 
     const seenMessages = new Set<string>();
     const messages: NostrDMMessage[] = [];
-    const chunkSize = 8;
+    const chunkSize = 3;
 
     for (let i = 0; i < rawGiftWraps.length; i += chunkSize) {
       const chunk = rawGiftWraps.slice(i, i + chunkSize);
