@@ -18,8 +18,11 @@ type QueuedStartupJob = StartupJob & {
 let queue: QueuedStartupJob[] = [];
 let running = false;
 let started = false;
+let schedulerVersion = 0;
+
 let resumeTimer: ReturnType<typeof setTimeout> | null = null;
 let nextTimer: ReturnType<typeof setTimeout> | null = null;
+let unsubscribeActivity: (() => void) | null = null;
 
 const SOON_DELAY_MS = 2500;
 const IDLE_DELAY_MS = 10000;
@@ -43,6 +46,13 @@ function sortQueue() {
   });
 }
 
+function clearResumeTimer() {
+  if (resumeTimer) {
+    clearTimeout(resumeTimer);
+    resumeTimer = null;
+  }
+}
+
 function clearNextTimer() {
   if (nextTimer) {
     clearTimeout(nextTimer);
@@ -50,13 +60,28 @@ function clearNextTimer() {
   }
 }
 
+function runWhenIdle(callback: () => void) {
+  const requestIdle =
+    typeof globalThis !== 'undefined'
+      ? (globalThis as any).requestIdleCallback
+      : undefined;
+
+  if (typeof requestIdle === 'function') {
+    requestIdle(() => callback(), { timeout: 2500 });
+    return;
+  }
+
+  setTimeout(callback, 0);
+}
+
 function scheduleProcess(delayMs: number) {
   clearNextTimer();
 
   nextTimer = setTimeout(() => {
     nextTimer = null;
+
     runWhenIdle(() => {
-      void processQueue();
+      void processQueue(schedulerVersion);
     });
   }, Math.max(0, delayMs));
 }
@@ -75,26 +100,13 @@ function scheduleNextQueuedJob() {
   scheduleProcess(delayMs);
 }
 
-function runWhenIdle(callback: () => void) {
-  const requestIdle =
-    typeof globalThis !== 'undefined'
-      ? (globalThis as any).requestIdleCallback
-      : undefined;
-
-  if (typeof requestIdle === 'function') {
-    requestIdle(() => callback(), { timeout: 2500 });
-    return;
-  }
-
-  setTimeout(callback, 0);
-}
-
 async function yieldToUI() {
   await new Promise(resolve => setTimeout(resolve, 0));
 }
 
-async function processQueue() {
+async function processQueue(versionAtStart: number) {
   if (running) return;
+  if (versionAtStart !== schedulerVersion) return;
 
   if (isAppBusy()) {
     scheduleProcess(RESUME_AFTER_ACTIVITY_MS);
@@ -128,7 +140,13 @@ async function processQueue() {
     console.log('[startup-scheduler] running:', job.label);
 
     await yieldToUI();
+
+    if (versionAtStart !== schedulerVersion) return;
+
     await job.run();
+
+    if (versionAtStart !== schedulerVersion) return;
+
     await yieldToUI();
 
     console.log('[startup-scheduler] complete:', job.label);
@@ -137,6 +155,8 @@ async function processQueue() {
   } finally {
     running = false;
   }
+
+  if (versionAtStart !== schedulerVersion) return;
 
   if (queue.length > 0) {
     sortQueue();
@@ -162,7 +182,6 @@ export function enqueueStartupJob(job: StartupJob) {
       notBefore: Math.min(queue[existingIndex].notBefore, notBefore),
     };
 
-    console.log('[startup-scheduler] updated existing job:', job.label);
     scheduleNextQueuedJob();
     return;
   }
@@ -173,48 +192,52 @@ export function enqueueStartupJob(job: StartupJob) {
   });
 
   sortQueue();
-
-  console.log('[startup-scheduler] queued:', job.label, 'delay:', delayMs);
-
   scheduleNextQueuedJob();
 }
 
 export function startStartupScheduler() {
-  if (started) return;
+  if (started) {
+    scheduleNextQueuedJob();
+    return;
+  }
 
   started = true;
 
-  subscribeToAppActivity(() => {
-    if (resumeTimer) {
-      clearTimeout(resumeTimer);
-      resumeTimer = null;
-    }
+  const possibleUnsubscribe = subscribeToAppActivity(() => {
+    clearResumeTimer();
 
     if (isAppBusy()) {
-      console.log('[startup-scheduler] activity active, holding jobs');
       return;
     }
 
     resumeTimer = setTimeout(() => {
       resumeTimer = null;
+
       runWhenIdle(() => {
-        void processQueue();
+        void processQueue(schedulerVersion);
       });
     }, RESUME_AFTER_ACTIVITY_MS);
   });
+
+  if (typeof possibleUnsubscribe === 'function') {
+    unsubscribeActivity = possibleUnsubscribe;
+  }
 
   scheduleProcess(3000);
 }
 
 export function clearStartupJobs() {
+  schedulerVersion += 1;
   queue = [];
 
-  if (resumeTimer) {
-    clearTimeout(resumeTimer);
-    resumeTimer = null;
-  }
-
+  clearResumeTimer();
   clearNextTimer();
 
+  if (unsubscribeActivity) {
+    unsubscribeActivity();
+    unsubscribeActivity = null;
+  }
+
   running = false;
+  started = false;
 }
