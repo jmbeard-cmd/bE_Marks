@@ -2,6 +2,7 @@ import { getPublicKey, nip19 } from 'nostr-tools';
 import { AppState, type AppStateStatus } from 'react-native';
 import { isAppBusy } from './app-activity';
 import { emitDMChanged } from './dm-events';
+import { getContacts } from './contacts-storage';
 import {
   createThread,
   deleteThread,
@@ -73,6 +74,37 @@ async function yieldRestoreWork(): Promise<void> {
 async function waitUntilAppIsNotBusy(): Promise<void> {
   while (isAppBusy()) {
     await sleep(BUSY_WAIT_MS);
+  }
+}
+
+async function isSavedBEContactPubkey(pubkey: string): Promise<boolean> {
+  const normalizedPubkey = pubkey.toLowerCase();
+
+  try {
+    const contacts = await getContacts();
+
+    return contacts.some(contact => {
+      if (contact.pubkeyHex?.toLowerCase() === normalizedPubkey) {
+        return true;
+      }
+
+      if (!contact.npub) return false;
+
+      try {
+        const decoded = nip19.decode(contact.npub);
+
+        return (
+          decoded.type === 'npub' &&
+          typeof decoded.data === 'string' &&
+          decoded.data.toLowerCase() === normalizedPubkey
+        );
+      } catch {
+        return false;
+      }
+    });
+  } catch (error) {
+    console.warn('[DMService] failed to check saved contacts:', error);
+    return false;
   }
 }
 
@@ -188,7 +220,14 @@ const unsubscribe = await subscribeToNostrDMs({
       let activeThread = thread;
 
 if (!activeThread) {
-  console.log('[DMService] Creating thread for pubkey:', otherPubkey);
+  const isSavedContact = await isSavedBEContactPubkey(otherPubkey);
+
+  if (!isSavedContact) {
+    console.log('[DMService] skipped external live DM from unsaved contact:', otherPubkey.slice(0, 16));
+    return;
+  }
+
+  console.log('[DMService] Creating thread for saved contact:', otherPubkey.slice(0, 16));
 
   activeThread = await createThread({
     title: otherPubkey.slice(0, 8),
@@ -364,15 +403,21 @@ export async function restoreDMsFromRelay(): Promise<void> {
 
       let threadId = threadMap.get(normalizedOtherPubkey);
 
-      if (!threadId) {
-        const newThread = await createThread({
-          title: otherPubkey.slice(0, 8),
-          participantPubkey: otherPubkey,
-        });
+if (!threadId) {
+  const isSavedContact = await isSavedBEContactPubkey(otherPubkey);
 
-        threadId = newThread.id;
-        threadMap.set(normalizedOtherPubkey, threadId);
-      }
+  if (!isSavedContact) {
+    continue;
+  }
+
+  const newThread = await createThread({
+    title: otherPubkey.slice(0, 8),
+    participantPubkey: otherPubkey,
+  });
+
+  threadId = newThread.id;
+  threadMap.set(normalizedOtherPubkey, threadId);
+}
 
       messagesToSave.push({
         id: `nostr_${msg.id}`,

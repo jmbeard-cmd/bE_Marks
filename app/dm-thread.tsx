@@ -21,10 +21,11 @@ import {
   getDMThreadById,
   getRecentMessagesForThread,
   markThreadRead,
+  saveRemoteDMMessage,
   sendLocalDM,
   type DMMessage
 } from '../src/utils/dm-storage';
-import { fetchNostrProfile, sendNostrDM } from '../src/utils/nostr';
+import { fetchNostrDMs, fetchNostrProfile, sendNostrDM } from '../src/utils/nostr';
 import { sendRemoteDMNotification } from '../src/utils/push-notifications';
 import { useIdentity } from './_layout';
 
@@ -52,6 +53,7 @@ export default function DmThreadScreen() {
   const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const markReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hydratedProfilePubkeyRef = useRef<string | null>(null);
+  const threadCatchUpInFlightRef = useRef(false);
 
   const threadId = useMemo(() => params.id || '', [params.id]);
   const title = useMemo(() => params.title || 'Conversation', [params.title]);
@@ -172,16 +174,65 @@ export default function DmThreadScreen() {
     }
   }, [threadId, scrollToLatest, hydrateThreadProfile, scheduleMarkThreadRead]);
 
-  useFocusEffect(
-    useCallback(() => {
-      leavingRef.current = false;
-      loadLocalThread();
+  const catchUpThreadFromRelay = useCallback(async () => {
+  if (!threadId || leavingRef.current) return;
+  if (threadCatchUpInFlightRef.current) return;
 
-      return () => {
-        leavingRef.current = true;
-      };
-    }, [loadLocalThread])
-  );
+  threadCatchUpInFlightRef.current = true;
+
+  try {
+    const thread = await getDMThreadById(threadId);
+
+    if (!thread?.participantPubkey || leavingRef.current) return;
+
+    const remoteMessages = await fetchNostrDMs({
+      withPubkey: thread.participantPubkey,
+      limit: 40,
+    });
+
+    if (leavingRef.current) return;
+
+    for (const msg of remoteMessages) {
+      await saveRemoteDMMessage({
+        id: `nostr_${msg.id}`,
+        threadId,
+        text: msg.content,
+        mine: msg.isMine,
+        createdAt: msg.createdAt,
+      });
+    }
+
+    if (leavingRef.current) return;
+
+    const refreshed = await getRecentMessagesForThread(threadId, 30);
+    const newestFirstMessages = [...refreshed].sort(
+      (a, b) => b.createdAt - a.createdAt
+    );
+
+    setMessages(newestFirstMessages);
+    scheduleMarkThreadRead();
+  } catch (error) {
+    console.warn('[DM THREAD] targeted relay catch-up failed:', error);
+  } finally {
+    threadCatchUpInFlightRef.current = false;
+  }
+}, [threadId, scheduleMarkThreadRead]);
+
+useFocusEffect(
+  useCallback(() => {
+    leavingRef.current = false;
+    loadLocalThread();
+
+    const catchUpTimer = setTimeout(() => {
+      catchUpThreadFromRelay();
+    }, 350);
+
+    return () => {
+      leavingRef.current = true;
+      clearTimeout(catchUpTimer);
+    };
+  }, [loadLocalThread, catchUpThreadFromRelay])
+);
 
   useEffect(() => {
     if (!threadId) return;
