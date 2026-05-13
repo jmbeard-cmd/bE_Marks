@@ -1,31 +1,31 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-    Alert,
-    FlatList,
-    Modal,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  FlatList,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { Colors } from '../src/constants/theme';
 import {
-    createGroupBookEntry,
-    getBookSummaryForGroup,
-    subscribeToGroupBooks,
-    syncGroupBookEntriesFromRelay,
-    updateGroupBookEntryStatus,
-    type GroupBookEntry,
-    type GroupBookEntryStatus,
-    type GroupBookEntryType,
-    type GroupBookSummary,
+  createGroupBookEntry,
+  getBookSummaryForGroup,
+  subscribeToGroupBooks,
+  syncGroupBookEntriesFromRelay,
+  updateGroupBookEntryStatus,
+  type GroupBookEntry,
+  type GroupBookEntryStatus,
+  type GroupBookEntryType,
+  type GroupBookSummary,
 } from '../src/utils/group-books';
 import {
-    canManageGroupBook,
-    updateGroupBookSettings,
-    type BEGroup,
+  canManageGroupBook,
+  updateGroupBookSettings,
+  type BEGroup,
 } from '../src/utils/group-storage';
 
 type Props = {
@@ -118,6 +118,7 @@ export default function GroupBookTab({
 
   const [summary, setSummary] = useState<GroupBookSummary | null>(null);
   const [canManage, setCanManage] = useState(false);
+  const relaySyncInFlightRef = useRef(false);
 
   const [showEntryModal, setShowEntryModal] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<GroupBookEntry | null>(null);
@@ -130,17 +131,28 @@ export default function GroupBookTab({
   const [entryDescription, setEntryDescription] = useState('');
   const categoryOptions = entryType === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
 
-  const loadBook = useCallback(async () => {
-    const cachedSummary = await getBookSummaryForGroup(group.id);
-    setSummary(cachedSummary);
+const loadBookFromCache = useCallback(async () => {
+  const cachedSummary = await getBookSummaryForGroup(group.id);
+  setSummary(cachedSummary);
+}, [group.id]);
 
-    if (group.relayUrl) {
-      await syncGroupBookEntriesFromRelay(group.id, group.relayUrl);
+const syncBookFromRelayOnce = useCallback(async () => {
+  if (!group.relayUrl) return;
+  if (relaySyncInFlightRef.current) return;
 
-      const syncedSummary = await getBookSummaryForGroup(group.id);
-      setSummary(syncedSummary);
-    }
-   }, [group.id, group.relayUrl]);
+  relaySyncInFlightRef.current = true;
+
+  try {
+    await syncGroupBookEntriesFromRelay(group.id, group.relayUrl);
+
+    const syncedSummary = await getBookSummaryForGroup(group.id);
+    setSummary(syncedSummary);
+  } catch (error) {
+    console.warn('[GroupBookTab] relay sync failed:', error);
+  } finally {
+    relaySyncInFlightRef.current = false;
+  }
+}, [group.id, group.relayUrl]);
 
   const loadPermission = useCallback(async () => {
     if (!npub) {
@@ -152,18 +164,25 @@ export default function GroupBookTab({
     setCanManage(allowed);
   }, [group.id, npub]);
 
-  useEffect(() => {
-    loadBook();
-    loadPermission();
+useEffect(() => {
+  loadBookFromCache();
+  loadPermission();
 
-    const unsubscribe = subscribeToGroupBooks(changedGroupId => {
-      if (changedGroupId === group.id) {
-        loadBook();
-      }
-    });
+  const relayTimer = setTimeout(() => {
+    syncBookFromRelayOnce();
+  }, 350);
 
-    return unsubscribe;
-  }, [group.id, loadBook, loadPermission]);
+  const unsubscribe = subscribeToGroupBooks(changedGroupId => {
+    if (changedGroupId === group.id) {
+      loadBookFromCache();
+    }
+  });
+
+  return () => {
+    clearTimeout(relayTimer);
+    unsubscribe();
+  };
+}, [group.id, loadBookFromCache, loadPermission, syncBookFromRelayOnce]);
 
   const handleEnableBook = async () => {
     if (!canManage) return;

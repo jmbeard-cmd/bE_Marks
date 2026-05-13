@@ -31,10 +31,9 @@ export function setAppActivity(reason: AppActivityReason, active: boolean) {
   }
 
   const changed = active ? !hadReason : hadReason;
-  if (changed) {
-    console.log('[app-activity]', active ? 'busy:' : 'clear:', reason);
-    notify();
-  }
+if (changed) {
+  notify();
+}
 }
 
 export function isAppBusy() {
