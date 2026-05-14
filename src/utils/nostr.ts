@@ -1152,6 +1152,7 @@ export interface NostrGroupPayload {
   season?: string;
   sport?: string;
   icon?: string;
+  coverImage?: string;
   schoolId?: string;
   inviteCode: string;
   status: 'active' | 'archived';

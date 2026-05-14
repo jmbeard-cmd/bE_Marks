@@ -364,7 +364,7 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
     })
   ).current;
   const router = useRouter();
-    const { npub, family, theme } = useIdentity();
+    const { npub, family, theme, themeMode } = useIdentity();
 
     const load = useCallback(async () => {
     const all = await getMilestones();
@@ -518,6 +518,10 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
   );
     const filtered = applyFilters(source, filters, npub);
   const activeFilterCount = countActiveFilters(filters);
+  const headerLogo =
+    themeMode === 'light'
+      ? require('../../assets/images/bE_logo_dark.png')
+      : require('../../assets/images/bE_logo_light.png');
 
   const themed = {
     safe: { backgroundColor: theme.bg },
@@ -636,7 +640,7 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
         <SafeAreaView style={[s.safe, themed.safe]}>
       <View style={[s.feedHeader, themed.safe]}>
         <View style={s.feedHeaderSide}>
-          <Text style={[s.feedHeaderIcon, themed.goldText]}>bE</Text>
+          <Image source={headerLogo} style={s.feedHeaderLogo} resizeMode="contain" />
         </View>
 
         <TouchableOpacity
@@ -656,9 +660,12 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
             onPress={openDrawer}
             activeOpacity={0.86}
           >
-            <Text style={[s.feedHeaderBtnText, themed.goldText]}>
-              {activeFilterCount > 0 ? activeFilterCount : '#'}
-            </Text>
+            <Text style={[s.feedHeaderBtnText, themed.primaryText]}>Filter</Text>
+            {activeFilterCount > 0 && (
+              <View style={[s.feedHeaderBadge, themed.goldBg]}>
+                <Text style={[s.feedHeaderBadgeText, themed.darkOnGold]}>{activeFilterCount}</Text>
+              </View>
+            )}
           </TouchableOpacity>
         </View>
       </View>
@@ -678,18 +685,17 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
         </TouchableOpacity>
       )}
 
+      {activeFilterCount > 0 && (
       <View style={[s.filterBar, themed.border]}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filterBarInner}>
-          {activeFilterCount > 0 && <TouchableOpacity style={[s.clearChip, themed.surface]} onPress={clearFilters}><Text style={s.clearChipText}>✕ Clear</Text></TouchableOpacity>}
+          <TouchableOpacity style={[s.clearChip, themed.surface]} onPress={clearFilters}><Text style={s.clearChipText}>Clear</Text></TouchableOpacity>
           {filters.tags.map(t => <View key={t} style={[s.activeChip, themed.surface, { borderColor: theme.border }]}><Text style={[s.activeChipText, themed.goldText]}>{t}</Text></View>)}
           {filters.mediaType !== 'all' && <View style={s.activeChip}><Text style={s.activeChipText}>{filters.mediaType}</Text></View>}
           {filters.dateRange !== 'all' && <View style={s.activeChip}><Text style={s.activeChipText}>{filters.dateRange === 'week' ? 'This week' : filters.dateRange === 'month' ? 'This month' : 'This year'}</Text></View>}
           {filters.hasReflection && <View style={s.activeChip}><Text style={s.activeChipText}>Has reflection</Text></View>}
         </ScrollView>
-          <TouchableOpacity style={[s.filterBtn, themed.surface, themed.border, activeFilterCount > 0 && s.filterBtnActive, activeFilterCount > 0 && { borderColor: theme.gold }]} onPress={openDrawer}>
-          <Text style={[s.filterBtnText, themed.mutedText, activeFilterCount > 0 && s.filterBtnTextActive, activeFilterCount > 0 && themed.goldText]}>{activeFilterCount > 0 ? `Filter (${activeFilterCount})` : 'Filter'}</Text>
-        </TouchableOpacity>
       </View>
+      )}
 
       {feedKey === 'family' && !family ? (
         <View style={s.empty}>
@@ -1096,10 +1102,10 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
 const s = StyleSheet.create({
   safe: { flex: 1 },
   feedHeader: {
-    minHeight: 82,
+    minHeight: 68,
     paddingHorizontal: 18,
-    paddingTop: 10,
-    paddingBottom: 14,
+    paddingTop: 8,
+    paddingBottom: 10,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -1107,38 +1113,47 @@ const s = StyleSheet.create({
     borderBottomColor: '#242424',
   },
   feedHeaderSide: {
-    width: 64,
+    width: 74,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  feedHeaderIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    textAlign: 'center',
-    textAlignVertical: 'center',
-    fontSize: 13,
-    fontWeight: '900',
-    backgroundColor: '#202020',
-    overflow: 'hidden',
+  feedHeaderLogo: {
+    width: 36,
+    height: 36,
   },
   feedHeaderBtn: {
-    minWidth: 42,
-    height: 42,
-    borderRadius: 21,
+    minWidth: 64,
+    height: 34,
+    borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 0.5,
+    paddingHorizontal: 12,
   },
   feedHeaderBtnText: {
-    fontSize: 15,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  feedHeaderBadge: {
+    position: 'absolute',
+    top: -5,
+    right: -4,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  feedHeaderBadgeText: {
+    fontSize: 10,
     fontWeight: '900',
   },
   feedSelector: {
-    maxWidth: 210,
-    minHeight: 50,
-    borderRadius: 25,
-    paddingHorizontal: 20,
+    maxWidth: 176,
+    minHeight: 38,
+    borderRadius: 19,
+    paddingHorizontal: 14,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1146,12 +1161,12 @@ const s = StyleSheet.create({
     borderWidth: 0.5,
   },
   feedSelectorText: {
-    fontSize: 20,
-    fontWeight: '900',
+    fontSize: 15,
+    fontWeight: '800',
   },
   feedSelectorCaret: {
-    fontSize: 13,
-    fontWeight: '900',
+    fontSize: 11,
+    fontWeight: '800',
   },
   feedMenuBackdrop: {
     flex: 1,
@@ -1207,16 +1222,12 @@ const s = StyleSheet.create({
   tabLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   tabBadge: { borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2, minWidth: 18, alignItems: 'center' },
   tabBadgeText: { fontSize: 10, fontWeight: '700' },
-  filterBar: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: 0.5, paddingRight: 12 },
+  filterBar: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: 0.5 },
   filterBarInner: { paddingHorizontal: 12, paddingVertical: 9, gap: 6, flexDirection: 'row', alignItems: 'center' },
   activeChip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, backgroundColor: '#1e1600', borderWidth: 0.5, borderColor: '#c9973a33' },
   activeChipText: { fontSize: 11 },
   clearChip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, backgroundColor: '#2a1a1a', borderWidth: 0.5, borderColor: '#c00' },
   clearChipText: { fontSize: 11, color: '#c00' },
-  filterBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 0.5, borderColor: '#2a2a2a', backgroundColor: '#1a1a1a', marginLeft: 4 },
-  filterBtnActive: {},
-  filterBtnText: { fontSize: 12, color: '#555', fontWeight: '500' },
-  filterBtnTextActive: { fontWeight: '600' },
   list: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 100 },
   item: { flexDirection: 'row', gap: 14, marginBottom: 20 },
   timelineCol: { alignItems: 'center', width: 12, paddingTop: 4 },

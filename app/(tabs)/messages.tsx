@@ -1,4 +1,5 @@
 import * as Clipboard from 'expo-clipboard';
+import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { nip19 } from 'nostr-tools';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -28,7 +29,7 @@ import {
   getDMThreads,
   type DMThread,
 } from '../../src/utils/dm-storage';
-import { type BEGroup } from '../../src/utils/group-storage';
+import { createGroup, updateGroup, type BEGroup } from '../../src/utils/group-storage';
 import {
   getCachedGroupsIndex,
   rebuildGroupsIndexForNpub,
@@ -39,13 +40,14 @@ import {
   getCachedDMThreadCards,
   saveCachedDMThreadCards,
 } from '../../src/utils/dm-thread-list-cache';
-import { fetchNostrProfile } from '../../src/utils/nostr';
+import { DEFAULT_RELAY, fetchNostrProfile, npubToHex } from '../../src/utils/nostr';
 import { normalizeNostrIdentity } from '../../src/utils/nostr-identity';
+import { registerGroupMemberForPush } from '../../src/utils/push-notifications';
 import { useIdentity } from '../_layout';
 
 
-type Sheet = 'none' | 'new';
-type SpaceFilter = 'unread' | 'dms' | 'groups';
+type Sheet = 'none' | 'new' | 'new-group' | 'edit-group';
+type SpaceFilter = 'all' | 'unread' | 'dms' | 'groups';
 type SpaceInboxItem =
   | { id: string; type: 'dm'; updatedAt: number; unread: number; thread: DMThread }
   | { id: string; type: 'group'; updatedAt: number; unread: number; group: BEGroup };
@@ -93,6 +95,86 @@ type ConversationContact = {
   nostrName?: string;
   nostrAvatar?: string;
 };
+
+const GROUP_TYPE_ICONS: Record<string, string> = {
+  softball: '🥎',
+  baseball: '⚾',
+  basketball: '🏀',
+  football: '🏈',
+  soccer: '⚽',
+  volleyball: '🏐',
+  track: '🏃',
+  class: '🏫',
+  family: '👨‍👩‍👧‍👦',
+  faculty: '🧑‍🏫',
+  booster: '⭐',
+  church: '⛪',
+  youth: '🌱',
+  parents: '👪',
+  travel: '🚌',
+  committee: '📋',
+  neighborhood: '🏘️',
+  friends: '🤝',
+  volunteers: '🙌',
+  music: '🎵',
+  theater: '🎭',
+  robotics: '🤖',
+  default: '👥',
+};
+
+const GROUP_TYPE_OPTIONS = [
+  'class',
+  'family',
+  'faculty',
+  'booster',
+  'church',
+  'youth',
+  'parents',
+  'travel',
+  'committee',
+  'neighborhood',
+  'friends',
+  'volunteers',
+  'basketball',
+  'football',
+  'baseball',
+  'softball',
+  'soccer',
+  'volleyball',
+  'track',
+  'music',
+  'theater',
+  'robotics',
+];
+
+function normalizeGroupType(value?: string): string {
+  return value?.trim().toLowerCase().replace(/[^a-z0-9]+/g, '') ?? '';
+}
+
+function getGroupTypeIcon(group: BEGroup): string {
+  const directKey = normalizeGroupType(group.sport);
+
+  if (directKey && GROUP_TYPE_ICONS[directKey]) {
+    return GROUP_TYPE_ICONS[directKey];
+  }
+
+  const searchText = normalizeGroupType(`${group.name} ${group.description ?? ''}`);
+
+  if (searchText.includes('faculty') || searchText.includes('teacher') || searchText.includes('staff')) {
+    return GROUP_TYPE_ICONS.faculty;
+  }
+
+  if (searchText.includes('family')) return GROUP_TYPE_ICONS.family;
+  if (searchText.includes('church') || searchText.includes('ministry')) return GROUP_TYPE_ICONS.church;
+  if (searchText.includes('parent') || searchText.includes('pto')) return GROUP_TYPE_ICONS.parents;
+  if (searchText.includes('volunteer')) return GROUP_TYPE_ICONS.volunteers;
+  if (searchText.includes('committee')) return GROUP_TYPE_ICONS.committee;
+  if (searchText.includes('neighborhood')) return GROUP_TYPE_ICONS.neighborhood;
+  if (searchText.includes('class')) return GROUP_TYPE_ICONS.class;
+  if (searchText.includes('booster')) return GROUP_TYPE_ICONS.booster;
+
+  return GROUP_TYPE_ICONS.default;
+}
 
 async function resolveNip05Address(address: string): Promise<{ pubkey: string; npub: string; nip05: string }> {
   const cleaned = address.trim().toLowerCase();
@@ -174,11 +256,11 @@ async function resolveDiscoveryInput(input: string): Promise<DiscoveryProfile> {
 }
 
 export default function MessagesScreen() {
-  const { npub, theme } = useIdentity();
+  const { npub, nsec, profile, theme, themeMode } = useIdentity();
   const s = useMemo(() => createStyles(theme), [theme]);
   const router = useRouter();
 
-  const [spaceFilter, setSpaceFilter] = useState<SpaceFilter>('unread');
+  const [spaceFilter, setSpaceFilter] = useState<SpaceFilter>('all');
   const [threads, setThreads] = useState<DMThread[]>([]);
   const [groups, setGroups] = useState<BEGroup[]>([]);
   const [loadingInitialThreads, setLoadingInitialThreads] = useState(true);
@@ -192,6 +274,12 @@ export default function MessagesScreen() {
   const [newTitle, setNewTitle] = useState('');
   const [newNpub, setNewNpub] = useState('');
   const [creating, setCreating] = useState(false);
+  const [groupName, setGroupName] = useState('');
+  const [groupSeason, setGroupSeason] = useState('');
+  const [groupType, setGroupType] = useState('');
+  const [groupDescription, setGroupDescription] = useState('');
+  const [groupImageUri, setGroupImageUri] = useState<string | null>(null);
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
 
   const [discoveryInput, setDiscoveryInput] = useState('');
   const [discoveryProfile, setDiscoveryProfile] = useState<DiscoveryProfile | null>(null);
@@ -544,13 +632,23 @@ export default function MessagesScreen() {
         ? dmItems
         : spaceFilter === 'groups'
           ? groupItems
-          : [...dmItems, ...groupItems].filter(item => item.unread > 0);
+          : spaceFilter === 'unread'
+            ? [...dmItems, ...groupItems].filter(item => item.unread > 0)
+            : [...dmItems, ...groupItems];
 
     return combined.sort((a, b) => b.updatedAt - a.updatedAt);
   }, [filteredThreads, groups, search, spaceFilter]);
 
-  const unreadCount = threads.reduce((sum, thread) => sum + thread.unread, 0);
+  const unreadSpaceCount = threads.filter(thread => thread.unread > 0).length;
   const loadingInitialSpaces = loadingInitialThreads || loadingInitialGroups;
+  const headerLogo =
+    themeMode === 'light'
+      ? require('../../assets/images/bE_logo_dark.png')
+      : require('../../assets/images/bE_logo_light.png');
+  const myDisplayName =
+    profile?.display_name ||
+    profile?.name ||
+    (npub ? `${npub.slice(0, 12)}…` : 'Member');
 
   const discoveryAlreadyContact = useMemo(() => {
     if (!discoveryProfile) return false;
@@ -565,6 +663,12 @@ export default function MessagesScreen() {
     setSheet('none');
     setNewTitle('');
     setNewNpub('');
+    setGroupName('');
+    setGroupSeason('');
+    setGroupType('');
+    setGroupDescription('');
+    setGroupImageUri(null);
+    setEditingGroupId(null);
     setCreating(false);
 
     setDiscoveryInput('');
@@ -594,6 +698,16 @@ export default function MessagesScreen() {
 
   const openGroup = (group: BEGroup) => {
     router.push({ pathname: '/group-thread', params: { id: group.id } } as any);
+  };
+
+  const openEditGroup = (group: BEGroup) => {
+    setEditingGroupId(group.id);
+    setGroupName(group.name);
+    setGroupSeason(group.season ?? '');
+    setGroupType(group.sport ?? '');
+    setGroupDescription(group.description ?? '');
+    setGroupImageUri(group.coverImage ?? null);
+    setSheet('edit-group');
   };
 
   const handleDeleteThread = (thread: DMThread) => {
@@ -652,6 +766,111 @@ export default function MessagesScreen() {
     }
 
     setCreating(false);
+  };
+
+  const pickGroupImage = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (!permission.granted) {
+      Alert.alert('Photo access needed', 'Allow photo access to choose a group image.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.85,
+    });
+
+    if (!result.canceled && result.assets[0]?.uri) {
+      setGroupImageUri(result.assets[0].uri);
+    }
+  };
+
+  const createGroupSpace = async () => {
+    if (creating) return;
+
+    const cleanName = groupName.trim();
+
+    if (!cleanName) {
+      Alert.alert('Group name required', 'Add a name for this group space.');
+      return;
+    }
+
+    if (!npub) {
+      Alert.alert('Not signed in', 'Sign in before creating a group.');
+      return;
+    }
+
+    setCreating(true);
+
+    try {
+      const pubkeyHex = npubToHex(npub);
+      const group = await createGroup({
+        name: cleanName,
+        description: groupDescription.trim() || undefined,
+        season: groupSeason.trim() || undefined,
+        sport: groupType || undefined,
+        coverImage: groupImageUri || undefined,
+        relayUrl: DEFAULT_RELAY,
+        ownerNpub: npub,
+        ownerPubkeyHex: pubkeyHex,
+        ownerDisplayName: myDisplayName,
+        nsec: nsec ?? undefined,
+      });
+
+      registerGroupMemberForPush({
+        groupId: group.id,
+        groupName: group.name,
+        relayUrl: group.relayUrl,
+        memberNpub: npub,
+        role: 'owner',
+        status: 'active',
+        displayName: myDisplayName,
+      }).catch(error => {
+        console.warn('[Spaces] push member registration failed after group create:', error);
+      });
+
+      closeSheet();
+      await loadGroups();
+      setSpaceFilter('groups');
+      openGroup(group);
+    } catch (error: any) {
+      Alert.alert('Could not create group', error?.message || 'Please try again.');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const saveGroupSpaceEdits = async () => {
+    if (creating || !editingGroupId) return;
+
+    const cleanName = groupName.trim();
+
+    if (!cleanName) {
+      Alert.alert('Group name required', 'Add a name for this group space.');
+      return;
+    }
+
+    setCreating(true);
+
+    try {
+      await updateGroup(editingGroupId, {
+        name: cleanName,
+        description: groupDescription.trim() || undefined,
+        season: groupSeason.trim() || undefined,
+        sport: groupType || undefined,
+        coverImage: groupImageUri || undefined,
+      });
+
+      closeSheet();
+      await loadGroups();
+    } catch (error: any) {
+      Alert.alert('Could not update group', error?.message || 'Please try again.');
+    } finally {
+      setCreating(false);
+    }
   };
 
   const handleDiscoverPerson = async () => {
@@ -796,9 +1015,17 @@ export default function MessagesScreen() {
           style={s.threadRow}
           activeOpacity={0.82}
           onPress={() => openGroup(group)}
+          onLongPress={() => openEditGroup(group)}
         >
           <View style={s.avatar}>
-            <Text style={s.avatarText}>{getGroupInitials(group.name)}</Text>
+            {group.coverImage ? (
+              <Image source={{ uri: group.coverImage }} style={s.avatarImage} />
+            ) : (
+              <Text style={s.avatarText}>{getGroupInitials(group.name)}</Text>
+            )}
+            <View style={s.groupTypeBadge}>
+              <Text style={s.groupTypeBadgeText}>{getGroupTypeIcon(group)}</Text>
+            </View>
           </View>
 
           <View style={s.threadBody}>
@@ -823,6 +1050,14 @@ export default function MessagesScreen() {
                   : ' - bE relay'}
             </Text>
           </View>
+
+          <TouchableOpacity
+            style={s.moreBtn}
+            onPress={() => openEditGroup(group)}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Text style={s.moreText}>⋯</Text>
+          </TouchableOpacity>
         </TouchableOpacity>
       );
     }
@@ -831,19 +1066,28 @@ export default function MessagesScreen() {
   };
 
   const handleCompose = () => {
-    if (spaceFilter === 'groups') {
-      router.push('/(tabs)/groups' as any);
+    setSheet(spaceFilter === 'groups' ? 'new-group' : 'new');
+  };
+
+  const submitSheet = () => {
+    if (sheet === 'edit-group') {
+      saveGroupSpaceEdits();
       return;
     }
 
-    setSheet('new');
+    if (sheet === 'new-group') {
+      createGroupSpace();
+      return;
+    }
+
+    createConversation();
   };
 
   return (
     <SafeAreaView style={s.safe}>
       <View style={s.header}>
-        <View>
-          <Text style={s.headerEyebrow}>DMS AND GROUPS</Text>
+        <View style={s.headerBrand}>
+          <Image source={headerLogo} style={s.headerLogo} resizeMode="contain" />
           <Text style={s.headerTitle}>Spaces</Text>
         </View>
 
@@ -851,7 +1095,7 @@ export default function MessagesScreen() {
 
       <View style={s.filterPills}>
         {([
-          ['unread', 'Unread', unreadCount],
+          ['unread', 'Unread', unreadSpaceCount],
           ['dms', 'DMs', threads.length],
           ['groups', 'Groups', groups.length],
         ] as const).map(([value, label, count]) => {
@@ -861,7 +1105,7 @@ export default function MessagesScreen() {
             <TouchableOpacity
               key={value}
               style={[s.filterPill, active && s.filterPillActive]}
-              onPress={() => setSpaceFilter(value)}
+              onPress={() => setSpaceFilter(active ? 'all' : value)}
               activeOpacity={0.85}
             >
               <Text style={[s.filterPillText, active && s.filterPillTextActive]}>
@@ -909,29 +1153,31 @@ export default function MessagesScreen() {
             <View style={s.empty}>
               <Text style={s.emptyIcon}>✉️</Text>
               <Text style={s.emptyTitle}>
-                {search.trim()
-                  ? 'No matches'
-                  : spaceFilter === 'unread'
+                  {search.trim()
+                    ? 'No matches'
+                    : spaceFilter === 'all'
+                      ? 'No spaces yet'
+                      : spaceFilter === 'unread'
                     ? 'No unread spaces'
                     : spaceFilter === 'groups'
                       ? 'No groups yet'
                       : 'No messages yet'}
               </Text>
               <Text style={s.emptyHint}>
-                {search.trim()
-                  ? 'Try searching by name, message, group, or npub.'
-                  : spaceFilter === 'groups'
+                  {search.trim()
+                    ? 'Try searching by name, message, group, or npub.'
+                    : spaceFilter === 'all'
+                      ? 'DMs and groups will appear together here as conversations start.'
+                    : spaceFilter === 'groups'
                     ? 'Create or join a group for teams, schools, churches, or family spaces.'
                     : spaceFilter === 'unread'
                       ? 'New DMs and group activity will appear here when something needs attention.'
                       : 'Start a private conversation with a saved contact or npub.'}
               </Text>
 
-              {(spaceFilter === 'dms' || spaceFilter === 'groups') && !search.trim() && (
+              {spaceFilter === 'dms' && !search.trim() && (
                 <TouchableOpacity style={s.emptyBtn} onPress={handleCompose}>
-                  <Text style={s.emptyBtnText}>
-                    {spaceFilter === 'groups' ? 'Open groups' : 'Start conversation'}
-                  </Text>
+                  <Text style={s.emptyBtnText}>Start conversation</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -952,8 +1198,16 @@ export default function MessagesScreen() {
 
             <View style={s.sheetHeader}>
               <View>
-                <Text style={s.sheetTitle}>New message</Text>
-                <Text style={s.sheetHint}>Find someone by npub or NIP-05, then start a private DM.</Text>
+                <Text style={s.sheetTitle}>
+                  {sheet === 'edit-group' ? 'Edit group' : sheet === 'new-group' ? 'New group' : 'New message'}
+                </Text>
+                <Text style={s.sheetHint}>
+                  {sheet === 'edit-group'
+                    ? 'Update this group space identity, image, and category badge.'
+                    : sheet === 'new-group'
+                      ? 'Create a group space with its own identity, image, and relay route.'
+                    : 'Find someone by npub or NIP-05, then start a private DM.'}
+                </Text>
               </View>
 
               <TouchableOpacity onPress={closeSheet} style={s.closeBtn}>
@@ -967,6 +1221,77 @@ export default function MessagesScreen() {
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
             >
+              {sheet === 'new-group' || sheet === 'edit-group' ? (
+                <View style={s.primaryPanel}>
+                  <TouchableOpacity style={s.groupImagePicker} onPress={pickGroupImage} activeOpacity={0.85}>
+                    {groupImageUri ? (
+                      <Image source={{ uri: groupImageUri }} style={s.groupImagePreview} />
+                    ) : (
+                      <View style={s.groupImageFallback}>
+                        <Text style={s.groupImageInitials}>
+                          {groupName.trim() ? getGroupInitials(groupName) : 'SP'}
+                        </Text>
+                      </View>
+                    )}
+
+                    <View style={s.groupImageCopy}>
+                      <Text style={s.primaryTitle}>Group image</Text>
+                      <Text style={s.primaryHint}>Choose the photo or logo that represents this space.</Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  <TextInput
+                    style={s.input}
+                    value={groupName}
+                    onChangeText={setGroupName}
+                    placeholder="Group name"
+                    placeholderTextColor={theme.textMuted}
+                  />
+
+                  <TextInput
+                    style={s.input}
+                    value={groupSeason}
+                    onChangeText={setGroupSeason}
+                    placeholder="Season or year, optional"
+                    placeholderTextColor={theme.textMuted}
+                  />
+
+                  <TextInput
+                    style={[s.input, s.multilineInput]}
+                    value={groupDescription}
+                    onChangeText={setGroupDescription}
+                    placeholder="Description, optional"
+                    placeholderTextColor={theme.textMuted}
+                    multiline
+                  />
+
+                  <Text style={s.inputHelp}>Category icon</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.groupTypeStrip}>
+                    {GROUP_TYPE_OPTIONS.map(type => {
+                      const active = groupType === type;
+
+                      return (
+                        <TouchableOpacity
+                          key={type}
+                          style={[s.groupTypePill, active && s.groupTypePillActive]}
+                          onPress={() => setGroupType(active ? '' : type)}
+                          activeOpacity={0.84}
+                        >
+                          <Text style={s.groupTypePillIcon}>{GROUP_TYPE_ICONS[type]}</Text>
+                          <Text style={[s.groupTypePillText, active && s.groupTypePillTextActive]}>
+                            {type.charAt(0).toUpperCase() + type.slice(1)}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+
+                  <Text style={s.inputHelp}>
+                    Category icons show as a small badge on group cards. The group image stays as the main card icon.
+                  </Text>
+                </View>
+              ) : (
+              <>
               <View style={s.primaryPanel}>
                 <View style={s.primaryPanelHeader}>
                   <View>
@@ -1145,6 +1470,8 @@ export default function MessagesScreen() {
                   Leave the npub blank to keep this conversation local-only on this device.
                 </Text>
               </View>
+              </>
+              )}
             </ScrollView>
 
             <View style={s.sheetActions}>
@@ -1157,11 +1484,17 @@ export default function MessagesScreen() {
                   s.confirmBtn,
                   creating && s.confirmBtnDisabled,
                 ]}
-                onPress={() => createConversation()}
+                onPress={submitSheet}
                 disabled={creating}
               >
                 <Text style={s.confirmText}>
-                  {creating ? 'Starting…' : 'Start'}
+                  {creating
+                    ? 'Saving...'
+                    : sheet === 'edit-group'
+                      ? 'Save changes'
+                      : sheet === 'new-group'
+                        ? 'Create group'
+                        : 'Start'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -1179,42 +1512,44 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
   },
 
   header: {
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 14,
+    paddingHorizontal: 18,
+    paddingTop: 6,
+    paddingBottom: 10,
     borderBottomWidth: 0.5,
     borderBottomColor: theme.border,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  headerEyebrow: {
-    color: theme.textMuted,
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 1.2,
-    marginBottom: 3,
+  headerBrand: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  headerLogo: {
+    width: 34,
+    height: 34,
   },
   headerTitle: {
     color: theme.text,
-    fontSize: 28,
+    fontSize: 25,
     fontWeight: '900',
-    letterSpacing: -0.8,
+    letterSpacing: -0.4,
   },
   filterPills: {
     flexDirection: 'row',
-    gap: 10,
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 2,
-  },
-  filterPill: {
-    minHeight: 44,
-    flexDirection: 'row',
-    alignItems: 'center',
     gap: 8,
     paddingHorizontal: 18,
-    borderRadius: 22,
+    paddingTop: 10,
+    paddingBottom: 0,
+  },
+  filterPill: {
+    minHeight: 34,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    borderRadius: 17,
     backgroundColor: theme.raised,
     borderWidth: 0.5,
     borderColor: theme.border,
@@ -1225,19 +1560,19 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
   },
   filterPillText: {
     color: theme.text,
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '900',
   },
   filterPillTextActive: {
     color: theme.bg,
   },
   filterCount: {
-    minWidth: 24,
-    height: 24,
-    borderRadius: 12,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 6,
+    paddingHorizontal: 5,
     backgroundColor: theme.gold,
   },
   filterCountActive: {
@@ -1245,7 +1580,7 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
   },
   filterCountText: {
     color: theme.bg,
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '900',
   },
   filterCountTextActive: {
@@ -1267,11 +1602,11 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
   },
 
   searchWrap: {
-    marginHorizontal: 20,
-    marginTop: 14,
+    marginHorizontal: 18,
+    marginTop: 10,
     marginBottom: 6,
-    height: 44,
-    borderRadius: 14,
+    height: 38,
+    borderRadius: 13,
     backgroundColor: theme.raised,
     borderWidth: 0.5,
     borderColor: theme.border,
@@ -1281,18 +1616,18 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
   },
   searchIcon: {
     color: theme.textMuted,
-    fontSize: 18,
-    marginRight: 8,
+    fontSize: 16,
+    marginRight: 7,
   },
   searchInput: {
     flex: 1,
     color: theme.text,
-    fontSize: 15,
+    fontSize: 14,
   },
 
   list: {
-    paddingHorizontal: 14,
-    paddingTop: 8,
+    paddingHorizontal: 12,
+    paddingTop: 6,
     paddingBottom: 110,
   },
   listEmpty: {
@@ -1303,18 +1638,18 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     backgroundColor: theme.surface,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    borderRadius: 20,
-    marginBottom: 8,
+    gap: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    borderRadius: 16,
+    marginBottom: 7,
     borderWidth: 0.5,
     borderColor: theme.border,
   },
   avatar: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     backgroundColor: theme.raised,
     borderWidth: 0.5,
     borderColor: theme.border,
@@ -1328,28 +1663,44 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
   },
   avatarText: {
     color: theme.gold,
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '900',
   },
   avatarImage: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+  },
+  groupTypeBadge: {
+    position: 'absolute',
+    right: -2,
+    bottom: -2,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.surface,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+  },
+  groupTypeBadgeText: {
+    fontSize: 11,
   },
   threadBody: {
     flex: 1,
     minWidth: 0,
-    paddingVertical: 2,
+    paddingVertical: 1,
   },
   threadTop: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   threadTitle: {
     flex: 1,
     color: theme.text,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '800',
     marginRight: 8,
   },
@@ -1359,18 +1710,18 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
   },
   threadTime: {
     color: theme.textMuted,
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '800',
   },
   threadBottom: {
     flexDirection: 'row',
     alignItems: 'center',
-    minHeight: 21,
+    minHeight: 18,
   },
   threadPreview: {
     flex: 1,
     color: theme.textMuted,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
     marginRight: 8,
   },
@@ -1381,22 +1732,22 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
   threadMetaSecure: {
     alignSelf: 'flex-start',
     color: theme.gold,
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '800',
-    marginTop: 5,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    marginTop: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
     borderRadius: 999,
     backgroundColor: theme.raised,
   },
   threadMetaLocal: {
     alignSelf: 'flex-start',
     color: theme.textMuted,
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '800',
-    marginTop: 5,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    marginTop: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
     borderRadius: 999,
     backgroundColor: theme.raised,
   },
@@ -1643,6 +1994,10 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     fontWeight: '600',
     marginBottom: 10,
   },
+  multilineInput: {
+    minHeight: 82,
+    textAlignVertical: 'top',
+  },
   inputHelp: {
     color: theme.textMuted,
     fontSize: 11,
@@ -1688,6 +2043,68 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     fontSize: 10,
     fontWeight: '900',
     overflow: 'hidden',
+  },
+  groupImagePicker: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 14,
+  },
+  groupImagePreview: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    backgroundColor: theme.surface,
+  },
+  groupImageFallback: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.surface,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+  },
+  groupImageInitials: {
+    color: theme.gold,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  groupImageCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  groupTypeStrip: {
+    marginTop: 8,
+    marginBottom: 10,
+  },
+  groupTypePill: {
+    minHeight: 36,
+    borderRadius: 18,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    backgroundColor: theme.surface,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    marginRight: 8,
+  },
+  groupTypePillActive: {
+    borderColor: theme.gold,
+    backgroundColor: theme.gold,
+  },
+  groupTypePillIcon: {
+    fontSize: 15,
+  },
+  groupTypePillText: {
+    color: theme.text,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  groupTypePillTextActive: {
+    color: theme.bg,
   },
   manualPanel: {
     backgroundColor: theme.raised,

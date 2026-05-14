@@ -483,7 +483,7 @@ setProgress(0);
           <Text style={[s.label, { color: theme.textMuted }]}>TITLE</Text>
           <TextInput
   style={[s.titleInput, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]}
-            placeholder="Name this milestone..."
+            placeholder="Name this Mark..."
             placeholderTextColor={theme.textMuted}
             value={title}
             onChangeText={setTitle}

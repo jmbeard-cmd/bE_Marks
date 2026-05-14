@@ -70,6 +70,24 @@ const RSVP_OPTIONS: { status: RSVPStatus; label: string; emoji: string }[] = [
   { status: 'declined',  label: "Can't go", emoji: '❌' },
 ];
 
+const TIME_OPTIONS = [
+  '7:00 AM',
+  '8:00 AM',
+  '9:00 AM',
+  '10:00 AM',
+  '11:00 AM',
+  '12:00 PM',
+  '1:00 PM',
+  '2:00 PM',
+  '3:00 PM',
+  '4:00 PM',
+  '5:00 PM',
+  '6:00 PM',
+  '7:00 PM',
+  '8:00 PM',
+  '9:00 PM',
+];
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function GroupCalendarTab({
@@ -99,6 +117,7 @@ export default function GroupCalendarTab({
   const [evDate, setEvDate]           = useState('');
   const [evStartTime, setEvStartTime] = useState('');
   const [evEndTime, setEvEndTime]     = useState('');
+  const [pickerMonth, setPickerMonth] = useState(() => new Date());
 
   // ── Load ──────────────────────────────────────────────────────────────────
 
@@ -211,10 +230,55 @@ export default function GroupCalendarTab({
     setEvDesc('');
     setEvLocation('');
     setEvDate('');
+    setPickerMonth(new Date());
     setEvStartTime('');
     setEvEndTime('');
     setEvIsAllDay(false);
   };
+
+  const selectDate = (date: Date) => {
+    setEvDate(formatDateInput(date));
+    setPickerMonth(new Date(date.getFullYear(), date.getMonth(), 1));
+  };
+
+  const shiftPickerMonth = (delta: number) => {
+    setPickerMonth(current => new Date(current.getFullYear(), current.getMonth() + delta, 1));
+  };
+
+  const renderTimePicker = (
+    value: string,
+    onSelect: (next: string) => void,
+    placeholder: string
+  ) => (
+    <View style={s.timePickerBox}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        {TIME_OPTIONS.map(time => {
+          const selected = value === time;
+
+          return (
+            <TouchableOpacity
+              key={time}
+              style={[s.timeChip, selected && s.timeChipSelected]}
+              onPress={() => onSelect(time)}
+              activeOpacity={0.82}
+            >
+              <Text style={[s.timeChipText, selected && s.timeChipTextSelected]}>
+                {time}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+
+      <TextInput
+        style={[s.input, s.timeManualInput]}
+        value={value}
+        onChangeText={onSelect}
+        placeholder={placeholder}
+        placeholderTextColor={theme.textMuted}
+      />
+    </View>
+  );
 
   const handleCreate = async () => {
     if (!evTitle.trim()) {
@@ -407,15 +471,57 @@ export default function GroupCalendarTab({
               />
 
               <Text style={s.inputLabel}>DATE *  (MM/DD/YYYY)</Text>
-              <TextInput
-                style={s.input}
-                value={evDate}
-                onChangeText={setEvDate}
-                placeholder="05/15/2025"
-                placeholderTextColor={theme.textMuted}
-                keyboardType="numbers-and-punctuation"
-                maxLength={10}
-              />
+              <View style={s.datePickerBox}>
+                <View style={s.datePickerHeader}>
+                  <TouchableOpacity style={s.monthNavBtn} onPress={() => shiftPickerMonth(-1)}>
+                    <Text style={s.monthNavText}>‹</Text>
+                  </TouchableOpacity>
+
+                  <Text style={s.monthTitle}>
+                    {pickerMonth.toLocaleDateString([], { month: 'long', year: 'numeric' })}
+                  </Text>
+
+                  <TouchableOpacity style={s.monthNavBtn} onPress={() => shiftPickerMonth(1)}>
+                    <Text style={s.monthNavText}>›</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={s.weekdayRow}>
+                  {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, index) => (
+                    <Text key={`${day}_${index}`} style={s.weekdayText}>{day}</Text>
+                  ))}
+                </View>
+
+                <View style={s.dateGrid}>
+                  {buildCalendarDays(pickerMonth).map((day, index) => {
+                    const selected = day && evDate === formatDateInput(day);
+
+                    return (
+                      <TouchableOpacity
+                        key={`${day?.toISOString() ?? 'empty'}_${index}`}
+                        style={[s.dateCell, selected && s.dateCellSelected]}
+                        onPress={() => day && selectDate(day)}
+                        disabled={!day}
+                        activeOpacity={0.82}
+                      >
+                        <Text style={[s.dateCellText, selected && s.dateCellTextSelected]}>
+                          {day ? day.getDate() : ''}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                <TextInput
+                  style={[s.input, s.dateManualInput]}
+                  value={evDate}
+                  onChangeText={setEvDate}
+                  placeholder="MM/DD/YYYY"
+                  placeholderTextColor={theme.textMuted}
+                  keyboardType="numbers-and-punctuation"
+                  maxLength={10}
+                />
+              </View>
 
               <View style={s.toggleRow}>
                 <View style={{ flex: 1 }}>
@@ -433,21 +539,9 @@ export default function GroupCalendarTab({
               {!evIsAllDay && (
                 <>
                   <Text style={s.inputLabel}>START TIME  (e.g. 7:00 PM)</Text>
-                  <TextInput
-                    style={s.input}
-                    value={evStartTime}
-                    onChangeText={setEvStartTime}
-                    placeholder="7:00 PM"
-                    placeholderTextColor="#444"
-                  />
+                  {renderTimePicker(evStartTime, setEvStartTime, '7:00 PM')}
                   <Text style={s.inputLabel}>END TIME  (optional)</Text>
-                  <TextInput
-                    style={s.input}
-                    value={evEndTime}
-                    onChangeText={setEvEndTime}
-                    placeholder="9:00 PM"
-                    placeholderTextColor="#444"
-                  />
+                  {renderTimePicker(evEndTime, setEvEndTime, '9:00 PM')}
                 </>
               )}
 
@@ -616,6 +710,30 @@ function getShortDate(event: GroupCalendarEvent): string {
   }
   const date = new Date(event.startTime * 1000);
   return `${date.getMonth() + 1}/${date.getDate()}`;
+}
+
+function formatDateInput(date: Date): string {
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${month}/${day}/${date.getFullYear()}`;
+}
+
+function buildCalendarDays(monthDate: Date): (Date | null)[] {
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const first = new Date(year, month, 1);
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const days: (Date | null)[] = Array.from({ length: first.getDay() }, () => null);
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    days.push(new Date(year, month, day));
+  }
+
+  while (days.length % 7 !== 0) {
+    days.push(null);
+  }
+
+  return days;
 }
 
 function parseTimeInput(
@@ -836,6 +954,108 @@ fabText: {
     fontSize: 15,
     color: theme.text,
     backgroundColor: theme.surface,
+  },
+  datePickerBox: {
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    borderRadius: 14,
+    backgroundColor: theme.surface,
+    padding: 10,
+  },
+  datePickerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  monthNavBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.raised,
+  },
+  monthNavText: {
+    color: theme.text,
+    fontSize: 24,
+    fontWeight: '700',
+    marginTop: -2,
+  },
+  monthTitle: {
+    color: theme.text,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  weekdayRow: {
+    flexDirection: 'row',
+    marginBottom: 4,
+  },
+  weekdayText: {
+    width: `${100 / 7}%`,
+    textAlign: 'center',
+    color: theme.textMuted,
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  dateGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  dateCell: {
+    width: `${100 / 7}%`,
+    aspectRatio: 1.35,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 10,
+  },
+  dateCellSelected: {
+    backgroundColor: theme.gold,
+  },
+  dateCellText: {
+    color: theme.text,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  dateCellTextSelected: {
+    color: theme.bg,
+    fontWeight: '900',
+  },
+  dateManualInput: {
+    marginTop: 8,
+  },
+  timePickerBox: {
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    borderRadius: 14,
+    backgroundColor: theme.surface,
+    padding: 8,
+  },
+  timeChip: {
+    minHeight: 34,
+    borderRadius: 17,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    marginRight: 8,
+  },
+  timeChipSelected: {
+    backgroundColor: theme.gold,
+    borderColor: theme.gold,
+  },
+  timeChipText: {
+    color: theme.text,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  timeChipTextSelected: {
+    color: theme.bg,
+  },
+  timeManualInput: {
+    marginTop: 8,
   },
   inputMulti: { minHeight: 80, textAlignVertical: 'top', lineHeight: 21 },
 

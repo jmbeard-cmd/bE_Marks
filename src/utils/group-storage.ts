@@ -10,11 +10,6 @@ import {
   publishGroupMembership,
   type NostrGroupPayload,
 } from './nostr';
-import {
-  registerGroupMemberForPush,
-  removeGroupMemberFromPush,
-} from './push-notifications';
-
 const GROUPS_KEY = 'be_groups_v1';
 const MEMBERS_KEY = 'be_group_members_v1';
 
@@ -377,6 +372,7 @@ export async function createGroup(input: {
   season?: string;
   sport?: string;
   icon?: string;
+  coverImage?: string;
   schoolId?: string;
   relayUrl: string;
   ownerNpub: string;
@@ -395,6 +391,7 @@ export async function createGroup(input: {
     season: input.season?.trim(),
     sport: input.sport,
     icon: input.icon?.trim() || undefined,
+    coverImage: input.coverImage?.trim() || undefined,
     schoolId: input.schoolId,
     inviteCode: generateInviteCode(),
     status: 'active',
@@ -429,6 +426,7 @@ export async function createGroup(input: {
       season: group.season,
       sport: group.sport,
       icon: group.icon,
+      coverImage: group.coverImage,
       schoolId: group.schoolId,
       inviteCode: group.inviteCode,
       status: group.status,
@@ -587,22 +585,6 @@ if (existing) {
 
   await writeMembers(updated);
 
-  const group = await getGroupById(input.groupId);
-
-  if (group) {
-    registerGroupMemberForPush({
-      groupId: input.groupId,
-      groupName: group.name,
-      relayUrl: group.relayUrl,
-      memberNpub: input.npub,
-      role: input.role ?? existing.role,
-      status: 'active',
-      displayName: input.displayName ?? existing.displayName,
-    }).catch(error => {
-      console.warn('[Groups] push registration after rejoin failed:', error);
-    });
-  }
-
   return { ...existing, status: 'active', joinedAt: now };
 }
 
@@ -628,22 +610,6 @@ if (existing) {
 
 await updateGroup(input.groupId, { memberCount: activeMembers.length });
 
-const group = await getGroupById(input.groupId);
-
-if (group) {
-  registerGroupMemberForPush({
-    groupId: input.groupId,
-    groupName: group.name,
-    relayUrl: group.relayUrl,
-    memberNpub: input.npub,
-    role: input.role ?? 'member',
-    status: 'active',
-    displayName: input.displayName,
-  }).catch(error => {
-    console.warn('[Groups] push registration after join failed:', error);
-  });
-}
-
 return member;
 }
 
@@ -666,13 +632,6 @@ export async function removeMember(
     m => m.groupId === groupId && m.status === 'active'
   ).length;
 await updateGroup(groupId, { memberCount: activeCount });
-
-removeGroupMemberFromPush({
-  groupId,
-  memberNpub: npub,
-}).catch(error => {
-  console.warn('[Groups] push removal after leave/remove failed:', error);
-});
 }
 
 export async function updateMemberRole(
