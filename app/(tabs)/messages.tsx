@@ -28,6 +28,13 @@ import {
   getDMThreads,
   type DMThread,
 } from '../../src/utils/dm-storage';
+import { type BEGroup } from '../../src/utils/group-storage';
+import {
+  getCachedGroupsIndex,
+  rebuildGroupsIndexForNpub,
+  scheduleGroupsMembershipRefresh,
+  subscribeToGroupsIndex,
+} from '../../src/utils/groups-index';
 import {
   getCachedDMThreadCards,
   saveCachedDMThreadCards,
@@ -38,6 +45,10 @@ import { useIdentity } from '../_layout';
 
 
 type Sheet = 'none' | 'new';
+type SpaceFilter = 'unread' | 'dms' | 'groups';
+type SpaceInboxItem =
+  | { id: string; type: 'dm'; updatedAt: number; unread: number; thread: DMThread }
+  | { id: string; type: 'group'; updatedAt: number; unread: number; group: BEGroup };
 
 function formatThreadTime(unixSecs: number): string {
   const date = new Date(unixSecs * 1000);
@@ -58,6 +69,12 @@ function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/);
   if (parts.length === 1) return parts[0]?.slice(0, 1).toUpperCase() || '?';
   return `${parts[0]?.[0] || ''}${parts[1]?.[0] || ''}`.toUpperCase();
+}
+
+function getGroupInitials(name: string): string {
+  const clean = name.trim();
+  if (!clean) return 'G';
+  return clean.slice(0, 2).toUpperCase();
 }
 
 type DiscoveryProfile = {
@@ -157,12 +174,15 @@ async function resolveDiscoveryInput(input: string): Promise<DiscoveryProfile> {
 }
 
 export default function MessagesScreen() {
-  const { theme } = useIdentity();
+  const { npub, theme } = useIdentity();
   const s = useMemo(() => createStyles(theme), [theme]);
   const router = useRouter();
 
+  const [spaceFilter, setSpaceFilter] = useState<SpaceFilter>('unread');
   const [threads, setThreads] = useState<DMThread[]>([]);
+  const [groups, setGroups] = useState<BEGroup[]>([]);
   const [loadingInitialThreads, setLoadingInitialThreads] = useState(true);
+  const [loadingInitialGroups, setLoadingInitialGroups] = useState(true);
   const [contacts, setContacts] = useState<BEContact[]>([]);
   const [profileNames, setProfileNames] = useState<Record<string, string>>({});
   const [profilePictures, setProfilePictures] = useState<Record<string, string>>({});
@@ -406,11 +426,50 @@ export default function MessagesScreen() {
     }
   }, [hydrateProfiles, saveThreadCardSnapshot]);
 
+  const loadGroups = useCallback(async () => {
+    setLoadingInitialGroups(true);
+
+    try {
+      const cached = await getCachedGroupsIndex();
+
+      if (cached.updatedAt > 0) {
+        setGroups(cached.activeGroups);
+        setLoadingInitialGroups(false);
+      }
+
+      if (!npub) {
+        setGroups([]);
+        return;
+      }
+
+      const rebuilt = await rebuildGroupsIndexForNpub(npub);
+      setGroups(rebuilt.activeGroups);
+    } catch (error) {
+      console.warn('[Spaces] failed to load groups:', error);
+    } finally {
+      setLoadingInitialGroups(false);
+    }
+  }, [npub]);
+
   useFocusEffect(
     useCallback(() => {
       loadData();
-    }, [loadData])
+      loadGroups();
+
+      if (npub) {
+        scheduleGroupsMembershipRefresh(npub);
+      }
+    }, [loadData, loadGroups, npub])
   );
+
+  useEffect(() => {
+    const unsubscribe = subscribeToGroupsIndex(snapshot => {
+      setGroups(snapshot.activeGroups);
+      setLoadingInitialGroups(false);
+    });
+
+    return unsubscribe;
+  }, []);
 
   useEffect(() => {
     const unsubscribe = subscribeToDMEvents(() => {
@@ -452,6 +511,47 @@ export default function MessagesScreen() {
     });
   }, [threads, search]);
 
+  const inboxItems = useMemo<SpaceInboxItem[]>(() => {
+    const q = search.trim().toLowerCase();
+    const dmItems: SpaceInboxItem[] = filteredThreads.map(thread => ({
+      id: `dm_${thread.id}`,
+      type: 'dm',
+      updatedAt: thread.updatedAt,
+      unread: thread.unread,
+      thread,
+    }));
+
+    const groupItems: SpaceInboxItem[] = groups
+      .filter(group => {
+        if (!q) return true;
+
+        const title = group.name.toLowerCase();
+        const preview = (group.lastPostPreview || '').toLowerCase();
+        const season = (group.season || '').toLowerCase();
+
+        return title.includes(q) || preview.includes(q) || season.includes(q);
+      })
+      .map(group => ({
+        id: `group_${group.id}`,
+        type: 'group',
+        updatedAt: group.lastPostAt ?? group.updatedAt,
+        unread: 0,
+        group,
+      }));
+
+    const combined =
+      spaceFilter === 'dms'
+        ? dmItems
+        : spaceFilter === 'groups'
+          ? groupItems
+          : [...dmItems, ...groupItems].filter(item => item.unread > 0);
+
+    return combined.sort((a, b) => b.updatedAt - a.updatedAt);
+  }, [filteredThreads, groups, search, spaceFilter]);
+
+  const unreadCount = threads.reduce((sum, thread) => sum + thread.unread, 0);
+  const loadingInitialSpaces = loadingInitialThreads || loadingInitialGroups;
+
   const discoveryAlreadyContact = useMemo(() => {
     if (!discoveryProfile) return false;
 
@@ -490,6 +590,10 @@ export default function MessagesScreen() {
         title: getThreadDisplayTitle(thread),
       },
     } as any);
+  };
+
+  const openGroup = (group: BEGroup) => {
+    router.push({ pathname: '/group-thread', params: { id: group.id } } as any);
   };
 
   const handleDeleteThread = (thread: DMThread) => {
@@ -680,14 +784,100 @@ export default function MessagesScreen() {
     );
   };
 
+  const renderSpaceItem = ({ item }: { item: SpaceInboxItem }) => {
+    if (item.type === 'group') {
+      const group = item.group;
+      const preview =
+        group.lastPostPreview ||
+        `${group.memberCount ?? 0} member${(group.memberCount ?? 0) !== 1 ? 's' : ''}`;
+
+      return (
+        <TouchableOpacity
+          style={s.threadRow}
+          activeOpacity={0.82}
+          onPress={() => openGroup(group)}
+        >
+          <View style={s.avatar}>
+            <Text style={s.avatarText}>{getGroupInitials(group.name)}</Text>
+          </View>
+
+          <View style={s.threadBody}>
+            <View style={s.threadTop}>
+              <Text style={s.threadTitle} numberOfLines={1}>
+                {group.name}
+              </Text>
+
+              <Text style={s.threadTime}>{formatThreadTime(item.updatedAt)}</Text>
+            </View>
+
+            <Text style={s.threadPreview} numberOfLines={1}>
+              {preview}
+            </Text>
+
+            <Text style={s.threadMetaSecure} numberOfLines={1}>
+              Group space
+              {group.relayMode === 'custom'
+                ? ' - private relay'
+                : group.relayMode === 'both'
+                  ? ' - bE + group relay'
+                  : ' - bE relay'}
+            </Text>
+          </View>
+        </TouchableOpacity>
+      );
+    }
+
+    return renderThread({ item: item.thread });
+  };
+
+  const handleCompose = () => {
+    if (spaceFilter === 'groups') {
+      router.push('/(tabs)/groups' as any);
+      return;
+    }
+
+    setSheet('new');
+  };
+
   return (
     <SafeAreaView style={s.safe}>
       <View style={s.header}>
         <View>
-          <Text style={s.headerEyebrow}>PRIVATE</Text>
-          <Text style={s.headerTitle}>Messages</Text>
+          <Text style={s.headerEyebrow}>DMS AND GROUPS</Text>
+          <Text style={s.headerTitle}>Spaces</Text>
         </View>
 
+      </View>
+
+      <View style={s.filterPills}>
+        {([
+          ['unread', 'Unread', unreadCount],
+          ['dms', 'DMs', threads.length],
+          ['groups', 'Groups', groups.length],
+        ] as const).map(([value, label, count]) => {
+          const active = spaceFilter === value;
+
+          return (
+            <TouchableOpacity
+              key={value}
+              style={[s.filterPill, active && s.filterPillActive]}
+              onPress={() => setSpaceFilter(value)}
+              activeOpacity={0.85}
+            >
+              <Text style={[s.filterPillText, active && s.filterPillTextActive]}>
+                {label}
+              </Text>
+
+              {count > 0 && (
+                <View style={[s.filterCount, active && s.filterCountActive]}>
+                  <Text style={[s.filterCountText, active && s.filterCountTextActive]}>
+                    {count > 99 ? '99+' : count}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          );
+        })}
       </View>
 
       <View style={s.searchWrap}>
@@ -703,15 +893,15 @@ export default function MessagesScreen() {
       </View>
 
       <FlatList
-        data={filteredThreads}
+        data={inboxItems}
         keyExtractor={item => item.id}
-        renderItem={renderThread}
+        renderItem={renderSpaceItem}
         contentContainerStyle={[
           s.list,
-          filteredThreads.length === 0 && s.listEmpty,
+          inboxItems.length === 0 && s.listEmpty,
         ]}
         ListEmptyComponent={
-          loadingInitialThreads ? (
+          loadingInitialSpaces ? (
             <View style={s.empty}>
               <Text style={s.emptyHint}>Loading messages…</Text>
             </View>
@@ -719,17 +909,29 @@ export default function MessagesScreen() {
             <View style={s.empty}>
               <Text style={s.emptyIcon}>✉️</Text>
               <Text style={s.emptyTitle}>
-                {threads.length === 0 ? 'No messages yet' : 'No matches'}
+                {search.trim()
+                  ? 'No matches'
+                  : spaceFilter === 'unread'
+                    ? 'No unread spaces'
+                    : spaceFilter === 'groups'
+                      ? 'No groups yet'
+                      : 'No messages yet'}
               </Text>
               <Text style={s.emptyHint}>
-                {threads.length === 0
-                  ? 'Start a private conversation with a saved contact or npub.'
-                  : 'Try searching by name, message, or npub.'}
+                {search.trim()
+                  ? 'Try searching by name, message, group, or npub.'
+                  : spaceFilter === 'groups'
+                    ? 'Create or join a group for teams, schools, churches, or family spaces.'
+                    : spaceFilter === 'unread'
+                      ? 'New DMs and group activity will appear here when something needs attention.'
+                      : 'Start a private conversation with a saved contact or npub.'}
               </Text>
 
-              {threads.length === 0 && (
-                <TouchableOpacity style={s.emptyBtn} onPress={() => setSheet('new')}>
-                  <Text style={s.emptyBtnText}>Start conversation</Text>
+              {(spaceFilter === 'dms' || spaceFilter === 'groups') && !search.trim() && (
+                <TouchableOpacity style={s.emptyBtn} onPress={handleCompose}>
+                  <Text style={s.emptyBtnText}>
+                    {spaceFilter === 'groups' ? 'Open groups' : 'Start conversation'}
+                  </Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -737,7 +939,7 @@ export default function MessagesScreen() {
         }
       />
 
-      <TouchableOpacity style={s.fab} onPress={() => setSheet('new')} activeOpacity={0.85}>
+      <TouchableOpacity style={s.fab} onPress={handleCompose} activeOpacity={0.85}>
         <Text style={s.fabText}>＋</Text>
       </TouchableOpacity>
 
@@ -998,6 +1200,56 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     fontSize: 28,
     fontWeight: '900',
     letterSpacing: -0.8,
+  },
+  filterPills: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 2,
+  },
+  filterPill: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 18,
+    borderRadius: 22,
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+  },
+  filterPillActive: {
+    backgroundColor: theme.gold,
+    borderColor: theme.gold,
+  },
+  filterPillText: {
+    color: theme.text,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  filterPillTextActive: {
+    color: theme.bg,
+  },
+  filterCount: {
+    minWidth: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+    backgroundColor: theme.gold,
+  },
+  filterCountActive: {
+    backgroundColor: theme.bg,
+  },
+  filterCountText: {
+    color: theme.bg,
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  filterCountTextActive: {
+    color: theme.gold,
   },
   headerButton: {
     width: 42,

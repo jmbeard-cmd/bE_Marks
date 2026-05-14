@@ -1,7 +1,6 @@
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Animated,
   FlatList,
   Image,
@@ -15,13 +14,11 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import BEHeader from '../../components/BEHeader';
 import ImageViewerModal, { ViewerImage } from '../../components/ImageViewerModal';
 import MediaCollage from '../../components/MediaCollage';
 import { DEFAULT_RELAY, fetchFamilyMembers, fetchFamilyMilestones } from '../../src/utils/nostr';
 import {
   formatDate,
-  getFamilyMemberCount,
   getLastFamilyCheck,
   getMilestones,
   saveRemoteMilestone,
@@ -38,6 +35,15 @@ interface FilterState {
   hasReflection: boolean;
   authorNpub: string | null;
 }
+
+type FeedKey = 'profile' | 'family' | 'follows' | 'subscribed';
+
+const FEED_OPTIONS: { key: FeedKey; label: string; hint: string }[] = [
+  { key: 'profile', label: 'My Profile', hint: 'Your Marks and profile feed' },
+  { key: 'family', label: 'Family', hint: 'Shared family Marks' },
+  { key: 'follows', label: 'Follows', hint: 'Nostr follows feed' },
+  { key: 'subscribed', label: 'Subscribed', hint: 'Schools, churches, and group feeds' },
+];
 
 const DEFAULT_TAG_FILTERS = [
   'Family',
@@ -324,11 +330,11 @@ export default function TimelineScreen() {
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [syncing, setSyncing] = useState(false);
-  const [tab, setTab] = useState<'mine' | 'family'>('mine');
+  const [feedKey, setFeedKey] = useState<FeedKey>('profile');
+  const [showFeedMenu, setShowFeedMenu] = useState(false);
     const [newFamilyCount, setNewFamilyCount] = useState(0);
   const [viewerImages, setViewerImages] = useState<ViewerImage[]>([]);
 const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
-  const [familyMemberCount, setFamilyMemberCount] = useState(0);
   const [showBanner, setShowBanner] = useState(false);
   const [showFilterDrawer, setShowFilterDrawer] = useState(false);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
@@ -365,9 +371,6 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
     setMilestones(all);
 
     if (family) {
-      const memberCount = await getFamilyMemberCount(family.id);
-      setFamilyMemberCount(memberCount);
-
       const lastCheck = await getLastFamilyCheck(family.id);
       const familyMilestones = all.filter(m => m.familyId === family.id);
       const newOnes = familyMilestones.filter(m => m.authorNpub !== npub && m.createdAt > lastCheck);
@@ -381,7 +384,6 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
       return;
     }
 
-    setFamilyMemberCount(0);
   }, [family, npub]);
 
     const syncFamilyMilestones = useCallback(async () => {
@@ -437,9 +439,6 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
 
       if (addedCount > 0) {
         await load();
-      } else {
-        const memberCount = await getFamilyMemberCount(family.id);
-        setFamilyMemberCount(memberCount);
       }
     } catch (e) {
       console.warn('[Family Sync] Fetch error:', e);
@@ -476,7 +475,7 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
   };
 
   const switchToFamily = () => {
-    setTab('family');
+    setFeedKey('family');
     setShowBanner(false);
     setFilters(DEFAULT_FILTERS);
     syncFamilyMilestones();
@@ -484,7 +483,14 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
 
   const myMilestones = milestones.filter(m => !m.familyId || m.authorNpub === npub);
   const familyMilestones = family ? milestones.filter(m => m.familyId === family.id) : [];
-  const source = tab === 'mine' ? myMilestones : familyMilestones;
+  const source =
+    feedKey === 'family'
+      ? familyMilestones
+      : feedKey === 'profile'
+        ? myMilestones
+        : [];
+  const activeFeed = FEED_OPTIONS.find(option => option.key === feedKey) ?? FEED_OPTIONS[0];
+  const tab = feedKey === 'family' ? 'family' : 'mine';
   const familyAuthors = Array.from(new Set(familyMilestones.map(m => m.authorNpub).filter(Boolean))) as string[];
   const allTags = uniqueTags(source.flatMap(m => m.tags ?? []));
 
@@ -628,7 +634,34 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
 
   return (
         <SafeAreaView style={[s.safe, themed.safe]}>
-      <BEHeader title="Timeline" />
+      <View style={[s.feedHeader, themed.safe]}>
+        <View style={s.feedHeaderSide}>
+          <Text style={[s.feedHeaderIcon, themed.goldText]}>bE</Text>
+        </View>
+
+        <TouchableOpacity
+          style={[s.feedSelector, themed.raised, themed.border]}
+          onPress={() => setShowFeedMenu(true)}
+          activeOpacity={0.86}
+        >
+          <Text style={[s.feedSelectorText, themed.primaryText]} numberOfLines={1}>
+            {activeFeed.label}
+          </Text>
+          <Text style={[s.feedSelectorCaret, themed.mutedText]}>v</Text>
+        </TouchableOpacity>
+
+        <View style={s.feedHeaderSide}>
+          <TouchableOpacity
+            style={[s.feedHeaderBtn, themed.raised, themed.border]}
+            onPress={openDrawer}
+            activeOpacity={0.86}
+          >
+            <Text style={[s.feedHeaderBtnText, themed.goldText]}>
+              {activeFilterCount > 0 ? activeFilterCount : '#'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
 
       {showBanner && family && (
                 <TouchableOpacity style={[s.banner, themed.banner]} onPress={switchToFamily} activeOpacity={0.85}>
@@ -645,44 +678,6 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
         </TouchableOpacity>
       )}
 
-            <View style={[s.tabRow, themed.border]}>
-            <TouchableOpacity style={[s.tabBtn, tab === 'mine' && s.tabBtnActive, tab === 'mine' && { borderBottomColor: theme.gold }]} onPress={() => { setTab('mine'); setFilters(DEFAULT_FILTERS); }}>
-        <Text
-  style={[
-    s.tabText,
-    { color: theme.bg === '#0D0F0E' ? 'rgba(255,255,255,0.75)' : theme.textMuted },
-    tab === 'mine' && s.tabTextActive,
-    tab === 'mine' && themed.goldText,
-  ]}
->
-  My Timeline
-</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-           style={[s.tabBtn, tab === 'family' && s.tabBtnActive, tab === 'family' && { borderBottomColor: theme.gold }]}
-          onPress={() => { setTab('family'); setShowBanner(false); setFilters(DEFAULT_FILTERS); syncFamilyMilestones(); }}
-        >
-          <View style={s.tabLabelRow}>
-        <Text
-  style={[
-    s.tabText,
-    { color: theme.bg === '#0D0F0E' ? 'rgba(255,255,255,0.75)' : theme.textMuted },
-    tab === 'family' && s.tabTextActive,
-    tab === 'family' && themed.goldText,
-  ]}
->
-  {family ? `${family.name} (${familyMemberCount})` : 'Family'}
-</Text>
-{showBanner && newFamilyCount > 0 && (
-  <View style={[s.tabBadge, { backgroundColor: theme.gold }]}>
-    <Text style={[s.tabBadgeText, { color: theme.bg }]}>{newFamilyCount}</Text>
-  </View>
-)}
-             {syncing && tab === 'family' && <ActivityIndicator size="small" color={theme.gold} style={{ marginLeft: 4 }} />}
-          </View>
-        </TouchableOpacity>
-      </View>
-
       <View style={[s.filterBar, themed.border]}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filterBarInner}>
           {activeFilterCount > 0 && <TouchableOpacity style={[s.clearChip, themed.surface]} onPress={clearFilters}><Text style={s.clearChipText}>✕ Clear</Text></TouchableOpacity>}
@@ -696,7 +691,7 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
         </TouchableOpacity>
       </View>
 
-      {tab === 'family' && !family ? (
+      {feedKey === 'family' && !family ? (
         <View style={s.empty}>
           <Text style={[s.emptyIcon, themed.mutedText]}>👨‍👩‍👧‍👦</Text>
           <Text style={[s.emptyText, themed.primaryText]}>No family group yet</Text>
@@ -707,6 +702,22 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
 >
   <Text style={[s.emptyActionText, { color: theme.bg }]}>Go to Settings</Text>
 </TouchableOpacity>
+        </View>
+      ) : feedKey === 'follows' ? (
+        <View style={s.empty}>
+          <Text style={[s.emptyIcon, themed.mutedText]}>Follows</Text>
+          <Text style={[s.emptyText, themed.primaryText]}>Follows feed coming online</Text>
+          <Text style={[s.emptyHint, themed.mutedText]}>
+            This feed will read your standard Nostr follows list and show posts from those profiles.
+          </Text>
+        </View>
+      ) : feedKey === 'subscribed' ? (
+        <View style={s.empty}>
+          <Text style={[s.emptyIcon, themed.mutedText]}>Feeds</Text>
+          <Text style={[s.emptyText, themed.primaryText]}>No subscribed feeds yet</Text>
+          <Text style={[s.emptyHint, themed.mutedText]}>
+            School, church, and group relay feeds will appear here once access is available for this identity.
+          </Text>
         </View>
       ) : filtered.length === 0 ? (
         <View style={s.empty}>
@@ -732,9 +743,48 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
         />
       )}
 
-              <TouchableOpacity style={[s.fab, themed.fab]} onPress={() => router.push('/(tabs)/log' as any)} activeOpacity={0.85}>
+      <TouchableOpacity style={[s.fab, themed.fab]} onPress={() => router.push('/(tabs)/log' as any)} activeOpacity={0.85}>
         <Text style={[s.fabIcon, themed.darkOnGold]}>+</Text>
       </TouchableOpacity>
+
+      <Modal visible={showFeedMenu} transparent animationType="fade" onRequestClose={() => setShowFeedMenu(false)}>
+        <TouchableOpacity
+          style={s.feedMenuBackdrop}
+          activeOpacity={1}
+          onPress={() => setShowFeedMenu(false)}
+        >
+          <View style={[s.feedMenu, themed.raised, themed.border]}>
+            {FEED_OPTIONS.map(option => {
+              const active = option.key === feedKey;
+
+              return (
+                <TouchableOpacity
+                  key={option.key}
+                  style={s.feedMenuItem}
+                  activeOpacity={0.86}
+                  onPress={() => {
+                    setFeedKey(option.key);
+                    setShowFeedMenu(false);
+                    setShowBanner(false);
+                    setFilters(DEFAULT_FILTERS);
+
+                    if (option.key === 'family') {
+                      syncFamilyMilestones();
+                    }
+                  }}
+                >
+                  <View style={s.feedMenuCopy}>
+                    <Text style={[s.feedMenuLabel, themed.primaryText]}>{option.label}</Text>
+                    <Text style={[s.feedMenuHint, themed.mutedText]}>{option.hint}</Text>
+                  </View>
+
+                  {active && <Text style={[s.feedMenuCheck, themed.goldText]}>✓</Text>}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
         <Modal visible={showFilterDrawer} transparent animationType="slide" onRequestClose={() => setShowFilterDrawer(false)}>
 <View style={[s.drawerOverlay, { backgroundColor: 'rgba(0,0,0,0.4)' }]}>
@@ -1045,6 +1095,102 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
 
 const s = StyleSheet.create({
   safe: { flex: 1 },
+  feedHeader: {
+    minHeight: 82,
+    paddingHorizontal: 18,
+    paddingTop: 10,
+    paddingBottom: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#242424',
+  },
+  feedHeaderSide: {
+    width: 64,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  feedHeaderIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    textAlign: 'center',
+    textAlignVertical: 'center',
+    fontSize: 13,
+    fontWeight: '900',
+    backgroundColor: '#202020',
+    overflow: 'hidden',
+  },
+  feedHeaderBtn: {
+    minWidth: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 0.5,
+  },
+  feedHeaderBtnText: {
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  feedSelector: {
+    maxWidth: 210,
+    minHeight: 50,
+    borderRadius: 25,
+    paddingHorizontal: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 0.5,
+  },
+  feedSelectorText: {
+    fontSize: 20,
+    fontWeight: '900',
+  },
+  feedSelectorCaret: {
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  feedMenuBackdrop: {
+    flex: 1,
+    alignItems: 'center',
+    paddingTop: 118,
+    backgroundColor: 'rgba(0,0,0,0.28)',
+  },
+  feedMenu: {
+    width: 270,
+    borderRadius: 18,
+    borderWidth: 0.5,
+    paddingVertical: 8,
+  },
+  feedMenuItem: {
+    minHeight: 70,
+    paddingHorizontal: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  feedMenuCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  feedMenuLabel: {
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  feedMenuHint: {
+    fontSize: 11,
+    lineHeight: 15,
+    marginTop: 3,
+    fontWeight: '600',
+  },
+  feedMenuCheck: {
+    fontSize: 22,
+    fontWeight: '900',
+  },
   banner: { backgroundColor: '#1e1600', borderBottomWidth: 0.5, borderBottomColor: '#c9973a33' },
   bannerContent: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, gap: 12 },
   bannerIcon: { fontSize: 22 },

@@ -1803,7 +1803,7 @@ const showName =
 
 
   const handleBack = () => {
-    router.navigate('/(tabs)/groups' as any);
+    router.navigate('/(tabs)/messages' as any);
   };
 
   const handleOpenInfo = () => {

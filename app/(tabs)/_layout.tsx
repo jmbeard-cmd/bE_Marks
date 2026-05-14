@@ -86,7 +86,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="messages"
         options={{
-          title: 'Messages',
+          title: 'Spaces',
           tabBarIcon: ({ color }) => <MessagesIcon color={color} />,
         }}
       />
@@ -95,6 +95,7 @@ export default function TabLayout() {
         options={{
           title: 'Groups',
           tabBarIcon: ({ color }) => <GroupsIcon color={color} />,
+          href: null,
         }}
       />
       <Tabs.Screen
