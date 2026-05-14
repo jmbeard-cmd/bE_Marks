@@ -252,6 +252,7 @@ const existing = await getMessagesForThread(activeThread.id);
         text: message.content,
         mine: false,
         createdAt: message.createdAt,
+        provisionalEventId: message.rawEvent?.id,
       });
 
       console.log('[DMService] saved incoming DM:', activeThread.id);
@@ -267,6 +268,8 @@ await sendLocalDMNotification({
   senderPubkey: otherPubkey,
   threadId: activeThread.id,
   preview: message.content,
+  eventId: message.rawEvent?.id,
+  createdAt: message.createdAt,
 });
 
     } catch (err) {
@@ -388,6 +391,7 @@ export async function restoreDMsFromRelay(): Promise<void> {
       text: string;
       mine: boolean;
       createdAt: number;
+      provisionalEventId?: string;
     }[] = [];
 
     for (const msg of messages) {
@@ -425,6 +429,7 @@ if (!threadId) {
         text: msg.content,
         mine: msg.isMine,
         createdAt: msg.createdAt,
+        provisionalEventId: msg.rawEvent?.id,
       });
 
       if (messagesToSave.length % RESTORE_CHUNK_SIZE === 0) {

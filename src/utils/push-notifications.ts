@@ -5,7 +5,11 @@ import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
-import { createThread, getDMThreads } from './dm-storage';
+import {
+  createThread,
+  getDMThreads,
+  saveProvisionalRemoteDMMessage,
+} from './dm-storage';
 import { getGroupById, getGroupMembers } from './group-storage';
 
 const PUSH_TOKEN_KEY = 'be_expo_push_token_v1';
@@ -54,6 +58,8 @@ export type BENotificationData = {
   senderPubkey?: string;
   senderNpub?: string;
   senderName?: string;
+  body?: string;
+  createdAt?: number;
 
   // Group fields
   groupId?: string;
@@ -128,6 +134,33 @@ function getDisplayName(name?: string | null, fallback?: string | null) {
   if (trimmed) return trimmed;
 
   return shortKey(fallback);
+}
+
+function makeStableNotificationMessageId(input: {
+  eventId?: string;
+  senderPubkey?: string;
+  createdAt?: number;
+  body?: string;
+}) {
+  const eventId = input.eventId?.trim();
+
+  if (eventId) {
+    return `push_${eventId}`;
+  }
+
+  const source = [
+    input.senderPubkey?.trim() || 'unknown',
+    String(input.createdAt || 0),
+    input.body?.trim() || '',
+  ].join('|');
+
+  let hash = 0;
+
+  for (let i = 0; i < source.length; i += 1) {
+    hash = ((hash << 5) - hash + source.charCodeAt(i)) | 0;
+  }
+
+  return `push_${Math.abs(hash).toString(36)}`;
 }
 
 function buildGroupEventBody(input: {
@@ -384,6 +417,8 @@ export async function sendRemoteDMNotification(input: {
   senderPubkey: string;
   senderName?: string;
   body?: string;
+  eventId?: string;
+  createdAt?: number;
 }) {
   const recipientNpub = input.recipientNpub?.trim();
   const senderNpub = input.senderNpub?.trim();
@@ -402,6 +437,8 @@ export async function sendRemoteDMNotification(input: {
       senderPubkey,
       senderName: input.senderName?.trim() || undefined,
       body: input.body?.trim() || 'New private message',
+      eventId: input.eventId,
+      createdAt: input.createdAt || Math.floor(Date.now() / 1000),
     },
     'remote DM push'
   );
@@ -686,6 +723,8 @@ export async function sendLocalDMNotification(input: {
   senderPubkey: string;
   threadId: string;
   preview: string;
+  eventId?: string;
+  createdAt?: number;
 }) {
   try {
     const senderName = input.senderName?.trim() || shortKey(input.senderPubkey);
@@ -701,6 +740,10 @@ export async function sendLocalDMNotification(input: {
           threadId: input.threadId,
           participantPubkey: input.senderPubkey,
           senderPubkey: input.senderPubkey,
+          senderName,
+          body: input.preview,
+          eventId: input.eventId,
+          createdAt: input.createdAt || Math.floor(Date.now() / 1000),
         } satisfies BENotificationData,
       },
       trigger: null,
@@ -778,6 +821,7 @@ export async function sendLocalGroupNotification(input: {
 async function getOrCreateThreadForNotification(input: {
   participantPubkey?: string;
   senderPubkey?: string;
+  senderNpub?: string;
   senderName?: string;
   threadId?: string;
 }) {
@@ -810,6 +854,35 @@ async function getOrCreateThreadForNotification(input: {
   return await createThread({
     title: input.senderName?.trim() || shortKey(participantPubkey),
     participantPubkey,
+    participantNpub: input.senderNpub,
+  });
+}
+
+async function saveDMPreviewFromNotification(
+  data: BENotificationData,
+  threadId: string
+) {
+  const body = data.body?.trim();
+
+  if (!body) return;
+
+  const createdAt =
+    typeof data.createdAt === 'number' && Number.isFinite(data.createdAt)
+      ? data.createdAt
+      : Math.floor(Date.now() / 1000);
+
+  await saveProvisionalRemoteDMMessage({
+    id: makeStableNotificationMessageId({
+      eventId: data.eventId,
+      senderPubkey: data.senderPubkey || data.participantPubkey,
+      createdAt,
+      body,
+    }),
+    threadId,
+    text: body,
+    mine: false,
+    createdAt,
+    provisionalEventId: data.eventId,
   });
 }
 
@@ -847,6 +920,7 @@ if (data.type === 'dm') {
     threadId: data.threadId,
     participantPubkey: data.participantPubkey,
     senderPubkey: data.senderPubkey,
+    senderNpub: data.senderNpub,
     senderName: data.senderName,
   });
 
@@ -854,6 +928,8 @@ if (data.type === 'dm') {
     console.warn('[Push] DM notification missing usable thread target');
     return;
   }
+
+  await saveDMPreviewFromNotification(data, thread.id);
 
   router.push({
     pathname: '/dm-thread',

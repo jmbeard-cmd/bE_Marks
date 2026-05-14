@@ -128,8 +128,10 @@ export async function sendNostrDM(input: {
     const sk = decoded.data as Uint8Array;
     const myPubkey = getPublicKey(sk);
 
-    // Use provided relays or fall back to all fast relays
-    const relayUrls = ['wss://relay.beginningend.com'];
+    const relayUrls =
+      input.relayUrls && input.relayUrls.length > 0
+        ? Array.from(new Set(input.relayUrls))
+        : [DEFAULT_RELAY];
 
     const recipients = [
       { publicKey: input.toPubkey, relayUrl: relayUrls[0] },
@@ -255,6 +257,7 @@ export async function fetchNostrDMs(input?: {
   withPubkey?: string;
   relayUrls?: string[];
   limit?: number;
+  timeoutMs?: number;
 }): Promise<NostrDMMessage[]> {
   try {
     const identity = await getStoredIdentity();
@@ -271,12 +274,14 @@ export async function fetchNostrDMs(input?: {
       : FAST_RELAYS;
 
     const limit = input?.limit ?? 100;
+    const timeoutMs = input?.timeoutMs ?? 5000;
     const seenGiftWraps = new Set<string>();
     const rawGiftWraps: Event[] = [];
 
     console.log('[DM FETCH] starting 1059 fetch:', {
       relays: relayUrls.length,
       limit,
+      timeoutMs,
       withPubkey: input?.withPubkey?.slice(0, 16) || 'any',
     });
 
@@ -310,7 +315,7 @@ export async function fetchNostrDMs(input?: {
       const timeout = setTimeout(() => {
         console.log('[DM FETCH] timeout; closing sockets');
         finishAll();
-      }, 5000);
+      }, timeoutMs);
 
       const originalResolve = resolve;
       resolve = () => {

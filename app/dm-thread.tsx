@@ -187,7 +187,8 @@ export default function DmThreadScreen() {
 
     const remoteMessages = await fetchNostrDMs({
       withPubkey: thread.participantPubkey,
-      limit: 40,
+      limit: 20,
+      timeoutMs: 1800,
     });
 
     if (leavingRef.current) return;
@@ -199,6 +200,7 @@ export default function DmThreadScreen() {
         text: msg.content,
         mine: msg.isMine,
         createdAt: msg.createdAt,
+        provisionalEventId: msg.rawEvent?.id,
       });
     }
 
@@ -354,6 +356,8 @@ const recipientNpub =
     senderPubkey,
     senderName: myDisplayName,
     body: text,
+    eventId: result.eventIds?.[0],
+    createdAt: localMessage.createdAt,
   }).catch(error => {
     console.warn('[DM] remote push failed:', error);
   });

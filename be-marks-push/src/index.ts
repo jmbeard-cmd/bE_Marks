@@ -18,6 +18,16 @@ type SendTestPayload = {
   body?: string;
 };
 
+type SendDMPayload = {
+  recipientNpub?: string;
+  senderNpub?: string;
+  senderPubkey?: string;
+  senderName?: string;
+  body?: string;
+  eventId?: string;
+  createdAt?: number;
+};
+
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data, null, 2), {
     status,
@@ -188,6 +198,70 @@ export default {
 
         results.push({
           token: token.slice(0, 28) + '…',
+          result,
+        });
+      }
+
+      return json({
+        ok: true,
+        sent: results.length,
+        results,
+      });
+    }
+
+    if (request.method === 'POST' && url.pathname === '/push/dm-message') {
+      const secret = getBearerSecret(request);
+
+      if (!env.PUSH_SECRET || secret !== env.PUSH_SECRET) {
+        return json({ ok: false, error: 'unauthorized' }, 401);
+      }
+
+      const body = await request.json<SendDMPayload>().catch(() => null);
+      const recipientNpub = body?.recipientNpub?.trim();
+      const senderNpub = body?.senderNpub?.trim();
+      const senderPubkey = body?.senderPubkey?.trim();
+
+      if (!recipientNpub || !senderNpub || !senderPubkey) {
+        return json({ ok: false, error: 'missing recipient or sender fields' }, 400);
+      }
+
+      const tokens = await getTokensForNpub(env, recipientNpub);
+
+      if (tokens.length === 0) {
+        return json({ ok: false, error: 'no recipient tokens' }, 404);
+      }
+
+      const senderName = body?.senderName?.trim() || 'bE Marks';
+      const message = body?.body?.trim() || 'New private message';
+      const createdAt =
+        typeof body?.createdAt === 'number' && Number.isFinite(body.createdAt)
+          ? body.createdAt
+          : Math.floor(Date.now() / 1000);
+
+      const results = [];
+
+      for (const token of tokens) {
+        if (!isExpoPushToken(token)) continue;
+
+        const result = await sendExpoPush({
+          to: token,
+          title: senderName,
+          body: message,
+          data: {
+            type: 'dm',
+            routeTarget: 'dm-thread',
+            participantPubkey: senderPubkey,
+            senderPubkey,
+            senderNpub,
+            senderName,
+            body: message,
+            eventId: body?.eventId,
+            createdAt,
+          },
+        });
+
+        results.push({
+          token: token.slice(0, 28) + '...',
           result,
         });
       }

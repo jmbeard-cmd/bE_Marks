@@ -25,6 +25,8 @@ export type DMMessage = {
   text: string;
   mine: boolean;
   createdAt: number;
+  provisional?: boolean;
+  provisionalEventId?: string;
 };
 
 async function getIdentityScopedKey(baseKey: string): Promise<string> {
@@ -139,6 +141,47 @@ async function upsertMessagesForThreadCache(
   );
 
   await writeJson(key, nextMessages);
+}
+
+function isCloseInTime(a: number, b: number, windowSeconds = 180): boolean {
+  return Math.abs(a - b) <= windowSeconds;
+}
+
+function findMatchingProvisionalIndex(
+  messages: DMMessage[],
+  input: {
+    threadId: string;
+    text: string;
+    mine: boolean;
+    createdAt: number;
+    provisionalEventId?: string;
+  }
+): number {
+  if (input.provisionalEventId) {
+    const eventMatch = messages.findIndex(message =>
+      message.provisional === true &&
+      message.provisionalEventId === input.provisionalEventId
+    );
+
+    if (eventMatch >= 0) return eventMatch;
+  }
+
+  return messages.findIndex(message =>
+    message.provisional === true &&
+    message.threadId === input.threadId &&
+    message.mine === input.mine &&
+    message.text === input.text &&
+    isCloseInTime(message.createdAt, input.createdAt)
+  );
+}
+
+function getNewestMessageForThread(
+  messages: DMMessage[],
+  threadId: string
+): DMMessage | null {
+  return messages
+    .filter(message => message.threadId === threadId)
+    .sort((a, b) => b.createdAt - a.createdAt)[0] || null;
 }
 
 export async function getDMThreads(): Promise<DMThread[]> {
@@ -278,11 +321,14 @@ export async function saveRemoteDMMessage(input: {
   text: string;
   mine: boolean;
   createdAt: number;
+  provisionalEventId?: string;
 }): Promise<void> {
   const allMessages = await getDMMessages();
 
   const existsById = allMessages.some(message => message.id === input.id);
   if (existsById) return;
+
+  const matchingProvisionalIndex = findMatchingProvisionalIndex(allMessages, input);
 
   const newMessage: DMMessage = {
     id: input.id,
@@ -292,11 +338,99 @@ export async function saveRemoteDMMessage(input: {
     createdAt: input.createdAt,
   };
 
-  allMessages.push(newMessage);
+  const replacedProvisional = matchingProvisionalIndex >= 0;
+
+  if (replacedProvisional) {
+    allMessages[matchingProvisionalIndex] = newMessage;
+  } else {
+    allMessages.push(newMessage);
+  }
 
   allMessages.sort((a, b) => a.createdAt - b.createdAt);
   await saveDMMessages(allMessages);
-  await upsertMessagesForThreadCache(input.threadId, [newMessage]);
+  await saveMessagesForThreadCache(
+    input.threadId,
+    allMessages.filter(message => message.threadId === input.threadId)
+  );
+
+  const threads = await getDMThreads();
+  const newestThreadMessage = getNewestMessageForThread(allMessages, input.threadId);
+
+  const updatedThreads = threads.map(thread => {
+    if (thread.id !== input.threadId) return thread;
+
+    const isNewerThanThread =
+      !!newestThreadMessage &&
+      newestThreadMessage.createdAt >= thread.updatedAt;
+
+    return {
+      ...thread,
+      updatedAt: isNewerThanThread ? newestThreadMessage.createdAt : thread.updatedAt,
+      lastMessage: isNewerThanThread ? newestThreadMessage.text : thread.lastMessage,
+      unread:
+        input.mine || replacedProvisional
+          ? thread.unread
+          : thread.unread + 1,
+    };
+  });
+
+  await saveDMThreads(updatedThreads);
+}
+
+export async function saveProvisionalRemoteDMMessage(input: {
+  id: string;
+  threadId: string;
+  text: string;
+  mine?: boolean;
+  createdAt: number;
+  provisionalEventId?: string;
+}): Promise<DMMessage | null> {
+  const text = input.text.trim();
+
+  if (!text) return null;
+
+  const allMessages = await getDMMessages();
+
+  const existingById = allMessages.find(message => message.id === input.id);
+  if (existingById) return existingById;
+
+  const matchingProvisionalIndex = findMatchingProvisionalIndex(allMessages, {
+    threadId: input.threadId,
+    text,
+    mine: input.mine ?? false,
+    createdAt: input.createdAt,
+    provisionalEventId: input.provisionalEventId,
+  });
+
+  if (matchingProvisionalIndex >= 0) {
+    return allMessages[matchingProvisionalIndex];
+  }
+
+  const confirmedDuplicate = allMessages.find(message =>
+    !message.provisional &&
+    message.threadId === input.threadId &&
+    message.mine === (input.mine ?? false) &&
+    message.text === text &&
+    isCloseInTime(message.createdAt, input.createdAt)
+  );
+
+  if (confirmedDuplicate) return confirmedDuplicate;
+
+  const message: DMMessage = {
+    id: input.id,
+    threadId: input.threadId,
+    text,
+    mine: input.mine ?? false,
+    createdAt: input.createdAt,
+    provisional: true,
+    provisionalEventId: input.provisionalEventId,
+  };
+
+  allMessages.push(message);
+  allMessages.sort((a, b) => a.createdAt - b.createdAt);
+
+  await saveDMMessages(allMessages);
+  await upsertMessagesForThreadCache(input.threadId, [message]);
 
   const threads = await getDMThreads();
 
@@ -308,12 +442,14 @@ export async function saveRemoteDMMessage(input: {
     return {
       ...thread,
       updatedAt: isNewerThanThread ? input.createdAt : thread.updatedAt,
-      lastMessage: isNewerThanThread ? input.text : thread.lastMessage,
-      unread: input.mine ? thread.unread : thread.unread + 1,
+      lastMessage: isNewerThanThread ? text : thread.lastMessage,
+      unread: message.mine ? thread.unread : thread.unread + 1,
     };
   });
 
   await saveDMThreads(updatedThreads);
+
+  return message;
 }
 
 export async function saveRemoteDMMessagesBatch(
@@ -323,6 +459,7 @@ export async function saveRemoteDMMessagesBatch(
     text: string;
     mine: boolean;
     createdAt: number;
+    provisionalEventId?: string;
   }[]
 ): Promise<void> {
   if (inputs.length === 0) return;
@@ -332,22 +469,33 @@ export async function saveRemoteDMMessagesBatch(
 
   const existingIds = new Set(allMessages.map(message => message.id));
   const newMessages: DMMessage[] = [];
+  const replacedThreadIds = new Set<string>();
 
   for (const input of inputs) {
     if (existingIds.has(input.id)) continue;
 
     existingIds.add(input.id);
 
-    newMessages.push({
+    const newMessage: DMMessage = {
       id: input.id,
       threadId: input.threadId,
       text: input.text,
       mine: input.mine,
       createdAt: input.createdAt,
-    });
+    };
+
+    const matchingProvisionalIndex = findMatchingProvisionalIndex(allMessages, input);
+
+    if (matchingProvisionalIndex >= 0) {
+      allMessages[matchingProvisionalIndex] = newMessage;
+      replacedThreadIds.add(input.threadId);
+      continue;
+    }
+
+    newMessages.push(newMessage);
   }
 
-  if (newMessages.length === 0) return;
+  if (newMessages.length === 0 && replacedThreadIds.size === 0) return;
 
   const nextMessages = [...allMessages, ...newMessages].sort(
     (a, b) => a.createdAt - b.createdAt
@@ -390,7 +538,10 @@ export async function saveRemoteDMMessagesBatch(
     };
   });
 
-  const touchedThreadIds = new Set(newMessages.map(message => message.threadId));
+  const touchedThreadIds = new Set([
+    ...newMessages.map(message => message.threadId),
+    ...Array.from(replacedThreadIds),
+  ]);
 
   await saveDMMessages(nextMessages);
 
