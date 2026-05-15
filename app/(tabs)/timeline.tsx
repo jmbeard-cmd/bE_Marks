@@ -1,28 +1,34 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
   FlatList,
   Image,
+  Keyboard,
   Modal,
   PanResponder,
+  Platform,
   RefreshControl,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import ImageViewerModal, { ViewerImage } from '../../components/ImageViewerModal';
 import MediaCollage from '../../components/MediaCollage';
-import { DEFAULT_RELAY, fetchFamilyMembers, fetchFamilyMilestones } from '../../src/utils/nostr';
+import { DEFAULT_RELAY, fetchFamilyMembers, fetchFamilyMilestones, publishFamilyMilestone } from '../../src/utils/nostr';
 import {
   formatDate,
   getLastFamilyCheck,
   getMilestones,
   saveRemoteMilestone,
   setLastFamilyCheck,
+  updateMilestone,
   upsertFamilyMember,
   type Milestone,
 } from '../../src/utils/storage';
@@ -37,6 +43,27 @@ interface FilterState {
 }
 
 type FeedKey = 'profile' | 'family' | 'follows' | 'subscribed';
+type ComposerMode = 'reflect' | 'comment';
+
+type TimelineFeedItem = {
+  id: string;
+  milestone: Milestone;
+  authorName: string;
+  authorInitials: string;
+  authorAvatar?: string;
+  contextLabel: string;
+  timeLabel: string;
+  title: string | null;
+  body: string;
+  mediaItems: any[];
+  hasVisualMedia: boolean;
+  hasAudioOnly: boolean;
+};
+
+type SheetComposerState = {
+  item: TimelineFeedItem;
+  mode: ComposerMode;
+};
 
 const FEED_OPTIONS: { key: FeedKey; label: string; hint: string }[] = [
   { key: 'profile', label: 'My Profile', hint: 'Your Marks and profile feed' },
@@ -78,6 +105,13 @@ function uniqueTags(tags: string[]): string[] {
   }
 
   return result;
+}
+
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase();
 }
 
 const DEFAULT_FILTERS: FilterState = {
@@ -137,185 +171,6 @@ function getMilestoneMediaItems(item: Milestone): any[] {
   return mediaItems;
 }
 
-function getMediaPreviewUri(item: any): string | null {
-  if (!item) return null;
-
-  if (item.type === 'video') {
-    return item.thumbnailUri || item.thumbnailUrl || item.uri || null;
-  }
-
-  if (item.type === 'audio') {
-    return null;
-  }
-
-  return item.uri || item.mediaUrl || null;
-}
-
-function CollageTileImage({
-  uri,
-  type,
-}: {
-  uri: string | null;
-  type: 'image' | 'video';
-}) {
-  const [failed, setFailed] = useState(false);
-
-  if (!uri || failed) {
-    return (
-      <View style={s.markCollageFallback}>
-        <Text style={s.markCollageFallbackIcon}>
-          {type === 'video' ? '▶' : '🖼️'}
-        </Text>
-        <Text style={s.markCollageFallbackText}>
-          {type === 'video' ? 'Video' : 'Image'}
-        </Text>
-      </View>
-    );
-  }
-
-  return (
-    <Image
-      source={{ uri }}
-      style={s.markCollageImage}
-      resizeMode="cover"
-      onError={() => setFailed(true)}
-    />
-  );
-}
-
-function TimelineMediaCollage({
-  milestone,
-  onPressMedia,
-}: {
-  milestone: Milestone;
-  onPressMedia: (index: number) => void;
-}) {
-  const mediaItems = getMilestoneMediaItems(milestone);
-  const visualItems = mediaItems.filter(item => item.type === 'image' || item.type === 'video');
-  const audioItems = milestone.audioUri ? [{ uri: milestone.audioUri, type: 'audio' }] : [];
-
-  if (visualItems.length === 0 && audioItems.length > 0) {
-    return (
-      <View style={s.audioThumb}>
-        <Text style={s.audioThumbIcon}>🎙</Text>
-        <Text style={s.audioThumbLabel}>Voice note</Text>
-      </View>
-    );
-  }
-
-  if (visualItems.length === 0) return null;
-
-  const totalMedia = visualItems.length;
-
-  const renderTile = (media: any, index: number, tileStyle: any) => {
-    const previewUri = getMediaPreviewUri(media);
-
-    return (
-      <TouchableOpacity
-        key={`${milestone.id}_${media.uri}_${index}`}
-        style={tileStyle}
-        activeOpacity={0.8}
-        onPress={() => onPressMedia(index)}
-      >
-        <CollageTileImage
-  uri={previewUri}
-  type={media.type === 'video' ? 'video' : 'image'}
-/>
-
-{media.type === 'video' && (
-  <View style={s.markCollageVideoOverlay}>
-    <View style={s.markCollagePlayCircle}>
-      <Text style={s.markCollagePlay}>▶</Text>
-    </View>
-  </View>
-)}
-
-{index === 3 && totalMedia > 4 && (
-  <View style={s.markMoreOverlay}>
-    <Text style={s.markMoreText}>+{totalMedia - 4}</Text>
-  </View>
-)}
-      </TouchableOpacity>
-    );
-  };
-
-  if (totalMedia === 1) {
-    return (
-      <View style={s.markCollageWrap}>
-        {renderTile(visualItems[0], 0, s.markCollageTileOne)}
-      </View>
-    );
-  }
-
-  if (totalMedia === 2) {
-    return (
-      <View style={s.markCollageWrap}>
-        {renderTile(visualItems[0], 0, s.markCollageTileTwo)}
-        {renderTile(visualItems[1], 1, s.markCollageTileTwo)}
-      </View>
-    );
-  }
-
-  if (totalMedia === 3) {
-    return (
-      <View style={s.markCollageWrap}>
-        <View style={s.markCollageThreeLeft}>
-          {renderTile(visualItems[0], 0, s.markCollageFill)}
-        </View>
-
-        <View style={s.markCollageThreeRight}>
-          {renderTile(visualItems[1], 1, s.markCollageThreeRightTile)}
-          {renderTile(visualItems[2], 2, s.markCollageThreeRightTile)}
-        </View>
-
-        <View style={s.mediaBadgeRow}>
-          <View style={s.mediaBadge}>
-            <Text style={s.mediaBadgeIcon}>{totalMedia}</Text>
-          </View>
-
-          {visualItems.some(item => item.type === 'video') && (
-            <View style={s.mediaBadge}>
-              <Text style={s.mediaBadgeIcon}>🎥</Text>
-            </View>
-          )}
-
-          {audioItems.length > 0 && (
-            <View style={s.mediaBadge}>
-              <Text style={s.mediaBadgeIcon}>🎙</Text>
-            </View>
-          )}
-        </View>
-      </View>
-    );
-  }
-
-  return (
-    <View style={s.markCollageWrap}>
-      {visualItems.slice(0, 4).map((media, index) =>
-        renderTile(media, index, s.markCollageTileFour)
-      )}
-
-      <View style={s.mediaBadgeRow}>
-        <View style={s.mediaBadge}>
-          <Text style={s.mediaBadgeIcon}>{totalMedia}</Text>
-        </View>
-
-        {visualItems.some(item => item.type === 'video') && (
-          <View style={s.mediaBadge}>
-            <Text style={s.mediaBadgeIcon}>🎥</Text>
-          </View>
-        )}
-
-        {audioItems.length > 0 && (
-          <View style={s.mediaBadge}>
-            <Text style={s.mediaBadgeIcon}>🎙</Text>
-          </View>
-        )}
-      </View>
-    </View>
-  );
-}
-
 function getMilestoneAuthorLabel(item: Milestone, currentNpub: string | null): string | null {
   const savedName = item.authorName?.trim();
 
@@ -324,6 +179,51 @@ function getMilestoneAuthorLabel(item: Milestone, currentNpub: string | null): s
   if (item.authorNpub) return `${item.authorNpub.slice(0, 10)}…`;
 
   return null;
+}
+
+function createTimelineFeedItem(input: {
+  milestone: Milestone;
+  currentNpub: string | null;
+  currentProfile?: any;
+  feedKey: FeedKey;
+  familyName?: string;
+}): TimelineFeedItem {
+  const { milestone, currentNpub, currentProfile, feedKey, familyName } = input;
+  const hasTitle = milestone.note?.includes('\n\n');
+  const title = hasTitle ? milestone.note.split('\n\n')[0] : null;
+  const body = hasTitle ? milestone.note.split('\n\n').slice(1).join('\n\n') : milestone.note;
+  const mediaItems = getMilestoneMediaItems(milestone);
+  const hasVisualMedia = mediaItems.some(m => m.type === 'image' || m.type === 'video');
+  const hasAudioOnly = !hasVisualMedia && mediaItems.some(m => m.type === 'audio');
+  const authorName =
+    getMilestoneAuthorLabel(milestone, currentNpub) ||
+    currentProfile?.display_name ||
+    currentProfile?.name ||
+    'You';
+  const isMine = !milestone.authorNpub || milestone.authorNpub === currentNpub;
+  const contextLabel =
+    feedKey === 'family'
+      ? familyName || 'Family'
+      : milestone.familyId
+        ? familyName || 'Family'
+        : isMine
+          ? 'My Profile'
+          : 'Follows';
+
+  return {
+    id: milestone.id,
+    milestone,
+    authorName,
+    authorInitials: getInitials(authorName),
+    authorAvatar: isMine ? currentProfile?.picture : undefined,
+    contextLabel,
+    timeLabel: formatDate(milestone.createdAt),
+    title,
+    body,
+    mediaItems,
+    hasVisualMedia,
+    hasAudioOnly,
+  };
 }
 
 export default function TimelineScreen() {
@@ -339,6 +239,13 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
   const [showFilterDrawer, setShowFilterDrawer] = useState(false);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [pendingFilters, setPendingFilters] = useState<FilterState>(DEFAULT_FILTERS);
+  const [sheetComposer, setSheetComposer] = useState<SheetComposerState | null>(null);
+  const [savingComposer, setSavingComposer] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const composerInputRef = useRef<TextInput>(null);
+  const composerTextRef = useRef('');
+  const composerFocusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const insets = useSafeAreaInsets();
 
   // Swipe-to-close for filter drawer
   const drawerTranslateY = useRef(new Animated.Value(0)).current;
@@ -364,7 +271,7 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
     })
   ).current;
   const router = useRouter();
-    const { npub, family, theme, themeMode } = useIdentity();
+    const { npub, nsec, family, profile, relays, theme, themeMode } = useIdentity();
 
     const load = useCallback(async () => {
     const all = await getMilestones();
@@ -481,6 +388,44 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
     syncFamilyMilestones();
   };
 
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const showSub = Keyboard.addListener(showEvent, event => {
+      setKeyboardHeight(event.endCoordinates.height);
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      setKeyboardHeight(0);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (composerFocusTimerRef.current) {
+      clearTimeout(composerFocusTimerRef.current);
+      composerFocusTimerRef.current = null;
+    }
+
+    if (!sheetComposer) return;
+
+    composerFocusTimerRef.current = setTimeout(() => {
+      composerInputRef.current?.focus();
+      composerFocusTimerRef.current = null;
+    }, 180);
+
+    return () => {
+      if (composerFocusTimerRef.current) {
+        clearTimeout(composerFocusTimerRef.current);
+        composerFocusTimerRef.current = null;
+      }
+    };
+  }, [sheetComposer]);
+
   const myMilestones = milestones.filter(m => !m.familyId || m.authorNpub === npub);
   const familyMilestones = family ? milestones.filter(m => m.familyId === family.id) : [];
   const source =
@@ -518,6 +463,16 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
   );
     const filtered = applyFilters(source, filters, npub);
   const activeFilterCount = countActiveFilters(filters);
+  const feedItems = filtered.map(milestone =>
+    createTimelineFeedItem({
+      milestone,
+      currentNpub: npub,
+      currentProfile: profile,
+      feedKey,
+      familyName: family?.name,
+    })
+  );
+
   const headerLogo =
     themeMode === 'light'
       ? require('../../assets/images/bE_logo_dark.png')
@@ -565,76 +520,210 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
   setSelectedViewerUri(images[startIndex]?.uri ?? null);
 }  
   
-  function TimelineCard({ item, index }: { item: Milestone; index: number }) {
-    const hasTitle = item.note?.includes('\n\n');
-    const title = hasTitle ? item.note.split('\n\n')[0] : null;
-    const body = hasTitle ? item.note.split('\n\n').slice(1).join('\n\n') : item.note;
+  const openMarkDetail = (item: TimelineFeedItem) => {
+    router.push({ pathname: '/mark-detail', params: { id: item.milestone.id } } as any);
+  };
 
-        const mediaItems = getMilestoneMediaItems(item);
-    const hasVisualMedia = mediaItems.some(m => m.type === 'image' || m.type === 'video');
-    const hasAudioOnly = !hasVisualMedia && mediaItems.some(m => m.type === 'audio');
+  const shareFeedItem = async (item: TimelineFeedItem) => {
+    const firstMedia = item.mediaItems.find(media => media?.uri || media?.mediaUrl);
+    const mediaUrl = firstMedia?.uri || firstMedia?.mediaUrl;
+    const message = [item.title, item.body, mediaUrl].filter(Boolean).join('\n\n');
 
-    const isPortrait = false;
-    const authorLabel = getMilestoneAuthorLabel(item, npub);
+    try {
+      if (!message.trim()) {
+        openMarkDetail(item);
+        return;
+      }
+
+      await Share.share({ title: item.title || 'bE Mark', message });
+    } catch (error) {
+      console.warn('[Timeline] share failed:', error);
+      openMarkDetail(item);
+    }
+  };
+
+  const openSheetComposer = (item: TimelineFeedItem, mode: ComposerMode) => {
+    setSheetComposer({ item, mode });
+    composerTextRef.current = '';
+  };
+
+  const closeSheetComposer = () => {
+    if (composerFocusTimerRef.current) {
+      clearTimeout(composerFocusTimerRef.current);
+      composerFocusTimerRef.current = null;
+    }
+    Keyboard.dismiss();
+    setSheetComposer(null);
+    composerTextRef.current = '';
+  };
+
+  const saveSheetComposer = async () => {
+    if (!sheetComposer) return;
+
+    const text = composerTextRef.current.trim();
+
+    if (!text || savingComposer) return;
+
+    const item = sheetComposer.item;
+    const milestone = item.milestone;
+    const reflection = {
+      text,
+      createdAt: Math.floor(Date.now() / 1000),
+      authorNpub: npub ?? undefined,
+    };
+    const updatedReflections = [...(milestone.reflections ?? []), reflection];
+    const updatedMilestone = {
+      ...milestone,
+      reflections: updatedReflections,
+    };
+
+    setSavingComposer(true);
+
+    try {
+      await updateMilestone(milestone.id, { reflections: updatedReflections });
+      setMilestones(prev =>
+        prev.map(existing =>
+          existing.id === milestone.id
+            ? { ...existing, reflections: updatedReflections }
+            : existing
+        )
+      );
+      closeSheetComposer();
+
+      if (updatedMilestone.familyId && nsec && npub) {
+        publishFamilyMilestone(
+          {
+            id: updatedMilestone.id,
+            note: updatedMilestone.note,
+            tags: updatedMilestone.tags ?? [],
+            photoUri: updatedMilestone.photoUri,
+            videoUri: updatedMilestone.videoUri,
+            audioUri: updatedMilestone.audioUri,
+            media: updatedMilestone.media ?? [],
+            reflections: updatedReflections,
+            createdAt: updatedMilestone.createdAt,
+            familyId: updatedMilestone.familyId,
+            authorNpub: updatedMilestone.authorNpub ?? npub,
+            authorName: updatedMilestone.authorName,
+          },
+          nsec,
+          relays
+        ).then(result => {
+          if (!result.success) {
+            console.warn('[Family Reflection Sync] Failed:', result.error);
+          } else {
+            console.log('[Family Reflection Sync] Published:', result.eventId);
+          }
+        });
+      }
+    } catch (error) {
+      console.warn('[Timeline Sheet Composer] Save failed:', error);
+    } finally {
+      setSavingComposer(false);
+    }
+  };
+
+  function TimelineCard({ item }: { item: TimelineFeedItem }) {
+    const milestone = item.milestone;
 
     return (
-      <TouchableOpacity
-        style={s.item}
-        onPress={() => router.push({ pathname: '/mark-detail', params: { id: item.id } } as any)}
-        activeOpacity={0.85}
-      >
-                <View style={s.timelineCol}>
-          <View style={[s.dot, themed.dot]} />
-          {index < filtered.length - 1 && <View style={[s.line, themed.line]} />}
-        </View>
+      <View style={[s.socialCard, themed.raised, themed.border]}>
+        <TouchableOpacity onPress={() => openMarkDetail(item)} activeOpacity={0.85}>
+          <View style={s.socialHeader}>
+            <View style={[s.authorAvatar, themed.surface, themed.border]}>
+              {item.authorAvatar ? (
+                <Image source={{ uri: item.authorAvatar }} style={s.authorAvatarImage} />
+              ) : (
+                <Text style={[s.authorAvatarText, themed.goldText]}>{item.authorInitials}</Text>
+              )}
+            </View>
 
-        <View style={s.cardSlot}>
-          <View style={[s.card, themed.raised, themed.border, isPortrait && s.cardPortrait]}>
-{(hasVisualMedia || hasAudioOnly) && (
-  <MediaCollage
-    media={mediaItems}
-    audioUri={item.audioUri}
-    onPressMedia={(mediaIndex) => openViewerForMilestone(item, mediaIndex)}
-  />
-)}
-
-            <View style={s.cardBody}>
-              <Text style={[s.date, themed.mutedText]}>
-                {formatDate(item.createdAt)}
-                {authorLabel ? ` · By ${authorLabel}` : ''}
+            <View style={s.socialHeaderCopy}>
+              <Text style={[s.authorName, themed.primaryText]} numberOfLines={1}>
+                {item.authorName}
               </Text>
-              {title && <Text style={[s.cardTitle, themed.primaryText]}>{title}</Text>}
-              {body ? <Text style={[s.note, themed.secondaryText]} numberOfLines={title ? 2 : 3}>{body}</Text> : null}
+              <Text style={[s.feedContext, themed.mutedText]} numberOfLines={1}>
+                {item.contextLabel} - {item.timeLabel}
+              </Text>
+            </View>
 
-              {item.tags.length > 0 && (
-                <View style={s.tags}>
-                {item.tags.map(t => <Text key={t} style={[s.tag, themed.surface, { color: theme.gold, borderColor: theme.border }]}>{t}</Text>)}
-                </View>
+            {milestone.publishedToRelay && (
+              <Text style={[s.relayBadge, themed.mutedText]}>relay</Text>
+            )}
+          </View>
+        </TouchableOpacity>
+
+        {(item.hasVisualMedia || item.hasAudioOnly) && (
+          <MediaCollage
+            media={item.mediaItems}
+            audioUri={milestone.audioUri}
+            onPressMedia={(mediaIndex) => openViewerForMilestone(milestone, mediaIndex)}
+          />
+        )}
+
+        <TouchableOpacity onPress={() => openMarkDetail(item)} activeOpacity={0.85}>
+          <View style={s.socialBody}>
+            {item.title && <Text style={[s.cardTitle, themed.primaryText]}>{item.title}</Text>}
+            {item.body ? (
+              <Text style={[s.note, themed.secondaryText]} numberOfLines={item.title ? 4 : 5}>
+                {item.body}
+              </Text>
+            ) : null}
+
+            {milestone.tags.length > 0 && (
+              <View style={s.tags}>
+                {milestone.tags.map(t => (
+                  <Text key={t} style={[s.tag, themed.surface, { color: theme.gold, borderColor: theme.border }]}>
+                    {t}
+                  </Text>
+                ))}
+              </View>
+            )}
+
+            <View style={s.cardMeta}>
+              {milestone.reflections && milestone.reflections.length > 0 && (
+                <Text style={[s.reflectionBadge, themed.mutedText]}>
+                  {milestone.reflections.length} reflection{milestone.reflections.length > 1 ? 's' : ''}
+                </Text>
               )}
 
-              <View style={s.cardMeta}>
-                {item.publishedToRelay && <Text style={s.relayBadge}>↑ relay</Text>}
-
-                {item.reflections && item.reflections.length > 0 && (
-                  <Text style={s.reflectionBadge}>
-                    ✦ {item.reflections.length} reflection{item.reflections.length > 1 ? 's' : ''}
-                  </Text>
-                )}
-
-                {item.authorNpub && item.authorNpub !== npub && (
-                  <Text style={s.authorBadge}>👤 {item.authorNpub.slice(0, 8)}…</Text>
-                )}
-              </View>
+              {milestone.authorNpub && milestone.authorNpub !== npub && (
+                <Text style={[s.authorBadge, themed.mutedText]}>{milestone.authorNpub.slice(0, 10)}...</Text>
+              )}
             </View>
           </View>
+        </TouchableOpacity>
+
+        <View style={[s.socialActions, themed.border]}>
+          <TouchableOpacity
+            style={s.socialAction}
+            onPress={() => openSheetComposer(item, 'comment')}
+            activeOpacity={0.75}
+            accessibilityRole="button"
+            accessibilityLabel="Comment on this Mark"
+          >
+            <Ionicons name="chatbubble-outline" size={21} color={theme.text} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={s.socialAction}
+            onPress={() => shareFeedItem(item)}
+            activeOpacity={0.75}
+            accessibilityRole="button"
+            accessibilityLabel="Share this Mark"
+          >
+            <Ionicons name="share-social-outline" size={22} color={theme.text} />
+          </TouchableOpacity>
         </View>
-      </TouchableOpacity>
+      </View>
     );
   }
 
-  const renderItem = ({ item, index }: { item: Milestone; index: number }) => {
-    return <TimelineCard item={item} index={index} />;
+  const renderItem = ({ item }: { item: TimelineFeedItem }) => {
+    return <TimelineCard item={item} />;
   };
+  const composerBottom = keyboardHeight > 0
+    ? keyboardHeight + 8
+    : Math.max(insets.bottom, 12) + 76;
 
   return (
         <SafeAreaView style={[s.safe, themed.safe]}>
@@ -741,10 +830,12 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
         </View>
       ) : (
         <FlatList
-          data={filtered}
-          keyExtractor={m => m.id}
+          data={feedItems}
+          keyExtractor={item => item.id}
           renderItem={renderItem}
           contentContainerStyle={s.list}
+          keyboardDismissMode="interactive"
+          keyboardShouldPersistTaps="handled"
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.gold} />}
         />
       )}
@@ -1090,11 +1181,95 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
         </View>
       </Modal>
 
-            <ImageViewerModal
+      <ImageViewerModal
         images={viewerImages}
         selectedUri={selectedViewerUri}
         onClose={() => setSelectedViewerUri(null)}
       />
+
+      {sheetComposer && (
+        <View style={s.composerOverlay} pointerEvents="box-none">
+          <TouchableOpacity
+            style={s.composerBackdrop}
+            activeOpacity={1}
+            onPress={closeSheetComposer}
+          />
+            <View
+              style={[
+                s.composerSheet,
+                themed.surface,
+                themed.border,
+                {
+                  bottom: composerBottom,
+                  paddingBottom: Math.max(insets.bottom, 12) + 12,
+                },
+              ]}
+            >
+              <View style={[s.composerHandle, { backgroundColor: theme.border }]} />
+              <View style={s.composerSheetHeader}>
+                <View style={[s.authorAvatar, themed.raised, themed.border]}>
+                  {sheetComposer.item.authorAvatar ? (
+                    <Image source={{ uri: sheetComposer.item.authorAvatar }} style={s.authorAvatarImage} />
+                  ) : (
+                    <Text style={[s.authorAvatarText, themed.goldText]}>{sheetComposer.item.authorInitials}</Text>
+                  )}
+                </View>
+                <View style={s.composerSheetCopy}>
+                  <Text style={[s.composerSheetTitle, themed.primaryText]}>
+                    {sheetComposer.mode === 'reflect' ? 'Add a reflection' : 'Add a comment'}
+                  </Text>
+                  <Text style={[s.composerSheetContext, themed.mutedText]} numberOfLines={1}>
+                    {sheetComposer.item.authorName} - {sheetComposer.item.contextLabel}
+                  </Text>
+                </View>
+              </View>
+
+              <TextInput
+                key={`${sheetComposer.item.id}_${sheetComposer.mode}`}
+                ref={composerInputRef}
+                style={[s.composerSheetInput, themed.raised, themed.border, themed.primaryText]}
+                defaultValue=""
+                onChangeText={text => {
+                  composerTextRef.current = text;
+                }}
+                placeholder={
+                  sheetComposer.mode === 'reflect'
+                    ? 'Looking back, what do you notice?'
+                    : 'Add a quick comment...'
+                }
+                placeholderTextColor={theme.textMuted}
+                multiline
+                textAlignVertical="top"
+              />
+
+              <View style={s.composerSheetActions}>
+                <TouchableOpacity
+                  style={[s.composerSheetCancel, themed.border]}
+                  onPress={closeSheetComposer}
+                  activeOpacity={0.75}
+                  disabled={savingComposer}
+                >
+                  <Text style={[s.composerSheetCancelText, themed.mutedText]}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    s.composerSheetSave,
+                    themed.goldBg,
+                    savingComposer && s.composerSheetSaveDisabled,
+                  ]}
+                  onPress={saveSheetComposer}
+                  activeOpacity={0.75}
+                  disabled={savingComposer}
+                >
+                  <Text style={[s.composerSheetSaveText, themed.darkOnGold]}>
+                    {savingComposer ? 'Saving...' : 'Save'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -1228,7 +1403,159 @@ const s = StyleSheet.create({
   activeChipText: { fontSize: 11 },
   clearChip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, backgroundColor: '#2a1a1a', borderWidth: 0.5, borderColor: '#c00' },
   clearChipText: { fontSize: 11, color: '#c00' },
-  list: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 100 },
+  list: { paddingHorizontal: 12, paddingTop: 12, paddingBottom: 100 },
+  socialCard: {
+    borderRadius: 14,
+    borderWidth: 0.5,
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  socialHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  authorAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 0.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  authorAvatarImage: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  authorAvatarText: {
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  socialHeaderCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  authorName: {
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  feedContext: {
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  socialBody: {
+    paddingHorizontal: 14,
+    paddingBottom: 12,
+  },
+  composerOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 50,
+    elevation: 50,
+  },
+  composerBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.42)',
+  },
+  composerSheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    borderTopWidth: 0.5,
+    paddingHorizontal: 18,
+    paddingTop: 10,
+    paddingBottom: 24,
+    maxHeight: 310,
+  },
+  composerHandle: {
+    width: 42,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  composerSheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 16,
+  },
+  composerSheetCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  composerSheetTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  composerSheetContext: {
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  composerSheetInput: {
+    minHeight: 86,
+    maxHeight: 132,
+    borderWidth: 0.5,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  composerSheetActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+    marginTop: 14,
+  },
+  composerSheetCancel: {
+    minHeight: 40,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 0.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  composerSheetCancelText: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  composerSheetSave: {
+    minHeight: 40,
+    minWidth: 92,
+    paddingHorizontal: 18,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  composerSheetSaveDisabled: {
+    opacity: 0.45,
+  },
+  composerSheetSaveText: {
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  socialActions: {
+    borderTopWidth: 0.5,
+    flexDirection: 'row',
+  },
+  socialAction: {
+    flex: 1,
+    minHeight: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  socialActionText: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
   item: { flexDirection: 'row', gap: 14, marginBottom: 20 },
   timelineCol: { alignItems: 'center', width: 12, paddingTop: 4 },
   dot: { width: 12, height: 12, borderRadius: 6 },
@@ -1422,12 +1749,12 @@ markCollagePlay: {
   audioThumbLabel: { fontSize: 12, color: '#555' },
   cardBody: { padding: 14 },
   date: { fontSize: 11, color: '#444', marginBottom: 4, fontWeight: '500' },
-  cardTitle: { fontSize: 16, fontWeight: '700', color: '#fff', marginBottom: 4 },
+  cardTitle: { fontSize: 16, fontWeight: '800', color: '#fff', marginBottom: 5 },
   note: { fontSize: 14, color: '#888', lineHeight: 20 },
   tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 10 },
   tag: { fontSize: 11, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 20, borderWidth: 0.5 },
   cardMeta: { flexDirection: 'row', gap: 10, marginTop: 8, flexWrap: 'wrap' },
-  relayBadge: { fontSize: 10, color: '#444' },
+  relayBadge: { fontSize: 10, fontWeight: '800' },
   reflectionBadge: { fontSize: 10 },
   authorBadge: { fontSize: 10, color: '#555' },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 48 },

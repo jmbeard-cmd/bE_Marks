@@ -48,6 +48,7 @@ export default function TabLayout() {
       initialRouteName="timeline"
       screenOptions={{
         headerShown: false,
+        tabBarHideOnKeyboard: true,
         tabBarStyle: {
           borderTopWidth: 0.5,
           borderTopColor: theme.border,
