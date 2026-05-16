@@ -21,6 +21,13 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import ImageViewerModal, { ViewerImage } from '../../components/ImageViewerModal';
 import MediaCollage from '../../components/MediaCollage';
+import type { LivingMarkLogFilter, LivingMarkPromptCard, LivingMarkView } from '../../src/types/living-spaces';
+import { SYSTEM_LIVING_SPACE_IDS } from '../../src/utils/living-space-routing';
+import {
+  applyLivingMarkPromptAction,
+  getLivingMarkPromptCards,
+  getLivingMarkViewsForMilestones,
+} from '../../src/utils/living-spaces-storage';
 import { DEFAULT_RELAY, fetchFamilyMembers, fetchFamilyMilestones, publishFamilyMilestone } from '../../src/utils/nostr';
 import {
   formatDate,
@@ -35,6 +42,7 @@ import {
 import { useIdentity } from '../_layout';
 
 interface FilterState {
+  logMode: LivingMarkLogFilter;
   tags: string[];
   mediaType: 'all' | 'photo' | 'video' | 'voice' | 'text';
   dateRange: 'all' | 'week' | 'month' | 'year';
@@ -85,6 +93,15 @@ const DEFAULT_TAG_FILTERS = [
 
 const MAX_RECENT_CUSTOM_TAGS = 12;
 
+const LOG_FILTER_OPTIONS: { key: LivingMarkLogFilter; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'people', label: 'People' },
+  { key: 'spaces', label: 'Spaces' },
+  { key: 'years', label: 'Years' },
+  { key: 'tags', label: 'Tags' },
+  { key: 'places', label: 'Places' },
+];
+
 function normalizeTag(tag: string): string {
   return tag.trim().toLowerCase();
 }
@@ -115,6 +132,7 @@ function getInitials(name: string): string {
 }
 
 const DEFAULT_FILTERS: FilterState = {
+  logMode: 'all',
   tags: [],
   mediaType: 'all',
   dateRange: 'all',
@@ -124,6 +142,7 @@ const DEFAULT_FILTERS: FilterState = {
 
 function countActiveFilters(f: FilterState): number {
   let count = 0;
+  if (f.logMode !== 'all') count++;
   if (f.tags.length > 0) count++;
   if (f.mediaType !== 'all') count++;
   if (f.dateRange !== 'all') count++;
@@ -132,9 +151,32 @@ function countActiveFilters(f: FilterState): number {
   return count;
 }
 
-function applyFilters(milestones: Milestone[], filters: FilterState, npub: string | null): Milestone[] {
+function passesLogMode(
+  milestone: Milestone,
+  mode: LivingMarkLogFilter,
+  view?: LivingMarkView
+): boolean {
+  if (mode === 'all') return true;
+  if (mode === 'people') return (view?.metadata.peopleIds?.length ?? 0) > 0;
+  if (mode === 'spaces') {
+    return (view?.placement.spaceIds ?? []).some(spaceId => spaceId !== SYSTEM_LIVING_SPACE_IDS.profile);
+  }
+  if (mode === 'years') return !!(view?.metadata.capturedAt ?? view?.metadata.occurredAt ?? milestone.createdAt);
+  if (mode === 'tags') return (milestone.tags ?? []).length > 0;
+  if (mode === 'places') return !!view?.metadata.place;
+
+  return true;
+}
+
+function applyFilters(
+  milestones: Milestone[],
+  filters: FilterState,
+  npub: string | null,
+  livingViewsByMarkId: Record<string, LivingMarkView>
+): Milestone[] {
   const now = Math.floor(Date.now() / 1000);
   return milestones.filter(m => {
+    if (!passesLogMode(m, filters.logMode, livingViewsByMarkId[m.id])) return false;
     if (filters.tags.length > 0 && !filters.tags.some(t => m.tags.includes(t))) return false;
     if (filters.mediaType === 'photo' && !m.photoUri) return false;
     if (filters.mediaType === 'video' && !m.videoUri) return false;
@@ -228,6 +270,8 @@ function createTimelineFeedItem(input: {
 
 export default function TimelineScreen() {
   const [milestones, setMilestones] = useState<Milestone[]>([]);
+  const [livingViewsByMarkId, setLivingViewsByMarkId] = useState<Record<string, LivingMarkView>>({});
+  const [livingPromptCard, setLivingPromptCard] = useState<LivingMarkPromptCard | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [feedKey, setFeedKey] = useState<FeedKey>('profile');
@@ -241,6 +285,7 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
   const [pendingFilters, setPendingFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [sheetComposer, setSheetComposer] = useState<SheetComposerState | null>(null);
   const [savingComposer, setSavingComposer] = useState(false);
+  const [savingPromptAction, setSavingPromptAction] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const composerInputRef = useRef<TextInput>(null);
   const composerTextRef = useRef('');
@@ -276,6 +321,36 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
     const load = useCallback(async () => {
     const all = await getMilestones();
     setMilestones(all);
+
+    try {
+      const livingViews = await getLivingMarkViewsForMilestones({
+        milestones: all,
+        currentNpub: npub,
+      });
+      setLivingViewsByMarkId(
+        livingViews.reduce(
+          (acc, view) => {
+            acc[view.milestone.id] = view;
+            return acc;
+          },
+          {} as Record<string, LivingMarkView>
+        )
+      );
+    } catch (error) {
+      console.warn('[Living Spaces] failed to load Log filters:', error);
+      setLivingViewsByMarkId({});
+    }
+
+    try {
+      const promptCards = await getLivingMarkPromptCards({
+        currentNpub: npub,
+        limit: 1,
+      });
+      setLivingPromptCard(promptCards[0] ?? null);
+    } catch (error) {
+      console.warn('[Living Spaces] failed to load prompt card:', error);
+      setLivingPromptCard(null);
+    }
 
     if (family) {
       const lastCheck = await getLastFamilyCheck(family.id);
@@ -461,7 +536,7 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
   const selectedHiddenTags = pendingFilters.tags.filter(tag =>
     !visibleDrawerTags.has(normalizeTag(tag))
   );
-    const filtered = applyFilters(source, filters, npub);
+    const filtered = applyFilters(source, filters, npub, livingViewsByMarkId);
   const activeFilterCount = countActiveFilters(filters);
   const feedItems = filtered.map(milestone =>
     createTimelineFeedItem({
@@ -524,6 +599,10 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
     router.push({ pathname: '/mark-detail', params: { id: item.milestone.id } } as any);
   };
 
+  const openPromptMarkDetail = (card: LivingMarkPromptCard) => {
+    router.push({ pathname: '/mark-detail', params: { id: card.view.milestone.id } } as any);
+  };
+
   const shareFeedItem = async (item: TimelineFeedItem) => {
     const firstMedia = item.mediaItems.find(media => media?.uri || media?.mediaUrl);
     const mediaUrl = firstMedia?.uri || firstMedia?.mediaUrl;
@@ -545,6 +624,61 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
   const openSheetComposer = (item: TimelineFeedItem, mode: ComposerMode) => {
     setSheetComposer({ item, mode });
     composerTextRef.current = '';
+  };
+
+  const refreshPromptCard = async () => {
+    const promptCards = await getLivingMarkPromptCards({
+      currentNpub: npub,
+      limit: 1,
+    });
+    setLivingPromptCard(promptCards[0] ?? null);
+  };
+
+  const handlePromptSnooze = async () => {
+    if (!livingPromptCard || savingPromptAction) return;
+
+    setSavingPromptAction(true);
+    try {
+      await applyLivingMarkPromptAction({
+        promptId: livingPromptCard.prompt.id,
+        action: 'snooze',
+        currentNpub: npub,
+      });
+      await refreshPromptCard();
+    } catch (error) {
+      console.warn('[Living Spaces] prompt snooze failed:', error);
+    } finally {
+      setSavingPromptAction(false);
+    }
+  };
+
+  const handlePromptDone = async () => {
+    if (!livingPromptCard || savingPromptAction) return;
+
+    if (!livingPromptCard.canCompleteInline) {
+      openPromptMarkDetail(livingPromptCard);
+      return;
+    }
+
+    setSavingPromptAction(true);
+    try {
+      const result = await applyLivingMarkPromptAction({
+        promptId: livingPromptCard.prompt.id,
+        action: 'done',
+        currentNpub: npub,
+      });
+
+      if (!result.handledInline) {
+        openPromptMarkDetail(livingPromptCard);
+        return;
+      }
+
+      await load();
+    } catch (error) {
+      console.warn('[Living Spaces] prompt action failed:', error);
+    } finally {
+      setSavingPromptAction(false);
+    }
   };
 
   const closeSheetComposer = () => {
@@ -622,6 +756,76 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
       setSavingComposer(false);
     }
   };
+
+  function LivingPromptNudgeCard({ card }: { card: LivingMarkPromptCard }) {
+    const spaceName = card.prompt.suggestedSpaceIds?.[0]
+      ? card.view.spaces.find(space => space.id === card.prompt.suggestedSpaceIds?.[0])?.name
+      : undefined;
+    const actionLabel = card.canCompleteInline ? 'Done' : 'Add details';
+
+    return (
+      <View style={[s.nudgeWrap, themed.safe, themed.border]}>
+        <View style={[s.nudgeCard, themed.raised, themed.border]}>
+          <View style={s.nudgeHeader}>
+            <View style={[s.nudgeIcon, themed.surface, themed.border]}>
+              <Ionicons name="sparkles-outline" size={17} color={theme.gold} />
+            </View>
+            <View style={s.nudgeCopy}>
+              <Text style={[s.nudgeEyebrow, themed.goldText]}>Complete this Mark</Text>
+              <Text style={[s.nudgeQuestion, themed.primaryText]}>{card.prompt.question}</Text>
+            </View>
+          </View>
+
+          <TouchableOpacity
+            style={[s.nudgeMarkPreview, themed.surface, themed.border]}
+            onPress={() => openPromptMarkDetail(card)}
+            activeOpacity={0.82}
+          >
+            <Text style={[s.nudgeMarkTitle, themed.primaryText]} numberOfLines={1}>
+              {card.markTitle || 'Mark'}
+            </Text>
+            <Text style={[s.nudgeMarkText, themed.mutedText]} numberOfLines={2}>
+              {card.markPreview}
+            </Text>
+            {spaceName && (
+              <Text style={[s.nudgeSpaceHint, themed.goldText]} numberOfLines={1}>
+                Suggested Space: {spaceName}
+              </Text>
+            )}
+          </TouchableOpacity>
+
+          <View style={s.nudgeActions}>
+            <TouchableOpacity
+              style={[s.nudgeActionBtn, themed.surface, themed.border]}
+              onPress={() => openPromptMarkDetail(card)}
+              disabled={savingPromptAction}
+              activeOpacity={0.78}
+            >
+              <Text style={[s.nudgeActionText, themed.primaryText]}>Review</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[s.nudgeActionBtn, themed.surface, themed.border]}
+              onPress={handlePromptSnooze}
+              disabled={savingPromptAction}
+              activeOpacity={0.78}
+            >
+              <Text style={[s.nudgeActionText, themed.mutedText]}>Not now</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[s.nudgeDoneBtn, themed.goldBg, savingPromptAction && s.nudgeDisabled]}
+              onPress={handlePromptDone}
+              disabled={savingPromptAction}
+              activeOpacity={0.78}
+            >
+              <Text style={[s.nudgeDoneText, themed.darkOnGold]}>
+                {savingPromptAction ? 'Saving...' : actionLabel}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    );
+  }
 
   function TimelineCard({ item }: { item: TimelineFeedItem }) {
     const milestone = item.milestone;
@@ -774,10 +978,21 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
         </TouchableOpacity>
       )}
 
+      {livingPromptCard && (
+        <LivingPromptNudgeCard card={livingPromptCard} />
+      )}
+
       {activeFilterCount > 0 && (
       <View style={[s.filterBar, themed.border]}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filterBarInner}>
           <TouchableOpacity style={[s.clearChip, themed.surface]} onPress={clearFilters}><Text style={s.clearChipText}>Clear</Text></TouchableOpacity>
+          {filters.logMode !== 'all' && (
+            <View style={[s.activeChip, themed.surface, { borderColor: theme.border }]}>
+              <Text style={[s.activeChipText, themed.goldText]}>
+                {LOG_FILTER_OPTIONS.find(option => option.key === filters.logMode)?.label ?? filters.logMode}
+              </Text>
+            </View>
+          )}
           {filters.tags.map(t => <View key={t} style={[s.activeChip, themed.surface, { borderColor: theme.border }]}><Text style={[s.activeChipText, themed.goldText]}>{t}</Text></View>)}
           {filters.mediaType !== 'all' && <View style={s.activeChip}><Text style={s.activeChipText}>{filters.mediaType}</Text></View>}
           {filters.dateRange !== 'all' && <View style={s.activeChip}><Text style={s.activeChipText}>{filters.dateRange === 'week' ? 'This week' : filters.dateRange === 'month' ? 'This month' : 'This year'}</Text></View>}
@@ -911,6 +1126,44 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
             >
+              <View style={s.drawerSection}>
+                <Text style={[s.drawerSectionLabel, themed.mutedText]}>LOG VIEW</Text>
+                <View style={s.drawerChips}>
+                  {LOG_FILTER_OPTIONS.map(option => {
+                    const active = pendingFilters.logMode === option.key;
+
+                    return (
+                      <TouchableOpacity
+                        key={option.key}
+                        style={[
+                          s.drawerChip,
+                          themed.raised,
+                          themed.border,
+                          active && {
+                            backgroundColor: theme.gold,
+                            borderColor: theme.gold,
+                          },
+                        ]}
+                        onPress={() => setPendingFilters(prev => ({ ...prev, logMode: option.key }))}
+                      >
+                        <Text
+                          style={[
+                            s.drawerChipText,
+                            themed.primaryText,
+                            active && {
+                              color: theme.bg,
+                              fontWeight: '600',
+                            },
+                          ]}
+                        >
+                          {option.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+
               {(presetTags.length > 0 || recentCustomTags.length > 0 || selectedHiddenTags.length > 0) && (
                 <View style={s.drawerSection}>
                   <Text style={[s.drawerSectionLabel, themed.mutedText]}>TAGS</Text>
@@ -1389,6 +1642,101 @@ const s = StyleSheet.create({
   bannerHint: { fontSize: 12, color: '#7a5a1a', marginTop: 2 },
   bannerDismiss: { padding: 4 },
   bannerDismissText: { fontSize: 14, color: '#555' },
+  nudgeWrap: {
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 4,
+    borderBottomWidth: 0.5,
+  },
+  nudgeCard: {
+    borderRadius: 14,
+    borderWidth: 0.5,
+    padding: 12,
+  },
+  nudgeHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginBottom: 10,
+  },
+  nudgeIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 0.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  nudgeCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  nudgeEyebrow: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.7,
+    textTransform: 'uppercase',
+    marginBottom: 3,
+  },
+  nudgeQuestion: {
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '800',
+  },
+  nudgeMarkPreview: {
+    borderRadius: 10,
+    borderWidth: 0.5,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+  },
+  nudgeMarkTitle: {
+    fontSize: 13,
+    fontWeight: '900',
+    marginBottom: 3,
+  },
+  nudgeMarkText: {
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '600',
+  },
+  nudgeSpaceHint: {
+    fontSize: 11,
+    fontWeight: '800',
+    marginTop: 6,
+  },
+  nudgeActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  nudgeActionBtn: {
+    flex: 1,
+    minHeight: 36,
+    borderRadius: 10,
+    borderWidth: 0.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  nudgeActionText: {
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  nudgeDoneBtn: {
+    flex: 1,
+    minHeight: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  nudgeDoneText: {
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  nudgeDisabled: {
+    opacity: 0.55,
+  },
   tabRow: { flexDirection: 'row', borderBottomWidth: 0.5 },
   tabBtn: { flex: 1, paddingVertical: 12, alignItems: 'center' },
   tabBtnActive: { borderBottomWidth: 2 },

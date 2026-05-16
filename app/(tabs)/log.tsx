@@ -1,7 +1,7 @@
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import * as VideoThumbnails from 'expo-video-thumbnails';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -18,6 +18,21 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AudioRecorder from '../../components/AudioRecorder';
 import BEHeader from '../../components/BEHeader';
+import type {
+  LivingMarkCaptureSource,
+  LivingMarkPlace,
+  LivingSpace,
+  MarkPrivacy,
+} from '../../src/types/living-spaces';
+import { getGroups } from '../../src/utils/group-storage';
+import {
+  extractLivingCaptureFromExif,
+  SYSTEM_LIVING_SPACE_IDS,
+} from '../../src/utils/living-space-routing';
+import {
+  ensureDefaultLivingSpaces,
+  persistLivingMarkCapture,
+} from '../../src/utils/living-spaces-storage';
 import { compressMediaForUpload } from '../../src/utils/media-compression';
 import { publishFamilyMilestone, signAndPublish } from '../../src/utils/nostr';
 import { notifyMarkEvent } from '../../src/utils/push-notifications';
@@ -26,6 +41,52 @@ import { getFamilyMembers, saveMilestone } from '../../src/utils/storage';
 import { useIdentity } from '../_layout';
 
 const PRESET_TAGS = ['Family', 'Faith', 'Career', 'School', 'Travel', 'Health', 'Achievement', 'Personal'];
+const LIFE_STAGE_OPTIONS = ['Childhood', 'Elementary', 'Middle School', 'High School', 'College', 'Season', 'Trip'];
+
+type DraftMedia = {
+  id: string;
+  uri: string;
+  type: 'image' | 'video';
+  thumbnailUri?: string;
+  place?: LivingMarkPlace;
+  occurredAt?: number;
+  captureSource: Extract<LivingMarkCaptureSource, 'camera' | 'library'>;
+};
+
+function getCaptureMetadataForDraft(media: DraftMedia[], audioUri?: string): {
+  place?: LivingMarkPlace;
+  occurredAt?: number;
+  captureSource?: LivingMarkCaptureSource;
+} {
+  const mediaWithPlace = media.find(item => item.place);
+  const mediaWithDate = media.find(item => item.occurredAt);
+  const firstMedia = media[0];
+
+  if (firstMedia) {
+    return {
+      place: mediaWithPlace?.place,
+      occurredAt: mediaWithDate?.occurredAt,
+      captureSource: firstMedia.captureSource,
+    };
+  }
+
+  if (audioUri) {
+    return {
+      captureSource: 'voice',
+    };
+  }
+
+  return {
+    captureSource: 'manual',
+  };
+}
+
+function parseContextPeople(input: string): string[] {
+  return input
+    .split(',')
+    .map(item => item.trim())
+    .filter(Boolean);
+}
 
 export default function LogScreen() {
   const { nsec, npub, family, relays, profile, theme } = useIdentity();
@@ -34,23 +95,79 @@ export default function LogScreen() {
   const [note, setNote] = useState('');
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
-  const [media, setMedia] = useState<{
-  id: string;
-  uri: string;
-  type: 'image' | 'video';
-  thumbnailUri?: string;
-}[]>([]);
+  const [media, setMedia] = useState<DraftMedia[]>([]);
   const [saving, setSaving] = useState(false);
 const [saveStatus, setSaveStatus] = useState('');
 const [progress, setProgress] = useState(0);
 const [publishToNostr, setPublishToNostr] = useState(true);
   const [shareWithFamily, setShareWithFamily] = useState(false);
   const [audioUri, setAudioUri] = useState<string | undefined>();
+  const [livingSpaces, setLivingSpaces] = useState<LivingSpace[]>([]);
+  const [selectedSpaceId, setSelectedSpaceId] = useState<string | null>(null);
+  const [showContext, setShowContext] = useState(false);
+  const [peopleInput, setPeopleInput] = useState('');
+  const [lifeStage, setLifeStage] = useState('');
+  const [eventInput, setEventInput] = useState('');
+  const [savedToBook, setSavedToBook] = useState(false);
 
   const myDisplayName =
   profile?.display_name ||
   profile?.name ||
   (npub ? `${npub.slice(0, 12)}…` : 'Someone');
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadLivingSpaces() {
+      try {
+        const groups = await getGroups();
+        const spaces = await ensureDefaultLivingSpaces({
+          family: family
+            ? {
+                id: family.id,
+                name: family.name,
+                relayUrl: family.relayUrl,
+                relayMode: family.relayMode,
+              }
+            : null,
+          groups: groups.map(group => ({
+            id: group.id,
+            name: group.name,
+            description: group.description,
+            sport: group.sport,
+            icon: group.icon,
+            coverImage: group.coverImage,
+            schoolId: group.schoolId,
+            relayUrl: group.relayUrl,
+            relayMode: group.relayMode,
+            createdAt: group.createdAt,
+            updatedAt: group.updatedAt,
+          })),
+        });
+
+        if (!cancelled) {
+          setLivingSpaces(spaces);
+        }
+      } catch (error) {
+        console.warn('[Living Spaces] failed to load placement chips:', error);
+      }
+    }
+
+    loadLivingSpaces();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [family]);
+
+  const placementChipSpaces = livingSpaces
+    .filter(space => !space.archivedAt)
+    .filter(space =>
+      space.id === SYSTEM_LIVING_SPACE_IDS.profile ||
+      (space.id === SYSTEM_LIVING_SPACE_IDS.family && !!family) ||
+      space.source === 'group'
+    )
+    .slice(0, 8);
 
   const pickPhoto = async () => {
   const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -64,6 +181,7 @@ const [publishToNostr, setPublishToNostr] = useState(true);
     quality: 0.9,
     allowsMultipleSelection: true,
     selectionLimit: 10,
+    exif: true,
   });
 
   if (!result.canceled) {
@@ -83,11 +201,16 @@ const [publishToNostr, setPublishToNostr] = useState(true);
       }
     }
 
+    const capture = extractLivingCaptureFromExif(a.exif);
+
     return {
       id: `media_${Date.now()}_${Math.random()}`,
       uri: a.uri,
       type,
       thumbnailUri,
+      place: capture.place,
+      occurredAt: capture.occurredAt,
+      captureSource: 'library' as const,
     };
   })
 );
@@ -110,6 +233,7 @@ setMedia(prev => [...prev, ...newMedia]);
     quality: 0.85,
     videoQuality: ImagePicker.UIImagePickerControllerQualityType.Medium,
     allowsEditing: false,
+    exif: true,
   });
 
   if (!result.canceled) {
@@ -129,11 +253,16 @@ if (type === 'video') {
   }
 }
 
-const mediaItem = {
+const capture = extractLivingCaptureFromExif(asset.exif);
+
+const mediaItem: DraftMedia = {
   id: `media_${Date.now()}_${Math.random()}`,
   uri: asset.uri,
   type,
   thumbnailUri,
+  place: capture.place,
+  occurredAt: capture.occurredAt,
+  captureSource: 'camera',
 };
 
 setMedia(prev => [...prev, mediaItem]);
@@ -154,6 +283,7 @@ const recordVideo = async () => {
     quality: 0.85,
     videoQuality: ImagePicker.UIImagePickerControllerQualityType.Medium,
     allowsEditing: false,
+    exif: true,
   });
 
   if (!result.canceled) {
@@ -170,11 +300,16 @@ try {
   console.warn('[Record Video Preview Thumbnail] Failed:', error);
 }
 
-const mediaItem = {
+const capture = extractLivingCaptureFromExif(asset.exif);
+
+const mediaItem: DraftMedia = {
   id: `media_${Date.now()}_${Math.random()}`,
   uri: asset.uri,
   type: 'video' as const,
   thumbnailUri,
+  place: capture.place,
+  occurredAt: capture.occurredAt,
+  captureSource: 'camera',
 };
 
 setMedia(prev => [...prev, mediaItem]);
@@ -347,6 +482,33 @@ if (audioUri) {
         authorName: myDisplayName,
       });
 
+      setSaveStatus('Placing Mark...');
+      const captureMetadata = getCaptureMetadataForDraft(media, audioUri);
+      const privacyHint: MarkPrivacy | undefined =
+        shareWithFamily && family
+          ? 'family'
+          : publishToNostr && published
+            ? 'public'
+            : undefined;
+
+      persistLivingMarkCapture({
+        milestone: savedMilestone,
+        spaces: livingSpaces,
+        selectedSpaceId,
+        currentNpub: npub,
+        peopleIds: parseContextPeople(peopleInput),
+        lifeStage: lifeStage || undefined,
+        eventId: eventInput.trim() || undefined,
+        savedToBook,
+        captureSource: captureMetadata.captureSource,
+        place: captureMetadata.place,
+        occurredAt: captureMetadata.occurredAt,
+        capturedAt: captureMetadata.occurredAt ?? savedMilestone.createdAt,
+        privacy: privacyHint,
+      }).catch(error => {
+        console.warn('[Living Spaces] Mark enrichment failed:', error);
+      });
+
       // ── Step 5: Publish to family relay if sharing ──
       setSaveStatus('Sharing with family...');
       setProgress(95);
@@ -402,6 +564,12 @@ if (audioUri) {
       setAudioUri(undefined);
       setShareWithFamily(false);
       setTagInput('');
+      setSelectedSpaceId(null);
+      setShowContext(false);
+      setPeopleInput('');
+      setLifeStage('');
+      setEventInput('');
+      setSavedToBook(false);
 
       setProgress(100);
 
@@ -570,6 +738,152 @@ setProgress(0);
                   <Text style={[s.tagChipText, { color: theme.gold }]}>{t} ✕</Text>
                 </TouchableOpacity>
               ))}
+            </View>
+          )}
+        </View>
+
+        {placementChipSpaces.length > 0 && (
+          <View style={s.field}>
+            <Text style={[s.label, { color: theme.textMuted }]}>PLACE IN</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.placeChipRow}>
+              <TouchableOpacity
+                style={[
+                  s.placeChip,
+                  { backgroundColor: theme.surface, borderColor: theme.border },
+                  !selectedSpaceId && { backgroundColor: theme.gold, borderColor: theme.gold },
+                ]}
+                onPress={() => setSelectedSpaceId(null)}
+              >
+                <Text
+                  style={[
+                    s.placeChipText,
+                    { color: theme.textSecondary },
+                    !selectedSpaceId && { color: theme.bg, fontWeight: '700' },
+                  ]}
+                >
+                  Auto
+                </Text>
+              </TouchableOpacity>
+
+              {placementChipSpaces.map(space => {
+                const active = selectedSpaceId === space.id;
+
+                return (
+                  <TouchableOpacity
+                    key={space.id}
+                    style={[
+                      s.placeChip,
+                      { backgroundColor: theme.surface, borderColor: theme.border },
+                      active && { backgroundColor: theme.gold, borderColor: theme.gold },
+                    ]}
+                    onPress={() => setSelectedSpaceId(active ? null : space.id)}
+                  >
+                    <Text
+                      style={[
+                        s.placeChipText,
+                        { color: theme.textSecondary },
+                        active && { color: theme.bg, fontWeight: '700' },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {space.name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            <Text style={[s.placeHint, { color: theme.textMuted }]}>
+              Optional. Auto can suggest placement from tags, family, and media details.
+            </Text>
+          </View>
+        )}
+
+        <View style={s.field}>
+          <TouchableOpacity
+            style={[s.contextToggle, { backgroundColor: theme.surface, borderColor: theme.border }]}
+            onPress={() => setShowContext(value => !value)}
+            activeOpacity={0.82}
+          >
+            <View style={s.contextTitleWrap}>
+              <Text style={[s.contextTitle, { color: theme.text }]}>Context</Text>
+              <Text style={[s.contextHint, { color: theme.textMuted }]}>
+                Optional details can help place this Mark later.
+              </Text>
+            </View>
+            <Text style={[s.contextToggleText, { color: theme.gold }]}>
+              {showContext ? 'Hide' : 'Add'}
+            </Text>
+          </TouchableOpacity>
+
+          {showContext && (
+            <View style={[s.contextPanel, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <TextInput
+                style={[s.contextInput, { color: theme.text, backgroundColor: theme.raised, borderColor: theme.border }]}
+                placeholder="People in this Mark, separated by commas"
+                placeholderTextColor={theme.textMuted}
+                value={peopleInput}
+                onChangeText={setPeopleInput}
+                returnKeyType="next"
+              />
+
+              <Text style={[s.contextMiniHint, { color: theme.textMuted }]}>Life stage</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.contextChipRow}>
+                {LIFE_STAGE_OPTIONS.map(option => {
+                  const active = lifeStage === option;
+
+                  return (
+                    <TouchableOpacity
+                      key={option}
+                      style={[
+                        s.contextChip,
+                        { backgroundColor: theme.raised, borderColor: theme.border },
+                        active && { backgroundColor: theme.gold, borderColor: theme.gold },
+                      ]}
+                      onPress={() => setLifeStage(active ? '' : option)}
+                      activeOpacity={0.8}
+                    >
+                      <Text
+                        style={[
+                          s.contextChipText,
+                          { color: theme.textSecondary },
+                          active && { color: theme.bg, fontWeight: '700' },
+                        ]}
+                      >
+                        {option}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+
+              <TextInput
+                style={[s.contextInput, { color: theme.text, backgroundColor: theme.raised, borderColor: theme.border }]}
+                placeholder="Event name, season, trip, or ceremony"
+                placeholderTextColor={theme.textMuted}
+                value={eventInput}
+                onChangeText={setEventInput}
+                returnKeyType="done"
+              />
+
+              <TouchableOpacity
+                style={[
+                  s.contextChip,
+                  { alignSelf: 'flex-start', backgroundColor: theme.raised, borderColor: theme.border },
+                  savedToBook && { backgroundColor: theme.gold, borderColor: theme.gold },
+                ]}
+                onPress={() => setSavedToBook(value => !value)}
+                activeOpacity={0.8}
+              >
+                <Text
+                  style={[
+                    s.contextChipText,
+                    { color: theme.textSecondary },
+                    savedToBook && { color: theme.bg, fontWeight: '700' },
+                  ]}
+                >
+                  Save toward Living Book
+                </Text>
+              </TouchableOpacity>
             </View>
           )}
         </View>
@@ -770,6 +1084,21 @@ videoBadgeText: {
   selectedTags: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10 },
   tagChip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 0.5 },
   tagChipText: { fontSize: 12 },
+  placeChipRow: { gap: 8, paddingRight: 20 },
+  placeChip: { minHeight: 34, maxWidth: 160, paddingHorizontal: 13, borderRadius: 18, borderWidth: 0.5, alignItems: 'center', justifyContent: 'center' },
+  placeChipText: { fontSize: 12, fontWeight: '600' },
+  placeHint: { fontSize: 11, lineHeight: 16, marginTop: 8 },
+  contextToggle: { borderWidth: 0.5, borderRadius: 10, padding: 13, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  contextTitleWrap: { flex: 1, minWidth: 0 },
+  contextTitle: { fontSize: 14, fontWeight: '800' },
+  contextHint: { fontSize: 11, lineHeight: 16, marginTop: 3 },
+  contextToggleText: { fontSize: 12, fontWeight: '900' },
+  contextPanel: { borderWidth: 0.5, borderRadius: 10, marginTop: 10, padding: 12, gap: 10 },
+  contextInput: { borderWidth: 0.5, borderRadius: 8, paddingHorizontal: 11, paddingVertical: 10, fontSize: 13 },
+  contextMiniHint: { fontSize: 10, fontWeight: '800', letterSpacing: 0.5, textTransform: 'uppercase' },
+  contextChipRow: { gap: 8, paddingRight: 20 },
+  contextChip: { minHeight: 32, paddingHorizontal: 12, borderRadius: 16, borderWidth: 0.5, alignItems: 'center', justifyContent: 'center' },
+  contextChipText: { fontSize: 12, fontWeight: '700' },
   relayRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22, paddingVertical: 12, borderTopWidth: 0.5, borderBottomWidth: 0.5 },
   relayLabel: { fontSize: 14, fontWeight: '500' },
   relayHint: { fontSize: 11, marginTop: 2 },

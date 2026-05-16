@@ -19,7 +19,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ImageViewerModal, { ViewerImage } from '../components/ImageViewerModal';
+import type { LivingMarkView, LivingSpace } from '../src/types/living-spaces';
 import { setAppActivity } from '../src/utils/app-activity';
+import { SYSTEM_LIVING_SPACE_IDS } from '../src/utils/living-space-routing';
+import {
+  getLivingMarkViewForMilestone,
+  getLivingSpaces,
+  updateLivingMarkContext,
+} from '../src/utils/living-spaces-storage';
 import {
   fetchFamilyMilestones,
   fetchNostrProfile,
@@ -37,6 +44,26 @@ import { useIdentity } from './_layout';
 
 const { width } = Dimensions.get('window');
 const PRESET_TAGS = ['Family', 'Faith', 'Career', 'School', 'Travel', 'Health', 'Achievement', 'Personal'];
+const LIFE_STAGE_OPTIONS = ['Childhood', 'Elementary', 'Middle School', 'High School', 'College', 'Season', 'Trip'];
+
+function parseContextPeople(input: string): string[] {
+  return input
+    .split(',')
+    .map(item => item.trim())
+    .filter(Boolean);
+}
+
+function joinContextPeople(peopleIds: string[]): string {
+  return peopleIds.join(', ');
+}
+
+function getRouteLabel(kind: string): string {
+  if (kind === 'local') return 'Local';
+  if (kind === 'family-relay') return 'Family relay';
+  if (kind === 'space-relay') return 'Space relay';
+  if (kind === 'public-relay') return 'Public relay';
+  return kind;
+}
 
 // Photo with loading state and broken-URI fallback
 function MilestonePhoto({ uri }: { uri: string }) {
@@ -88,6 +115,17 @@ export default function MilestoneDetail() {
   const [detailMediaIndex, setDetailMediaIndex] = useState(0);
   const [reflectionProfiles, setReflectionProfiles] = useState<Record<string, NostrProfile>>({});
   const [attemptedRemoteLookup, setAttemptedRemoteLookup] = useState(false);
+  const [livingView, setLivingView] = useState<LivingMarkView | null>(null);
+  const [livingSpaces, setLivingSpaces] = useState<LivingSpace[]>([]);
+  const [isEditingContext, setIsEditingContext] = useState(false);
+  const [savingContext, setSavingContext] = useState(false);
+  const [contextPeopleInput, setContextPeopleInput] = useState('');
+  const [contextLifeStage, setContextLifeStage] = useState('');
+  const [contextEventInput, setContextEventInput] = useState('');
+  const [contextPlaceInput, setContextPlaceInput] = useState('');
+  const [contextSpaceId, setContextSpaceId] = useState<string | null>(null);
+  const [contextInitialSpaceId, setContextInitialSpaceId] = useState<string | null>(null);
+  const [contextSavedToBook, setContextSavedToBook] = useState(false);
 
   const audioPlayer = useAudioPlayer(
     milestone?.audioUri ? { uri: milestone.audioUri } : null
@@ -165,6 +203,39 @@ export default function MilestoneDetail() {
   }, [id, family, attemptedRemoteLookup]);
 
   useEffect(() => {
+    let cancelled = false;
+
+    async function loadLivingContext() {
+      if (!milestone) {
+        setLivingView(null);
+        return;
+      }
+
+      try {
+        const spaces = await getLivingSpaces();
+        const view = await getLivingMarkViewForMilestone({
+          milestone,
+          spaces,
+          currentNpub: npub,
+        });
+
+        if (!cancelled) {
+          setLivingSpaces(spaces);
+          setLivingView(view);
+        }
+      } catch (error) {
+        console.warn('[Mark Detail] failed to load Living Spaces context:', error);
+      }
+    }
+
+    loadLivingContext();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [milestone, npub]);
+
+  useEffect(() => {
   if (!milestone?.reflections?.length) return;
 
   const authors = Array.from(
@@ -208,6 +279,7 @@ export default function MilestoneDetail() {
     setEditTitle(hasTitle ? milestone.note.split('\n\n')[0] : '');
     setEditNote(hasTitle ? milestone.note.split('\n\n').slice(1).join('\n\n') : milestone.note);
     setEditTags(milestone.tags ?? []);
+    setIsEditingContext(false);
     setIsEditing(true);
   };
 
@@ -228,6 +300,64 @@ export default function MilestoneDetail() {
     await updateMilestone(milestone.id, { note: newNote, tags: editTags });
     setMilestone(prev => prev ? { ...prev, note: newNote, tags: editTags } : prev);
     setIsEditing(false);
+  };
+
+  const startContextEditing = () => {
+    if (!milestone || !livingView) return;
+    if (milestone.authorNpub && milestone.authorNpub !== npub) return;
+
+    const primarySpaceId = livingView.placement.primarySpaceId ?? livingView.placement.spaceIds[0] ?? null;
+
+    setContextPeopleInput(joinContextPeople(livingView.metadata.peopleIds ?? []));
+    setContextLifeStage(livingView.metadata.lifeStage ?? '');
+    setContextEventInput(livingView.metadata.eventId ?? '');
+    setContextPlaceInput(livingView.metadata.place?.name ?? '');
+    setContextSpaceId(primarySpaceId);
+    setContextInitialSpaceId(primarySpaceId);
+    setContextSavedToBook(
+      livingView.metadata.savedToBook ||
+        livingView.placement.spaceIds.includes(SYSTEM_LIVING_SPACE_IDS.livingBook)
+    );
+    setIsEditingContext(true);
+  };
+
+  const cancelContextEditing = () => {
+    setIsEditingContext(false);
+    setContextPeopleInput('');
+    setContextLifeStage('');
+    setContextEventInput('');
+    setContextPlaceInput('');
+    setContextSpaceId(null);
+    setContextInitialSpaceId(null);
+    setContextSavedToBook(false);
+  };
+
+  const saveContextEditing = async () => {
+    if (!milestone || !livingView || savingContext) return;
+
+    setSavingContext(true);
+
+    try {
+      const updatedView = await updateLivingMarkContext({
+        milestone,
+        currentNpub: npub,
+        peopleIds: parseContextPeople(contextPeopleInput),
+        lifeStage: contextLifeStage,
+        eventId: contextEventInput,
+        placeName: contextPlaceInput,
+        selectedSpaceId: contextSpaceId,
+        spaceChanged: contextSpaceId !== contextInitialSpaceId,
+        savedToBook: contextSavedToBook,
+      });
+
+      setLivingView(updatedView);
+      setLivingSpaces(await getLivingSpaces());
+      cancelContextEditing();
+    } catch (error: any) {
+      Alert.alert('Context not saved', error?.message ?? 'Unable to save Mark context.');
+    } finally {
+      setSavingContext(false);
+    }
   };
 const getReflectionAuthorLabel = (authorNpub?: string) => {
   if (!authorNpub) return 'Family member';
@@ -342,6 +472,61 @@ const openMediaViewer = (uri: string) => {
     : milestone.photoUri
       ? [{ id: 'legacy-photo', uri: milestone.photoUri, type: 'image' }]
       : [];
+
+  const contextSpaceOptions = livingSpaces
+    .filter(space => !space.archivedAt)
+    .filter(space =>
+      space.id === SYSTEM_LIVING_SPACE_IDS.profile ||
+      (space.id === SYSTEM_LIVING_SPACE_IDS.family && !!family) ||
+      space.source === 'group'
+    )
+    .slice(0, 12);
+  const selectedContextSpace =
+    contextSpaceId && !contextSpaceOptions.some(space => space.id === contextSpaceId)
+      ? livingSpaces.find(space => space.id === contextSpaceId)
+      : null;
+  const editableContextSpaces = selectedContextSpace
+    ? [selectedContextSpace, ...contextSpaceOptions]
+    : contextSpaceOptions;
+  const contextSpaceNames =
+    livingView?.spaces
+      .filter(space =>
+        space.id !== SYSTEM_LIVING_SPACE_IDS.livingBook &&
+        space.id !== SYSTEM_LIVING_SPACE_IDS.places
+      )
+      .map(space => space.name) ?? [];
+  const placeLabel =
+    livingView?.metadata.place?.name ||
+    (livingView?.metadata.place?.latitude !== undefined && livingView?.metadata.place?.longitude !== undefined
+      ? `${livingView.metadata.place.latitude.toFixed(3)}, ${livingView.metadata.place.longitude.toFixed(3)}`
+      : undefined);
+  const routeLabels = Array.from(
+    new Set((livingView?.metadata.relayTargets ?? []).map(target => getRouteLabel(target.kind)))
+  );
+  const contextChips = [
+    ...(livingView?.metadata.peopleIds.length
+      ? [{ label: 'People', value: livingView.metadata.peopleIds.join(', ') }]
+      : []),
+    ...(contextSpaceNames.length
+      ? [{ label: 'Space', value: contextSpaceNames.join(', ') }]
+      : []),
+    ...(livingView?.metadata.lifeStage
+      ? [{ label: 'Life stage', value: livingView.metadata.lifeStage }]
+      : []),
+    ...(livingView?.metadata.eventId
+      ? [{ label: 'Event', value: livingView.metadata.eventId }]
+      : []),
+    ...(placeLabel ? [{ label: 'Place', value: placeLabel }] : []),
+    ...(livingView?.metadata.savedToBook || livingView?.placement.spaceIds.includes(SYSTEM_LIVING_SPACE_IDS.livingBook)
+      ? [{ label: 'Book', value: 'Saved' }]
+      : []),
+    ...(livingView?.metadata.privacy
+      ? [{ label: 'Privacy', value: livingView.metadata.privacy }]
+      : []),
+    ...(routeLabels.length
+      ? [{ label: 'Route', value: routeLabels.join(' + ') }]
+      : []),
+  ];
 
   return (
     <SafeAreaView style={s.safe}>
@@ -619,6 +804,176 @@ const openMediaViewer = (uri: string) => {
             </View>
           )}
 
+          {!isEditing && (
+            <View style={s.section}>
+              <View style={s.contextHeader}>
+                <Text style={[s.sectionLabel, { color: theme.textMuted }]}>MARK CONTEXT</Text>
+                {isOwner && livingView && !isEditingContext && (
+                  <TouchableOpacity onPress={startContextEditing}>
+                    <Text style={[s.addReflectionBtn, { color: theme.gold }]}>Edit Context</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {!isEditingContext ? (
+                <>
+                  {contextChips.length > 0 ? (
+                    <View style={s.contextChips}>
+                      {contextChips.map(chip => (
+                        <View
+                          key={`${chip.label}_${chip.value}`}
+                          style={[s.contextChip, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                        >
+                          <Text style={[s.contextChipLabel, { color: theme.textMuted }]}>{chip.label}</Text>
+                          <Text style={[s.contextChipValue, { color: theme.text }]}>{chip.value}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  ) : (
+                    <Text style={[s.reflectionEmpty, { color: theme.textSecondary }]}>
+                      Context will appear here as this Mark is placed into your Living Spaces.
+                    </Text>
+                  )}
+
+                  {livingView?.placement.confidence === 'suggested' && (
+                    <Text style={[s.contextHint, { color: theme.textMuted }]}>
+                      Suggested from tags, family, and media details. Edit to lock the Space.
+                    </Text>
+                  )}
+                </>
+              ) : (
+                <View style={s.contextEditor}>
+                  <TextInput
+                    style={[s.editInput, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]}
+                    value={contextPeopleInput}
+                    onChangeText={setContextPeopleInput}
+                    placeholder="People in this Mark, separated by commas"
+                    placeholderTextColor={theme.textMuted}
+                    returnKeyType="next"
+                  />
+
+                  <Text style={[s.contextSubLabel, { color: theme.textMuted }]}>Space</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.contextChipScroll}>
+                    {editableContextSpaces.map(space => {
+                      const active = contextSpaceId === space.id;
+
+                      return (
+                        <TouchableOpacity
+                          key={space.id}
+                          style={[
+                            s.contextSelectChip,
+                            { backgroundColor: theme.surface, borderColor: theme.border },
+                            active && { backgroundColor: theme.gold, borderColor: theme.gold },
+                          ]}
+                          onPress={() => setContextSpaceId(space.id)}
+                          activeOpacity={0.8}
+                        >
+                          <Text
+                            style={[
+                              s.contextSelectChipText,
+                              { color: theme.textSecondary },
+                              active && { color: theme.bg, fontWeight: '800' },
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {space.name}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+
+                  <Text style={[s.contextSubLabel, { color: theme.textMuted }]}>Life stage</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.contextChipScroll}>
+                    {LIFE_STAGE_OPTIONS.map(option => {
+                      const active = contextLifeStage === option;
+
+                      return (
+                        <TouchableOpacity
+                          key={option}
+                          style={[
+                            s.contextSelectChip,
+                            { backgroundColor: theme.surface, borderColor: theme.border },
+                            active && { backgroundColor: theme.gold, borderColor: theme.gold },
+                          ]}
+                          onPress={() => setContextLifeStage(active ? '' : option)}
+                          activeOpacity={0.8}
+                        >
+                          <Text
+                            style={[
+                              s.contextSelectChipText,
+                              { color: theme.textSecondary },
+                              active && { color: theme.bg, fontWeight: '800' },
+                            ]}
+                          >
+                            {option}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+
+                  <TextInput
+                    style={[s.editInput, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]}
+                    value={contextEventInput}
+                    onChangeText={setContextEventInput}
+                    placeholder="Event name, season, trip, or ceremony"
+                    placeholderTextColor={theme.textMuted}
+                    returnKeyType="next"
+                  />
+
+                  <TextInput
+                    style={[s.editInput, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]}
+                    value={contextPlaceInput}
+                    onChangeText={setContextPlaceInput}
+                    placeholder="Place name"
+                    placeholderTextColor={theme.textMuted}
+                    returnKeyType="done"
+                  />
+
+                  <TouchableOpacity
+                    style={[
+                      s.contextSelectChip,
+                      { alignSelf: 'flex-start', backgroundColor: theme.surface, borderColor: theme.border },
+                      contextSavedToBook && { backgroundColor: theme.gold, borderColor: theme.gold },
+                    ]}
+                    onPress={() => setContextSavedToBook(value => !value)}
+                    activeOpacity={0.8}
+                  >
+                    <Text
+                      style={[
+                        s.contextSelectChipText,
+                        { color: theme.textSecondary },
+                        contextSavedToBook && { color: theme.bg, fontWeight: '800' },
+                      ]}
+                    >
+                      Save toward Living Book
+                    </Text>
+                  </TouchableOpacity>
+
+                  <View style={s.editActions}>
+                    <TouchableOpacity
+                      style={[s.cancelEditBtn, { borderColor: theme.border }]}
+                      onPress={cancelContextEditing}
+                      disabled={savingContext}
+                    >
+                      <Text style={[s.cancelEditText, { color: theme.textMuted }]}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[s.saveEditBtn, { backgroundColor: theme.gold }, savingContext && s.savingContextBtn]}
+                      onPress={saveContextEditing}
+                      disabled={savingContext}
+                    >
+                      <Text style={[s.saveEditText, { color: theme.bg }]}>
+                        {savingContext ? 'Saving...' : 'Save context'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+            </View>
+          )}
+
           {/* Reflections */}
           <View style={s.section}>
             <View style={s.reflectionHeader}>
@@ -810,6 +1165,20 @@ const s = StyleSheet.create({
   selectedTagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
   selectedTag: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 0.5 },
   selectedTagText: { fontSize: 12 },
+
+  // Living context
+  contextHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  contextChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  contextChip: { maxWidth: '100%', borderRadius: 12, borderWidth: 0.5, paddingHorizontal: 10, paddingVertical: 8 },
+  contextChipLabel: { fontSize: 9, fontWeight: '900', letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 2 },
+  contextChipValue: { fontSize: 12, fontWeight: '700' },
+  contextHint: { fontSize: 11, lineHeight: 16, marginTop: 10 },
+  contextEditor: { gap: 10 },
+  contextSubLabel: { fontSize: 10, fontWeight: '900', letterSpacing: 0.6, textTransform: 'uppercase', marginTop: 2 },
+  contextChipScroll: { gap: 8, paddingRight: 20 },
+  contextSelectChip: { minHeight: 34, maxWidth: 170, paddingHorizontal: 12, borderRadius: 17, borderWidth: 0.5, alignItems: 'center', justifyContent: 'center' },
+  contextSelectChipText: { fontSize: 12, fontWeight: '700' },
+  savingContextBtn: { opacity: 0.55 },
 
   // Reflections
   reflectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
