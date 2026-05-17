@@ -1630,6 +1630,26 @@ const openSpaceChat = () => {
   router.push({ pathname: '/group-thread', params: { id: group.id } } as any);
 };
 
+const handleSpaceDetailBack = () => {
+  if (showSpaceSettingsMenu) {
+    closeSpaceSettingsMenu();
+    return;
+  }
+
+  if (showInvite) {
+    setShowInvite(false);
+    return;
+  }
+
+  if (tab !== 'stickies') {
+    setTab('stickies');
+    return;
+  }
+
+  if (router.canGoBack()) router.back();
+  else router.replace('/(tabs)/messages' as any);
+};
+
 const headerGroupTypeIcon = getGroupTypeIcon(group);
 const spaceRelayLabel =
   (group.relayMode ?? 'default') === 'default'
@@ -1749,10 +1769,7 @@ const relaySettingsCard = (
       {/* Header */}
       <View style={s.header}>
         <TouchableOpacity
-          onPress={() => {
-            if (router.canGoBack()) router.back();
-            else router.replace('/(tabs)/messages' as any);
-          }}
+          onPress={handleSpaceDetailBack}
           style={s.backBtn}
         >
           <Text style={s.backText}>← Back</Text>

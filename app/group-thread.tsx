@@ -1809,11 +1809,12 @@ const showName =
 
 
   const handleBack = () => {
-    router.navigate('/(tabs)/messages' as any);
-  };
+    if (!groupId) {
+      router.replace('/(tabs)/messages' as any);
+      return;
+    }
 
-  const handleOpenInfo = () => {
-    router.push({ pathname: '/group-detail', params: { id: groupId } } as any);
+    router.replace({ pathname: '/group-detail', params: { id: groupId } } as any);
   };
 
   const closeMessageActions = () => {
@@ -2139,13 +2140,7 @@ const showName =
               <Text style={s.headerSub}>Space chat</Text>
             </View>
 
-            <TouchableOpacity
-              onPress={handleOpenInfo}
-              style={s.infoBtn}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Text style={s.infoText}>Info</Text>
-            </TouchableOpacity>
+            <View style={s.headerRightSpacer} />
           </View>
 
           <FlatList
@@ -2798,8 +2793,7 @@ uploadText: {
   backText: { color: theme.gold, fontSize: 14, fontWeight: '600' },
   headerTitle: { color: theme.text, fontSize: 15, fontWeight: '700', maxWidth: 180 },
   headerSub: { color: theme.textMuted, fontSize: 10, marginTop: 2 },
-  infoBtn: { minWidth: 60, alignItems: 'flex-end' },
-  infoText: { color: theme.gold, fontSize: 14, fontWeight: '600' },
+  headerRightSpacer: { width: 60 },
 
   messageList: {
     flex: 1,
