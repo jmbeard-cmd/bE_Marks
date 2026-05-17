@@ -109,6 +109,7 @@ import { useIdentity } from './_layout';
 type Tab = 'stickies' | 'calendar' | 'gallery' | 'members' | 'book';
 type MainTab = 'chat' | 'stickies' | 'calendar' | 'gallery' | 'book';
 const GROUP_LOCAL_GALLERY_KEY = 'be_group_local_gallery_v1';
+const SPACE_FAVORITES_KEY = 'be_space_favorite_ids_v1';
 const SPACE_MARK_PRESET_TAGS = ['Family', 'School', 'Team', 'Church', 'Event', 'Memory'];
 const SPACE_MARK_LIFE_STAGE_OPTIONS = ['Elementary', 'Middle School', 'High School', 'Season', 'Trip', 'Family'];
 
@@ -360,6 +361,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   const [groupRelayUrl, setGroupRelayUrl] = useState('');
   const [upcomingCount, setUpcomingCount] = useState(0);
   const [selectedMemberAction, setSelectedMemberAction] = useState<BEGroupMember | null>(null);
+  const [favoriteSpaceIds, setFavoriteSpaceIds] = useState<string[]>([]);
   const groupDetailLoadRunIdRef = useRef(0);
 
   const myDisplayName = useMemo(() => {
@@ -716,6 +718,27 @@ const { id, tab: routeTab } = useLocalSearchParams<{
       groupDetailLoadRunIdRef.current += 1;
     };
   }, [load]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    AsyncStorage.getItem(SPACE_FAVORITES_KEY)
+      .then(raw => {
+        if (!mounted || !raw) return;
+
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          setFavoriteSpaceIds(parsed.filter(id => typeof id === 'string').slice(0, 5));
+        }
+      })
+      .catch(error => {
+        console.warn('[Space Detail] failed to load favorite Spaces:', error);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
   if (
@@ -1106,7 +1129,10 @@ const openViewerForMilestone = (mark: Milestone, startIndex: number) => {
 };
 
 const openMarkDetail = (markId: string) => {
-  router.push({ pathname: '/mark-detail', params: { id: markId } } as any);
+  router.push({
+    pathname: '/mark-detail',
+    params: { id: markId, returnToGroupId: group?.id },
+  } as any);
 };
 
 const handleOpenHighlightFile = async (fileUrl?: string) => {
@@ -1630,6 +1656,23 @@ const openSpaceChat = () => {
   router.push({ pathname: '/group-thread', params: { id: group.id } } as any);
 };
 
+const toggleFavoriteSpace = async () => {
+  if (!group?.id) return;
+
+  const isFavorite = favoriteSpaceIds.includes(group.id);
+  const nextFavoriteIds = isFavorite
+    ? favoriteSpaceIds.filter(spaceId => spaceId !== group.id)
+    : [group.id, ...favoriteSpaceIds.filter(spaceId => spaceId !== group.id)].slice(0, 5);
+
+  setFavoriteSpaceIds(nextFavoriteIds);
+
+  try {
+    await AsyncStorage.setItem(SPACE_FAVORITES_KEY, JSON.stringify(nextFavoriteIds));
+  } catch (error) {
+    console.warn('[Space Detail] failed to save favorite Space:', error);
+  }
+};
+
 const handleSpaceDetailBack = () => {
   if (showSpaceSettingsMenu) {
     closeSpaceSettingsMenu();
@@ -1646,8 +1689,7 @@ const handleSpaceDetailBack = () => {
     return;
   }
 
-  if (router.canGoBack()) router.back();
-  else router.replace('/(tabs)/messages' as any);
+  router.replace('/(tabs)/messages' as any);
 };
 
 const headerGroupTypeIcon = getGroupTypeIcon(group);
@@ -1660,6 +1702,15 @@ const spaceRelayLabel =
 const spaceCategoryLabel = group.sport
   ? group.sport.charAt(0).toUpperCase() + group.sport.slice(1)
   : 'No badge';
+const spaceHomeMeta = [
+  `${members.length} ${members.length === 1 ? 'member' : 'members'}`,
+  group.season,
+  spaceRelayLabel,
+].filter(Boolean).join(' - ');
+const spaceHomeSummary =
+  group.description?.trim() ||
+  `${spaceCategoryLabel === 'No badge' ? 'Living' : spaceCategoryLabel} Space for chat, Marks, calendar, gallery, and book.`;
+const isFavoriteSpace = favoriteSpaceIds.includes(group.id);
 const relaySettingsCard = (
   <View style={s.groupRelayCard}>
     <View style={s.groupRelayHeader}>
@@ -1766,8 +1817,8 @@ const relaySettingsCard = (
   return (
     <SafeAreaView style={s.safe}>
 
-      {/* Header */}
-      <View style={s.header}>
+      {/* Space profile hero */}
+      <View style={s.hiddenHeader}>
         <TouchableOpacity
           onPress={handleSpaceDetailBack}
           style={s.backBtn}
@@ -1809,6 +1860,91 @@ const relaySettingsCard = (
         <View style={{ width: 58 }} />
       </View>
 
+      <View style={s.spaceProfileHero}>
+        {group.coverImage ? (
+          <Image source={{ uri: group.coverImage }} style={s.spaceProfileImage} />
+        ) : (
+          <View style={s.spaceProfileFallback}>
+            <Text style={s.spaceProfileFallbackText}>{getGroupAvatarText(group)}</Text>
+          </View>
+        )}
+
+        <View style={s.spaceProfileShade} />
+
+        <View style={s.spaceProfileTopControls}>
+          <TouchableOpacity
+            onPress={handleSpaceDetailBack}
+            style={s.spaceChromeBtn}
+            activeOpacity={0.82}
+          >
+            <Text style={s.spaceChromeText}>Back</Text>
+          </TouchableOpacity>
+
+          <View style={s.spaceProfileTopRight}>
+            <TouchableOpacity
+              onPress={toggleFavoriteSpace}
+              style={[s.spaceChromeIconBtn, isFavoriteSpace && s.spaceChromeIconBtnActive]}
+              activeOpacity={0.82}
+            >
+              <Text style={[s.spaceChromeIconText, isFavoriteSpace && s.spaceChromeIconTextActive]}>
+                {isFavoriteSpace ? '★' : '☆'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={toggleSpaceSettingsMenu}
+              style={[s.spaceChromeIconBtn, showSpaceSettingsMenu && s.spaceChromeIconBtnActive]}
+              activeOpacity={0.82}
+            >
+              <Text style={s.spaceChromeIconText}>...</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={s.spaceProfileTray}>
+          <Text style={s.spaceProfileTitle} numberOfLines={2}>{group.name}</Text>
+          <Text style={s.spaceProfileMeta} numberOfLines={1}>{spaceHomeMeta}</Text>
+
+          <View style={s.spaceProfilePills}>
+            <TouchableOpacity style={s.spaceProfilePill} onPress={openSpaceChat} activeOpacity={0.86}>
+              <Text style={s.spaceProfilePillText}>Chat</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[s.spaceProfilePill, tab === 'stickies' && s.spaceProfilePillActive]}
+              onPress={() => setTab('stickies')}
+              activeOpacity={0.86}
+            >
+              <Text style={[s.spaceProfilePillText, tab === 'stickies' && s.spaceProfilePillTextActive]}>
+                Marks
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[s.spaceProfilePill, tab === 'calendar' && s.spaceProfilePillActive]}
+              onPress={() => setTab('calendar')}
+              activeOpacity={0.86}
+            >
+              <Text style={[s.spaceProfilePillText, tab === 'calendar' && s.spaceProfilePillTextActive]}>
+                Calendar
+              </Text>
+            </TouchableOpacity>
+
+            {group.bookEnabled === true && (
+              <TouchableOpacity
+                style={[s.spaceProfilePill, tab === 'book' && s.spaceProfilePillActive]}
+                onPress={() => setTab('book')}
+                activeOpacity={0.86}
+              >
+                <Text style={[s.spaceProfilePillText, tab === 'book' && s.spaceProfilePillTextActive]}>
+                  Book
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      </View>
+
       {/* Header settings and invite panels */}
       {showSpaceSettingsMenu && (
         <View style={s.spaceSettingsDropdown}>
@@ -1847,6 +1983,21 @@ const relaySettingsCard = (
             <View style={{ flex: 1 }}>
               <Text style={s.spaceSettingsRowTitle}>People and Access</Text>
               <Text style={s.spaceSettingsRowHint}>View members, roles, and member actions.</Text>
+            </View>
+            <Text style={s.spaceSettingsRowAction}>Open</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={s.spaceSettingsRow}
+            onPress={() => {
+              closeSpaceSettingsMenu();
+              setTab('gallery');
+            }}
+            activeOpacity={0.85}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={s.spaceSettingsRowTitle}>Files and Gallery</Text>
+              <Text style={s.spaceSettingsRowHint}>View shared photos, videos, and Space media.</Text>
             </View>
             <Text style={s.spaceSettingsRowAction}>Open</Text>
           </TouchableOpacity>
@@ -1988,6 +2139,79 @@ const relaySettingsCard = (
           contentContainerStyle={s.timelineContainer}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.gold} />}
         >
+    <View style={s.hiddenHeader}>
+      <View style={s.spaceHeroMedia}>
+        {group.coverImage ? (
+          <Image source={{ uri: group.coverImage }} style={s.spaceHeroImage} />
+        ) : (
+          <View style={s.spaceHeroFallback}>
+            <Text style={s.spaceHeroFallbackText}>{getGroupAvatarText(group)}</Text>
+          </View>
+        )}
+        <View style={s.spaceHeroShade} />
+        <View style={s.spaceHeroContent}>
+          <Text style={s.spaceHeroEyebrow}>
+            {spaceCategoryLabel === 'No badge' ? 'Living Space' : `${spaceCategoryLabel} Space`}
+          </Text>
+          <Text style={s.spaceHeroTitle} numberOfLines={2}>{group.name}</Text>
+          <Text style={s.spaceHeroMeta} numberOfLines={1}>{spaceHomeMeta}</Text>
+        </View>
+      </View>
+
+      <View style={s.spaceHeroBody}>
+        <Text style={s.spaceHeroSummary} numberOfLines={3}>{spaceHomeSummary}</Text>
+
+        <View style={s.spaceHeroStats}>
+          <View style={s.spaceHeroStat}>
+            <Text style={s.spaceHeroStatValue}>{spaceMarkViews.length}</Text>
+            <Text style={s.spaceHeroStatLabel}>Marks</Text>
+          </View>
+          <View style={s.spaceHeroStat}>
+            <Text style={s.spaceHeroStatValue}>{galleryItems.length}</Text>
+            <Text style={s.spaceHeroStatLabel}>Media</Text>
+          </View>
+          <View style={s.spaceHeroStat}>
+            <Text style={s.spaceHeroStatValue}>{upcomingCount}</Text>
+            <Text style={s.spaceHeroStatLabel}>Events</Text>
+          </View>
+        </View>
+
+        <View style={s.spaceHeroActions}>
+          <TouchableOpacity style={[s.spaceHeroAction, s.spaceHeroActionPrimary]} onPress={openSpaceChat} activeOpacity={0.86}>
+            <Text style={[s.spaceHeroActionText, s.spaceHeroActionTextPrimary]}>Chat</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              s.spaceHeroAction,
+              (group.status !== 'active' || !isAdmin || !isMember) && s.spaceHeroActionDisabled,
+            ]}
+            onPress={() => {
+              if (group.status === 'active' && isAdmin && isMember) {
+                setShowSpaceMarkModal(true);
+              }
+            }}
+            disabled={group.status !== 'active' || !isAdmin || !isMember}
+            activeOpacity={0.86}
+          >
+            <Text style={s.spaceHeroActionText}>+ Mark</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={s.spaceHeroAction} onPress={() => setTab('calendar')} activeOpacity={0.86}>
+            <Text style={s.spaceHeroActionText}>Calendar</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={s.spaceHeroAction} onPress={() => setTab('gallery')} activeOpacity={0.86}>
+            <Text style={s.spaceHeroActionText}>Gallery</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={s.spaceHeroAction} onPress={() => setTab('book')} activeOpacity={0.86}>
+            <Text style={s.spaceHeroActionText}>Book</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+
     <View style={s.spaceMarksOverview}>
       <View style={{ flex: 1 }}>
         <Text style={s.spaceMarksTitle}>Space Marks</Text>
@@ -2799,6 +3023,7 @@ function formatStickyDate(unix: number): string {
 
 const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
   safe: { flex: 1, backgroundColor: theme.bg },
+  hiddenHeader: { display: 'none' },
   loading: {
     flex: 1,
     alignItems: 'center',
@@ -2945,6 +3170,263 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     fontWeight: '700',
     fontSize: 15,
     letterSpacing: 0.3,
+  },
+  spaceProfileHero: {
+    height: 336,
+    backgroundColor: theme.raised,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  spaceProfileImage: {
+    width: '100%',
+    height: '100%',
+  },
+  spaceProfileFallback: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.raised,
+  },
+  spaceProfileFallbackText: {
+    color: theme.gold,
+    fontSize: 68,
+    fontWeight: '900',
+  },
+  spaceProfileShade: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: theme.bg === Colors.light.bg
+      ? 'rgba(17, 24, 28, 0.22)'
+      : 'rgba(0, 0, 0, 0.44)',
+  },
+  spaceProfileTopControls: {
+    position: 'absolute',
+    top: 12,
+    left: 14,
+    right: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  spaceProfileTopRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  spaceChromeBtn: {
+    minHeight: 38,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.34)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  spaceChromeText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  spaceChromeIconBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(0,0,0,0.34)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  spaceChromeIconBtnActive: {
+    backgroundColor: theme.gold,
+  },
+  spaceChromeIconText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '900',
+    lineHeight: 20,
+  },
+  spaceChromeIconTextActive: {
+    color: theme.bg,
+  },
+  spaceProfileTray: {
+    position: 'absolute',
+    left: 14,
+    right: 14,
+    bottom: 16,
+    borderRadius: 22,
+    padding: 16,
+    backgroundColor: theme.bg === Colors.light.bg
+      ? 'rgba(255,255,255,0.94)'
+      : 'rgba(18,18,18,0.92)',
+    borderWidth: 0.5,
+    borderColor: theme.bg === Colors.light.bg
+      ? 'rgba(255,255,255,0.72)'
+      : 'rgba(255,255,255,0.10)',
+  },
+  spaceProfileTitle: {
+    color: theme.text,
+    fontSize: 23,
+    fontWeight: '900',
+  },
+  spaceProfileMeta: {
+    color: theme.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: 3,
+  },
+  spaceProfilePills: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 13,
+  },
+  spaceProfilePill: {
+    paddingHorizontal: 13,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    backgroundColor: theme.surface,
+  },
+  spaceProfilePillActive: {
+    backgroundColor: theme.gold,
+    borderColor: theme.gold,
+  },
+  spaceProfilePillText: {
+    color: theme.text,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  spaceProfilePillTextActive: {
+    color: theme.bg,
+  },
+  spaceHomeHero: {
+    borderRadius: 24,
+    overflow: 'hidden',
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    backgroundColor: theme.surface,
+    marginBottom: 14,
+  },
+  spaceHeroMedia: {
+    height: 188,
+    position: 'relative',
+    backgroundColor: theme.raised,
+  },
+  spaceHeroImage: {
+    width: '100%',
+    height: '100%',
+  },
+  spaceHeroFallback: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.raised,
+  },
+  spaceHeroFallbackText: {
+    color: theme.gold,
+    fontSize: 54,
+    fontWeight: '900',
+  },
+  spaceHeroShade: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: theme.bg === Colors.light.bg
+      ? 'rgba(17, 24, 28, 0.24)'
+      : 'rgba(0, 0, 0, 0.42)',
+  },
+  spaceHeroContent: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 14,
+  },
+  spaceHeroEyebrow: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    opacity: 0.9,
+  },
+  spaceHeroTitle: {
+    color: '#fff',
+    fontSize: 27,
+    fontWeight: '900',
+    marginTop: 4,
+  },
+  spaceHeroMeta: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 4,
+    opacity: 0.9,
+  },
+  spaceHeroBody: {
+    padding: 14,
+    gap: 12,
+  },
+  spaceHeroSummary: {
+    color: theme.text,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '600',
+  },
+  spaceHeroStats: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  spaceHeroStat: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 14,
+    backgroundColor: theme.raised,
+    alignItems: 'center',
+  },
+  spaceHeroStatValue: {
+    color: theme.text,
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  spaceHeroStatLabel: {
+    color: theme.textMuted,
+    fontSize: 10,
+    fontWeight: '800',
+    marginTop: 2,
+    textTransform: 'uppercase',
+  },
+  spaceHeroActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  spaceHeroAction: {
+    paddingHorizontal: 13,
+    paddingVertical: 9,
+    borderRadius: 999,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    backgroundColor: theme.raised,
+  },
+  spaceHeroActionPrimary: {
+    backgroundColor: theme.gold,
+    borderColor: theme.gold,
+  },
+  spaceHeroActionDisabled: {
+    opacity: 0.45,
+  },
+  spaceHeroActionText: {
+    color: theme.text,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  spaceHeroActionTextPrimary: {
+    color: theme.bg,
   },
   stickyCard: {
     backgroundColor: theme.surface,
@@ -3564,6 +4046,7 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
 
   // Tabs
   tabRow: {
+    display: 'none',
     borderBottomWidth: 0.5,
     borderBottomColor: theme.border,
     backgroundColor: theme.bg,

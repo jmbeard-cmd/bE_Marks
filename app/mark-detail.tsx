@@ -98,7 +98,10 @@ function MilestonePhoto({ uri }: { uri: string }) {
 }
 
 export default function MilestoneDetail() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, returnToGroupId } = useLocalSearchParams<{
+    id: string;
+    returnToGroupId?: string;
+  }>();
   const router = useRouter();
   const { npub, nsec, relays, family, theme } = useIdentity();
   const [milestone, setMilestone] = useState<Milestone | null>(null);
@@ -135,6 +138,16 @@ export default function MilestoneDetail() {
     milestone?.videoUri ? { uri: milestone.videoUri } : null,
     player => { player.loop = false; }
   );
+
+  const handleBack = () => {
+    if (returnToGroupId) {
+      router.replace({ pathname: '/group-detail', params: { id: returnToGroupId } } as any);
+      return;
+    }
+
+    if (router.canGoBack()) router.back();
+    else router.replace('/(tabs)/timeline' as any);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -534,10 +547,7 @@ const openMediaViewer = (uri: string) => {
       {/* Header */}
       <View style={[s.header, { borderBottomColor: theme.border }]}>
         <TouchableOpacity
-          onPress={() => {
-            if (router.canGoBack()) router.back();
-            else router.replace('/(tabs)/timeline' as any);
-          }}
+          onPress={handleBack}
           style={s.backBtn}
         >
           <Text style={[s.backText, { color: theme.gold }]}>← Back</Text>
