@@ -29,7 +29,8 @@ import {
   getDMThreads,
   type DMThread,
 } from '../../src/utils/dm-storage';
-import { createGroup, updateGroup, type BEGroup } from '../../src/utils/group-storage';
+import { saveLocalGroupSystemMessage } from '../../src/utils/group-messages';
+import { createGroup, joinGroupByCode, updateGroup, type BEGroup } from '../../src/utils/group-storage';
 import {
   getCachedGroupsIndex,
   rebuildGroupsIndexForNpub,
@@ -40,13 +41,15 @@ import {
   getCachedDMThreadCards,
   saveCachedDMThreadCards,
 } from '../../src/utils/dm-thread-list-cache';
-import { DEFAULT_RELAY, fetchNostrProfile, npubToHex } from '../../src/utils/nostr';
+import { DEFAULT_RELAY, fetchNostrProfile, npubToHex, publishGroupMessage } from '../../src/utils/nostr';
 import { normalizeNostrIdentity } from '../../src/utils/nostr-identity';
-import { registerGroupMemberForPush } from '../../src/utils/push-notifications';
+import { syncLivingSpacesFromGroups } from '../../src/utils/living-spaces-storage';
+import { notifyGroupEvent, registerGroupMemberForPush } from '../../src/utils/push-notifications';
+import type { LivingSpace } from '../../src/types/living-spaces';
 import { useIdentity } from '../_layout';
 
 
-type Sheet = 'none' | 'new' | 'new-group' | 'edit-group';
+type Sheet = 'none' | 'new' | 'new-group' | 'join-space' | 'edit-group';
 type SpaceFilter = 'all' | 'unread' | 'dms' | 'groups';
 type SpaceInboxItem =
   | { id: string; type: 'dm'; updatedAt: number; unread: number; thread: DMThread }
@@ -77,6 +80,11 @@ function getGroupInitials(name: string): string {
   const clean = name.trim();
   if (!clean) return 'G';
   return clean.slice(0, 2).toUpperCase();
+}
+
+function getGroupAvatarText(group: BEGroup): string {
+  const customIcon = group.icon?.trim();
+  return customIcon || getGroupInitials(group.name);
 }
 
 type DiscoveryProfile = {
@@ -151,29 +159,39 @@ function normalizeGroupType(value?: string): string {
   return value?.trim().toLowerCase().replace(/[^a-z0-9]+/g, '') ?? '';
 }
 
-function getGroupTypeIcon(group: BEGroup): string {
+function getGroupTypeIcon(group: BEGroup): string | null {
   const directKey = normalizeGroupType(group.sport);
 
   if (directKey && GROUP_TYPE_ICONS[directKey]) {
     return GROUP_TYPE_ICONS[directKey];
   }
 
-  const searchText = normalizeGroupType(`${group.name} ${group.description ?? ''}`);
+  return null;
+}
 
-  if (searchText.includes('faculty') || searchText.includes('teacher') || searchText.includes('staff')) {
-    return GROUP_TYPE_ICONS.faculty;
+function formatLivingSpaceType(space?: LivingSpace): string {
+  if (!space) return 'Group';
+
+  switch (space.type) {
+    case 'family':
+      return 'Family';
+    case 'school':
+      return 'School';
+    case 'team':
+      return 'Team';
+    case 'church':
+      return 'Church';
+    case 'friends':
+      return 'Friends';
+    default:
+      return 'Group';
   }
+}
 
-  if (searchText.includes('family')) return GROUP_TYPE_ICONS.family;
-  if (searchText.includes('church') || searchText.includes('ministry')) return GROUP_TYPE_ICONS.church;
-  if (searchText.includes('parent') || searchText.includes('pto')) return GROUP_TYPE_ICONS.parents;
-  if (searchText.includes('volunteer')) return GROUP_TYPE_ICONS.volunteers;
-  if (searchText.includes('committee')) return GROUP_TYPE_ICONS.committee;
-  if (searchText.includes('neighborhood')) return GROUP_TYPE_ICONS.neighborhood;
-  if (searchText.includes('class')) return GROUP_TYPE_ICONS.class;
-  if (searchText.includes('booster')) return GROUP_TYPE_ICONS.booster;
-
-  return GROUP_TYPE_ICONS.default;
+function formatRelayLabel(group: BEGroup): string {
+  if (group.relayMode === 'custom') return 'private relay';
+  if (group.relayMode === 'both') return 'bE + space relay';
+  return 'bE relay';
 }
 
 async function resolveNip05Address(address: string): Promise<{ pubkey: string; npub: string; nip05: string }> {
@@ -263,6 +281,7 @@ export default function MessagesScreen() {
   const [spaceFilter, setSpaceFilter] = useState<SpaceFilter>('all');
   const [threads, setThreads] = useState<DMThread[]>([]);
   const [groups, setGroups] = useState<BEGroup[]>([]);
+  const [livingSpaces, setLivingSpaces] = useState<LivingSpace[]>([]);
   const [loadingInitialThreads, setLoadingInitialThreads] = useState(true);
   const [loadingInitialGroups, setLoadingInitialGroups] = useState(true);
   const [contacts, setContacts] = useState<BEContact[]>([]);
@@ -280,6 +299,7 @@ export default function MessagesScreen() {
   const [groupDescription, setGroupDescription] = useState('');
   const [groupImageUri, setGroupImageUri] = useState<string | null>(null);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  const [joinCode, setJoinCode] = useState('');
 
   const [discoveryInput, setDiscoveryInput] = useState('');
   const [discoveryProfile, setDiscoveryProfile] = useState<DiscoveryProfile | null>(null);
@@ -525,6 +545,12 @@ export default function MessagesScreen() {
         setLoadingInitialGroups(false);
       }
 
+      syncLivingSpacesFromGroups()
+        .then(setLivingSpaces)
+        .catch(error => {
+          console.warn('[Spaces] failed to sync Living Spaces from cached groups:', error);
+        });
+
       if (!npub) {
         setGroups([]);
         return;
@@ -532,6 +558,7 @@ export default function MessagesScreen() {
 
       const rebuilt = await rebuildGroupsIndexForNpub(npub);
       setGroups(rebuilt.activeGroups);
+      setLivingSpaces(await syncLivingSpacesFromGroups());
     } catch (error) {
       console.warn('[Spaces] failed to load groups:', error);
     } finally {
@@ -554,6 +581,11 @@ export default function MessagesScreen() {
     const unsubscribe = subscribeToGroupsIndex(snapshot => {
       setGroups(snapshot.activeGroups);
       setLoadingInitialGroups(false);
+      syncLivingSpacesFromGroups()
+        .then(setLivingSpaces)
+        .catch(error => {
+          console.warn('[Spaces] failed to sync Living Spaces after group index update:', error);
+        });
     });
 
     return unsubscribe;
@@ -639,6 +671,18 @@ export default function MessagesScreen() {
     return combined.sort((a, b) => b.updatedAt - a.updatedAt);
   }, [filteredThreads, groups, search, spaceFilter]);
 
+  const livingSpaceByGroupId = useMemo(() => {
+    const map = new Map<string, LivingSpace>();
+
+    livingSpaces.forEach(space => {
+      if (space.source === 'group' && space.sourceId) {
+        map.set(space.sourceId, space);
+      }
+    });
+
+    return map;
+  }, [livingSpaces]);
+
   const unreadSpaceCount = threads.filter(thread => thread.unread > 0).length;
   const loadingInitialSpaces = loadingInitialThreads || loadingInitialGroups;
   const headerLogo =
@@ -669,6 +713,7 @@ export default function MessagesScreen() {
     setGroupDescription('');
     setGroupImageUri(null);
     setEditingGroupId(null);
+    setJoinCode('');
     setCreating(false);
 
     setDiscoveryInput('');
@@ -697,7 +742,7 @@ export default function MessagesScreen() {
   };
 
   const openGroup = (group: BEGroup) => {
-    router.push({ pathname: '/group-thread', params: { id: group.id } } as any);
+    router.push({ pathname: '/group-detail', params: { id: group.id } } as any);
   };
 
   const openEditGroup = (group: BEGroup) => {
@@ -772,7 +817,7 @@ export default function MessagesScreen() {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
     if (!permission.granted) {
-      Alert.alert('Photo access needed', 'Allow photo access to choose a group image.');
+      Alert.alert('Photo access needed', 'Allow photo access to choose a Space image.');
       return;
     }
 
@@ -794,12 +839,12 @@ export default function MessagesScreen() {
     const cleanName = groupName.trim();
 
     if (!cleanName) {
-      Alert.alert('Group name required', 'Add a name for this group space.');
+      Alert.alert('Space name required', 'Add a name for this Space.');
       return;
     }
 
     if (!npub) {
-      Alert.alert('Not signed in', 'Sign in before creating a group.');
+      Alert.alert('Not signed in', 'Sign in before creating a Space.');
       return;
     }
 
@@ -829,15 +874,16 @@ export default function MessagesScreen() {
         status: 'active',
         displayName: myDisplayName,
       }).catch(error => {
-        console.warn('[Spaces] push member registration failed after group create:', error);
+        console.warn('[Spaces] push member registration failed after Space create:', error);
       });
 
       closeSheet();
       await loadGroups();
+      setLivingSpaces(await syncLivingSpacesFromGroups());
       setSpaceFilter('groups');
       openGroup(group);
     } catch (error: any) {
-      Alert.alert('Could not create group', error?.message || 'Please try again.');
+      Alert.alert('Could not create Space', error?.message || 'Please try again.');
     } finally {
       setCreating(false);
     }
@@ -849,7 +895,7 @@ export default function MessagesScreen() {
     const cleanName = groupName.trim();
 
     if (!cleanName) {
-      Alert.alert('Group name required', 'Add a name for this group space.');
+      Alert.alert('Space name required', 'Add a name for this Space.');
       return;
     }
 
@@ -866,8 +912,110 @@ export default function MessagesScreen() {
 
       closeSheet();
       await loadGroups();
+      setLivingSpaces(await syncLivingSpacesFromGroups());
     } catch (error: any) {
-      Alert.alert('Could not update group', error?.message || 'Please try again.');
+      Alert.alert('Could not update Space', error?.message || 'Please try again.');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const joinGroupSpace = async () => {
+    if (creating) return;
+
+    const code = joinCode.trim().toUpperCase();
+
+    if (code.length < 6) {
+      Alert.alert('Invalid code', 'Enter the 6-character invite code.');
+      return;
+    }
+
+    if (!npub) {
+      Alert.alert('Not signed in', 'Sign in before joining a Space.');
+      return;
+    }
+
+    setCreating(true);
+
+    try {
+      const pubkeyHex = npubToHex(npub);
+      const result = await joinGroupByCode({
+        code,
+        npub,
+        pubkeyHex,
+        relayUrl: DEFAULT_RELAY,
+        nsec: nsec ?? undefined,
+        displayName: myDisplayName,
+        avatarUrl: profile?.picture,
+      });
+
+      if (!result.success || !result.group) {
+        Alert.alert('Could not join', result.error ?? 'Invalid invite code.');
+        return;
+      }
+
+      registerGroupMemberForPush({
+        groupId: result.group.id,
+        groupName: result.group.name,
+        relayUrl: result.group.relayUrl,
+        memberNpub: npub,
+        role: 'member',
+        status: 'active',
+        displayName: myDisplayName,
+      }).catch(error => {
+        console.warn('[Spaces] push member registration failed after join:', error);
+      });
+
+      notifyGroupEvent({
+        groupId: result.group.id,
+        groupName: result.group.name,
+        relayUrl: result.group.relayUrl,
+        actorNpub: npub,
+        actorName: myDisplayName,
+        eventType: 'member_joined',
+        memberNpub: npub,
+        memberName: myDisplayName,
+        routeTarget: 'group-detail',
+        groupTab: 'members',
+      }).catch(error => {
+        console.warn('[Spaces] remote join notification failed:', error);
+      });
+
+      await saveLocalGroupSystemMessage({
+        groupId: result.group.id,
+        text: `${myDisplayName} joined the space`,
+        systemType: 'join',
+        actorNpub: npub,
+        actorName: myDisplayName,
+      });
+
+      if (nsec) {
+        publishGroupMessage({
+          groupId: result.group.id,
+          clientMessageId: `system_join_${result.group.id}_${npub}_${Date.now()}`,
+          text: `${myDisplayName} joined the space`,
+          kind: 'system',
+          systemType: 'join',
+          senderNpub: npub,
+          senderName: myDisplayName,
+          nsec,
+          relayUrl: result.group.relayUrl,
+        }).then(result => {
+          if (!result.success) {
+            console.warn('[Spaces] publish join system message failed:', result.error);
+          }
+        }).catch(error => {
+          console.warn('[Spaces] publish join system message error:', error);
+        });
+      }
+
+      closeSheet();
+      await loadGroups();
+      setLivingSpaces(await syncLivingSpacesFromGroups());
+      setSpaceFilter('groups');
+      openGroup(result.group);
+    } catch (error: any) {
+      Alert.alert('Error', error?.message || 'Could not join that Space.');
     } finally {
       setCreating(false);
     }
@@ -1006,6 +1154,8 @@ export default function MessagesScreen() {
   const renderSpaceItem = ({ item }: { item: SpaceInboxItem }) => {
     if (item.type === 'group') {
       const group = item.group;
+      const livingSpace = livingSpaceByGroupId.get(group.id);
+      const groupTypeIcon = getGroupTypeIcon(group);
       const preview =
         group.lastPostPreview ||
         `${group.memberCount ?? 0} member${(group.memberCount ?? 0) !== 1 ? 's' : ''}`;
@@ -1021,11 +1171,8 @@ export default function MessagesScreen() {
             {group.coverImage ? (
               <Image source={{ uri: group.coverImage }} style={s.avatarImage} />
             ) : (
-              <Text style={s.avatarText}>{getGroupInitials(group.name)}</Text>
+              <Text style={s.avatarText}>{getGroupAvatarText(group)}</Text>
             )}
-            <View style={s.groupTypeBadge}>
-              <Text style={s.groupTypeBadgeText}>{getGroupTypeIcon(group)}</Text>
-            </View>
           </View>
 
           <View style={s.threadBody}>
@@ -1041,14 +1188,17 @@ export default function MessagesScreen() {
               {preview}
             </Text>
 
-            <Text style={s.threadMetaSecure} numberOfLines={1}>
-              Group space
-              {group.relayMode === 'custom'
-                ? ' - private relay'
-                : group.relayMode === 'both'
-                  ? ' - bE + group relay'
-                  : ' - bE relay'}
-            </Text>
+            <View style={s.threadMetaRow}>
+              {groupTypeIcon ? (
+                <View style={s.spaceCategoryBadge}>
+                  <Text style={s.spaceCategoryBadgeText}>{groupTypeIcon}</Text>
+                </View>
+              ) : null}
+
+              <Text style={s.threadMetaSecure} numberOfLines={1}>
+                {formatLivingSpaceType(livingSpace)} space - {formatRelayLabel(group)}
+              </Text>
+            </View>
           </View>
 
           <TouchableOpacity
@@ -1077,6 +1227,11 @@ export default function MessagesScreen() {
 
     if (sheet === 'new-group') {
       createGroupSpace();
+      return;
+    }
+
+    if (sheet === 'join-space') {
+      joinGroupSpace();
       return;
     }
 
@@ -1165,13 +1320,13 @@ export default function MessagesScreen() {
               </Text>
               <Text style={s.emptyHint}>
                   {search.trim()
-                    ? 'Try searching by name, message, group, or npub.'
+                    ? 'Try searching by name, message, Space, or npub.'
                     : spaceFilter === 'all'
-                      ? 'DMs and groups will appear together here as conversations start.'
+                      ? 'DMs and Spaces will appear together here as conversations start.'
                     : spaceFilter === 'groups'
-                    ? 'Create or join a group for teams, schools, churches, or family spaces.'
+                    ? 'Create or join a Space for teams, schools, churches, or family.'
                     : spaceFilter === 'unread'
-                      ? 'New DMs and group activity will appear here when something needs attention.'
+                      ? 'New DMs and Space activity will appear here when something needs attention.'
                       : 'Start a private conversation with a saved contact or npub.'}
               </Text>
 
@@ -1199,14 +1354,22 @@ export default function MessagesScreen() {
             <View style={s.sheetHeader}>
               <View>
                 <Text style={s.sheetTitle}>
-                  {sheet === 'edit-group' ? 'Edit group' : sheet === 'new-group' ? 'New group' : 'New message'}
+                  {sheet === 'edit-group'
+                    ? 'Edit Space'
+                    : sheet === 'new-group'
+                      ? 'New Space'
+                      : sheet === 'join-space'
+                        ? 'Join Space'
+                        : 'New message'}
                 </Text>
                 <Text style={s.sheetHint}>
                   {sheet === 'edit-group'
-                    ? 'Update this group space identity, image, and category badge.'
+                    ? 'Update this Space identity, image, and category badge.'
                     : sheet === 'new-group'
-                      ? 'Create a group space with its own identity, image, and relay route.'
-                    : 'Find someone by npub or NIP-05, then start a private DM.'}
+                      ? 'Create a Space with its own identity, image, and relay route.'
+                      : sheet === 'join-space'
+                        ? 'Enter a Space invite code from your family, school, church, or team.'
+                        : 'Find someone by npub or NIP-05, then start a private DM.'}
                 </Text>
               </View>
 
@@ -1223,6 +1386,17 @@ export default function MessagesScreen() {
             >
               {sheet === 'new-group' || sheet === 'edit-group' ? (
                 <View style={s.primaryPanel}>
+                  {sheet === 'new-group' && (
+                    <TouchableOpacity
+                      style={s.joinSpaceShortcut}
+                      onPress={() => setSheet('join-space')}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={s.joinSpaceShortcutTitle}>Have an invite code?</Text>
+                      <Text style={s.joinSpaceShortcutText}>Join an existing Space</Text>
+                    </TouchableOpacity>
+                  )}
+
                   <TouchableOpacity style={s.groupImagePicker} onPress={pickGroupImage} activeOpacity={0.85}>
                     {groupImageUri ? (
                       <Image source={{ uri: groupImageUri }} style={s.groupImagePreview} />
@@ -1235,8 +1409,8 @@ export default function MessagesScreen() {
                     )}
 
                     <View style={s.groupImageCopy}>
-                      <Text style={s.primaryTitle}>Group image</Text>
-                      <Text style={s.primaryHint}>Choose the photo or logo that represents this space.</Text>
+                      <Text style={s.primaryTitle}>Space image</Text>
+                      <Text style={s.primaryHint}>Choose the photo or logo that represents this Space.</Text>
                     </View>
                   </TouchableOpacity>
 
@@ -1244,7 +1418,7 @@ export default function MessagesScreen() {
                     style={s.input}
                     value={groupName}
                     onChangeText={setGroupName}
-                    placeholder="Group name"
+                    placeholder="Space name"
                     placeholderTextColor={theme.textMuted}
                   />
 
@@ -1265,8 +1439,18 @@ export default function MessagesScreen() {
                     multiline
                   />
 
-                  <Text style={s.inputHelp}>Category icon</Text>
+                  <Text style={s.inputHelp}>Category badge</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.groupTypeStrip}>
+                    <TouchableOpacity
+                      style={[s.groupTypePill, !groupType && s.groupTypePillActive]}
+                      onPress={() => setGroupType('')}
+                      activeOpacity={0.84}
+                    >
+                      <Text style={[s.groupTypePillText, !groupType && s.groupTypePillTextActive]}>
+                        No badge
+                      </Text>
+                    </TouchableOpacity>
+
                     {GROUP_TYPE_OPTIONS.map(type => {
                       const active = groupType === type;
 
@@ -1287,8 +1471,42 @@ export default function MessagesScreen() {
                   </ScrollView>
 
                   <Text style={s.inputHelp}>
-                    Category icons show as a small badge on group cards. The group image stays as the main card icon.
+                    Category icons show as a small badge on Space cards. The Space image stays as the main card icon.
                   </Text>
+                </View>
+              ) : sheet === 'join-space' ? (
+                <View style={s.primaryPanel}>
+                  <View style={s.primaryPanelHeader}>
+                    <View>
+                      <Text style={s.primaryTitle}>Invite code</Text>
+                      <Text style={s.primaryHint}>Ask a Space admin for the 6-character code.</Text>
+                    </View>
+
+                    <Text style={s.primaryBadge}>Space</Text>
+                  </View>
+
+                  <TextInput
+                    style={[s.input, s.joinCodeInput]}
+                    value={joinCode}
+                    onChangeText={text => setJoinCode(text.toUpperCase())}
+                    placeholder="ABC123"
+                    placeholderTextColor={theme.textMuted}
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                    maxLength={12}
+                  />
+
+                  <Text style={s.inputHelp}>
+                    Spaces can represent teams, schools, churches, family groups, trips, and other trusted communities.
+                  </Text>
+
+                  <TouchableOpacity
+                    style={s.discoverySecondaryBtn}
+                    onPress={() => setSheet('new-group')}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={s.discoverySecondaryText}>Create a new Space instead</Text>
+                  </TouchableOpacity>
                 </View>
               ) : (
               <>
@@ -1493,7 +1711,9 @@ export default function MessagesScreen() {
                     : sheet === 'edit-group'
                       ? 'Save changes'
                       : sheet === 'new-group'
-                        ? 'Create group'
+                        ? 'Create Space'
+                        : sheet === 'join-space'
+                          ? 'Join Space'
                         : 'Start'}
                 </Text>
               </TouchableOpacity>
@@ -1671,22 +1891,6 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     height: 46,
     borderRadius: 23,
   },
-  groupTypeBadge: {
-    position: 'absolute',
-    right: -2,
-    bottom: -2,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.surface,
-    borderWidth: 0.5,
-    borderColor: theme.border,
-  },
-  groupTypeBadgeText: {
-    fontSize: 11,
-  },
   threadBody: {
     flex: 1,
     minWidth: 0,
@@ -1739,6 +1943,27 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 999,
     backgroundColor: theme.raised,
+  },
+  threadMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+  },
+  spaceCategoryBadge: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 4,
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.gold + '55',
+  },
+  spaceCategoryBadgeText: {
+    fontSize: 11,
   },
   threadMetaLocal: {
     alignSelf: 'flex-start',
@@ -1998,6 +2223,11 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     minHeight: 82,
     textAlignVertical: 'top',
   },
+  joinCodeInput: {
+    textAlign: 'center',
+    fontSize: 20,
+    fontWeight: '900',
+  },
   inputHelp: {
     color: theme.textMuted,
     fontSize: 11,
@@ -2043,6 +2273,26 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     fontSize: 10,
     fontWeight: '900',
     overflow: 'hidden',
+  },
+  joinSpaceShortcut: {
+    backgroundColor: theme.surface,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 14,
+  },
+  joinSpaceShortcutTitle: {
+    color: theme.text,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  joinSpaceShortcutText: {
+    color: theme.gold,
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: 3,
   },
   groupImagePicker: {
     flexDirection: 'row',

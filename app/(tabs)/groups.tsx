@@ -35,6 +35,7 @@ import {
   npubToHex,
   publishGroupMessage,
 } from '../../src/utils/nostr';
+import { syncLivingSpacesFromGroups } from '../../src/utils/living-spaces-storage';
 import {
   notifyGroupEvent,
   registerGroupMemberForPush,
@@ -72,6 +73,12 @@ function normalizeGroupType(value?: string): string {
   return (value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
+function getGroupInitials(name: string): string {
+  const clean = name.trim();
+  if (!clean) return 'GR';
+  return clean.slice(0, 2).toUpperCase();
+}
+
 function getGroupIcon(group: BEGroup): string {
   const customIcon = group.icon?.trim();
 
@@ -79,27 +86,17 @@ function getGroupIcon(group: BEGroup): string {
     return customIcon;
   }
 
+  return getGroupInitials(group.name);
+}
+
+function getGroupTypeIcon(group: BEGroup): string | null {
   const directKey = normalizeGroupType(group.sport);
 
   if (directKey && GROUP_TYPE_ICONS[directKey]) {
     return GROUP_TYPE_ICONS[directKey];
   }
 
-  const searchText = normalizeGroupType(`${group.name} ${group.description ?? ''}`);
-
-  if (searchText.includes('faculty') || searchText.includes('teacher') || searchText.includes('staff')) {
-    return GROUP_TYPE_ICONS.faculty;
-  }
-
-  if (searchText.includes('class')) {
-    return GROUP_TYPE_ICONS.class;
-  }
-
-  if (searchText.includes('booster')) {
-    return GROUP_TYPE_ICONS.booster;
-  }
-
-  return GROUP_TYPE_ICONS.default;
+  return null;
 }
 
 function formatGroupTime(unixSecs?: number): string {
@@ -266,6 +263,7 @@ const s = useMemo(() => createStyles(theme), [theme]);
         console.warn('[Groups] push member registration failed after create:', error);
       });
       closeSheet();
+      await syncLivingSpacesFromGroups();
       await rebuildGroupsIndexForNpub(npub);
       router.push({ pathname: '/group-thread', params: { id: group.id } } as any);
     } catch (e: any) {
@@ -345,6 +343,7 @@ const s = useMemo(() => createStyles(theme), [theme]);
         }
 
         closeSheet();
+        await syncLivingSpacesFromGroups();
         await rebuildGroupsIndexForNpub(npub);
         router.push({ pathname: '/group-thread', params: { id: result.group.id } } as any);
       } else {
@@ -370,6 +369,7 @@ const s = useMemo(() => createStyles(theme), [theme]);
 
   const renderGroup = ({ item }: { item: BEGroup }) => {
     const relay = getRelayLabel(item);
+    const groupTypeIcon = getGroupTypeIcon(item);
     const preview =
       item.lastPostPreview ||
       `${item.memberCount ?? 0} member${(item.memberCount ?? 0) !== 1 ? 's' : ''}`;
@@ -397,6 +397,8 @@ const s = useMemo(() => createStyles(theme), [theme]);
           </Text>
 
           <View style={s.cardMetaRow}>
+            {groupTypeIcon && <Text style={s.categoryBadge}>{groupTypeIcon}</Text>}
+
             {item.season && <Text style={s.seasonBadge}>{item.season}</Text>}
 
             <Text style={s.memberBadge}>
@@ -777,6 +779,19 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     borderColor: theme.gold + '55',
     fontWeight: '700',
     letterSpacing: 0.2,
+  },
+  categoryBadge: {
+    minWidth: 24,
+    height: 24,
+    color: theme.gold,
+    backgroundColor: theme.raised,
+    paddingTop: Platform.OS === 'ios' ? 3 : 2,
+    paddingHorizontal: 4,
+    borderRadius: 12,
+    borderWidth: 0.5,
+    borderColor: theme.gold + '55',
+    textAlign: 'center',
+    overflow: 'hidden',
   },
   memberBadge: {
     fontSize: 10,

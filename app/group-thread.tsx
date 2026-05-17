@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Image,
   InteractionManager,
   KeyboardAvoidingView,
   Modal,
@@ -165,8 +166,11 @@ function isMembershipSystemText(text?: string): boolean {
 
   return (
     value.endsWith(' joined the group') ||
+    value.endsWith(' joined the space') ||
     value.endsWith(' left the group') ||
-    value.endsWith(' was removed from the group')
+    value.endsWith(' left the space') ||
+    value.endsWith(' was removed from the group') ||
+    value.endsWith(' was removed from the space')
   );
 }
 
@@ -214,6 +218,7 @@ export default function GroupThreadScreen() {
 
   const [groupName, setGroupName] = useState('Group');
   const [groupIcon, setGroupIcon] = useState('👥');
+  const [groupImageUri, setGroupImageUri] = useState<string | null>(null);
   const [relayUrl, setRelayUrl] = useState('wss://relay.beginningend.com');
   const [groupLoaded, setGroupLoaded] = useState(false);
   const [canPostToGroup, setCanPostToGroup] = useState(true);
@@ -258,7 +263,7 @@ export default function GroupThreadScreen() {
     (npub ? `${npub.slice(0, 12)}…` : 'You');
 
       const memberBlockedMessage =
-    'You are no longer an active member of this group. You can view past messages, but posting is disabled.';
+    'You are no longer an active member of this Space. You can view past messages, but posting is disabled.';
 
   const guardCanPost = useCallback(() => {
     if (canPostToGroup) return true;
@@ -423,7 +428,7 @@ const showName =
   if (message.mediaType === 'file') return 'File';
   if (message.mediaUrl || message.imageUrl) return 'Photo';
 
-  return 'New group message';
+  return 'New Space message';
 }, []);
 
   const getReplyPreviewText = useCallback((message: GroupMessage | PendingUploadMessage): string => {
@@ -494,7 +499,7 @@ const showName =
     if (message.mediaType === 'video') return 'Video';
     if (message.mediaType === 'file') return 'File';
 
-    return 'New group message';
+    return 'New Space message';
   }, []);
 
   const getGroupNotificationTypeForMedia = useCallback((mediaItems: GroupMessageMedia[]) => {
@@ -637,6 +642,7 @@ const showName =
     if (group) {
       setGroupName(group.name);
       setGroupIcon(getGroupIcon(group));
+      setGroupImageUri(group.coverImage ?? null);
       setRelayUrl(group.relayUrl);
     }
 
@@ -1919,7 +1925,7 @@ const showName =
 
     Alert.alert(
       'Delete message?',
-      'This will delete the message from your group chat. Other devices will update after the delete syncs through the relay.',
+      'This will delete the message from your Space chat. Other devices will update after the delete syncs through the relay.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -2118,7 +2124,11 @@ const showName =
             <View style={s.headerCenter}>
               <View style={s.groupTitleRow}>
                 <View style={s.groupHeaderIcon}>
-                  <Text style={s.groupHeaderIconText}>{groupIcon}</Text>
+                  {groupImageUri ? (
+                    <Image source={{ uri: groupImageUri }} style={s.groupHeaderImage} />
+                  ) : (
+                    <Text style={s.groupHeaderIconText}>{groupIcon}</Text>
+                  )}
                 </View>
 
                 <Text style={s.headerTitle} numberOfLines={1}>
@@ -2126,7 +2136,7 @@ const showName =
                 </Text>
               </View>
 
-              <Text style={s.headerSub}>Group chat</Text>
+              <Text style={s.headerSub}>Space chat</Text>
             </View>
 
             <TouchableOpacity
@@ -2167,7 +2177,7 @@ const showName =
                   <Text style={s.emptyIcon}>👥</Text>
                   <Text style={s.emptyText}>No messages yet</Text>
                   <Text style={s.emptyHint}>
-                    Send the first message to this group below.
+                    Send the first message to this Space below.
                   </Text>
                 </View>
               )
@@ -2290,7 +2300,7 @@ const showName =
                 <Text style={s.composerMenuIcon}>📊</Text>
                 <View style={s.composerMenuTextBlock}>
                   <Text style={s.composerMenuTitle}>Poll</Text>
-                  <Text style={s.composerMenuHint}>Ask the group to vote</Text>
+                  <Text style={s.composerMenuHint}>Ask the Space to vote</Text>
                 </View>
               </TouchableOpacity>
 
@@ -2598,7 +2608,7 @@ const showName =
 
               <View style={s.pollModalCard}>
                 <Text style={s.pollModalTitle}>Create poll</Text>
-                <Text style={s.pollModalHint}>Ask the group to vote.</Text>
+                <Text style={s.pollModalHint}>Ask the Space to vote.</Text>
 
                 <TextInput
                   style={s.pollQuestionInput}
@@ -2730,6 +2740,11 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
   },
   groupHeaderIconText: {
     fontSize: 16,
+  },
+  groupHeaderImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 15,
   },
     uploadBanner: {
   paddingVertical: 6,

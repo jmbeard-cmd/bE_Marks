@@ -6,7 +6,6 @@ import {
 } from '@/src/utils/group-calendar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
-import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as VideoThumbnails from 'expo-video-thumbnails';
@@ -48,7 +47,6 @@ import {
   saveLocalGroupSystemMessage,
 } from '../src/utils/group-messages';
 import {
-  createGroupSticky,
   getStickiesForGroup,
   hideGroupSticky,
   syncGroupStickiesFromRelay,
@@ -70,10 +68,21 @@ import {
   type BEGroupMember,
   type GroupRelayMode,
 } from '../src/utils/group-storage';
+import { compressMediaForUpload } from '../src/utils/media-compression';
+import type {
+  LivingMarkCaptureSource,
+  LivingMarkPlace,
+  LivingMarkView,
+  LivingSpace,
+} from '../src/types/living-spaces';
 import {
-  compressImageForUpload,
-  compressVideoForUpload,
-} from '../src/utils/media-compression';
+  extractLivingCaptureFromExif,
+} from '../src/utils/living-space-routing';
+import {
+  getLivingMarkViewsForMilestones,
+  persistLivingMarkCapture,
+  syncLivingSpacesFromGroups,
+} from '../src/utils/living-spaces-storage';
 import {
   DEFAULT_RELAY,
   fetchGroupMessageDeletes,
@@ -88,12 +97,20 @@ import {
   registerGroupMemberForPush,
   removeGroupMemberFromPush,
 } from '../src/utils/push-notifications';
-import { uploadToR2 } from '../src/utils/r2';
+import { uploadMilestoneMedia } from '../src/utils/r2';
+import {
+  getMilestones,
+  saveMilestone,
+  type MarkMedia,
+  type Milestone,
+} from '../src/utils/storage';
 import { useIdentity } from './_layout';
 
 type Tab = 'stickies' | 'calendar' | 'gallery' | 'members' | 'book';
-type MainTab = 'stickies' | 'calendar' | 'gallery' | 'book';
+type MainTab = 'chat' | 'stickies' | 'calendar' | 'gallery' | 'book';
 const GROUP_LOCAL_GALLERY_KEY = 'be_group_local_gallery_v1';
+const SPACE_MARK_PRESET_TAGS = ['Family', 'School', 'Team', 'Church', 'Event', 'Memory'];
+const SPACE_MARK_LIFE_STAGE_OPTIONS = ['Elementary', 'Middle School', 'High School', 'Season', 'Trip', 'Family'];
 
 type LocalGalleryItem = {
   id: string;
@@ -103,6 +120,16 @@ type LocalGalleryItem = {
   thumbnailUrl?: string;
   createdAt: number;
   source: 'highlight';
+};
+
+type SpaceMarkDraftMedia = {
+  id: string;
+  uri: string;
+  type: 'image' | 'video';
+  thumbnailUri?: string;
+  place?: LivingMarkPlace;
+  occurredAt?: number;
+  captureSource: Extract<LivingMarkCaptureSource, 'camera' | 'library'>;
 };
 
 const GROUP_TYPE_ICONS: Record<string, string> = {
@@ -137,34 +164,25 @@ function normalizeGroupType(value?: string): string {
   return (value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
-function getGroupIcon(group: BEGroup): string {
+function getGroupInitials(name: string): string {
+  const clean = name.trim();
+  if (!clean) return 'SP';
+  return clean.slice(0, 2).toUpperCase();
+}
+
+function getGroupAvatarText(group: BEGroup): string {
   const customIcon = group.icon?.trim();
+  return customIcon || getGroupInitials(group.name);
+}
 
-  if (customIcon) {
-    return customIcon;
-  }
-
+function getGroupTypeIcon(group: BEGroup): string | null {
   const directKey = normalizeGroupType(group.sport);
 
   if (directKey && GROUP_TYPE_ICONS[directKey]) {
     return GROUP_TYPE_ICONS[directKey];
   }
 
-  const searchText = normalizeGroupType(`${group.name} ${group.description ?? ''}`);
-
-  if (searchText.includes('faculty') || searchText.includes('teacher') || searchText.includes('staff')) {
-    return GROUP_TYPE_ICONS.faculty;
-  }
-
-  if (searchText.includes('class')) {
-    return GROUP_TYPE_ICONS.class;
-  }
-
-  if (searchText.includes('booster')) {
-    return GROUP_TYPE_ICONS.booster;
-  }
-
-  return GROUP_TYPE_ICONS.default;
+  return null;
 }
 
 async function readLocalGalleryItems(): Promise<LocalGalleryItem[]> {
@@ -216,6 +234,78 @@ async function saveHighlightMediaToLocalGallery(groupId: string, sticky: GroupSt
   return validItems;
 }
 
+function parseSpaceMarkPeople(input: string): string[] {
+  return input
+    .split(',')
+    .map(item => item.trim())
+    .filter(Boolean);
+}
+
+function getSpaceMarkCaptureMetadata(media: SpaceMarkDraftMedia[]): {
+  place?: LivingMarkPlace;
+  occurredAt?: number;
+  captureSource?: LivingMarkCaptureSource;
+} {
+  const mediaWithPlace = media.find(item => item.place);
+  const mediaWithDate = media.find(item => item.occurredAt);
+  const firstMedia = media[0];
+
+  if (!firstMedia) {
+    return { captureSource: 'manual' };
+  }
+
+  return {
+    place: mediaWithPlace?.place,
+    occurredAt: mediaWithDate?.occurredAt,
+    captureSource: firstMedia.captureSource,
+  };
+}
+
+function getMilestoneMediaItems(mark: Milestone): MarkMedia[] {
+  const mediaItems = Array.isArray(mark.media) ? [...mark.media] : [];
+
+  if (mark.photoUri && !mediaItems.some(item => item.uri === mark.photoUri)) {
+    mediaItems.push({
+      id: `${mark.id}_legacy_photo`,
+      uri: mark.photoUri,
+      type: 'image',
+      source: mark.photoUri.startsWith('http') ? 'r2' : 'local',
+    });
+  }
+
+  if (mark.videoUri && !mediaItems.some(item => item.uri === mark.videoUri)) {
+    mediaItems.push({
+      id: `${mark.id}_legacy_video`,
+      uri: mark.videoUri,
+      type: 'video',
+      source: mark.videoUri.startsWith('http') ? 'r2' : 'local',
+    });
+  }
+
+  return mediaItems;
+}
+
+function getMilestoneText(mark: Milestone): { title: string; body: string } {
+  const note = mark.note?.trim() ?? '';
+  const parts = note.split(/\n\s*\n/);
+
+  if (parts.length > 1) {
+    return {
+      title: parts[0].trim() || 'Untitled Mark',
+      body: parts.slice(1).join('\n\n').trim(),
+    };
+  }
+
+  return {
+    title: note || 'Untitled Mark',
+    body: '',
+  };
+}
+
+function getGroupLivingSpaceId(groupId: string): string {
+  return `group:${groupId}`;
+}
+
 export default function GroupDetailScreen() {
 const { id, tab: routeTab } = useLocalSearchParams<{
   id: string;
@@ -225,40 +315,44 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   memberNpub?: string;
 }>();
   const router = useRouter();
-  const { npub, nsec, profile, theme, themeMode } = useIdentity();
+  const { npub, nsec, profile, theme } = useIdentity();
   const s = useMemo(() => createStyles(theme), [theme]);
 
   const [group, setGroup] = useState<BEGroup | null>(null);
   const [members, setMembers] = useState<BEGroupMember[]>([]);
   const [stickies, setStickies] = useState<GroupSticky[]>([]);
+  const [spaceMarkViews, setSpaceMarkViews] = useState<LivingMarkView[]>([]);
+  const [livingSpaces, setLivingSpaces] = useState<LivingSpace[]>([]);
   const [galleryItems, setGalleryItems] = useState<any[]>([]);
   const [selectedGalleryImage, setSelectedGalleryImage] = useState<string | null>(null);
   const [activeViewerImages, setActiveViewerImages] = useState<ViewerImage[]>([]);
-  const [showStickyModal, setShowStickyModal] = useState(false);
-  const [stickyTitle, setStickyTitle] = useState('');
-  const [stickyBody, setStickyBody] = useState('');
-  const [stickyVisibility, setStickyVisibility] = useState<'private' | 'organization' | 'public'>('private');
-  type HighlightAttachment = {
-    uri: string;
-    type: 'image' | 'video' | 'file';
-    name?: string;
-    mimeType?: string;
-  };
-
-  const [selectedHighlightMedia, setSelectedHighlightMedia] = useState<HighlightAttachment | null>(null);
-
-  const [selectedHighlightMediaList, setSelectedHighlightMediaList] = useState<HighlightAttachment[]>([]);
-  const [highlightPosting, setHighlightPosting] = useState(false);
-  const [highlightUploadStatus, setHighlightUploadStatus] = useState<string | null>(null);
-  const [highlightProgress, setHighlightProgress] = useState(0);
+  const [showSpaceMarkModal, setShowSpaceMarkModal] = useState(false);
+  const [spaceMarkTitle, setSpaceMarkTitle] = useState('');
+  const [spaceMarkNote, setSpaceMarkNote] = useState('');
+  const [spaceMarkTags, setSpaceMarkTags] = useState<string[]>([]);
+  const [spaceMarkTagInput, setSpaceMarkTagInput] = useState('');
+  const [spaceMarkMedia, setSpaceMarkMedia] = useState<SpaceMarkDraftMedia[]>([]);
+  const [spaceMarkShowContext, setSpaceMarkShowContext] = useState(false);
+  const [spaceMarkPeopleInput, setSpaceMarkPeopleInput] = useState('');
+  const [spaceMarkLifeStage, setSpaceMarkLifeStage] = useState('');
+  const [spaceMarkEventInput, setSpaceMarkEventInput] = useState('');
+  const [spaceMarkSavedToBook, setSpaceMarkSavedToBook] = useState(false);
+  const [spaceMarkSaving, setSpaceMarkSaving] = useState(false);
+  const [spaceMarkSaveStatus, setSpaceMarkSaveStatus] = useState<string | null>(null);
+  const [spaceMarkProgress, setSpaceMarkProgress] = useState(0);
   const [tab, setTab] = useState<Tab>(
-  routeTab === 'calendar' || routeTab === 'gallery' || routeTab === 'members' || routeTab === 'book'
+  routeTab === 'calendar' ||
+  routeTab === 'gallery' ||
+  routeTab === 'members' ||
+  routeTab === 'book'
     ? routeTab
     : 'stickies'
 );
   const [isAdmin, setIsAdmin] = useState(false);
   const [isMember, setIsMember] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
+  const [showSpaceSettingsMenu, setShowSpaceSettingsMenu] = useState(false);
+  const [spaceSettingsRelayOpen, setSpaceSettingsRelayOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   const [editingGroupRelay, setEditingGroupRelay] = useState(false);
@@ -341,6 +435,22 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   }
   }, []);
 
+  const loadSpaceMarks = useCallback(async (groupId: string, spaces: LivingSpace[]) => {
+    const livingSpaceId = getGroupLivingSpaceId(groupId);
+    const milestones = await getMilestones();
+    const views = await getLivingMarkViewsForMilestones({
+      milestones,
+      spaces,
+      currentNpub: npub,
+    });
+
+    setSpaceMarkViews(
+      views
+        .filter(view => view.placement.spaceIds.includes(livingSpaceId))
+        .sort((a, b) => b.milestone.createdAt - a.milestone.createdAt)
+    );
+  }, [npub]);
+
   const load = useCallback(async () => {
     if (!id) return;
 
@@ -352,6 +462,15 @@ const { id, tab: routeTab } = useLocalSearchParams<{
     if (!g) return;
 
     setGroup(g);
+
+    let spaces: LivingSpace[] = [];
+    try {
+      spaces = await syncLivingSpacesFromGroups();
+      setLivingSpaces(spaces);
+      await loadSpaceMarks(id, spaces);
+    } catch (error) {
+      console.warn('[Space Detail] failed to sync Living Space mirror:', error);
+    }
 
     const buildGalleryItemsFromMessages = (messages: any[], source: 'local-chat' | 'chat') => {
       return messages.flatMap(message => {
@@ -516,6 +635,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
           : await getStickiesForGroup(id);
 
         setStickies(syncedStickies);
+        await loadSpaceMarks(id, spaces.length > 0 ? spaces : await syncLivingSpacesFromGroups());
       } catch (error) {
         console.warn('[Group Detail] background highlight sync failed:', error);
       }
@@ -587,7 +707,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
       }
       });
     });
-  }, [id, npub, hydrateMemberProfiles]);
+  }, [id, npub, hydrateMemberProfiles, loadSpaceMarks]);
 
   useEffect(() => {
     load();
@@ -629,7 +749,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
     const trimmedUrl = groupRelayUrl.trim();
 
     if ((groupRelayMode === 'custom' || groupRelayMode === 'both') && !trimmedUrl) {
-      Alert.alert('Relay required', 'Enter the group or school relay URL.');
+      Alert.alert('Relay required', 'Enter the Space or school relay URL.');
       return;
     }
 
@@ -642,11 +762,12 @@ const { id, tab: routeTab } = useLocalSearchParams<{
       relayMode: groupRelayMode,
       relayUrl: groupRelayMode === 'default' ? DEFAULT_RELAY : trimmedUrl,
     });
+    await syncLivingSpacesFromGroups();
 
     setEditingGroupRelay(false);
     await load();
 
-    Alert.alert('Saved', 'Group relay settings updated.');
+    Alert.alert('Saved', 'Space relay settings updated.');
   };
 
   const handleShareInvite = async () => {
@@ -666,10 +787,31 @@ const { id, tab: routeTab } = useLocalSearchParams<{
     Alert.alert('Copied', 'Invite code copied to clipboard.');
   };
 
+  const closeSpaceSettingsMenu = () => {
+    setShowSpaceSettingsMenu(false);
+    setSpaceSettingsRelayOpen(false);
+    setEditingGroupRelay(false);
+  };
+
+  const toggleSpaceSettingsMenu = () => {
+    setShowSpaceSettingsMenu(prev => {
+      const next = !prev;
+
+      if (next) {
+        setShowInvite(false);
+      } else {
+        setSpaceSettingsRelayOpen(false);
+        setEditingGroupRelay(false);
+      }
+
+      return next;
+    });
+  };
+
   const handleRegenerateCode = () => {
     Alert.alert(
       'Regenerate invite code?',
-      'The old code will stop working immediately. Share the new code with your group.',
+      'The old code will stop working immediately. Share the new code with your Space.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -686,14 +828,15 @@ const { id, tab: routeTab } = useLocalSearchParams<{
 
   const handleArchive = () => {
     Alert.alert(
-      'Archive this group?',
-      'Members can still view past posts but no new posts will be allowed. You can start a new season anytime.',
+      'Archive this Space?',
+      'Members can still view past messages and Marks, but no new posts will be allowed. You can start a new season anytime.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Archive', style: 'destructive', onPress: async () => {
             if (!group) return;
             await archiveGroup(group.id);
+            await syncLivingSpacesFromGroups();
             await load();
           }
         }
@@ -701,246 +844,220 @@ const { id, tab: routeTab } = useLocalSearchParams<{
     );
   };
 
-  const handlePickHighlightMedia = async () => {
+  const handlePickSpaceMarkMedia = async () => {
     try {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
       if (!permission.granted) {
-        Alert.alert('Permission needed', 'Allow photo library access to add media to a highlight.');
+        Alert.alert('Permission needed', 'Allow photo library access to add media to a Mark.');
         return;
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images', 'videos'],
         allowsEditing: false,
-        quality: 0.75,
-        videoQuality: ImagePicker.UIImagePickerControllerQualityType.Low,
+        quality: 0.85,
+        videoQuality: ImagePicker.UIImagePickerControllerQualityType.Medium,
         allowsMultipleSelection: true,
         selectionLimit: 10,
+        exif: true,
       });
 
       if (result.canceled || !result.assets?.length) return;
 
-      const newItems: HighlightAttachment[] = result.assets
+      const pickedAt = Date.now();
+      const newItems: SpaceMarkDraftMedia[] = result.assets
         .filter(asset => !!asset.uri)
-        .map(asset => ({
-          uri: asset.uri,
-          type: asset.type === 'video' ? 'video' : 'image',
-          name: asset.fileName ?? undefined,
-          mimeType: asset.mimeType ?? undefined,
-        }));
+        .map((asset, index) => {
+          const capture = extractLivingCaptureFromExif(asset.exif);
 
-      setSelectedHighlightMediaList(prev => [...prev, ...newItems]);
-      setSelectedHighlightMedia(newItems[0] ?? null);
+          return {
+            id: `space_mark_media_${pickedAt}_${index}_${Math.random().toString(36).slice(2, 7)}`,
+            uri: asset.uri,
+            type: asset.type === 'video' ? 'video' : 'image',
+            place: capture.place,
+            occurredAt: capture.occurredAt,
+            captureSource: 'library',
+          };
+        });
+
+      setSpaceMarkMedia(prev => [...prev, ...newItems]);
     } catch (e) {
-      console.warn('[Highlight media picker] failed', e);
+      console.warn('[Space Mark media picker] failed', e);
       Alert.alert('Media error', 'Could not open your photo library.');
     }
   };
 
-  const handlePickHighlightFiles = async () => {
-    try {
-      const result = await DocumentPicker.getDocumentAsync({
-        multiple: true,
-        copyToCacheDirectory: true,
-      });
-
-      if (result.canceled || !result.assets?.length) return;
-
-      const newFiles: HighlightAttachment[] = result.assets
-        .filter(asset => !!asset.uri)
-        .map(asset => ({
-          uri: asset.uri,
-          type: 'file',
-          name: asset.name,
-          mimeType: asset.mimeType,
-        }));
-
-      setSelectedHighlightMediaList(prev => [...prev, ...newFiles]);
-      setSelectedHighlightMedia(newFiles[0] ?? null);
-    } catch (e) {
-      console.warn('[Highlight file picker] failed', e);
-      Alert.alert('File error', 'Could not open the file picker.');
-    }
+  const resetSpaceMarkDraft = () => {
+    setSpaceMarkTitle('');
+    setSpaceMarkNote('');
+    setSpaceMarkTags([]);
+    setSpaceMarkTagInput('');
+    setSpaceMarkMedia([]);
+    setSpaceMarkShowContext(false);
+    setSpaceMarkPeopleInput('');
+    setSpaceMarkLifeStage('');
+    setSpaceMarkEventInput('');
+    setSpaceMarkSavedToBook(false);
+    setSpaceMarkSaveStatus(null);
+    setSpaceMarkProgress(0);
   };
-  
-  const handleCreateSticky = async () => {
-  if (!group || highlightPosting) return;
 
-  const title = stickyTitle.trim();
-  const body = stickyBody.trim() || '';
+  const addSpaceMarkTag = (tag: string) => {
+    const clean = tag.trim();
+    if (!clean) return;
 
-  if (!title) {
-    Alert.alert('Missing title', 'Add a title for the highlight.');
+    setSpaceMarkTags(prev => (
+      prev.some(existing => existing.toLowerCase() === clean.toLowerCase())
+        ? prev
+        : [...prev, clean]
+    ));
+    setSpaceMarkTagInput('');
+  };
+
+  const removeSpaceMarkTag = (tag: string) => {
+    setSpaceMarkTags(prev => prev.filter(existing => existing !== tag));
+  };
+
+  const handleCreateSpaceMark = async () => {
+  if (!group || spaceMarkSaving) return;
+
+  const title = spaceMarkTitle.trim();
+  const note = spaceMarkNote.trim();
+
+  if (!title && !note && spaceMarkMedia.length === 0) {
+    Alert.alert('Nothing to save', 'Add a title, note, photo, or video first.');
     return;
   }
 
-  const mediaToUpload =
-    selectedHighlightMediaList.length > 0
-      ? selectedHighlightMediaList
-      : selectedHighlightMedia
-        ? [selectedHighlightMedia]
-        : [];
+  const mediaToUpload = spaceMarkMedia;
 
-  setHighlightPosting(true);
-  setHighlightUploadStatus(
-    mediaToUpload.length > 0 ? 'Preparing media...' : 'Posting highlight...'
+  setSpaceMarkSaving(true);
+  setSpaceMarkSaveStatus(
+    mediaToUpload.length > 0 ? 'Preparing media...' : 'Saving Mark...'
   );
-  setHighlightProgress(0);
+  setSpaceMarkProgress(0);
 
   try {
-    const uploadedHighlightMedia: {
-      mediaUrl: string;
-      mediaType: 'image' | 'video' | 'file';
-      thumbnailUrl?: string;
-      imageUrl?: string;
-      fileName?: string;
-      mimeType?: string;
-    }[] = [];
-
-    const totalSteps = Math.max(mediaToUpload.length * 3, 1);
-    let currentStep = 0;
-
-    const advanceProgress = () => {
-      currentStep++;
-      setHighlightProgress(Math.min(currentStep / totalSteps, 0.98));
-    };
+    const fullNote = title ? `${title}\n\n${note}`.trim() : note;
+    const uploadedMedia: MarkMedia[] = [];
+    const total = Math.max(mediaToUpload.length, 1);
 
     for (let i = 0; i < mediaToUpload.length; i++) {
       const item = mediaToUpload[i];
-      let uploadUri = item.uri;
 
-      if (item.type === 'image') {
-        setHighlightUploadStatus(`Optimizing photo ${i + 1} of ${mediaToUpload.length}...`);
-
-        const compressionResult = await compressImageForUpload({
-          uri: item.uri,
-          onStatus: setHighlightUploadStatus,
-        });
-
-        uploadUri = compressionResult.uri;
-        advanceProgress();
-
-        if (compressionResult.wasCompressed) {
-          setHighlightUploadStatus(`Uploading optimized photo ${i + 1} of ${mediaToUpload.length}...`);
-        } else {
-          setHighlightUploadStatus(`Uploading photo ${i + 1} of ${mediaToUpload.length}...`);
-        }
-      } else if (item.type === 'video') {
-        const compressionResult = await compressVideoForUpload({
-          uri: item.uri,
-          onStatus: setHighlightUploadStatus,
-          onProgress: progress => {
-            setHighlightUploadStatus(
-              `Compressing video ${i + 1} of ${mediaToUpload.length}… ${Math.round(progress * 100)}%`
-            );
-          },
-        });
-
-        uploadUri = compressionResult.uri;
-        advanceProgress();
-
-        if (compressionResult.wasCompressed) {
-          setHighlightUploadStatus(`Uploading compressed video ${i + 1} of ${mediaToUpload.length}...`);
-        } else {
-          setHighlightUploadStatus(`Uploading video ${i + 1} of ${mediaToUpload.length}...`);
-        }
-      } else {
-        setHighlightUploadStatus(`Uploading file ${i + 1} of ${mediaToUpload.length}...`);
-        advanceProgress();
-      }
-
-      const uploadedUrl = await uploadToR2(
-        uploadUri,
-        item.type === 'video' ? 'video' : item.type === 'image' ? 'photo' : 'file'
+      setSpaceMarkSaveStatus(
+        item.type === 'video'
+          ? `Compressing video ${i + 1} of ${mediaToUpload.length}...`
+          : `Optimizing photo ${i + 1} of ${mediaToUpload.length}...`
       );
 
-      advanceProgress();
+      const compressed = await compressMediaForUpload({
+        uri: item.uri,
+        type: item.type,
+        onStatus: setSpaceMarkSaveStatus,
+        onProgress: compressionProgress => {
+          const baseProgress = Math.floor((i / total) * 45);
+          const itemProgress = Math.floor(compressionProgress * (45 / total));
+          setSpaceMarkProgress(Math.min(45, baseProgress + itemProgress));
+        },
+      });
 
-      if (!uploadedUrl) {
-        console.warn('[Highlight upload] skipped failed item:', item.uri);
-        continue;
-      }
-
-      let thumbnailUrl: string | undefined;
+      let thumbnailUri: string | undefined;
 
       if (item.type === 'video') {
         try {
-          setHighlightUploadStatus(`Creating thumbnail ${i + 1} of ${mediaToUpload.length}...`);
-
-          const thumbnail = await VideoThumbnails.getThumbnailAsync(uploadUri, {
+          setSpaceMarkSaveStatus(`Creating video thumbnail ${i + 1} of ${mediaToUpload.length}...`);
+          const thumbnail = await VideoThumbnails.getThumbnailAsync(compressed.uri, {
             time: 1000,
           });
 
-          setHighlightUploadStatus(`Uploading thumbnail ${i + 1} of ${mediaToUpload.length}...`);
-
-          const uploadedThumbnail = await uploadToR2(thumbnail.uri, 'photo');
-          thumbnailUrl = uploadedThumbnail || undefined;
-
-          advanceProgress();
-        } catch (thumbError) {
-          console.warn('[Highlight thumbnail] failed:', thumbError);
-          advanceProgress();
+          setSpaceMarkSaveStatus(`Uploading video thumbnail ${i + 1} of ${mediaToUpload.length}...`);
+          const thumbUpload = await uploadMilestoneMedia({
+            photoUri: thumbnail.uri,
+          });
+          thumbnailUri = thumbUpload.photoUri || thumbnail.uri;
+        } catch (error) {
+          console.warn('[Space Mark thumbnail] failed:', error);
         }
-      } else {
-        advanceProgress();
       }
 
-      uploadedHighlightMedia.push({
-        mediaUrl: uploadedUrl,
-        mediaType: item.type,
-        thumbnailUrl,
-        imageUrl: item.type === 'image' ? uploadedUrl : undefined,
-        fileName: item.name,
-        mimeType: item.mimeType,
+      setSpaceMarkSaveStatus(
+        item.type === 'video'
+          ? `Uploading video ${i + 1} of ${mediaToUpload.length}...`
+          : `Uploading photo ${i + 1} of ${mediaToUpload.length}...`
+      );
+
+      const upload = await uploadMilestoneMedia({
+        photoUri: item.type === 'image' ? compressed.uri : undefined,
+        videoUri: item.type === 'video' ? compressed.uri : undefined,
       });
+      const uploadedUri =
+        item.type === 'image'
+          ? upload.photoUri || item.uri
+          : upload.videoUri || item.uri;
+
+      uploadedMedia.push({
+        id: item.id,
+        uri: uploadedUri,
+        type: item.type,
+        source: uploadedUri.startsWith('http') ? 'r2' : 'local',
+        thumbnailUri,
+      });
+
+      setSpaceMarkProgress(45 + Math.floor(((i + 1) / total) * 35));
     }
 
-    setHighlightProgress(1);
-    setHighlightUploadStatus('Posting highlight...');
+    setSpaceMarkSaveStatus('Saving Mark...');
+    setSpaceMarkProgress(85);
 
-    const createdSticky = await createGroupSticky({
-      groupId: group.id,
-      title,
-      body,
-      authorName: myDisplayName,
+    const uploadedPhoto = uploadedMedia.find(item => item.type === 'image')?.uri;
+    const uploadedVideo = uploadedMedia.find(item => item.type === 'video')?.uri;
+    const savedMilestone = await saveMilestone({
+      note: fullNote,
+      tags: spaceMarkTags,
+      photoUri: uploadedPhoto,
+      videoUri: uploadedVideo,
+      media: uploadedMedia,
+      publishedToRelay: false,
       authorNpub: npub ?? undefined,
-      relayUrl: group.relayUrl,
-      media: uploadedHighlightMedia,
-    } as any);
+      authorName: myDisplayName,
+    });
 
-    if (npub) {
-      notifyGroupEvent({
-        groupId: group.id,
-        groupName: group.name,
-        relayUrl: group.relayUrl,
-        actorNpub: npub,
-        actorName: myDisplayName,
-        eventType: 'highlight_created',
-        title,
-        highlightId: createdSticky.id,
-        routeTarget: 'group-detail',
-        groupTab: 'stickies',
-      }).catch(error => {
-        console.warn('[Group Detail] highlight notification failed:', error);
-      });
-    }
+    setSpaceMarkSaveStatus('Placing Mark in this Space...');
+    setSpaceMarkProgress(95);
 
-    setStickyTitle('');
-    setStickyBody('');
-    setStickyVisibility('private');
-    setSelectedHighlightMedia(null);
-    setSelectedHighlightMediaList([]);
-    setShowStickyModal(false);
+    const spaces = livingSpaces.length > 0 ? livingSpaces : await syncLivingSpacesFromGroups();
+    const capture = getSpaceMarkCaptureMetadata(spaceMarkMedia);
+
+    await persistLivingMarkCapture({
+      milestone: savedMilestone,
+      spaces,
+      selectedSpaceId: getGroupLivingSpaceId(group.id),
+      currentNpub: npub,
+      peopleIds: parseSpaceMarkPeople(spaceMarkPeopleInput),
+      lifeStage: spaceMarkLifeStage || undefined,
+      eventId: spaceMarkEventInput.trim() || undefined,
+      savedToBook: spaceMarkSavedToBook,
+      captureSource: capture.captureSource,
+      place: capture.place,
+      occurredAt: capture.occurredAt,
+      capturedAt: capture.occurredAt ?? savedMilestone.createdAt,
+      privacy: 'space',
+    });
+
+    setSpaceMarkProgress(100);
+    resetSpaceMarkDraft();
+    setShowSpaceMarkModal(false);
 
     await load();
   } catch (e: any) {
-    console.warn('[Highlight create] failed', e);
-    Alert.alert('Error', e?.message || 'Could not post highlight.');
+    console.warn('[Space Mark create] failed', e);
+    Alert.alert('Error', e?.message || 'Could not save Mark.');
+  } finally {
+    setSpaceMarkSaving(false);
+    setSpaceMarkSaveStatus(null);
   }
-
-  setHighlightPosting(false);
-  setHighlightUploadStatus(null);
 };
 
 const openViewerForSticky = (sticky: GroupSticky, startIndex: number) => {
@@ -972,6 +1089,26 @@ const openViewerForSticky = (sticky: GroupSticky, startIndex: number) => {
   setSelectedGalleryImage(images[startIndex]?.uri ?? null);
 };
 
+const openViewerForMilestone = (mark: Milestone, startIndex: number) => {
+  const images: ViewerImage[] = getMilestoneMediaItems(mark)
+    .filter(item => item.type === 'image' || item.type === 'video')
+    .map((item, index) => ({
+      id: `${mark.id}_${index}`,
+      uri: item.uri,
+      type: item.type,
+      thumbnailUrl: item.thumbnailUri,
+    }));
+
+  if (images.length === 0) return;
+
+  setActiveViewerImages(images);
+  setSelectedGalleryImage(images[startIndex]?.uri ?? null);
+};
+
+const openMarkDetail = (markId: string) => {
+  router.push({ pathname: '/mark-detail', params: { id: markId } } as any);
+};
+
 const handleOpenHighlightFile = async (fileUrl?: string) => {
   if (!fileUrl) {
     Alert.alert('File unavailable', 'This file does not have a saved URL.');
@@ -1000,8 +1137,8 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
 
   if (!hasMedia || !group) {
     Alert.alert(
-      'Delete highlight?',
-      'This removes the highlight from this device. Relay deletion will be handled later.',
+      'Delete Mark?',
+      'This removes the Mark from this device. Relay deletion will be handled later.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -1022,8 +1159,8 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
   }
 
   Alert.alert(
-    'Delete highlight?',
-    'This highlight has media. Do you want to keep the media in Gallery?',
+    'Delete Mark?',
+    'This Mark has media. Do you want to keep the media in Gallery?',
     [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -1147,7 +1284,7 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
 
     Alert.alert(
       `Remove ${member.displayName || member.npub.slice(0, 12)}?`,
-      'Their past posts will remain but they will no longer be able to view or post in this group.',
+      'Their past posts will remain but they will no longer be able to view or post in this Space.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -1193,7 +1330,7 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
 
             await saveLocalGroupSystemMessage({
               groupId: group.id,
-              text: `${removedName} was removed from the group`,
+              text: `${removedName} was removed from the space`,
               systemType: 'remove',
               actorNpub: member.npub,
               actorName: removedName,
@@ -1203,7 +1340,7 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
               publishGroupMessage({
                 groupId: group.id,
                 clientMessageId: `system_remove_${group.id}_${member.npub}_${Date.now()}`,
-                text: `${removedName} was removed from the group`,
+                text: `${removedName} was removed from the space`,
                 kind: 'system',
                 systemType: 'remove',
                 senderNpub: npub,
@@ -1246,7 +1383,7 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
 
     Alert.alert(
       `Leave ${group.name}?`,
-      'You will lose access to this group. Past messages may remain visible to other members.',
+      'You will lose access to this Space. Past messages may remain visible to other members.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -1294,7 +1431,7 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
 
             await saveLocalGroupSystemMessage({
               groupId: group.id,
-              text: `${leftName} left the group`,
+              text: `${leftName} left the space`,
               systemType: 'leave',
               actorNpub: npub,
               actorName: leftName,
@@ -1304,7 +1441,7 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
               publishGroupMessage({
                 groupId: group.id,
                 clientMessageId: `system_leave_${group.id}_${npub}_${Date.now()}`,
-                text: `${leftName} left the group`,
+                text: `${leftName} left the space`,
                 kind: 'system',
                 systemType: 'leave',
                 senderNpub: npub,
@@ -1335,7 +1472,7 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
               console.warn('[Group Members] leave notification failed:', error);
             });
 
-            router.replace('/(tabs)/groups' as any);
+            router.replace('/(tabs)/messages' as any);
           },
         },
       ]
@@ -1488,6 +1625,124 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
   setSelectedGalleryImage(mediaUrl);
 };
 
+const openSpaceChat = () => {
+  if (!group?.id) return;
+  router.push({ pathname: '/group-thread', params: { id: group.id } } as any);
+};
+
+const headerGroupTypeIcon = getGroupTypeIcon(group);
+const spaceRelayLabel =
+  (group.relayMode ?? 'default') === 'default'
+    ? 'bE Relay'
+    : group.relayMode === 'custom'
+      ? 'Space Relay'
+      : 'Both';
+const spaceCategoryLabel = group.sport
+  ? group.sport.charAt(0).toUpperCase() + group.sport.slice(1)
+  : 'No badge';
+const relaySettingsCard = (
+  <View style={s.groupRelayCard}>
+    <View style={s.groupRelayHeader}>
+      <View style={{ flex: 1 }}>
+        <Text style={s.groupRelayTitle}>Space Relay</Text>
+        <Text style={s.groupRelayHint}>
+          Choose where Space messages, media, and Marks are saved.
+        </Text>
+      </View>
+
+      {isAdmin && !editingGroupRelay && (
+        <TouchableOpacity onPress={openGroupRelayEditor}>
+          <Text style={s.groupRelayManage}>Manage</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+
+    {!editingGroupRelay ? (
+      <View style={s.groupRelaySummary}>
+        <Text style={s.groupRelaySummaryLabel}>Current setting</Text>
+        <Text style={s.groupRelaySummaryValue}>{spaceRelayLabel}</Text>
+        <Text style={s.groupRelayUrlText} numberOfLines={1}>
+          {group.relayUrl || DEFAULT_RELAY}
+        </Text>
+        {!isAdmin && (
+          <Text style={s.groupRelayReadOnly}>
+            Space admins manage relay routing.
+          </Text>
+        )}
+      </View>
+    ) : (
+      <View>
+        <Text style={s.inputLabel}>WHERE SHOULD THIS SPACE SAVE?</Text>
+
+        <TouchableOpacity
+          style={[
+            s.groupRelayOption,
+            groupRelayMode === 'default' && s.groupRelayOptionActive,
+          ]}
+          onPress={() => setGroupRelayMode('default')}
+          activeOpacity={0.85}
+        >
+          <Text style={s.groupRelayOptionTitle}>bE Relay</Text>
+          <Text style={s.groupRelayOptionHint}>Easiest setup. Works automatically.</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            s.groupRelayOption,
+            groupRelayMode === 'custom' && s.groupRelayOptionActive,
+          ]}
+          onPress={() => setGroupRelayMode('custom')}
+          activeOpacity={0.85}
+        >
+          <Text style={s.groupRelayOptionTitle}>Space / School Relay</Text>
+          <Text style={s.groupRelayOptionHint}>Use a private relay for this Space.</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            s.groupRelayOption,
+            groupRelayMode === 'both' && s.groupRelayOptionActive,
+          ]}
+          onPress={() => setGroupRelayMode('both')}
+          activeOpacity={0.85}
+        >
+          <Text style={s.groupRelayOptionTitle}>Both</Text>
+          <Text style={s.groupRelayOptionHint}>Save to bE and the Space relay.</Text>
+        </TouchableOpacity>
+
+        {(groupRelayMode === 'custom' || groupRelayMode === 'both') && (
+          <>
+            <Text style={s.inputLabel}>SPACE RELAY URL</Text>
+            <TextInput
+              style={s.input}
+              value={groupRelayUrl}
+              onChangeText={setGroupRelayUrl}
+              placeholder="wss://relay.school.org"
+              placeholderTextColor={theme.textMuted}
+              autoCapitalize="none"
+              keyboardType="url"
+            />
+          </>
+        )}
+
+        <View style={s.modalActions}>
+          <TouchableOpacity style={s.cancelBtn} onPress={() => setEditingGroupRelay(false)}>
+            <Text style={s.cancelText}>Cancel</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={s.confirmBtn}
+            onPress={saveGroupRelaySettings}
+            activeOpacity={0.85}
+          >
+            <Text style={s.confirmText}>Save relay</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    )}
+  </View>
+);
+
   return (
     <SafeAreaView style={s.safe}>
 
@@ -1496,7 +1751,7 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
         <TouchableOpacity
           onPress={() => {
             if (router.canGoBack()) router.back();
-            else router.replace('/(tabs)/groups' as any);
+            else router.replace('/(tabs)/messages' as any);
           }}
           style={s.backBtn}
         >
@@ -1505,32 +1760,143 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
         <View style={s.headerCenter}>
           <View style={s.groupTitleRow}>
             <View style={s.groupHeaderIcon}>
-              <Text style={s.groupHeaderIconText}>{getGroupIcon(group)}</Text>
+              {group.coverImage ? (
+                <Image source={{ uri: group.coverImage }} style={s.groupHeaderImage} />
+              ) : (
+                <Text style={s.groupHeaderIconText}>{getGroupAvatarText(group)}</Text>
+              )}
             </View>
+
+            {headerGroupTypeIcon ? (
+              <View style={s.groupHeaderCategoryBadge}>
+                <Text style={s.groupHeaderCategoryText}>{headerGroupTypeIcon}</Text>
+              </View>
+            ) : null}
 
             <Text style={s.headerTitle} numberOfLines={1}>{group.name}</Text>
           </View>
 
           <TouchableOpacity
-            onPress={() => setTab('members')}
+            onPress={toggleSpaceSettingsMenu}
             activeOpacity={0.75}
-            style={s.memberHeaderPill}
+            style={[s.memberHeaderPill, showSpaceSettingsMenu && s.memberHeaderPillActive]}
           >
             <Text style={s.memberHeaderText}>
               {members.length} {members.length === 1 ? 'member' : 'members'}
               {group.season ? ` · ${group.season}` : ''}
+              {'  '}
+              {showSpaceSettingsMenu ? '^' : 'v'}
             </Text>
           </TouchableOpacity>
         </View>
-        {isAdmin && (
-          <TouchableOpacity style={s.inviteBtn} onPress={() => setShowInvite(v => !v)}>
-            <Text style={s.inviteBtnText}>Invite</Text>
-          </TouchableOpacity>
-        )}
-        {!isAdmin && <View style={{ width: 50 }} />}
+        <View style={{ width: 58 }} />
       </View>
 
-      {/* Invite panel — slides in when admin taps Invite */}
+      {/* Header settings and invite panels */}
+      {showSpaceSettingsMenu && (
+        <View style={s.spaceSettingsDropdown}>
+          <View style={s.spaceSettingsTop}>
+            <View style={s.spaceSettingsAvatar}>
+              {group.coverImage ? (
+                <Image source={{ uri: group.coverImage }} style={s.spaceSettingsAvatarImage} />
+              ) : (
+                <Text style={s.spaceSettingsAvatarText}>{getGroupAvatarText(group)}</Text>
+              )}
+            </View>
+
+            <View style={{ flex: 1 }}>
+              <Text style={s.spaceSettingsTitle}>{group.name}</Text>
+              <Text style={s.spaceSettingsHint} numberOfLines={2}>
+                {group.description || 'Chat, Marks, calendar, gallery, and book work for this Space.'}
+              </Text>
+            </View>
+          </View>
+
+          <View style={s.spaceSettingsChips}>
+            <Text style={s.spaceSettingsChip}>{members.length} members</Text>
+            <Text style={s.spaceSettingsChip}>{spaceMarkViews.length} Marks</Text>
+            <Text style={s.spaceSettingsChip}>{spaceCategoryLabel}</Text>
+            <Text style={s.spaceSettingsChip}>{spaceRelayLabel}</Text>
+          </View>
+
+          <TouchableOpacity
+            style={s.spaceSettingsRow}
+            onPress={() => {
+              closeSpaceSettingsMenu();
+              setTab('members');
+            }}
+            activeOpacity={0.85}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={s.spaceSettingsRowTitle}>People and Access</Text>
+              <Text style={s.spaceSettingsRowHint}>View members, roles, and member actions.</Text>
+            </View>
+            <Text style={s.spaceSettingsRowAction}>Open</Text>
+          </TouchableOpacity>
+
+          {isAdmin && (
+            <TouchableOpacity
+              style={s.spaceSettingsRow}
+              onPress={() => {
+                closeSpaceSettingsMenu();
+                setShowInvite(true);
+              }}
+              activeOpacity={0.85}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={s.spaceSettingsRowTitle}>Invite and Share</Text>
+                <Text style={s.spaceSettingsRowHint}>Show invite code, QR, copy, or share.</Text>
+              </View>
+              <Text style={s.spaceSettingsRowAction}>Open</Text>
+            </TouchableOpacity>
+          )}
+
+          <TouchableOpacity
+            style={s.spaceSettingsRow}
+            onPress={() => setSpaceSettingsRelayOpen(prev => !prev)}
+            activeOpacity={0.85}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={s.spaceSettingsRowTitle}>Relay Routing</Text>
+              <Text style={s.spaceSettingsRowHint}>Current route: {spaceRelayLabel}</Text>
+            </View>
+            <Text style={s.spaceSettingsRowAction}>{spaceSettingsRelayOpen ? 'Hide' : 'Open'}</Text>
+          </TouchableOpacity>
+
+          {spaceSettingsRelayOpen && relaySettingsCard}
+
+          {(isAdmin || canLeaveGroup) && (
+            <View style={s.spaceSettingsDangerGroup}>
+              {isAdmin && (
+                <TouchableOpacity
+                  style={s.spaceSettingsDangerRow}
+                  onPress={() => {
+                    closeSpaceSettingsMenu();
+                    handleArchive();
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Text style={s.spaceSettingsDangerText}>Archive Space</Text>
+                </TouchableOpacity>
+              )}
+
+              {canLeaveGroup && (
+                <TouchableOpacity
+                  style={s.spaceSettingsDangerRow}
+                  onPress={() => {
+                    closeSpaceSettingsMenu();
+                    handleLeaveGroup();
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Text style={s.spaceSettingsDangerText}>Leave Space</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+        </View>
+      )}
+
       {showInvite && isAdmin && (
         <View style={s.invitePanel}>
           <View style={s.invitePanelTop}>
@@ -1559,22 +1925,36 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
             </View>
           </View>
           <Text style={s.inviteMeta}>
-            Members scan the QR or enter the code in Groups → Join. Regenerate if it gets shared with the wrong people.
+            Members scan the QR or enter the code in Spaces. Regenerate if it gets shared with the wrong people.
           </Text>
         </View>
       )}
 
       {/* Tab bar */}
-      <View style={s.tabRow}>
-        {(['stickies', 'calendar', 'gallery', 'book'] as MainTab[]).map(t => (
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={s.tabRow}
+        contentContainerStyle={s.tabRowContent}
+      >
+        {(['chat', 'stickies', 'calendar', 'gallery', 'book'] as MainTab[]).map(t => (
           <TouchableOpacity
             key={t}
             style={[s.tabBtn, tab === t && s.tabBtnActive]}
-            onPress={() => setTab(t)}
+            onPress={() => {
+              if (t === 'chat') {
+                openSpaceChat();
+                return;
+              }
+
+              setTab(t);
+            }}
           >
             <Text style={[s.tabText, tab === t && s.tabTextActive]}>
-              {t === 'stickies'
-                ? `Highlights (${stickies.length})`
+              {t === 'chat'
+                ? 'Chat'
+                : t === 'stickies'
+                ? `Marks (${spaceMarkViews.length + stickies.length})`
                 : t === 'calendar'
                   ? `Calendar${upcomingCount > 0 ? ` (${upcomingCount})` : ''}`
                   : t === 'gallery'
@@ -1583,7 +1963,7 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
             </Text>
           </TouchableOpacity>
         ))}
-      </View>
+      </ScrollView>
 
       {/* Stickies tab */}
       {tab === 'stickies' && (
@@ -1591,183 +1971,153 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
           contentContainerStyle={s.timelineContainer}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.gold} />}
         >
-    {isAdmin && (
-      <View style={s.groupRelayCard}>
-        <View style={s.groupRelayHeader}>
-          <View style={{ flex: 1 }}>
-            <Text style={s.groupRelayTitle}>Group Relay</Text>
-            <Text style={s.groupRelayHint}>
-              Choose where this group’s messages, media, and highlights are saved.
-            </Text>
-          </View>
+    <View style={s.spaceMarksOverview}>
+      <View style={{ flex: 1 }}>
+        <Text style={s.spaceMarksTitle}>Space Marks</Text>
+        <Text style={s.spaceMarksHint}>
+          Real Marks created here stay attached to this Space. Legacy notes remain visible below.
+        </Text>
+      </View>
 
-          {!editingGroupRelay && (
-            <TouchableOpacity onPress={openGroupRelayEditor}>
-              <Text style={s.groupRelayManage}>Manage</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {!editingGroupRelay ? (
-          <View style={s.groupRelaySummary}>
-            <Text style={s.groupRelaySummaryLabel}>Current setting</Text>
-            <Text style={s.groupRelaySummaryValue}>
-              {(group.relayMode ?? 'default') === 'default'
-                ? 'bE Relay'
-                : group.relayMode === 'custom'
-                  ? 'Group Relay'
-                  : 'Both'}
-            </Text>
-            <Text style={s.groupRelayUrlText} numberOfLines={1}>
-              {group.relayUrl || DEFAULT_RELAY}
-            </Text>
-          </View>
-        ) : (
-          <View>
-            <Text style={s.inputLabel}>WHERE SHOULD THIS GROUP SAVE?</Text>
-
-            <TouchableOpacity
-              style={[
-                s.groupRelayOption,
-                groupRelayMode === 'default' && s.groupRelayOptionActive,
-              ]}
-              onPress={() => setGroupRelayMode('default')}
-              activeOpacity={0.85}
-            >
-              <Text style={s.groupRelayOptionTitle}>bE Relay</Text>
-              <Text style={s.groupRelayOptionHint}>Easiest setup. Works automatically.</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                s.groupRelayOption,
-                groupRelayMode === 'custom' && s.groupRelayOptionActive,
-              ]}
-              onPress={() => setGroupRelayMode('custom')}
-              activeOpacity={0.85}
-            >
-              <Text style={s.groupRelayOptionTitle}>Group / School Relay</Text>
-              <Text style={s.groupRelayOptionHint}>Use a private relay for this group.</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                s.groupRelayOption,
-                groupRelayMode === 'both' && s.groupRelayOptionActive,
-              ]}
-              onPress={() => setGroupRelayMode('both')}
-              activeOpacity={0.85}
-            >
-              <Text style={s.groupRelayOptionTitle}>Both</Text>
-              <Text style={s.groupRelayOptionHint}>Save to bE and the group relay.</Text>
-            </TouchableOpacity>
-
-            {(groupRelayMode === 'custom' || groupRelayMode === 'both') && (
-              <>
-                <Text style={s.inputLabel}>GROUP RELAY URL</Text>
-                <TextInput
-                  style={s.input}
-                  value={groupRelayUrl}
-                  onChangeText={setGroupRelayUrl}
-                  placeholder="wss://relay.school.org"
-                  placeholderTextColor={theme.textMuted}
-                  autoCapitalize="none"
-                  keyboardType="url"
-                />
-              </>
-            )}
-
-            <View style={s.modalActions}>
-              <TouchableOpacity style={s.cancelBtn} onPress={() => setEditingGroupRelay(false)}>
-                <Text style={s.cancelText}>Cancel</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={s.confirmBtn}
-                onPress={saveGroupRelaySettings}
-                activeOpacity={0.85}
-              >
-                <Text style={s.confirmText}>Save relay</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+      <View style={s.spaceMarksStats}>
+        <Text style={s.spaceMarksStatText}>{spaceMarkViews.length} Marks</Text>
+        {stickies.length > 0 && (
+          <Text style={s.spaceMarksLegacyText}>{stickies.length} legacy</Text>
         )}
       </View>
-    )}
+    </View>
 
     {group.status === 'archived' && (
       <View style={s.archivedBanner}>
         <Text style={s.archivedBannerText}>
-          📦 This group is archived. Highlights can still be viewed.
+          📦 This Space is archived. Marks can still be viewed.
         </Text>
       </View>
     )}
 
-    {stickies.length === 0 ? (
+    {spaceMarkViews.length === 0 && stickies.length === 0 ? (
       <View style={s.empty}>
         <Text style={s.emptyIcon}>📌</Text>
-        <Text style={s.emptyText}>No highlights yet</Text>
+        <Text style={s.emptyText}>No Marks yet</Text>
         <Text style={s.emptyHint}>
-          Admins can add highlights, reminders, or important notes here.
+          Admins can add Marks, reminders, or important notes here.
         </Text>
       </View>
     ) : (
-      stickies.map(sticky => (
-        <View key={sticky.id} style={s.stickyCard}>
-          <View style={s.stickyTop}>
-            <Text style={s.stickyTitle}>{sticky.title}</Text>
-            {isAdmin && (
-              <TouchableOpacity onPress={() => handleDeleteSticky(sticky)}>
-                <Text style={s.stickyDelete}>✕</Text>
-              </TouchableOpacity>
+      <>
+        {spaceMarkViews.map(view => {
+          const mark = view.milestone;
+          const markText = getMilestoneText(mark);
+          const markMedia = getMilestoneMediaItems(mark);
+          const markMeta = [
+            formatStickyDate(mark.createdAt),
+            view.metadata.privacy === 'space' ? 'Space' : view.metadata.privacy,
+            view.metadata.savedToBook ? 'Book' : null,
+          ].filter(Boolean).join(' - ');
+
+          return (
+            <TouchableOpacity
+              key={mark.id}
+              style={s.spaceMarkCard}
+              onPress={() => openMarkDetail(mark.id)}
+              activeOpacity={0.86}
+            >
+              <View style={s.spaceMarkCardTop}>
+                <View style={s.spaceMarkAvatar}>
+                  <Text style={s.spaceMarkAvatarText}>M</Text>
+                </View>
+
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={s.spaceMarkTitle} numberOfLines={2}>{markText.title}</Text>
+                  <Text style={s.spaceMarkMeta} numberOfLines={1}>{markMeta}</Text>
+                </View>
+
+                <Text style={s.spaceMarkBadge}>Mark</Text>
+              </View>
+
+              {markText.body ? (
+                <Text style={s.spaceMarkBody}>{markText.body}</Text>
+              ) : null}
+
+              {markMedia.length > 0 && (
+                <MediaCollage
+                  media={markMedia}
+                  onPressMedia={(index) => openViewerForMilestone(mark, index)}
+                />
+              )}
+
+              {mark.tags.length > 0 && (
+                <View style={s.markTagRow}>
+                  {mark.tags.map(tag => (
+                    <Text key={`${mark.id}_${tag}`} style={s.markTag}>
+                      {tag}
+                    </Text>
+                  ))}
+                </View>
+              )}
+
+              <Text style={s.spaceMarkOpenHint}>Open Mark Detail</Text>
+            </TouchableOpacity>
+          );
+        })}
+
+        {stickies.map(sticky => (
+          <View key={sticky.id} style={s.stickyCard}>
+            <View style={s.stickyTop}>
+              <Text style={s.stickyTitle}>{sticky.title}</Text>
+              {isAdmin && (
+                <TouchableOpacity onPress={() => handleDeleteSticky(sticky)}>
+                  <Text style={s.stickyDelete}>✕</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {sticky.body ? (
+              <Text style={s.stickyBody}>{sticky.body}</Text>
+            ) : null}
+
+            {getStickyVisualMediaItems(sticky).length > 0 && (
+              <MediaCollage
+                media={getStickyVisualMediaItems(sticky)}
+                onPressMedia={(index) => openViewerForSticky(sticky, index)}
+              />
+            )}
+
+            {getStickyFileItems(sticky).length > 0 && (
+              <View style={s.stickyFileList}>
+                {getStickyFileItems(sticky).map((file, index) => (
+        <TouchableOpacity
+          key={`${sticky.id}_file_${index}`}
+          style={s.stickyFileRow}
+          onPress={() => handleOpenHighlightFile(file.mediaUrl || file.uri)}
+          activeOpacity={0.82}
+        >
+          <Text style={s.stickyFileIcon}>📎</Text>
+
+          <View style={{ flex: 1 }}>
+            <Text style={s.stickyFileName} numberOfLines={1}>
+              {file.fileName || file.name || 'Attached file'}
+            </Text>
+
+            {!!file.mimeType && (
+              <Text style={s.stickyFileMeta} numberOfLines={1}>
+                {file.mimeType}
+              </Text>
             )}
           </View>
 
-          {sticky.body ? (
-            <Text style={s.stickyBody}>{sticky.body}</Text>
-          ) : null}
+          <Text style={s.stickyFileOpen}>Open</Text>
+        </TouchableOpacity>
+                ))}
+              </View>
+            )}
 
-          {getStickyVisualMediaItems(sticky).length > 0 && (
-            <MediaCollage
-              media={getStickyVisualMediaItems(sticky)}
-              onPressMedia={(index) => openViewerForSticky(sticky, index)}
-            />
-          )}
-
-          {getStickyFileItems(sticky).length > 0 && (
-            <View style={s.stickyFileList}>
-              {getStickyFileItems(sticky).map((file, index) => (
-      <TouchableOpacity
-        key={`${sticky.id}_file_${index}`}
-        style={s.stickyFileRow}
-        onPress={() => handleOpenHighlightFile(file.mediaUrl || file.uri)}
-        activeOpacity={0.82}
-      >
-        <Text style={s.stickyFileIcon}>📎</Text>
-
-        <View style={{ flex: 1 }}>
-          <Text style={s.stickyFileName} numberOfLines={1}>
-            {file.fileName || file.name || 'Attached file'}
-          </Text>
-
-          {!!file.mimeType && (
-            <Text style={s.stickyFileMeta} numberOfLines={1}>
-              {file.mimeType}
+            <Text style={s.stickyMeta}>
+              Legacy note - {formatStickyDate(sticky.createdAt)}
             </Text>
-          )}
-        </View>
-
-        <Text style={s.stickyFileOpen}>Open</Text>
-      </TouchableOpacity>
-              ))}
-            </View>
-          )}
-
-          <Text style={s.stickyMeta}>
-            {formatStickyDate(sticky.createdAt)}
-          </Text>
-        </View>
-      ))
+          </View>
+        ))}
+      </>
     )}
         </ScrollView>
       )}
@@ -1954,41 +2304,22 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
               <Text style={s.emptyIcon}>👥</Text>
               <Text style={s.emptyText}>No members yet</Text>
               <Text style={s.emptyHint}>
-                Members will appear here after they join this group.
+                Members will appear here after they join this Space.
               </Text>
             </View>
           }
         />
       )}
       {/* Group actions bar */}
-      {group.status === 'active' && (isAdmin || canLeaveGroup) && (
+      {group.status === 'active' && isAdmin && isMember && (
         <View style={s.adminBar}>
-          {isAdmin && (
-            <TouchableOpacity style={s.adminBtn} onPress={handleArchive}>
-              <Text style={s.adminBtnText} numberOfLines={1}>
-                📦 Archive
-              </Text>
-            </TouchableOpacity>
-          )}
-
-          {isAdmin && isMember && (
-            <TouchableOpacity
-              style={s.adminBtnGold}
-              onPress={() => setShowStickyModal(true)}
-            >
-              <Text style={s.adminBtnGoldText}>+ Highlight</Text>
-            </TouchableOpacity>
-          )}
-
-          {canLeaveGroup && (
-            <TouchableOpacity
-              style={s.adminBtnDanger}
-              onPress={handleLeaveGroup}
-              activeOpacity={0.85}
-            >
-              <Text style={s.adminBtnDangerText}>Leave Group</Text>
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity
+            style={s.adminBtnGold}
+            onPress={() => setShowSpaceMarkModal(true)}
+            activeOpacity={0.88}
+          >
+            <Text style={s.adminBtnGoldText}>+ Mark</Text>
+          </TouchableOpacity>
         </View>
       )}
 
@@ -2114,7 +2445,7 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
                   <Text style={s.memberActionTitle}>
                     {selectedMemberAction.role === 'member' ? 'Make admin' : 'Remove admin'}
                   </Text>
-                  <Text style={s.memberActionHint}>Manage this member’s group role.</Text>
+                  <Text style={s.memberActionHint}>Manage this member role for the Space.</Text>
                 </View>
               </TouchableOpacity>
 
@@ -2130,9 +2461,9 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
                 <Text style={[s.memberActionIcon, s.memberActionDangerText]}>⌫</Text>
                 <View style={s.memberActionTextBlock}>
                   <Text style={[s.memberActionTitle, s.memberActionDangerText]}>
-                    Remove from group
+                    Remove from Space
                   </Text>
-                  <Text style={s.memberActionHint}>Remove access for this group.</Text>
+                  <Text style={s.memberActionHint}>Remove access for this Space.</Text>
                 </View>
               </TouchableOpacity>
             </>
@@ -2161,232 +2492,256 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
       />
 
       <Modal
-        visible={showStickyModal}
+        visible={showSpaceMarkModal}
         transparent
         animationType="slide"
-        onRequestClose={() => setShowStickyModal(false)}
+        onRequestClose={() => {
+          if (spaceMarkSaving) return;
+          resetSpaceMarkDraft();
+          setShowSpaceMarkModal(false);
+        }}
       >
         <KeyboardAvoidingView
           style={s.modalOverlay}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
-    <ScrollView
-      keyboardShouldPersistTaps="handled"
-      contentContainerStyle={s.modalScrollContent}
-    >
-          <View style={s.modalCard}>
-            <Text style={s.modalTitle}>New Highlight</Text>
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={s.modalScrollContent}
+          >
+            <View style={s.modalCard}>
+              <Text style={s.modalTitle}>New Mark in {group.name}</Text>
 
-      <Text style={s.inputLabel}>TITLE</Text>
-      <TextInput
-        style={s.input}
-        value={stickyTitle}
-        onChangeText={setStickyTitle}
-        placeholder="Practice reminder, team highlight..."
-        placeholderTextColor={theme.textMuted}
-      />
+              <Text style={s.inputLabel}>TITLE</Text>
+              <TextInput
+                style={s.input}
+                value={spaceMarkTitle}
+                onChangeText={setSpaceMarkTitle}
+                placeholder="Name this Mark..."
+                placeholderTextColor={theme.textMuted}
+              />
 
-      <Text style={s.inputLabel}>MESSAGE</Text>
-      <TextInput
-        style={[s.input, s.inputMulti]}
-        value={stickyBody}
-        onChangeText={setStickyBody}
-        placeholder="Write the highlight..."
-        placeholderTextColor={theme.textMuted}
-        multiline
-        textAlignVertical="top"
-      />
+              <Text style={s.inputLabel}>NOTE</Text>
+              <TextInput
+                style={[s.input, s.inputMulti]}
+                value={spaceMarkNote}
+                onChangeText={setSpaceMarkNote}
+                placeholder="What happened?"
+                placeholderTextColor={theme.textMuted}
+                multiline
+                textAlignVertical="top"
+              />
 
-      <Text style={s.inputLabel}>MEDIA</Text>
+              <Text style={s.inputLabel}>MEDIA</Text>
+              {spaceMarkMedia.length > 0 ? (
+                <View>
+                  <MediaCollage
+                    media={spaceMarkMedia}
+                    onPressMedia={() => {}}
+                  />
 
-      {selectedHighlightMediaList.length > 0 ? (
-        <View>
-          {selectedHighlightMediaList.some(item => item.type === 'image' || item.type === 'video') && (
-            <MediaCollage
-              media={selectedHighlightMediaList.filter(item => item.type === 'image' || item.type === 'video')}
-              onPressMedia={() => {}}
-            />
-          )}
+                  <TouchableOpacity
+                    style={s.highlightRemoveMediaBtn}
+                    onPress={() => setSpaceMarkMedia([])}
+                  >
+                    <Text style={s.highlightRemoveMediaText}>Remove media</Text>
+                  </TouchableOpacity>
 
-          {selectedHighlightMediaList.some(item => item.type === 'file') && (
-            <View style={s.highlightFileList}>
-              {selectedHighlightMediaList
-                .filter(item => item.type === 'file')
-                .map((item, index) => (
-                  <View key={`${item.uri}_${index}`} style={s.highlightFileRow}>
-                    <Text style={s.highlightFileIcon}>📎</Text>
-                    <Text style={s.highlightFileName} numberOfLines={1}>
-                      {item.name || 'Attached file'}
-                    </Text>
+                  <View style={s.highlightAttachmentRow}>
+                    <TouchableOpacity
+                      style={[s.highlightAddMediaBtn, s.highlightAttachmentHalf]}
+                      onPress={handlePickSpaceMarkMedia}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={s.highlightAddMediaText}>+ Media</Text>
+                      <Text style={s.highlightAddMediaHint}>Photos/videos</Text>
+                    </TouchableOpacity>
                   </View>
-                ))}
+                </View>
+              ) : (
+                <View style={s.highlightAttachmentRow}>
+                  <TouchableOpacity
+                    style={[s.highlightAddMediaBtn, s.highlightAttachmentHalf]}
+                    onPress={handlePickSpaceMarkMedia}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={s.highlightAddMediaText}>+ Add media</Text>
+                    <Text style={s.highlightAddMediaHint}>Photos/videos</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              <Text style={s.inputLabel}>TAGS</Text>
+              <View style={s.markTagRow}>
+                {SPACE_MARK_PRESET_TAGS.map(tag => {
+                  const active = spaceMarkTags.some(existing => existing.toLowerCase() === tag.toLowerCase());
+
+                  return (
+                    <TouchableOpacity
+                      key={tag}
+                      style={[s.markTagChip, active && s.markTagChipActive]}
+                      onPress={() => active ? removeSpaceMarkTag(tag) : addSpaceMarkTag(tag)}
+                      activeOpacity={0.82}
+                    >
+                      <Text style={[s.markTagChipText, active && s.markTagChipTextActive]}>
+                        {tag}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {spaceMarkTags.length > 0 && (
+                <View style={s.markTagRow}>
+                  {spaceMarkTags.map(tag => (
+                    <TouchableOpacity
+                      key={tag}
+                      style={s.markTag}
+                      onPress={() => removeSpaceMarkTag(tag)}
+                    >
+                      <Text style={s.markTagText}>{tag} x</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+
+              <View style={s.markTagInputRow}>
+                <TextInput
+                  style={[s.input, s.markTagInput]}
+                  value={spaceMarkTagInput}
+                  onChangeText={setSpaceMarkTagInput}
+                  placeholder="Custom tag..."
+                  placeholderTextColor={theme.textMuted}
+                  onSubmitEditing={() => addSpaceMarkTag(spaceMarkTagInput)}
+                />
+                <TouchableOpacity
+                  style={s.markTagAddBtn}
+                  onPress={() => addSpaceMarkTag(spaceMarkTagInput)}
+                  activeOpacity={0.82}
+                >
+                  <Text style={s.markTagAddText}>+</Text>
+                </TouchableOpacity>
+              </View>
+
+              <Text style={s.inputLabel}>CONTEXT</Text>
+              <TouchableOpacity
+                style={s.markContextToggle}
+                onPress={() => setSpaceMarkShowContext(prev => !prev)}
+                activeOpacity={0.82}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={s.markContextTitle}>Optional details</Text>
+                  <Text style={s.markContextHint}>People, life stage, event, or Living Book.</Text>
+                </View>
+                <Text style={s.markContextAction}>{spaceMarkShowContext ? 'Hide' : 'Add'}</Text>
+              </TouchableOpacity>
+
+              {spaceMarkShowContext && (
+                <View style={s.markContextPanel}>
+                  <TextInput
+                    style={s.input}
+                    value={spaceMarkPeopleInput}
+                    onChangeText={setSpaceMarkPeopleInput}
+                    placeholder="People in this Mark, separated by commas"
+                    placeholderTextColor={theme.textMuted}
+                  />
+
+                  <Text style={s.inputLabel}>LIFE STAGE</Text>
+                  <View style={s.markTagRow}>
+                    {SPACE_MARK_LIFE_STAGE_OPTIONS.map(option => {
+                      const active = spaceMarkLifeStage === option;
+
+                      return (
+                        <TouchableOpacity
+                          key={option}
+                          style={[s.markTagChip, active && s.markTagChipActive]}
+                          onPress={() => setSpaceMarkLifeStage(active ? '' : option)}
+                          activeOpacity={0.82}
+                        >
+                          <Text style={[s.markTagChipText, active && s.markTagChipTextActive]}>
+                            {option}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+
+                  <TextInput
+                    style={s.input}
+                    value={spaceMarkEventInput}
+                    onChangeText={setSpaceMarkEventInput}
+                    placeholder="Event, season, trip, or ceremony"
+                    placeholderTextColor={theme.textMuted}
+                  />
+
+                  <TouchableOpacity
+                    style={[s.visibilityOption, spaceMarkSavedToBook && s.visibilityOptionActive]}
+                    onPress={() => setSpaceMarkSavedToBook(prev => !prev)}
+                    activeOpacity={0.82}
+                  >
+                    <Text style={s.visibilityIcon}>Book</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.visibilityTitle}>Save toward Living Book</Text>
+                      <Text style={s.visibilityHint}>Add this Mark to the future book view.</Text>
+                    </View>
+                    <Text style={s.visibilityStatus}>{spaceMarkSavedToBook ? 'ON' : 'OFF'}</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              <Text style={s.inputLabel}>PLACEMENT</Text>
+              <View style={[s.visibilityOption, s.visibilityOptionActive]}>
+                <Text style={s.visibilityIcon}>Space</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.visibilityTitle}>{group.name}</Text>
+                  <Text style={s.visibilityHint}>Locked to this Space as a real Mark.</Text>
+                </View>
+                <Text style={s.visibilityStatus}>ON</Text>
+              </View>
+
+              {spaceMarkSaveStatus && (
+                <View style={{ marginTop: 12 }}>
+                  <Text style={s.highlightUploadStatus}>{spaceMarkSaveStatus}</Text>
+                  <View style={s.markProgressTrack}>
+                    <View
+                      style={[
+                        s.markProgressFill,
+                        { width: `${Math.max(spaceMarkProgress, 5)}%` },
+                      ]}
+                    />
+                  </View>
+                  <Text style={s.markProgressText}>{Math.round(spaceMarkProgress)}%</Text>
+                </View>
+              )}
+
+              <View style={s.modalActions}>
+                <TouchableOpacity
+                  style={[s.cancelBtn, spaceMarkSaving && s.confirmBtnDisabled]}
+                  disabled={spaceMarkSaving}
+                  onPress={() => {
+                    resetSpaceMarkDraft();
+                    setShowSpaceMarkModal(false);
+                  }}
+                >
+                  <Text style={s.cancelText}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[s.confirmBtn, spaceMarkSaving && s.confirmBtnDisabled]}
+                  onPress={handleCreateSpaceMark}
+                  disabled={spaceMarkSaving}
+                >
+                  {spaceMarkSaving ? (
+                    <ActivityIndicator size="small" color={theme.bg} />
+                  ) : (
+                    <Text style={s.confirmText}>Save Mark</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
             </View>
-          )}
-
-          <TouchableOpacity
-            style={s.highlightRemoveMediaBtn}
-            onPress={() => {
-              setSelectedHighlightMediaList([]);
-              setSelectedHighlightMedia(null);
-            }}
-          >
-            <Text style={s.highlightRemoveMediaText}>Remove all attachments</Text>
-          </TouchableOpacity>
-
-          <View style={s.highlightAttachmentRow}>
-            <TouchableOpacity
-              style={[s.highlightAddMediaBtn, s.highlightAttachmentHalf]}
-              onPress={handlePickHighlightMedia}
-              activeOpacity={0.85}
-            >
-              <Text style={s.highlightAddMediaText}>+ Media</Text>
-              <Text style={s.highlightAddMediaHint}>Photos/videos</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[s.highlightAddMediaBtn, s.highlightAttachmentHalf]}
-              onPress={handlePickHighlightFiles}
-              activeOpacity={0.85}
-            >
-              <Text style={s.highlightAddMediaText}>+ File</Text>
-              <Text style={s.highlightAddMediaHint}>Docs/PDFs</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      ) : (
-        <View style={s.highlightAttachmentRow}>
-          <TouchableOpacity
-            style={[s.highlightAddMediaBtn, s.highlightAttachmentHalf]}
-            onPress={handlePickHighlightMedia}
-            activeOpacity={0.85}
-          >
-            <Text style={s.highlightAddMediaText}>+ Add media</Text>
-            <Text style={s.highlightAddMediaHint}>Photos/videos</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[s.highlightAddMediaBtn, s.highlightAttachmentHalf]}
-            onPress={handlePickHighlightFiles}
-            activeOpacity={0.85}
-          >
-            <Text style={s.highlightAddMediaText}>+ Attach file</Text>
-            <Text style={s.highlightAddMediaHint}>Docs/PDFs</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      <Text style={s.inputLabel}>VISIBILITY</Text>
-
-      <View style={s.visibilityBox}>
-        <TouchableOpacity
-          style={[s.visibilityOption, stickyVisibility === 'private' && s.visibilityOptionActive]}
-          onPress={() => setStickyVisibility('private')}
-        >
-    <Text style={s.visibilityIcon}>🔒</Text>
-    <View style={{ flex: 1 }}>
-      <Text style={s.visibilityTitle}>Private</Text>
-      <Text style={s.visibilityHint}>Only this group can see it</Text>
-    </View>
-    <Text style={s.visibilityStatus}>ON</Text>
-  </TouchableOpacity>
-
-  <TouchableOpacity
-    style={[s.visibilityOption, s.visibilityOptionDisabled]}
-    onPress={() => Alert.alert('Coming soon', 'Organization archives will be added later.')}
-  >
-    <Text style={s.visibilityIcon}>🏫</Text>
-    <View style={{ flex: 1 }}>
-      <Text style={s.visibilityTitleDim}>Organization</Text>
-      <Text style={s.visibilityHint}>School, church, or team archive</Text>
-    </View>
-    <Text style={s.visibilitySoon}>Soon</Text>
-  </TouchableOpacity>
-
-  <TouchableOpacity
-    style={[s.visibilityOption, s.visibilityOptionDisabled]}
-    onPress={() => Alert.alert('Coming soon', 'Public relay posting will stay opt-in only.')}
-  >
-    <Text style={s.visibilityIcon}>🌍</Text>
-    <View style={{ flex: 1 }}>
-      <Text style={s.visibilityTitleDim}>Public</Text>
-      <Text style={s.visibilityHint}>Visible outside the group</Text>
-    </View>
-    <Text style={s.visibilitySoon}>Soon</Text>
-  </TouchableOpacity>
-      </View>
-
-      {highlightUploadStatus && (
-        <View style={{ marginTop: 12 }}>
-          <Text style={s.highlightUploadStatus}>
-            {highlightUploadStatus}
-          </Text>
-
-          <View
-            style={{
-              height: 6,
-              backgroundColor: theme.border,
-              borderRadius: 999,
-              marginTop: 8,
-              overflow: 'hidden',
-            }}
-          >
-            <View
-              style={{
-                width: `${Math.max(highlightProgress * 100, 5)}%`,
-                height: '100%',
-                backgroundColor: theme.gold,
-              }}
-            />
-          </View>
-
-          <Text
-            style={{
-              color: theme.textMuted,
-              fontSize: 11,
-              textAlign: 'center',
-              marginTop: 4,
-            }}
-          >
-            {Math.round(highlightProgress * 100)}%
-          </Text>
-        </View>
-      )}
-
-      <View style={s.modalActions}>
-        <TouchableOpacity
-          style={[s.cancelBtn, highlightPosting && s.confirmBtnDisabled]}
-          disabled={highlightPosting}
-          onPress={() => {
-            setStickyTitle('');
-            setStickyBody('');
-            setStickyVisibility('private');
-            setSelectedHighlightMedia(null);
-            setSelectedHighlightMediaList([]);
-            setHighlightUploadStatus(null);
-            setHighlightProgress(0);
-            setShowStickyModal(false);
-          }}
-        >
-          <Text style={s.cancelText}>Cancel</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[s.confirmBtn, highlightPosting && s.confirmBtnDisabled]}
-          onPress={handleCreateSticky}
-          disabled={highlightPosting}
-        >
-          {highlightPosting ? (
-            <ActivityIndicator size="small" color={theme.bg} />
-          ) : (
-            <Text style={s.confirmText}>Post highlight</Text>
-          )}
-        </TouchableOpacity>
-
-            </View>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </Modal>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
 
     </SafeAreaView>
   );
@@ -2518,6 +2873,24 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
   groupHeaderIconText: {
     fontSize: 16,
   },
+  groupHeaderImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 15,
+  },
+  groupHeaderCategoryBadge: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.gold + '55',
+  },
+  groupHeaderCategoryText: {
+    fontSize: 12,
+  },
   headerTitle: {
     color: theme.text,
     fontSize: 16,
@@ -2534,6 +2907,10 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     backgroundColor: theme.surface,
     borderWidth: 0.5,
     borderColor: theme.border,
+  },
+  memberHeaderPillActive: {
+    backgroundColor: theme.raised,
+    borderColor: theme.gold + '66',
   },
   memberHeaderText: {
     color: theme.gold,
@@ -2559,6 +2936,96 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     borderRadius: 18,
     padding: 16,
     marginBottom: 13,
+  },
+  spaceMarksOverview: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
+    borderRadius: 18,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    backgroundColor: theme.surface,
+    marginBottom: 13,
+  },
+  spaceMarksTitle: {
+    color: theme.text,
+    fontSize: 17,
+    fontWeight: '900',
+    letterSpacing: -0.2,
+  },
+  spaceMarksHint: {
+    color: theme.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '600',
+    marginTop: 3,
+  },
+  spaceMarksStats: {
+    alignItems: 'flex-end',
+    gap: 5,
+  },
+  spaceMarksStatText: {
+    color: theme.gold,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  spaceMarksLegacyText: {
+    color: theme.textMuted,
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  spaceMarkCard: {
+    backgroundColor: theme.surface,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 12,
+  },
+  spaceMarkCardTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 10,
+  },
+  spaceMarkAvatar: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.gold + '44',
+  },
+  spaceMarkAvatarText: {
+    color: theme.gold,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  spaceMarkTitle: {
+    color: theme.text,
+    fontSize: 15,
+    fontWeight: '900',
+    lineHeight: 19,
+  },
+  spaceMarkMeta: {
+    color: theme.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  spaceMarkBody: {
+    color: theme.text,
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  spaceMarkOpenHint: {
+    color: theme.gold,
+    fontSize: 11,
+    fontWeight: '900',
+    marginTop: 12,
   },
   highlightCollageWrap: {
     marginTop: 12,
@@ -2686,6 +3153,80 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     marginTop: 12,
     fontWeight: '600',
   },
+  spaceMarkBadge: {
+    color: theme.gold,
+    fontSize: 11,
+    fontWeight: '900',
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: theme.raised,
+    overflow: 'hidden',
+  },
+  markTagRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 10,
+  },
+  markTag: {
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: theme.raised,
+  },
+  markTagText: {
+    color: theme.gold,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  markTagChip: {
+    minHeight: 32,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    backgroundColor: theme.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  markTagChipActive: {
+    backgroundColor: theme.gold,
+    borderColor: theme.gold,
+  },
+  markTagChipText: {
+    color: theme.text,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  markTagChipTextActive: {
+    color: theme.bg,
+  },
+  markTagInputRow: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  markTagInput: {
+    flex: 1,
+  },
+  markTagAddBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: theme.gold,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  markTagAddText: {
+    color: theme.bg,
+    fontSize: 24,
+    fontWeight: '800',
+    lineHeight: 26,
+  },
   stickyFileList: {
     gap: 8,
     marginTop: 12,
@@ -2724,6 +3265,7 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     borderWidth: 0.5,
     borderColor: theme.border,
     backgroundColor: theme.surface,
+    marginBottom: 13,
   },
   groupRelayHeader: {
     flexDirection: 'row',
@@ -2772,12 +3314,19 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     fontSize: 11,
     fontFamily: 'monospace',
   },
+  groupRelayReadOnly: {
+    color: theme.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 8,
+  },
   groupRelayOption: {
     padding: 13,
     borderRadius: 14,
     borderWidth: 0.5,
     borderColor: theme.border,
     backgroundColor: theme.bg,
+    marginBottom: 8,
   },
   groupRelayOptionActive: {
     borderColor: theme.gold,
@@ -2793,6 +3342,176 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     color: theme.textMuted,
     fontSize: 12,
     lineHeight: 17,
+  },
+  spaceSettingsDropdown: {
+    padding: 14,
+    borderBottomWidth: 0.5,
+    borderBottomColor: theme.border,
+    backgroundColor: theme.bg,
+  },
+  spaceSettingsCard: {
+    padding: 16,
+    borderRadius: 18,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    backgroundColor: theme.surface,
+    marginBottom: 13,
+  },
+  spaceSettingsTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 14,
+  },
+  spaceSettingsAvatar: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.gold + '44',
+    overflow: 'hidden',
+  },
+  spaceSettingsAvatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 27,
+  },
+  spaceSettingsAvatarText: {
+    color: theme.gold,
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  spaceSettingsTitle: {
+    color: theme.text,
+    fontSize: 16,
+    fontWeight: '900',
+    letterSpacing: -0.2,
+  },
+  spaceSettingsHint: {
+    color: theme.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '600',
+    marginTop: 4,
+  },
+  spaceSettingsGrid: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 2,
+  },
+  spaceSettingsMetric: {
+    flex: 1,
+    padding: 10,
+    borderRadius: 14,
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+  },
+  spaceSettingsMetricValue: {
+    color: theme.gold,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  spaceSettingsMetricLabel: {
+    color: theme.textMuted,
+    fontSize: 10,
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  spaceSettingsChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 12,
+  },
+  spaceSettingsChip: {
+    color: theme.gold,
+    fontSize: 11,
+    fontWeight: '900',
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: theme.raised,
+    overflow: 'hidden',
+  },
+  spaceSettingsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    backgroundColor: theme.surface,
+    marginTop: 9,
+  },
+  spaceSettingsRowTitle: {
+    color: theme.text,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  spaceSettingsRowHint: {
+    color: theme.textMuted,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  spaceSettingsRowAction: {
+    color: theme.gold,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  spaceSettingsDangerGroup: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 12,
+  },
+  spaceSettingsDangerRow: {
+    flex: 1,
+    minHeight: 40,
+    borderRadius: 999,
+    borderWidth: 0.5,
+    borderColor: theme.danger,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.surface,
+  },
+  spaceSettingsDangerText: {
+    color: theme.danger,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  spaceSettingsActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 14,
+  },
+  spaceSettingsAction: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: 12,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.raised,
+  },
+  spaceSettingsActionGold: {
+    backgroundColor: theme.gold,
+    borderColor: theme.gold,
+  },
+  spaceSettingsActionText: {
+    color: theme.text,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  spaceSettingsActionTextGold: {
+    color: theme.bg,
   },
   
   // Invite panel
@@ -2828,15 +3547,17 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
 
   // Tabs
   tabRow: {
-    flexDirection: 'row',
     borderBottomWidth: 0.5,
     borderBottomColor: theme.border,
     backgroundColor: theme.bg,
+  },
+  tabRowContent: {
     paddingHorizontal: 12,
   },
   tabBtn: {
-    flex: 1,
+    minWidth: 86,
     paddingVertical: 13,
+    paddingHorizontal: 6,
     alignItems: 'center',
   },
   tabBtnActive: {
@@ -3156,6 +3877,7 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     left: 0,
     right: 0,
     flexDirection: 'row',
+    justifyContent: 'center',
     gap: 12,
     paddingHorizontal: 20,
     paddingTop: 12,
@@ -3184,10 +3906,11 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     lineHeight: 16,
   },
   adminBtnGold: {
-    flex: 1.5,
-    minHeight: 48,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
+    minWidth: 148,
+    minHeight: 46,
+    paddingHorizontal: 22,
+    paddingVertical: 10,
+    borderRadius: 999,
     backgroundColor: theme.gold,
     alignItems: 'center',
     justifyContent: 'center',
@@ -3264,6 +3987,57 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
   },
   inputMulti: {
     minHeight: 120,
+  },
+  markContextToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    backgroundColor: theme.surface,
+  },
+  markContextTitle: {
+    color: theme.text,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  markContextHint: {
+    color: theme.textMuted,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  markContextAction: {
+    color: theme.gold,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  markContextPanel: {
+    marginTop: 10,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    backgroundColor: theme.raised,
+    gap: 10,
+  },
+  markProgressTrack: {
+    height: 6,
+    backgroundColor: theme.border,
+    borderRadius: 999,
+    marginTop: 8,
+    overflow: 'hidden',
+  },
+  markProgressFill: {
+    height: '100%',
+    backgroundColor: theme.gold,
+  },
+  markProgressText: {
+    color: theme.textMuted,
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: 4,
   },
   modalActions: {
     flexDirection: 'row',

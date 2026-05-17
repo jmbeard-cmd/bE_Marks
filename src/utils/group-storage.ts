@@ -715,6 +715,7 @@ export async function joinGroupByCode(input: {
         season: remoteGroup.season,
         sport: remoteGroup.sport,
         icon: remoteGroup.icon,
+        coverImage: remoteGroup.coverImage,
         schoolId: remoteGroup.schoolId,
         inviteCode: remoteGroup.inviteCode,
         status: remoteGroup.status,

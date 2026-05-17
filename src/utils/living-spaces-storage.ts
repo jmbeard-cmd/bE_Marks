@@ -5,6 +5,7 @@ import {
   createDefaultLivingSpaces,
   createLockedLivingMarkPlacement,
   createLivingMarkMetadata,
+  createLivingSpaceFromGroup,
   createLivingMarkView,
   deriveLivingMarkPlacement,
   hasLivingPromptQueuedToday,
@@ -254,6 +255,52 @@ export async function ensureDefaultLivingSpaces(input: LivingSpaceDefaultsInput 
   const merged = sortSpaces(Array.from(byId.values()));
   await saveLivingSpaces(merged);
   return merged;
+}
+
+export async function syncLivingSpacesFromGroups(input: {
+  groups?: BEGroup[];
+  now?: number;
+} = {}): Promise<LivingSpace[]> {
+  const now = input.now ?? Math.floor(Date.now() / 1000);
+  const [family, groups] = await Promise.all([
+    getFamily(),
+    input.groups ? Promise.resolve(input.groups) : getGroups(),
+  ]);
+  const baseSpaces = await ensureDefaultLivingSpaces({
+    family: familyToSeed(family),
+    groups: groups.map(groupToSeed),
+    now,
+  });
+  const groupsById = new Map(groups.map(group => [group.id, group]));
+  const syncedSpaces = baseSpaces.map(space => {
+    if (space.source !== 'group' || !space.sourceId) {
+      return space;
+    }
+
+    const group = groupsById.get(space.sourceId);
+
+    if (!group) {
+      return {
+        ...space,
+        archivedAt: space.archivedAt ?? now,
+        updatedAt: now,
+      };
+    }
+
+    const mirrored = createLivingSpaceFromGroup(groupToSeed(group), now);
+
+    return {
+      ...space,
+      ...mirrored,
+      id: space.id,
+      createdAt: space.createdAt ?? mirrored.createdAt,
+      archivedAt: group.status === 'archived' ? space.archivedAt ?? group.updatedAt ?? now : undefined,
+      updatedAt: group.updatedAt ?? mirrored.updatedAt ?? now,
+    };
+  });
+
+  await saveLivingSpaces(syncedSpaces);
+  return sortSpaces(syncedSpaces);
 }
 
 export async function upsertLivingSpace(space: LivingSpace): Promise<LivingSpace[]> {
