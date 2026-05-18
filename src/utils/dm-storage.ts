@@ -6,6 +6,7 @@ import { getStoredIdentity } from './nostr';
 const DM_THREADS_KEY = 'dm_threads_v1';
 const DM_MESSAGES_KEY = 'dm_messages_v1';
 const DM_THREAD_MESSAGES_KEY = 'dm_thread_messages_v1';
+const DM_PARTICIPANT_THREAD_INDEX_KEY = 'dm_participant_thread_index_v1';
 
 let cachedIdentityStorageSuffix: string | null = null;
 
@@ -27,6 +28,14 @@ export type DMMessage = {
   createdAt: number;
   provisional?: boolean;
   provisionalEventId?: string;
+};
+
+export type DMParticipantThreadIndexEntry = {
+  threadId: string;
+  title: string;
+  participantPubkey: string;
+  participantNpub?: string;
+  updatedAt: number;
 };
 
 async function getIdentityScopedKey(baseKey: string): Promise<string> {
@@ -94,6 +103,62 @@ async function getMessageKey(): Promise<string> {
 
 async function getThreadMessageKey(threadId: string): Promise<string> {
   return await getIdentityScopedKey(`${DM_THREAD_MESSAGES_KEY}_${threadId}`);
+}
+
+async function getParticipantThreadIndexKey(): Promise<string> {
+  return await getIdentityScopedKey(DM_PARTICIPANT_THREAD_INDEX_KEY);
+}
+
+function normalizePubkey(pubkey?: string): string {
+  return pubkey?.trim().toLowerCase() || '';
+}
+
+async function readParticipantThreadIndex(): Promise<Record<string, DMParticipantThreadIndexEntry>> {
+  const key = await getParticipantThreadIndexKey();
+  return await readJson<Record<string, DMParticipantThreadIndexEntry>>(key, {});
+}
+
+async function writeParticipantThreadIndex(
+  index: Record<string, DMParticipantThreadIndexEntry>
+): Promise<void> {
+  const key = await getParticipantThreadIndexKey();
+  await writeJson(key, index);
+}
+
+async function rebuildParticipantThreadIndex(threads: DMThread[]): Promise<void> {
+  const index: Record<string, DMParticipantThreadIndexEntry> = {};
+
+  for (const thread of threads) {
+    const participantPubkey = normalizePubkey(thread.participantPubkey);
+    if (!participantPubkey) continue;
+
+    index[participantPubkey] = {
+      threadId: thread.id,
+      title: thread.title,
+      participantPubkey,
+      participantNpub: thread.participantNpub,
+      updatedAt: thread.updatedAt,
+    };
+  }
+
+  await writeParticipantThreadIndex(index);
+}
+
+async function upsertParticipantThreadIndexForThread(thread: DMThread): Promise<void> {
+  const participantPubkey = normalizePubkey(thread.participantPubkey);
+  if (!participantPubkey) return;
+
+  const index = await readParticipantThreadIndex();
+
+  index[participantPubkey] = {
+    threadId: thread.id,
+    title: thread.title,
+    participantPubkey,
+    participantNpub: thread.participantNpub,
+    updatedAt: thread.updatedAt,
+  };
+
+  await writeParticipantThreadIndex(index);
 }
 
 async function saveMessagesForThreadCache(
@@ -198,19 +263,45 @@ export async function getDMThreadById(threadId: string): Promise<DMThread | null
 export async function getDMThreadByParticipantPubkey(
   participantPubkey: string
 ): Promise<DMThread | null> {
+  const indexed = await getDMThreadIndexEntryForParticipantPubkey(participantPubkey);
+
+  if (indexed) {
+    const indexedThread = await getDMThreadById(indexed.threadId);
+
+    if (indexedThread) {
+      return indexedThread;
+    }
+  }
+
   const threads = await getDMThreads();
 
-  return (
+  const thread =
     threads.find(
       thread =>
-        thread.participantPubkey?.toLowerCase() === participantPubkey.toLowerCase()
-    ) || null
-  );
+        normalizePubkey(thread.participantPubkey) === normalizePubkey(participantPubkey)
+    ) || null;
+
+  if (thread) {
+    await upsertParticipantThreadIndexForThread(thread);
+  }
+
+  return thread;
 }
 
 export async function saveDMThreads(threads: DMThread[]): Promise<void> {
   const key = await getThreadKey();
   await writeJson(key, threads);
+  await rebuildParticipantThreadIndex(threads);
+}
+
+export async function getDMThreadIndexEntryForParticipantPubkey(
+  participantPubkey: string
+): Promise<DMParticipantThreadIndexEntry | null> {
+  const normalizedPubkey = normalizePubkey(participantPubkey);
+  if (!normalizedPubkey) return null;
+
+  const index = await readParticipantThreadIndex();
+  return index[normalizedPubkey] || null;
 }
 
 export async function getDMMessages(): Promise<DMMessage[]> {
@@ -276,6 +367,7 @@ export async function createThread(input: {
 
   threads.unshift(newThread);
   await saveDMThreads(threads);
+  await upsertParticipantThreadIndexForThread(newThread);
 
   return newThread;
 }
@@ -336,6 +428,7 @@ export async function saveRemoteDMMessage(input: {
     text: input.text,
     mine: input.mine,
     createdAt: input.createdAt,
+    provisionalEventId: input.provisionalEventId,
   };
 
   const replacedProvisional = matchingProvisionalIndex >= 0;
@@ -345,6 +438,12 @@ export async function saveRemoteDMMessage(input: {
   } else {
     allMessages.push(newMessage);
   }
+
+  console.log('[DM Storage] remote DM confirmed', {
+    threadId: input.threadId,
+    eventId: input.provisionalEventId?.slice(0, 12) || 'none',
+    replacedProvisional,
+  });
 
   allMessages.sort((a, b) => a.createdAt - b.createdAt);
   await saveDMMessages(allMessages);
@@ -389,33 +488,6 @@ export async function saveProvisionalRemoteDMMessage(input: {
 
   if (!text) return null;
 
-  const allMessages = await getDMMessages();
-
-  const existingById = allMessages.find(message => message.id === input.id);
-  if (existingById) return existingById;
-
-  const matchingProvisionalIndex = findMatchingProvisionalIndex(allMessages, {
-    threadId: input.threadId,
-    text,
-    mine: input.mine ?? false,
-    createdAt: input.createdAt,
-    provisionalEventId: input.provisionalEventId,
-  });
-
-  if (matchingProvisionalIndex >= 0) {
-    return allMessages[matchingProvisionalIndex];
-  }
-
-  const confirmedDuplicate = allMessages.find(message =>
-    !message.provisional &&
-    message.threadId === input.threadId &&
-    message.mine === (input.mine ?? false) &&
-    message.text === text &&
-    isCloseInTime(message.createdAt, input.createdAt)
-  );
-
-  if (confirmedDuplicate) return confirmedDuplicate;
-
   const message: DMMessage = {
     id: input.id,
     threadId: input.threadId,
@@ -426,11 +498,88 @@ export async function saveProvisionalRemoteDMMessage(input: {
     provisionalEventId: input.provisionalEventId,
   };
 
-  allMessages.push(message);
+  const threadMessages = await getMessagesForThread(input.threadId);
+  const existingThreadMessage = threadMessages.find(existing => existing.id === input.id);
+
+  if (existingThreadMessage) {
+    return existingThreadMessage;
+  }
+
+  const matchingThreadProvisionalIndex = findMatchingProvisionalIndex(threadMessages, {
+    threadId: input.threadId,
+    text,
+    mine: input.mine ?? false,
+    createdAt: input.createdAt,
+    provisionalEventId: input.provisionalEventId,
+  });
+
+  const confirmedThreadDuplicate = threadMessages.find(existing =>
+    !existing.provisional &&
+    existing.threadId === input.threadId &&
+    existing.mine === (input.mine ?? false) &&
+    existing.text === text &&
+    isCloseInTime(existing.createdAt, input.createdAt)
+  );
+
+  if (confirmedThreadDuplicate) {
+    return confirmedThreadDuplicate;
+  }
+
+  if (matchingThreadProvisionalIndex >= 0) {
+    threadMessages[matchingThreadProvisionalIndex] = {
+      ...threadMessages[matchingThreadProvisionalIndex],
+      ...message,
+    };
+  } else {
+    threadMessages.push(message);
+  }
+
+  await saveMessagesForThreadCache(input.threadId, threadMessages);
+
+  const allMessages = await getDMMessages();
+
+  const existingById = allMessages.find(existing => existing.id === input.id);
+  if (existingById) {
+    await upsertMessagesForThreadCache(input.threadId, [existingById]);
+    return existingById;
+  }
+
+  const matchingProvisionalIndex = findMatchingProvisionalIndex(allMessages, {
+    threadId: input.threadId,
+    text,
+    mine: input.mine ?? false,
+    createdAt: input.createdAt,
+    provisionalEventId: input.provisionalEventId,
+  });
+
+  const confirmedDuplicate = allMessages.find(existing =>
+    !existing.provisional &&
+    existing.threadId === input.threadId &&
+    existing.mine === (input.mine ?? false) &&
+    existing.text === text &&
+    isCloseInTime(existing.createdAt, input.createdAt)
+  );
+
+  if (confirmedDuplicate) {
+    await saveMessagesForThreadCache(
+      input.threadId,
+      allMessages.filter(existing => existing.threadId === input.threadId)
+    );
+    return confirmedDuplicate;
+  }
+
+  if (matchingProvisionalIndex >= 0) {
+    allMessages[matchingProvisionalIndex] = {
+      ...allMessages[matchingProvisionalIndex],
+      ...message,
+    };
+  } else {
+    allMessages.push(message);
+  }
+
   allMessages.sort((a, b) => a.createdAt - b.createdAt);
 
   await saveDMMessages(allMessages);
-  await upsertMessagesForThreadCache(input.threadId, [message]);
 
   const threads = await getDMThreads();
 
@@ -482,6 +631,7 @@ export async function saveRemoteDMMessagesBatch(
       text: input.text,
       mine: input.mine,
       createdAt: input.createdAt,
+      provisionalEventId: input.provisionalEventId,
     };
 
     const matchingProvisionalIndex = findMatchingProvisionalIndex(allMessages, input);
@@ -568,7 +718,8 @@ export async function markThreadRead(threadId: string): Promise<void> {
 
 export async function deleteThread(threadId: string): Promise<void> {
   const threads = await getDMThreads();
-  await saveDMThreads(threads.filter(thread => thread.id !== threadId));
+  const remainingThreads = threads.filter(thread => thread.id !== threadId);
+  await saveDMThreads(remainingThreads);
 
   const messages = await getDMMessages();
   await saveDMMessages(messages.filter(message => message.threadId !== threadId));
@@ -589,6 +740,7 @@ export async function clearDMStorage(): Promise<void> {
 
     const threadKey = await getThreadKey();
     const messageKey = await getMessageKey();
+    const participantThreadIndexKey = await getParticipantThreadIndexKey();
 
     for (const thread of existingThreads) {
       const threadMessageKey = await getThreadMessageKey(thread.id);
@@ -599,15 +751,19 @@ export async function clearDMStorage(): Promise<void> {
 
     await AsyncStorage.removeItem(threadKey);
     await AsyncStorage.removeItem(messageKey);
+    await AsyncStorage.removeItem(participantThreadIndexKey);
 
     await SecureStore.deleteItemAsync(threadKey);
     await SecureStore.deleteItemAsync(messageKey);
+    await SecureStore.deleteItemAsync(participantThreadIndexKey);
 
     await AsyncStorage.removeItem(DM_THREADS_KEY);
     await AsyncStorage.removeItem(DM_MESSAGES_KEY);
+    await AsyncStorage.removeItem(DM_PARTICIPANT_THREAD_INDEX_KEY);
 
     await SecureStore.deleteItemAsync(DM_THREADS_KEY);
     await SecureStore.deleteItemAsync(DM_MESSAGES_KEY);
+    await SecureStore.deleteItemAsync(DM_PARTICIPANT_THREAD_INDEX_KEY);
 
     cachedIdentityStorageSuffix = null;
 

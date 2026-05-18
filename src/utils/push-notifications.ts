@@ -7,6 +7,7 @@ import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import {
   createThread,
+  getDMThreadIndexEntryForParticipantPubkey,
   getDMThreads,
   saveProvisionalRemoteDMMessage,
 } from './dm-storage';
@@ -825,14 +826,13 @@ async function getOrCreateThreadForNotification(input: {
   senderName?: string;
   threadId?: string;
 }) {
-  const threads = await getDMThreads();
-
   if (input.threadId) {
-    const existingById = threads.find(thread => thread.id === input.threadId);
-
-    if (existingById) {
-      return existingById;
-    }
+    return {
+      id: input.threadId,
+      title: input.senderName?.trim() || 'Conversation',
+      participantPubkey: input.participantPubkey || input.senderPubkey,
+      participantNpub: input.senderNpub,
+    };
   }
 
   const participantPubkey =
@@ -843,6 +843,18 @@ async function getOrCreateThreadForNotification(input: {
     return null;
   }
 
+  const indexedThread = await getDMThreadIndexEntryForParticipantPubkey(participantPubkey);
+
+  if (indexedThread) {
+    return {
+      id: indexedThread.threadId,
+      title: input.senderName?.trim() || indexedThread.title || shortKey(participantPubkey),
+      participantPubkey,
+      participantNpub: input.senderNpub || indexedThread.participantNpub,
+    };
+  }
+
+  const threads = await getDMThreads();
   const existingByPubkey = threads.find(thread =>
     thread.participantPubkey?.toLowerCase() === participantPubkey.toLowerCase()
   );
@@ -916,6 +928,19 @@ export function installNotificationResponseHandler(router: {
     const data = rawData as BENotificationData;
 
 if (data.type === 'dm') {
+  const openedAt = Date.now();
+  const notificationBody = data.body?.trim();
+  const notificationCreatedAt =
+    typeof data.createdAt === 'number' && Number.isFinite(data.createdAt)
+      ? data.createdAt
+      : Math.floor(Date.now() / 1000);
+
+  console.log('[DM NOTIFY] tap received', {
+    eventId: data.eventId?.slice(0, 12) || 'none',
+    sender: (data.senderPubkey || data.participantPubkey || '').slice(0, 12) || 'none',
+    hasBody: !!notificationBody,
+  });
+
   const thread = await getOrCreateThreadForNotification({
     threadId: data.threadId,
     participantPubkey: data.participantPubkey,
@@ -929,15 +954,40 @@ if (data.type === 'dm') {
     return;
   }
 
-  await saveDMPreviewFromNotification(data, thread.id);
+  const routeParams: Record<string, string> = {
+    id: thread.id,
+    title: data.senderName || thread.title || 'Conversation',
+    createdAt: String(notificationCreatedAt),
+  };
+
+  if (data.eventId) routeParams.eventId = data.eventId;
+  if (data.senderPubkey || data.participantPubkey) {
+    routeParams.senderPubkey = data.senderPubkey || data.participantPubkey || '';
+  }
+  if (data.senderNpub) routeParams.senderNpub = data.senderNpub;
+  if (data.senderName) routeParams.senderName = data.senderName;
+  if (notificationBody) routeParams.body = notificationBody;
 
   router.push({
     pathname: '/dm-thread',
-    params: {
-      id: thread.id,
-      title: data.senderName || thread.title || 'Conversation',
-    },
+    params: routeParams,
   } as any);
+
+  console.log('[DM NOTIFY] route pushed', {
+    threadId: thread.id,
+    elapsedMs: Date.now() - openedAt,
+  });
+
+  saveDMPreviewFromNotification(data, thread.id)
+    .then(() => {
+      console.log('[DM NOTIFY] provisional saved', {
+        threadId: thread.id,
+        elapsedMs: Date.now() - openedAt,
+      });
+    })
+    .catch(error => {
+      console.warn('[DM NOTIFY] provisional save failed:', error);
+    });
 
   return;
 }

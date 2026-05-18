@@ -29,20 +29,160 @@ import { fetchNostrDMs, fetchNostrProfile, sendNostrDM } from '../src/utils/nost
 import { sendRemoteDMNotification } from '../src/utils/push-notifications';
 import { useIdentity } from './_layout';
 
+type DMThreadRouteParams = {
+  id?: string | string[];
+  title?: string | string[];
+  eventId?: string | string[];
+  senderPubkey?: string | string[];
+  senderNpub?: string | string[];
+  senderName?: string | string[];
+  body?: string | string[];
+  createdAt?: string | string[];
+};
+
+function getRouteParam(value?: string | string[]): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function makeNotificationMessageId(input: {
+  eventId?: string;
+  senderPubkey?: string;
+  createdAt?: number;
+  body?: string;
+}) {
+  const eventId = input.eventId?.trim();
+
+  if (eventId) {
+    return `push_${eventId}`;
+  }
+
+  const source = [
+    input.senderPubkey?.trim() || 'unknown',
+    String(input.createdAt || 0),
+    input.body?.trim() || '',
+  ].join('|');
+
+  let hash = 0;
+
+  for (let i = 0; i < source.length; i += 1) {
+    hash = ((hash << 5) - hash + source.charCodeAt(i)) | 0;
+  }
+
+  return `push_${Math.abs(hash)}`;
+}
+
+function buildNotificationPreviewMessage(
+  params: DMThreadRouteParams,
+  threadId: string
+): DMMessage | null {
+  const body = getRouteParam(params.body)?.trim();
+
+  if (!threadId || !body) return null;
+
+  const createdAtRaw = Number(getRouteParam(params.createdAt));
+  const createdAt =
+    Number.isFinite(createdAtRaw) && createdAtRaw > 0
+      ? createdAtRaw
+      : Math.floor(Date.now() / 1000);
+  const eventId = getRouteParam(params.eventId);
+  const senderPubkey = getRouteParam(params.senderPubkey);
+
+  return {
+    id: makeNotificationMessageId({
+      eventId,
+      senderPubkey,
+      createdAt,
+      body,
+    }),
+    threadId,
+    text: body,
+    mine: false,
+    createdAt,
+    provisional: true,
+    provisionalEventId: eventId,
+  };
+}
+
+function mergeNewestFirstMessages(
+  messages: DMMessage[],
+  preview?: DMMessage | null
+): DMMessage[] {
+  const byId = new Map<string, DMMessage>();
+
+  for (const message of messages) {
+    byId.set(message.id, message);
+  }
+
+  if (preview) {
+    const confirmedMatch = messages.some(message =>
+      !message.provisional &&
+      message.threadId === preview.threadId &&
+      message.mine === preview.mine &&
+      (
+        (!!preview.provisionalEventId && message.provisionalEventId === preview.provisionalEventId) ||
+        (
+          message.text === preview.text &&
+          Math.abs(message.createdAt - preview.createdAt) <= 180
+        )
+      )
+    );
+
+    if (!confirmedMatch) {
+      byId.set(preview.id, preview);
+    }
+  }
+
+  return Array.from(byId.values()).sort((a, b) => b.createdAt - a.createdAt);
+}
+
 export default function DmThreadScreen() {
   const { theme, npub, profile } = useIdentity();
   const s = useMemo(() => createStyles(theme), [theme]);
 
   const router = useRouter();
-  const params = useLocalSearchParams<{ id?: string; title?: string }>();
+  const params = useLocalSearchParams<DMThreadRouteParams>();
+  const threadId = useMemo(() => getRouteParam(params.id) || '', [params.id]);
+  const title = useMemo(() => getRouteParam(params.title) || 'Conversation', [params.title]);
+  const notificationEventId = useMemo(() => getRouteParam(params.eventId), [params.eventId]);
+  const notificationBody = useMemo(() => getRouteParam(params.body), [params.body]);
+  const notificationCreatedAt = useMemo(() => getRouteParam(params.createdAt), [params.createdAt]);
+  const notificationSenderPubkey = useMemo(
+    () => getRouteParam(params.senderPubkey),
+    [params.senderPubkey]
+  );
+  const notificationSenderName = useMemo(
+    () => getRouteParam(params.senderName),
+    [params.senderName]
+  );
+  const notificationPreview = useMemo(
+    () => buildNotificationPreviewMessage(
+      {
+        body: notificationBody,
+        createdAt: notificationCreatedAt,
+        eventId: notificationEventId,
+        senderPubkey: notificationSenderPubkey,
+      },
+      threadId
+    ),
+    [
+      notificationBody,
+      notificationCreatedAt,
+      notificationEventId,
+      notificationSenderPubkey,
+      threadId,
+    ]
+  );
+  const openedFromNotification = !!notificationPreview;
 
   const [draft, setDraft] = useState('');
   const [inputHeight, setInputHeight] = useState(40);
-  const [messages, setMessages] = useState<DMMessage[]>([]);
-  const [loadingInitialMessages, setLoadingInitialMessages] = useState(true);
+  const [messages, setMessages] = useState<DMMessage[]>(
+    () => notificationPreview ? [notificationPreview] : []
+  );
+  const [loadingInitialMessages, setLoadingInitialMessages] = useState(!notificationPreview);
   const [sending, setSending] = useState(false);
-  const [hasPubkey, setHasPubkey] = useState(false);
-  const [profileName, setProfileName] = useState<string | null>(null);
+  const [hasPubkey, setHasPubkey] = useState(!!notificationSenderPubkey);
+  const [profileName, setProfileName] = useState<string | null>(notificationSenderName || null);
   const [profilePicture, setProfilePicture] = useState<string | null>(null);
 
   const listRef = useRef<FlatList<DMMessage>>(null);
@@ -54,9 +194,7 @@ export default function DmThreadScreen() {
   const markReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hydratedProfilePubkeyRef = useRef<string | null>(null);
   const threadCatchUpInFlightRef = useRef(false);
-
-  const threadId = useMemo(() => params.id || '', [params.id]);
-  const title = useMemo(() => params.title || 'Conversation', [params.title]);
+  const notificationPreviewRef = useRef<DMMessage | null>(notificationPreview);
 
   const myDisplayName = useMemo(() => {
   return (
@@ -74,6 +212,28 @@ export default function DmThreadScreen() {
       listRef.current?.scrollToOffset({ offset: 0, animated });
     });
   }, []);
+
+  useEffect(() => {
+    notificationPreviewRef.current = notificationPreview;
+
+    if (!notificationPreview) return;
+
+    console.log('[DM THREAD] notification preview painted', {
+      threadId,
+      messageId: notificationPreview.id,
+    });
+
+    setMessages(prev => mergeNewestFirstMessages(prev, notificationPreview));
+    setLoadingInitialMessages(false);
+
+    if (notificationSenderPubkey) {
+      setHasPubkey(true);
+    }
+
+    if (notificationSenderName) {
+      setProfileName(notificationSenderName);
+    }
+  }, [notificationPreview, notificationSenderName, notificationSenderPubkey, threadId]);
 
   const hydrateThreadProfile = useCallback(async (
     participantPubkey: string,
@@ -128,7 +288,7 @@ export default function DmThreadScreen() {
     }
 
     loadingMessagesRef.current = true;
-    setLoadingInitialMessages(true);
+    setLoadingInitialMessages(!notificationPreviewRef.current);
 
     try {
       const localMessages = await getRecentMessagesForThread(threadId, 30);        
@@ -139,17 +299,24 @@ export default function DmThreadScreen() {
         (a, b) => b.createdAt - a.createdAt
       );
 
-      setMessages(newestFirstMessages);
+      setMessages(mergeNewestFirstMessages(
+        newestFirstMessages,
+        notificationPreviewRef.current
+      ));
       setLoadingInitialMessages(false);
 
       getDMThreadById(threadId)
         .then(thread => {
           if (leavingRef.current) return;
 
-          setHasPubkey(!!thread?.participantPubkey);
+          const participantPubkey = thread?.participantPubkey || notificationSenderPubkey;
+          setHasPubkey(!!participantPubkey);
 
-          if (thread?.participantPubkey) {
-            hydrateThreadProfile(thread.participantPubkey, thread.title);
+          if (participantPubkey) {
+            hydrateThreadProfile(
+              participantPubkey,
+              thread?.title || notificationSenderName || title
+            );
           }
 
           scheduleMarkThreadRead();
@@ -172,23 +339,38 @@ export default function DmThreadScreen() {
         }, 100);
       }
     }
-  }, [threadId, scrollToLatest, hydrateThreadProfile, scheduleMarkThreadRead]);
+  }, [
+    threadId,
+    hydrateThreadProfile,
+    scheduleMarkThreadRead,
+    notificationSenderName,
+    notificationSenderPubkey,
+    title,
+  ]);
 
   const catchUpThreadFromRelay = useCallback(async () => {
   if (!threadId || leavingRef.current) return;
   if (threadCatchUpInFlightRef.current) return;
 
   threadCatchUpInFlightRef.current = true;
+  const catchUpStartedAt = Date.now();
 
   try {
     const thread = await getDMThreadById(threadId);
+    const participantPubkey = notificationSenderPubkey || thread?.participantPubkey;
 
-    if (!thread?.participantPubkey || leavingRef.current) return;
+    if (!participantPubkey || leavingRef.current) return;
+
+    console.log('[DM THREAD] notification catch-up started', {
+      threadId,
+      participant: participantPubkey.slice(0, 12),
+      notificationOpen: openedFromNotification,
+    });
 
     const remoteMessages = await fetchNostrDMs({
-      withPubkey: thread.participantPubkey,
-      limit: 20,
-      timeoutMs: 1800,
+      withPubkey: participantPubkey,
+      limit: openedFromNotification ? 8 : 20,
+      timeoutMs: openedFromNotification ? 1200 : 1800,
     });
 
     if (leavingRef.current) return;
@@ -211,14 +393,23 @@ export default function DmThreadScreen() {
       (a, b) => b.createdAt - a.createdAt
     );
 
-    setMessages(newestFirstMessages);
+    setMessages(mergeNewestFirstMessages(
+      newestFirstMessages,
+      notificationPreviewRef.current
+    ));
     scheduleMarkThreadRead();
+
+    console.log('[DM THREAD] notification catch-up finished', {
+      threadId,
+      remoteCount: remoteMessages.length,
+      elapsedMs: Date.now() - catchUpStartedAt,
+    });
   } catch (error) {
     console.warn('[DM THREAD] targeted relay catch-up failed:', error);
   } finally {
     threadCatchUpInFlightRef.current = false;
   }
-}, [threadId, scheduleMarkThreadRead]);
+}, [threadId, notificationSenderPubkey, openedFromNotification, scheduleMarkThreadRead]);
 
 useFocusEffect(
   useCallback(() => {
