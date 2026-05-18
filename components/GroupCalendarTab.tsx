@@ -101,6 +101,7 @@ export default function GroupCalendarTab({
 }: Props) {
   const { theme } = useIdentity();
   const s = useMemo(() => createStyles(theme), [theme]);
+  const todayKey = formatDateInput(new Date());
   const [events, setEvents]         = useState<GroupCalendarEvent[]>([]);
   const [loading, setLoading]       = useState(true);
   const [showPast, setShowPast]     = useState(false);
@@ -438,8 +439,7 @@ export default function GroupCalendarTab({
           onPress={() => setShowModal(true)}
           activeOpacity={0.85}
         >
-          <Text style={s.fabIcon}>＋</Text>
-          <Text style={s.fabText}>Event</Text>
+          <Text style={s.fabIcon}>+</Text>
         </TouchableOpacity>
       )}
 
@@ -494,19 +494,35 @@ export default function GroupCalendarTab({
 
                 <View style={s.dateGrid}>
                   {buildCalendarDays(pickerMonth).map((day, index) => {
-                    const selected = day && evDate === formatDateInput(day);
+                    const dayKey = day ? formatDateInput(day) : '';
+                    const isToday = !!day && dayKey === todayKey;
+                    const selected = !!day && evDate === dayKey;
 
                     return (
                       <TouchableOpacity
                         key={`${day?.toISOString() ?? 'empty'}_${index}`}
-                        style={[s.dateCell, selected && s.dateCellSelected]}
+                        style={s.dateCell}
                         onPress={() => day && selectDate(day)}
                         disabled={!day}
                         activeOpacity={0.82}
                       >
-                        <Text style={[s.dateCellText, selected && s.dateCellTextSelected]}>
-                          {day ? day.getDate() : ''}
-                        </Text>
+                        <View
+                          style={[
+                            s.dateCellMarker,
+                            isToday && s.dateCellToday,
+                            selected && s.dateCellSelected,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              s.dateCellText,
+                              isToday && s.dateCellTextToday,
+                              selected && s.dateCellTextSelected,
+                            ]}
+                          >
+                            {day ? day.getDate() : ''}
+                          </Text>
+                        </View>
                       </TouchableOpacity>
                     );
                   })}
@@ -881,26 +897,25 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
 
   fab: {
     position: 'absolute',
-    bottom: 90,
-    right: 24,
-    flexDirection: 'row',
+    right: 18,
+    bottom: 18,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderRadius: 28,
+    justifyContent: 'center',
     backgroundColor: theme.gold,
     shadowColor: theme.gold,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
     elevation: 8,
   },
 fabIcon: {
-  fontSize: 18,
   color: theme.bg,
-  fontWeight: '400',
-  marginRight: 2,
+  fontSize: 34,
+  fontWeight: '300',
+  lineHeight: 36,
 },
 fabText: {
   fontSize: 15,
@@ -1007,15 +1022,32 @@ fabText: {
     aspectRatio: 1.35,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 10,
+  },
+  dateCellMarker: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   dateCellSelected: {
     backgroundColor: theme.gold,
+  },
+  dateCellToday: {
+    borderWidth: 1,
+    borderColor: theme.gold,
+    backgroundColor: theme.bg === Colors.light.bg
+      ? 'rgba(211, 158, 45, 0.12)'
+      : 'rgba(211, 158, 45, 0.20)',
   },
   dateCellText: {
     color: theme.text,
     fontSize: 13,
     fontWeight: '700',
+  },
+  dateCellTextToday: {
+    color: theme.gold,
+    fontWeight: '900',
   },
   dateCellTextSelected: {
     color: theme.bg,

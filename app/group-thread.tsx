@@ -14,11 +14,13 @@ import {
   Modal,
   Platform,
   Pressable,
+  StyleProp,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
+  ViewStyle
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ImageViewerModal, { ViewerImage } from '../components/ImageViewerModal';
@@ -208,13 +210,27 @@ const REACTION_PACKS = [
   },
 ];
 
-export default function GroupThreadScreen() {
+type GroupChatPanelProps = {
+  groupId?: string;
+  variant?: 'full' | 'inline';
+  onBack?: () => void;
+  style?: StyleProp<ViewStyle>;
+};
+
+export function GroupChatPanel({
+  groupId: groupIdProp,
+  variant = 'full',
+  onBack,
+  style,
+}: GroupChatPanelProps = {}) {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string }>();
   const { npub, nsec, profile, theme } = useIdentity();
   const s = useMemo(() => createStyles(theme), [theme]);
 
-  const groupId = useMemo(() => params.id || '', [params.id]);
+  const isInline = variant === 'inline';
+  const routeGroupId = params.id || '';
+  const groupId = useMemo(() => groupIdProp || routeGroupId, [groupIdProp, routeGroupId]);
 
   const [groupName, setGroupName] = useState('Group');
   const [groupIcon, setGroupIcon] = useState('👥');
@@ -1809,6 +1825,11 @@ const showName =
 
 
   const handleBack = () => {
+    if (onBack) {
+      onBack();
+      return;
+    }
+
     if (!groupId) {
       router.replace('/(tabs)/messages' as any);
       return;
@@ -2105,14 +2126,9 @@ const showName =
   );
   const shouldHideInitialList = false;
 
-  return (
-    <SafeAreaView style={s.safe}>
-      <KeyboardAvoidingView
-        style={s.safe}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={0}
-      >
-        <View style={s.container}>
+  const panel = (
+        <View style={[s.container, isInline && s.inlineContainer, style]}>
+          {!isInline && (
           <View style={s.header}>
             <TouchableOpacity
               onPress={handleBack}
@@ -2142,16 +2158,17 @@ const showName =
 
             <View style={s.headerRightSpacer} />
           </View>
+          )}
 
           <FlatList
             ref={listRef}
-            style={[s.messageList, shouldHideInitialList && s.messageListHidden]}
+            style={[s.messageList, isInline && s.inlineMessageList, shouldHideInitialList && s.messageListHidden]}
             data={chatMessages}
             keyExtractor={item => item.id}
-            contentContainerStyle={s.list}
+            contentContainerStyle={[s.list, isInline && s.inlineList]}
             showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+            keyboardShouldPersistTaps={isInline ? 'always' : 'handled'}
+            keyboardDismissMode={isInline ? 'none' : Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
             inverted
             onScroll={handleListScroll}
             scrollEventThrottle={16}
@@ -2181,7 +2198,7 @@ const showName =
           />
 
           {shouldHideInitialList && (
-            <View style={s.initialListOverlay}>
+            <View style={[s.initialListOverlay, isInline && s.initialListOverlayInline]}>
               <ActivityIndicator size="small" color={theme.gold} />
               <Text style={s.initialListOverlayText}>Loading latest messages…</Text>
             </View>
@@ -2325,7 +2342,7 @@ const showName =
             </View>
           )}
 
-          <View style={s.composer}>
+          <View style={[s.composer, isInline && s.inlineComposer]}>
             <TouchableOpacity
               style={[
                 s.attachBtn,
@@ -2687,9 +2704,27 @@ const showName =
             onClose={() => setSelectedMediaUri(null)}
           />
         </View>
+  );
+
+  if (isInline) {
+    return panel;
+  }
+
+  return (
+    <SafeAreaView style={s.safe}>
+      <KeyboardAvoidingView
+        style={s.safe}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={0}
+      >
+        {panel}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
+}
+
+export default function GroupThreadScreen() {
+  return <GroupChatPanel />;
 }
 
 function themeModeAwareOverlay(theme: typeof Colors.light): string {
@@ -2701,6 +2736,12 @@ function themeModeAwareOverlay(theme: typeof Colors.light): string {
 const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
       safe: { flex: 1, backgroundColor: theme.bg },
   container: { flex: 1, backgroundColor: theme.bg },
+  inlineSafe: {
+    backgroundColor: 'transparent',
+  },
+  inlineContainer: {
+    backgroundColor: 'transparent',
+  },
 
    header: {
     borderBottomWidth: 0.5,
@@ -2799,6 +2840,9 @@ uploadText: {
     flex: 1,
     backgroundColor: theme.bg,
   },
+  inlineMessageList: {
+    backgroundColor: 'transparent',
+  },
   messageListHidden: {
     opacity: 0,
   },
@@ -2806,6 +2850,11 @@ uploadText: {
     padding: 16,
     paddingBottom: 8,
     flexGrow: 1,
+  },
+  inlineList: {
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    paddingBottom: 8,
   },
   initialListOverlay: {
     position: 'absolute',
@@ -2818,6 +2867,9 @@ uploadText: {
     backgroundColor: theme.bg,
     zIndex: 5,
     gap: 10,
+  },
+  initialListOverlayInline: {
+    top: 0,
   },
   initialListOverlayText: {
     color: theme.textMuted,
@@ -3009,6 +3061,12 @@ messageVideoIcon: {
     gap: 10,
     alignItems: 'flex-end',
     backgroundColor: theme.bg,
+  },
+  inlineComposer: {
+    paddingBottom: Platform.OS === 'android' ? 10 : 12,
+    backgroundColor: theme.bg === Colors.light.bg
+      ? 'rgba(255,255,255,0.97)'
+      : 'rgba(18,18,18,0.97)',
   },
   attachBtn: {
     width: 42,

@@ -1,5 +1,6 @@
 import GroupBookTab from '@/components/GroupBookTab';
 import GroupCalendarTab from '@/components/GroupCalendarTab';
+import { Ionicons } from '@expo/vector-icons';
 import {
   getUpcomingEventsForGroup,
   syncCalendarEventsFromRelay,
@@ -16,6 +17,7 @@ import {
   FlatList,
   Image,
   InteractionManager,
+  Keyboard,
   KeyboardAvoidingView,
   Linking,
   Modal,
@@ -34,8 +36,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import ImageViewerModal, { ViewerImage } from '../components/ImageViewerModal';
 import MediaCollage from '../components/MediaCollage';
 import { Colors } from '../src/constants/theme';
+import { GroupChatPanel } from './group-thread';
 import {
   getContactByNpub,
+  getContacts,
   saveContact,
 } from '../src/utils/contacts-storage';
 import {
@@ -71,6 +75,7 @@ import {
 import { compressMediaForUpload } from '../src/utils/media-compression';
 import type {
   LivingMarkCaptureSource,
+  LivingMarkPerson,
   LivingMarkPlace,
   LivingMarkView,
   LivingSpace,
@@ -83,6 +88,14 @@ import {
   persistLivingMarkCapture,
   syncLivingSpacesFromGroups,
 } from '../src/utils/living-spaces-storage';
+import {
+  getPersonDisplayName,
+  isLivingPersonSelected,
+  mergeLivingPersonCandidates,
+  resolvePeopleSelection,
+  toggleLivingPersonSelection,
+  type LivingPersonCandidate,
+} from '../src/utils/living-people';
 import {
   DEFAULT_RELAY,
   fetchGroupMessageDeletes,
@@ -106,8 +119,7 @@ import {
 } from '../src/utils/storage';
 import { useIdentity } from './_layout';
 
-type Tab = 'stickies' | 'calendar' | 'gallery' | 'members' | 'book';
-type MainTab = 'chat' | 'stickies' | 'calendar' | 'gallery' | 'book';
+type Tab = 'chat' | 'stickies' | 'calendar' | 'gallery' | 'members' | 'book';
 const GROUP_LOCAL_GALLERY_KEY = 'be_group_local_gallery_v1';
 const SPACE_FAVORITES_KEY = 'be_space_favorite_ids_v1';
 const SPACE_MARK_PRESET_TAGS = ['Family', 'School', 'Team', 'Church', 'Event', 'Memory'];
@@ -176,6 +188,23 @@ function getGroupAvatarText(group: BEGroup): string {
   return customIcon || getGroupInitials(group.name);
 }
 
+function getPersonInitials(value?: string): string {
+  const clean = value?.trim();
+
+  if (!clean) return 'M';
+
+  const parts = clean
+    .split(/\s+/)
+    .map(part => part[0])
+    .filter(Boolean);
+
+  if (parts.length >= 2) {
+    return `${parts[0]}${parts[1]}`.toUpperCase();
+  }
+
+  return clean.slice(0, 2).toUpperCase();
+}
+
 function getGroupTypeIcon(group: BEGroup): string | null {
   const directKey = normalizeGroupType(group.sport);
 
@@ -233,13 +262,6 @@ async function saveHighlightMediaToLocalGallery(groupId: string, sticky: GroupSt
   await AsyncStorage.setItem(GROUP_LOCAL_GALLERY_KEY, JSON.stringify(merged));
 
   return validItems;
-}
-
-function parseSpaceMarkPeople(input: string): string[] {
-  return input
-    .split(',')
-    .map(item => item.trim())
-    .filter(Boolean);
 }
 
 function getSpaceMarkCaptureMetadata(media: SpaceMarkDraftMedia[]): {
@@ -335,6 +357,8 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   const [spaceMarkMedia, setSpaceMarkMedia] = useState<SpaceMarkDraftMedia[]>([]);
   const [spaceMarkShowContext, setSpaceMarkShowContext] = useState(false);
   const [spaceMarkPeopleInput, setSpaceMarkPeopleInput] = useState('');
+  const [spacePersonCandidates, setSpacePersonCandidates] = useState<LivingPersonCandidate[]>([]);
+  const [selectedSpaceMarkPeople, setSelectedSpaceMarkPeople] = useState<LivingMarkPerson[]>([]);
   const [spaceMarkLifeStage, setSpaceMarkLifeStage] = useState('');
   const [spaceMarkEventInput, setSpaceMarkEventInput] = useState('');
   const [spaceMarkSavedToBook, setSpaceMarkSavedToBook] = useState(false);
@@ -342,12 +366,14 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   const [spaceMarkSaveStatus, setSpaceMarkSaveStatus] = useState<string | null>(null);
   const [spaceMarkProgress, setSpaceMarkProgress] = useState(0);
   const [tab, setTab] = useState<Tab>(
+  routeTab === 'chat' ||
+  routeTab === 'stickies' ||
   routeTab === 'calendar' ||
   routeTab === 'gallery' ||
   routeTab === 'members' ||
   routeTab === 'book'
     ? routeTab
-    : 'stickies'
+    : 'chat'
 );
   const [isAdmin, setIsAdmin] = useState(false);
   const [isMember, setIsMember] = useState(false);
@@ -355,6 +381,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   const [showSpaceSettingsMenu, setShowSpaceSettingsMenu] = useState(false);
   const [spaceSettingsRelayOpen, setSpaceSettingsRelayOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [spaceKeyboardHeight, setSpaceKeyboardHeight] = useState(0);
 
   const [editingGroupRelay, setEditingGroupRelay] = useState(false);
   const [groupRelayMode, setGroupRelayMode] = useState<GroupRelayMode>('default');
@@ -372,11 +399,73 @@ const { id, tab: routeTab } = useLocalSearchParams<{
     );
   }, [profile, npub]);
 
-    const currentMember = useMemo(() => {
+  const currentMember = useMemo(() => {
     if (!npub) return null;
 
     return members.find(member => member.npub === npub) ?? null;
   }, [members, npub]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadSpacePeople() {
+      const contacts = await getContacts();
+
+      if (cancelled) return;
+
+      setSpacePersonCandidates(
+        mergeLivingPersonCandidates([
+          {
+            npub,
+            displayName: myDisplayName,
+            avatarUrl: (profile as any)?.picture || (profile as any)?.avatarUrl,
+            source: 'current-user',
+          },
+          ...members.map(member => ({
+            npub: member.npub,
+            displayName: member.displayName,
+            avatarUrl: member.avatarUrl,
+            source: 'space-member' as const,
+          })),
+          ...contacts.map(contact => ({
+            npub: contact.npub,
+            displayName: contact.nostrName || contact.name,
+            avatarUrl: contact.nostrAvatar,
+            source: 'contact' as const,
+          })),
+        ])
+      );
+    }
+
+    loadSpacePeople().catch(error => {
+      console.warn('[Space People] failed to load candidates:', error);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [members, myDisplayName, npub, profile]);
+
+  const getSpaceMarkAuthorProfile = useCallback((mark: Milestone) => {
+    const authorMember = mark.authorNpub
+      ? members.find(member => member.npub === mark.authorNpub)
+      : null;
+    const isMine = !!mark.authorNpub && !!npub && mark.authorNpub === npub;
+    const displayName =
+      authorMember?.displayName ||
+      mark.authorName ||
+      (isMine ? myDisplayName : undefined) ||
+      (mark.authorNpub ? `${mark.authorNpub.slice(0, 12)}...` : 'Member');
+    const avatarUrl =
+      authorMember?.avatarUrl ||
+      (isMine ? (profile as any)?.picture : undefined);
+
+    return {
+      displayName,
+      avatarUrl,
+      initials: getPersonInitials(displayName),
+    };
+  }, [members, myDisplayName, npub, profile]);
 
   const canLeaveGroup = useMemo(() => {
     return (
@@ -742,6 +831,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
 
   useEffect(() => {
   if (
+    routeTab === 'chat' ||
     routeTab === 'stickies' ||
     routeTab === 'calendar' ||
     routeTab === 'gallery' ||
@@ -752,6 +842,28 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   }
 }, [routeTab]);
 
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const showSub = Keyboard.addListener(showEvent, event => {
+      const nextHeight = Math.max(0, Math.round(event.endCoordinates?.height ?? 0));
+
+      setSpaceKeyboardHeight(current => (
+        Math.abs(current - nextHeight) > 2 ? nextHeight : current
+      ));
+    });
+
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      setSpaceKeyboardHeight(current => (current === 0 ? current : 0));
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
   const onRefresh = async () => {
     setRefreshing(true);
     await load();
@@ -761,6 +873,9 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   const openGroupRelayEditor = () => {
     if (!group) return;
 
+    setShowInvite(false);
+    setShowSpaceSettingsMenu(true);
+    setSpaceSettingsRelayOpen(true);
     setGroupRelayMode(group.relayMode ?? 'default');
     setGroupRelayUrl(group.relayMode === 'default' ? '' : group.relayUrl ?? '');
     setEditingGroupRelay(true);
@@ -810,25 +925,34 @@ const { id, tab: routeTab } = useLocalSearchParams<{
     Alert.alert('Copied', 'Invite code copied to clipboard.');
   };
 
+  const closeSpacePanels = () => {
+    setShowInvite(false);
+    setShowSpaceSettingsMenu(false);
+    setSpaceSettingsRelayOpen(false);
+    setEditingGroupRelay(false);
+  };
+
   const closeSpaceSettingsMenu = () => {
     setShowSpaceSettingsMenu(false);
     setSpaceSettingsRelayOpen(false);
     setEditingGroupRelay(false);
   };
 
+  const selectSpaceTab = (nextTab: Tab) => {
+    closeSpacePanels();
+    setTab(nextTab);
+  };
+
   const toggleSpaceSettingsMenu = () => {
-    setShowSpaceSettingsMenu(prev => {
-      const next = !prev;
+    if (showSpaceSettingsMenu) {
+      closeSpaceSettingsMenu();
+      return;
+    }
 
-      if (next) {
-        setShowInvite(false);
-      } else {
-        setSpaceSettingsRelayOpen(false);
-        setEditingGroupRelay(false);
-      }
-
-      return next;
-    });
+    setShowInvite(false);
+    setSpaceSettingsRelayOpen(false);
+    setEditingGroupRelay(false);
+    setShowSpaceSettingsMenu(true);
   };
 
   const handleRegenerateCode = () => {
@@ -919,6 +1043,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
     setSpaceMarkMedia([]);
     setSpaceMarkShowContext(false);
     setSpaceMarkPeopleInput('');
+    setSelectedSpaceMarkPeople([]);
     setSpaceMarkLifeStage('');
     setSpaceMarkEventInput('');
     setSpaceMarkSavedToBook(false);
@@ -1053,12 +1178,18 @@ const { id, tab: routeTab } = useLocalSearchParams<{
     const spaces = livingSpaces.length > 0 ? livingSpaces : await syncLivingSpacesFromGroups();
     const capture = getSpaceMarkCaptureMetadata(spaceMarkMedia);
 
+    const resolvedPeople = resolvePeopleSelection({
+      selectedPeople: selectedSpaceMarkPeople,
+      manualInput: spaceMarkPeopleInput,
+    });
+
     await persistLivingMarkCapture({
       milestone: savedMilestone,
       spaces,
       selectedSpaceId: getGroupLivingSpaceId(group.id),
       currentNpub: npub,
-      peopleIds: parseSpaceMarkPeople(spaceMarkPeopleInput),
+      peopleIds: resolvedPeople.peopleIds,
+      people: resolvedPeople.people,
       lifeStage: spaceMarkLifeStage || undefined,
       eventId: spaceMarkEventInput.trim() || undefined,
       savedToBook: spaceMarkSavedToBook,
@@ -1131,7 +1262,7 @@ const openViewerForMilestone = (mark: Milestone, startIndex: number) => {
 const openMarkDetail = (markId: string) => {
   router.push({
     pathname: '/mark-detail',
-    params: { id: markId, returnToGroupId: group?.id },
+    params: { id: markId, returnToGroupId: group?.id, returnToGroupTab: 'stickies' },
   } as any);
 };
 
@@ -1652,8 +1783,7 @@ const openViewerForGalleryItem = (mediaUrl: string) => {
 };
 
 const openSpaceChat = () => {
-  if (!group?.id) return;
-  router.push({ pathname: '/group-thread', params: { id: group.id } } as any);
+  selectSpaceTab('chat');
 };
 
 const toggleFavoriteSpace = async () => {
@@ -1674,25 +1804,30 @@ const toggleFavoriteSpace = async () => {
 };
 
 const handleSpaceDetailBack = () => {
-  if (showSpaceSettingsMenu) {
-    closeSpaceSettingsMenu();
+  if (editingGroupRelay) {
+    setEditingGroupRelay(false);
+    return;
+  }
+
+  if (spaceSettingsRelayOpen) {
+    setSpaceSettingsRelayOpen(false);
     return;
   }
 
   if (showInvite) {
     setShowInvite(false);
+    setShowSpaceSettingsMenu(true);
     return;
   }
 
-  if (tab !== 'stickies') {
-    setTab('stickies');
+  if (showSpaceSettingsMenu) {
+    closeSpacePanels();
     return;
   }
 
   router.replace('/(tabs)/messages' as any);
 };
 
-const headerGroupTypeIcon = getGroupTypeIcon(group);
 const spaceRelayLabel =
   (group.relayMode ?? 'default') === 'default'
     ? 'bE Relay'
@@ -1702,15 +1837,26 @@ const spaceRelayLabel =
 const spaceCategoryLabel = group.sport
   ? group.sport.charAt(0).toUpperCase() + group.sport.slice(1)
   : 'No badge';
+const spaceCategoryIcon = getGroupTypeIcon(group);
 const spaceHomeMeta = [
   `${members.length} ${members.length === 1 ? 'member' : 'members'}`,
   group.season,
   spaceRelayLabel,
 ].filter(Boolean).join(' - ');
-const spaceHomeSummary =
-  group.description?.trim() ||
-  `${spaceCategoryLabel === 'No badge' ? 'Living' : spaceCategoryLabel} Space for chat, Marks, calendar, gallery, and book.`;
 const isFavoriteSpace = favoriteSpaceIds.includes(group.id);
+const shouldLiftSpaceChatTray =
+  spaceKeyboardHeight > 0 &&
+  !showSpaceMarkModal &&
+  (
+    (tab === 'chat' && !showSpaceSettingsMenu && !showInvite && !editingGroupRelay) ||
+    editingGroupRelay
+  );
+const liftedSpaceChatTrayStyle = shouldLiftSpaceChatTray
+  ? {
+      top: Platform.OS === 'ios' ? 78 : 72,
+      bottom: Math.max(spaceKeyboardHeight + (Platform.OS === 'ios' ? 10 : 6), 6),
+    }
+  : null;
 const relaySettingsCard = (
   <View style={s.groupRelayCard}>
     <View style={s.groupRelayHeader}>
@@ -1721,11 +1867,23 @@ const relaySettingsCard = (
         </Text>
       </View>
 
-      {isAdmin && !editingGroupRelay && (
-        <TouchableOpacity onPress={openGroupRelayEditor}>
-          <Text style={s.groupRelayManage}>Manage</Text>
+      <View style={s.groupRelayHeaderActions}>
+        {isAdmin && !editingGroupRelay && (
+          <TouchableOpacity onPress={openGroupRelayEditor} activeOpacity={0.85}>
+            <Text style={s.groupRelayManage}>Manage</Text>
+          </TouchableOpacity>
+        )}
+
+        <TouchableOpacity
+          onPress={() => {
+            setEditingGroupRelay(false);
+            setSpaceSettingsRelayOpen(false);
+          }}
+          activeOpacity={0.85}
+        >
+          <Text style={s.groupRelayManage}>Close</Text>
         </TouchableOpacity>
-      )}
+      </View>
     </View>
 
     {!editingGroupRelay ? (
@@ -1817,49 +1975,6 @@ const relaySettingsCard = (
   return (
     <SafeAreaView style={s.safe}>
 
-      {/* Space profile hero */}
-      <View style={s.hiddenHeader}>
-        <TouchableOpacity
-          onPress={handleSpaceDetailBack}
-          style={s.backBtn}
-        >
-          <Text style={s.backText}>← Back</Text>
-        </TouchableOpacity>
-        <View style={s.headerCenter}>
-          <View style={s.groupTitleRow}>
-            <View style={s.groupHeaderIcon}>
-              {group.coverImage ? (
-                <Image source={{ uri: group.coverImage }} style={s.groupHeaderImage} />
-              ) : (
-                <Text style={s.groupHeaderIconText}>{getGroupAvatarText(group)}</Text>
-              )}
-            </View>
-
-            {headerGroupTypeIcon ? (
-              <View style={s.groupHeaderCategoryBadge}>
-                <Text style={s.groupHeaderCategoryText}>{headerGroupTypeIcon}</Text>
-              </View>
-            ) : null}
-
-            <Text style={s.headerTitle} numberOfLines={1}>{group.name}</Text>
-          </View>
-
-          <TouchableOpacity
-            onPress={toggleSpaceSettingsMenu}
-            activeOpacity={0.75}
-            style={[s.memberHeaderPill, showSpaceSettingsMenu && s.memberHeaderPillActive]}
-          >
-            <Text style={s.memberHeaderText}>
-              {members.length} {members.length === 1 ? 'member' : 'members'}
-              {group.season ? ` · ${group.season}` : ''}
-              {'  '}
-              {showSpaceSettingsMenu ? '^' : 'v'}
-            </Text>
-          </TouchableOpacity>
-        </View>
-        <View style={{ width: 58 }} />
-      </View>
-
       <View style={s.spaceProfileHero}>
         {group.coverImage ? (
           <Image source={{ uri: group.coverImage }} style={s.spaceProfileImage} />
@@ -1886,9 +2001,11 @@ const relaySettingsCard = (
               style={[s.spaceChromeIconBtn, isFavoriteSpace && s.spaceChromeIconBtnActive]}
               activeOpacity={0.82}
             >
-              <Text style={[s.spaceChromeIconText, isFavoriteSpace && s.spaceChromeIconTextActive]}>
-                {isFavoriteSpace ? '★' : '☆'}
-              </Text>
+              <Ionicons
+                name={isFavoriteSpace ? 'star' : 'star-outline'}
+                size={20}
+                color={isFavoriteSpace ? theme.bg : '#fff'}
+              />
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -1896,23 +2013,36 @@ const relaySettingsCard = (
               style={[s.spaceChromeIconBtn, showSpaceSettingsMenu && s.spaceChromeIconBtnActive]}
               activeOpacity={0.82}
             >
-              <Text style={s.spaceChromeIconText}>...</Text>
+              <Ionicons
+                name="ellipsis-horizontal"
+                size={23}
+                color={showSpaceSettingsMenu ? theme.bg : '#fff'}
+              />
             </TouchableOpacity>
           </View>
         </View>
 
-        <View style={s.spaceProfileTray}>
+      </View>
+
+      <View style={[s.spaceContentTray, liftedSpaceChatTrayStyle]}>
+        <View style={s.spaceTrayHeader}>
           <Text style={s.spaceProfileTitle} numberOfLines={2}>{group.name}</Text>
           <Text style={s.spaceProfileMeta} numberOfLines={1}>{spaceHomeMeta}</Text>
 
           <View style={s.spaceProfilePills}>
-            <TouchableOpacity style={s.spaceProfilePill} onPress={openSpaceChat} activeOpacity={0.86}>
-              <Text style={s.spaceProfilePillText}>Chat</Text>
+            <TouchableOpacity
+              style={[s.spaceProfilePill, tab === 'chat' && s.spaceProfilePillActive]}
+              onPress={openSpaceChat}
+              activeOpacity={0.86}
+            >
+              <Text style={[s.spaceProfilePillText, tab === 'chat' && s.spaceProfilePillTextActive]}>
+                Chat
+              </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={[s.spaceProfilePill, tab === 'stickies' && s.spaceProfilePillActive]}
-              onPress={() => setTab('stickies')}
+              onPress={() => selectSpaceTab('stickies')}
               activeOpacity={0.86}
             >
               <Text style={[s.spaceProfilePillText, tab === 'stickies' && s.spaceProfilePillTextActive]}>
@@ -1922,7 +2052,7 @@ const relaySettingsCard = (
 
             <TouchableOpacity
               style={[s.spaceProfilePill, tab === 'calendar' && s.spaceProfilePillActive]}
-              onPress={() => setTab('calendar')}
+              onPress={() => selectSpaceTab('calendar')}
               activeOpacity={0.86}
             >
               <Text style={[s.spaceProfilePillText, tab === 'calendar' && s.spaceProfilePillTextActive]}>
@@ -1933,7 +2063,7 @@ const relaySettingsCard = (
             {group.bookEnabled === true && (
               <TouchableOpacity
                 style={[s.spaceProfilePill, tab === 'book' && s.spaceProfilePillActive]}
-                onPress={() => setTab('book')}
+                onPress={() => selectSpaceTab('book')}
                 activeOpacity={0.86}
               >
                 <Text style={[s.spaceProfilePillText, tab === 'book' && s.spaceProfilePillTextActive]}>
@@ -1943,10 +2073,15 @@ const relaySettingsCard = (
             )}
           </View>
         </View>
-      </View>
 
       {/* Header settings and invite panels */}
       {showSpaceSettingsMenu && (
+        <ScrollView
+          style={s.spaceSettingsPanelScroll}
+          contentContainerStyle={s.spaceSettingsPanelContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
         <View style={s.spaceSettingsDropdown}>
           <View style={s.spaceSettingsTop}>
             <View style={s.spaceSettingsAvatar}>
@@ -1963,20 +2098,30 @@ const relaySettingsCard = (
                 {group.description || 'Chat, Marks, calendar, gallery, and book work for this Space.'}
               </Text>
             </View>
+
+            <TouchableOpacity
+              style={s.spaceSettingsDoneBtn}
+              onPress={closeSpacePanels}
+              activeOpacity={0.85}
+            >
+              <Text style={s.spaceSettingsDoneText}>Done</Text>
+            </TouchableOpacity>
           </View>
 
           <View style={s.spaceSettingsChips}>
             <Text style={s.spaceSettingsChip}>{members.length} members</Text>
             <Text style={s.spaceSettingsChip}>{spaceMarkViews.length} Marks</Text>
-            <Text style={s.spaceSettingsChip}>{spaceCategoryLabel}</Text>
+            <Text style={s.spaceSettingsChip}>
+              {spaceCategoryIcon ? `${spaceCategoryIcon} ${spaceCategoryLabel}` : spaceCategoryLabel}
+            </Text>
+            <Text style={s.spaceSettingsChip}>{upcomingCount} events</Text>
             <Text style={s.spaceSettingsChip}>{spaceRelayLabel}</Text>
           </View>
 
           <TouchableOpacity
             style={s.spaceSettingsRow}
             onPress={() => {
-              closeSpaceSettingsMenu();
-              setTab('members');
+              selectSpaceTab('members');
             }}
             activeOpacity={0.85}
           >
@@ -1990,8 +2135,7 @@ const relaySettingsCard = (
           <TouchableOpacity
             style={s.spaceSettingsRow}
             onPress={() => {
-              closeSpaceSettingsMenu();
-              setTab('gallery');
+              selectSpaceTab('gallery');
             }}
             activeOpacity={0.85}
           >
@@ -2006,7 +2150,9 @@ const relaySettingsCard = (
             <TouchableOpacity
               style={s.spaceSettingsRow}
               onPress={() => {
-                closeSpaceSettingsMenu();
+                setShowSpaceSettingsMenu(false);
+                setSpaceSettingsRelayOpen(false);
+                setEditingGroupRelay(false);
                 setShowInvite(true);
               }}
               activeOpacity={0.85}
@@ -2063,10 +2209,40 @@ const relaySettingsCard = (
             </View>
           )}
         </View>
+        </ScrollView>
       )}
 
       {showInvite && isAdmin && (
+        <ScrollView
+          style={s.spaceSettingsPanelScroll}
+          contentContainerStyle={s.spaceSettingsPanelContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
         <View style={s.invitePanel}>
+          <View style={s.invitePanelHeader}>
+            <TouchableOpacity
+              style={s.invitePanelHeaderBtn}
+              onPress={() => {
+                setShowInvite(false);
+                setShowSpaceSettingsMenu(true);
+              }}
+              activeOpacity={0.85}
+            >
+              <Text style={s.invitePanelHeaderAction}>Settings</Text>
+            </TouchableOpacity>
+
+            <Text style={s.invitePanelTitle}>Invite and Share</Text>
+
+            <TouchableOpacity
+              style={s.invitePanelHeaderBtn}
+              onPress={closeSpacePanels}
+              activeOpacity={0.85}
+            >
+              <Text style={s.invitePanelHeaderAction}>Done</Text>
+            </TouchableOpacity>
+          </View>
+
           <View style={s.invitePanelTop}>
             <View style={s.inviteCodeBlock}>
               <Text style={s.inviteCodeLabel}>INVITE CODE</Text>
@@ -2096,137 +2272,25 @@ const relaySettingsCard = (
             Members scan the QR or enter the code in Spaces. Regenerate if it gets shared with the wrong people.
           </Text>
         </View>
+        </ScrollView>
       )}
 
-      {/* Tab bar */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={s.tabRow}
-        contentContainerStyle={s.tabRowContent}
-      >
-        {(['chat', 'stickies', 'calendar', 'gallery', 'book'] as MainTab[]).map(t => (
-          <TouchableOpacity
-            key={t}
-            style={[s.tabBtn, tab === t && s.tabBtnActive]}
-            onPress={() => {
-              if (t === 'chat') {
-                openSpaceChat();
-                return;
-              }
+      <View style={[s.spaceTrayBody, (showSpaceSettingsMenu || showInvite) && s.spaceTrayBodyHidden]}>
 
-              setTab(t);
-            }}
-          >
-            <Text style={[s.tabText, tab === t && s.tabTextActive]}>
-              {t === 'chat'
-                ? 'Chat'
-                : t === 'stickies'
-                ? `Marks (${spaceMarkViews.length + stickies.length})`
-                : t === 'calendar'
-                  ? `Calendar${upcomingCount > 0 ? ` (${upcomingCount})` : ''}`
-                  : t === 'gallery'
-                    ? `Gallery (${galleryItems.length})`
-                    : 'Book'}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+      {tab === 'chat' && (
+        <View style={s.spaceTabPanel}>
+          <GroupChatPanel groupId={group.id} variant="inline" />
+        </View>
+      )}
 
       {/* Stickies tab */}
       {tab === 'stickies' && (
+        <View style={s.spaceTabPanel}>
         <ScrollView
+          style={s.spaceTabScroll}
           contentContainerStyle={s.timelineContainer}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.gold} />}
         >
-    <View style={s.hiddenHeader}>
-      <View style={s.spaceHeroMedia}>
-        {group.coverImage ? (
-          <Image source={{ uri: group.coverImage }} style={s.spaceHeroImage} />
-        ) : (
-          <View style={s.spaceHeroFallback}>
-            <Text style={s.spaceHeroFallbackText}>{getGroupAvatarText(group)}</Text>
-          </View>
-        )}
-        <View style={s.spaceHeroShade} />
-        <View style={s.spaceHeroContent}>
-          <Text style={s.spaceHeroEyebrow}>
-            {spaceCategoryLabel === 'No badge' ? 'Living Space' : `${spaceCategoryLabel} Space`}
-          </Text>
-          <Text style={s.spaceHeroTitle} numberOfLines={2}>{group.name}</Text>
-          <Text style={s.spaceHeroMeta} numberOfLines={1}>{spaceHomeMeta}</Text>
-        </View>
-      </View>
-
-      <View style={s.spaceHeroBody}>
-        <Text style={s.spaceHeroSummary} numberOfLines={3}>{spaceHomeSummary}</Text>
-
-        <View style={s.spaceHeroStats}>
-          <View style={s.spaceHeroStat}>
-            <Text style={s.spaceHeroStatValue}>{spaceMarkViews.length}</Text>
-            <Text style={s.spaceHeroStatLabel}>Marks</Text>
-          </View>
-          <View style={s.spaceHeroStat}>
-            <Text style={s.spaceHeroStatValue}>{galleryItems.length}</Text>
-            <Text style={s.spaceHeroStatLabel}>Media</Text>
-          </View>
-          <View style={s.spaceHeroStat}>
-            <Text style={s.spaceHeroStatValue}>{upcomingCount}</Text>
-            <Text style={s.spaceHeroStatLabel}>Events</Text>
-          </View>
-        </View>
-
-        <View style={s.spaceHeroActions}>
-          <TouchableOpacity style={[s.spaceHeroAction, s.spaceHeroActionPrimary]} onPress={openSpaceChat} activeOpacity={0.86}>
-            <Text style={[s.spaceHeroActionText, s.spaceHeroActionTextPrimary]}>Chat</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              s.spaceHeroAction,
-              (group.status !== 'active' || !isAdmin || !isMember) && s.spaceHeroActionDisabled,
-            ]}
-            onPress={() => {
-              if (group.status === 'active' && isAdmin && isMember) {
-                setShowSpaceMarkModal(true);
-              }
-            }}
-            disabled={group.status !== 'active' || !isAdmin || !isMember}
-            activeOpacity={0.86}
-          >
-            <Text style={s.spaceHeroActionText}>+ Mark</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={s.spaceHeroAction} onPress={() => setTab('calendar')} activeOpacity={0.86}>
-            <Text style={s.spaceHeroActionText}>Calendar</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={s.spaceHeroAction} onPress={() => setTab('gallery')} activeOpacity={0.86}>
-            <Text style={s.spaceHeroActionText}>Gallery</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={s.spaceHeroAction} onPress={() => setTab('book')} activeOpacity={0.86}>
-            <Text style={s.spaceHeroActionText}>Book</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    </View>
-
-    <View style={s.spaceMarksOverview}>
-      <View style={{ flex: 1 }}>
-        <Text style={s.spaceMarksTitle}>Space Marks</Text>
-        <Text style={s.spaceMarksHint}>
-          Real Marks created here stay attached to this Space. Legacy notes remain visible below.
-        </Text>
-      </View>
-
-      <View style={s.spaceMarksStats}>
-        <Text style={s.spaceMarksStatText}>{spaceMarkViews.length} Marks</Text>
-        {stickies.length > 0 && (
-          <Text style={s.spaceMarksLegacyText}>{stickies.length} legacy</Text>
-        )}
-      </View>
-    </View>
 
     {group.status === 'archived' && (
       <View style={s.archivedBanner}>
@@ -2250,10 +2314,23 @@ const relaySettingsCard = (
           const mark = view.milestone;
           const markText = getMilestoneText(mark);
           const markMedia = getMilestoneMediaItems(mark);
+          const authorProfile = getSpaceMarkAuthorProfile(mark);
+          const markPeople = view.metadata.people.filter(person => person.role !== 'author');
+          const placeLabel =
+            view.metadata.place?.name ||
+            (view.metadata.place?.latitude !== undefined && view.metadata.place?.longitude !== undefined
+              ? `${view.metadata.place.latitude.toFixed(2)}, ${view.metadata.place.longitude.toFixed(2)}`
+              : undefined);
+          const contextLabels = [
+            view.metadata.lifeStage,
+            view.metadata.eventId,
+            placeLabel,
+            view.metadata.savedToBook ? 'Book' : null,
+          ].filter(Boolean) as string[];
           const markMeta = [
+            `Logged by ${authorProfile.displayName}`,
             formatStickyDate(mark.createdAt),
             view.metadata.privacy === 'space' ? 'Space' : view.metadata.privacy,
-            view.metadata.savedToBook ? 'Book' : null,
           ].filter(Boolean).join(' - ');
 
           return (
@@ -2265,7 +2342,11 @@ const relaySettingsCard = (
             >
               <View style={s.spaceMarkCardTop}>
                 <View style={s.spaceMarkAvatar}>
-                  <Text style={s.spaceMarkAvatarText}>M</Text>
+                  {authorProfile.avatarUrl ? (
+                    <Image source={{ uri: authorProfile.avatarUrl }} style={s.spaceMarkAvatarImage} />
+                  ) : (
+                    <Text style={s.spaceMarkAvatarText}>{authorProfile.initials}</Text>
+                  )}
                 </View>
 
                 <View style={{ flex: 1, minWidth: 0 }}>
@@ -2287,12 +2368,27 @@ const relaySettingsCard = (
                 />
               )}
 
+              {(markPeople.length > 0 || contextLabels.length > 0) && (
+                <View style={s.markTagRow}>
+                  {markPeople.slice(0, 4).map(person => (
+                    <View key={`${mark.id}_${person.id || person.npub || person.displayName}`} style={s.markPersonMiniChip}>
+                      <Text style={s.markPersonMiniText}>{getPersonDisplayName(person)}</Text>
+                    </View>
+                  ))}
+                  {contextLabels.map(label => (
+                    <View key={`${mark.id}_${label}`} style={s.markContextMiniChip}>
+                      <Text style={s.markContextMiniText}>{label}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+
               {mark.tags.length > 0 && (
                 <View style={s.markTagRow}>
                   {mark.tags.map(tag => (
-                    <Text key={`${mark.id}_${tag}`} style={s.markTag}>
-                      {tag}
-                    </Text>
+                    <View key={`${mark.id}_${tag}`} style={s.markTag}>
+                      <Text style={s.markTagText}>{tag}</Text>
+                    </View>
                   ))}
                 </View>
               )}
@@ -2305,7 +2401,10 @@ const relaySettingsCard = (
         {stickies.map(sticky => (
           <View key={sticky.id} style={s.stickyCard}>
             <View style={s.stickyTop}>
-              <Text style={s.stickyTitle}>{sticky.title}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={s.stickyTitle}>{sticky.title}</Text>
+                <Text style={s.legacyStickyLabel}>Legacy highlight</Text>
+              </View>
               {isAdmin && (
                 <TouchableOpacity onPress={() => handleDeleteSticky(sticky)}>
                   <Text style={s.stickyDelete}>✕</Text>
@@ -2361,10 +2460,21 @@ const relaySettingsCard = (
       </>
     )}
         </ScrollView>
+        {group.status === 'active' && isAdmin && isMember && (
+          <TouchableOpacity
+            style={s.spaceMarkFab}
+            onPress={() => setShowSpaceMarkModal(true)}
+            activeOpacity={0.88}
+          >
+            <Text style={s.spaceMarkFabText}>+</Text>
+          </TouchableOpacity>
+        )}
+        </View>
       )}
 
       {/* Calendar tab */}
       {tab === 'calendar' && (
+        <View style={s.spaceTabPanel}>
         <GroupCalendarTab
           group={group}
           isAdmin={isAdmin}
@@ -2374,10 +2484,12 @@ const relaySettingsCard = (
           refreshing={refreshing}
           onRefresh={onRefresh}
         />
+        </View>
       )}
 
       {tab === 'gallery' && (
         <FlatList
+          style={s.spaceTabList}
           data={galleryItems}
           keyExtractor={(item) => item.id}
           numColumns={3}
@@ -2449,6 +2561,7 @@ const relaySettingsCard = (
 
             {/* Book tab */}
       {tab === 'book' && (
+        <View style={s.spaceTabPanel}>
         <GroupBookTab
           group={group}
           npub={npub ?? undefined}
@@ -2457,11 +2570,13 @@ const relaySettingsCard = (
           theme={theme}
           onGroupUpdated={load}
         />
+        </View>
       )}
 
       {/* Members tab */}
       {tab === 'members' && (
         <FlatList
+          style={s.spaceTabList}
           data={members}
           keyExtractor={m => m.id}
           contentContainerStyle={s.membersList}
@@ -2551,18 +2666,8 @@ const relaySettingsCard = (
           }
         />
       )}
-      {/* Group actions bar */}
-      {group.status === 'active' && isAdmin && isMember && (
-        <View style={s.adminBar}>
-          <TouchableOpacity
-            style={s.adminBtnGold}
-            onPress={() => setShowSpaceMarkModal(true)}
-            activeOpacity={0.88}
-          >
-            <Text style={s.adminBtnGoldText}>+ Mark</Text>
-          </TouchableOpacity>
-        </View>
-      )}
+      </View>
+      </View>
 
       <Modal
         visible={!!selectedMemberAction}
@@ -2879,11 +2984,35 @@ const relaySettingsCard = (
 
               {spaceMarkShowContext && (
                 <View style={s.markContextPanel}>
+                  <Text style={s.inputLabel}>PEOPLE</Text>
+                  {spacePersonCandidates.length > 0 && (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.markPersonRow}>
+                      {spacePersonCandidates.slice(0, 16).map(person => {
+                        const active = isLivingPersonSelected(selectedSpaceMarkPeople, person);
+
+                        return (
+                          <TouchableOpacity
+                            key={person.id}
+                            style={[s.markPersonChip, active && s.markPersonChipActive]}
+                            onPress={() => setSelectedSpaceMarkPeople(prev => toggleLivingPersonSelection(prev, person))}
+                            activeOpacity={0.82}
+                          >
+                            <Text style={[s.markPersonAvatar, active && s.markPersonAvatarActive]}>
+                              {person.displayName.slice(0, 1).toUpperCase()}
+                            </Text>
+                            <Text style={[s.markPersonChipText, active && s.markPersonChipTextActive]} numberOfLines={1}>
+                              {person.displayName}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  )}
                   <TextInput
                     style={s.input}
                     value={spaceMarkPeopleInput}
                     onChangeText={setSpaceMarkPeopleInput}
-                    placeholder="People in this Mark, separated by commas"
+                    placeholder="Add another name or npub"
                     placeholderTextColor={theme.textMuted}
                   />
 
@@ -3022,8 +3151,7 @@ function formatStickyDate(unix: number): string {
 }
 
 const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
-  safe: { flex: 1, backgroundColor: theme.bg },
-  hiddenHeader: { display: 'none' },
+  safe: { flex: 1, backgroundColor: theme.bg, position: 'relative' },
   loading: {
     flex: 1,
     alignItems: 'center',
@@ -3082,97 +3210,8 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     fontWeight: '700',
   },
 
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 13,
-    borderBottomWidth: 0.5,
-    borderBottomColor: theme.border,
-    backgroundColor: theme.bg,
-  },
-  backBtn: { width: 58 },
-  backText: { color: theme.gold, fontSize: 14, fontWeight: '700' },
-  headerCenter: { flex: 1, alignItems: 'center', paddingHorizontal: 8 },
-  groupTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    maxWidth: '100%',
-  },
-  groupHeaderIcon: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: theme.surface,
-    borderWidth: 0.5,
-    borderColor: theme.gold + '33',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  groupHeaderIconText: {
-    fontSize: 16,
-  },
-  groupHeaderImage: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 15,
-  },
-  groupHeaderCategoryBadge: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.raised,
-    borderWidth: 0.5,
-    borderColor: theme.gold + '55',
-  },
-  groupHeaderCategoryText: {
-    fontSize: 12,
-  },
-  headerTitle: {
-    color: theme.text,
-    fontSize: 16,
-    fontWeight: '800',
-    letterSpacing: -0.2,
-    flexShrink: 1,
-  },
-  headerSub: { color: theme.textMuted, fontSize: 11, marginTop: 2, fontWeight: '600' },
-  memberHeaderPill: {
-    marginTop: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: theme.surface,
-    borderWidth: 0.5,
-    borderColor: theme.border,
-  },
-  memberHeaderPillActive: {
-    backgroundColor: theme.raised,
-    borderColor: theme.gold + '66',
-  },
-  memberHeaderText: {
-    color: theme.gold,
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  inviteBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: theme.gold,
-  },
-  inviteBtnText: {
-    color: theme.bg,
-    fontWeight: '700',
-    fontSize: 15,
-    letterSpacing: 0.3,
-  },
   spaceProfileHero: {
-    height: 336,
+    height: 330,
     backgroundColor: theme.raised,
     position: 'relative',
     overflow: 'hidden',
@@ -3244,10 +3283,20 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     color: '#fff',
     fontSize: 18,
     fontWeight: '900',
-    lineHeight: 20,
+    width: 38,
+    height: 38,
+    lineHeight: 38,
+    textAlign: 'center',
+    textAlignVertical: 'center',
+    includeFontPadding: false,
   },
   spaceChromeIconTextActive: {
     color: theme.bg,
+  },
+  spaceChromeDotsText: {
+    fontSize: 20,
+    letterSpacing: 1,
+    marginTop: -3,
   },
   spaceProfileTray: {
     position: 'absolute',
@@ -3257,12 +3306,12 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     borderRadius: 22,
     padding: 16,
     backgroundColor: theme.bg === Colors.light.bg
-      ? 'rgba(255,255,255,0.94)'
-      : 'rgba(18,18,18,0.92)',
+      ? 'rgba(255,255,255,0.74)'
+      : 'rgba(18,18,18,0.66)',
     borderWidth: 0.5,
     borderColor: theme.bg === Colors.light.bg
-      ? 'rgba(255,255,255,0.72)'
-      : 'rgba(255,255,255,0.10)',
+      ? 'rgba(255,255,255,0.46)'
+      : 'rgba(255,255,255,0.08)',
   },
   spaceProfileTitle: {
     color: theme.text,
@@ -3301,132 +3350,63 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
   spaceProfilePillTextActive: {
     color: theme.bg,
   },
-  spaceHomeHero: {
-    borderRadius: 24,
-    overflow: 'hidden',
-    borderWidth: 0.5,
-    borderColor: theme.border,
-    backgroundColor: theme.surface,
-    marginBottom: 14,
-  },
-  spaceHeroMedia: {
-    height: 188,
-    position: 'relative',
-    backgroundColor: theme.raised,
-  },
-  spaceHeroImage: {
-    width: '100%',
-    height: '100%',
-  },
-  spaceHeroFallback: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.raised,
-  },
-  spaceHeroFallbackText: {
-    color: theme.gold,
-    fontSize: 54,
-    fontWeight: '900',
-  },
-  spaceHeroShade: {
+  spaceContentTray: {
     position: 'absolute',
-    top: 0,
     left: 0,
     right: 0,
+    top: 226,
     bottom: 0,
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
     backgroundColor: theme.bg === Colors.light.bg
-      ? 'rgba(17, 24, 28, 0.24)'
-      : 'rgba(0, 0, 0, 0.42)',
-  },
-  spaceHeroContent: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
-    bottom: 14,
-  },
-  spaceHeroEyebrow: {
-    color: '#fff',
-    fontSize: 11,
-    fontWeight: '900',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-    opacity: 0.9,
-  },
-  spaceHeroTitle: {
-    color: '#fff',
-    fontSize: 27,
-    fontWeight: '900',
-    marginTop: 4,
-  },
-  spaceHeroMeta: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '700',
-    marginTop: 4,
-    opacity: 0.9,
-  },
-  spaceHeroBody: {
-    padding: 14,
-    gap: 12,
-  },
-  spaceHeroSummary: {
-    color: theme.text,
-    fontSize: 13,
-    lineHeight: 19,
-    fontWeight: '600',
-  },
-  spaceHeroStats: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  spaceHeroStat: {
-    flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-    borderRadius: 14,
-    backgroundColor: theme.raised,
-    alignItems: 'center',
-  },
-  spaceHeroStatValue: {
-    color: theme.text,
-    fontSize: 17,
-    fontWeight: '900',
-  },
-  spaceHeroStatLabel: {
-    color: theme.textMuted,
-    fontSize: 10,
-    fontWeight: '800',
-    marginTop: 2,
-    textTransform: 'uppercase',
-  },
-  spaceHeroActions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  spaceHeroAction: {
-    paddingHorizontal: 13,
-    paddingVertical: 9,
-    borderRadius: 999,
+      ? 'rgba(255,255,255,0.88)'
+      : 'rgba(18,18,18,0.86)',
     borderWidth: 0.5,
-    borderColor: theme.border,
-    backgroundColor: theme.raised,
+    borderColor: theme.bg === Colors.light.bg
+      ? 'rgba(255,255,255,0.82)'
+      : 'rgba(255,255,255,0.12)',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 0.14,
+    shadowRadius: 18,
+    elevation: 10,
   },
-  spaceHeroActionPrimary: {
-    backgroundColor: theme.gold,
-    borderColor: theme.gold,
+  spaceTrayHeader: {
+    paddingHorizontal: 16,
+    paddingTop: 18,
+    paddingBottom: 12,
+    borderBottomWidth: 0.5,
+    borderBottomColor: theme.border,
+    backgroundColor: theme.bg === Colors.light.bg
+      ? 'rgba(255,255,255,0.42)'
+      : 'rgba(18,18,18,0.38)',
   },
-  spaceHeroActionDisabled: {
-    opacity: 0.45,
+  spaceTrayBody: {
+    flex: 1,
+    minHeight: 0,
   },
-  spaceHeroActionText: {
-    color: theme.text,
-    fontSize: 12,
-    fontWeight: '900',
+  spaceTrayBodyHidden: {
+    display: 'none',
   },
-  spaceHeroActionTextPrimary: {
-    color: theme.bg,
+  spaceTabPanel: {
+    flex: 1,
+    minHeight: 0,
+    position: 'relative',
+  },
+  spaceTabScroll: {
+    flex: 1,
+  },
+  spaceTabList: {
+    flex: 1,
+  },
+  spaceSettingsPanelScroll: {
+    flex: 1,
+    minHeight: 0,
+    backgroundColor: theme.bg,
+  },
+  spaceSettingsPanelContent: {
+    paddingBottom: 26,
   },
   stickyCard: {
     backgroundColor: theme.surface,
@@ -3497,6 +3477,12 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     backgroundColor: theme.raised,
     borderWidth: 0.5,
     borderColor: theme.gold + '44',
+    overflow: 'hidden',
+  },
+  spaceMarkAvatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 17,
   },
   spaceMarkAvatarText: {
     color: theme.gold,
@@ -3629,11 +3615,18 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     marginBottom: 9,
   },
   stickyTitle: {
-    flex: 1,
     color: theme.text,
     fontSize: 16,
     fontWeight: '800',
     letterSpacing: -0.2,
+  },
+  legacyStickyLabel: {
+    color: theme.textMuted,
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    marginTop: 2,
   },
   stickyDelete: {
     color: '#555',
@@ -3681,6 +3674,32 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
   },
+  markPersonMiniChip: {
+    borderWidth: 0.5,
+    borderColor: theme.gold,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: theme.surface,
+  },
+  markPersonMiniText: {
+    color: theme.gold,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  markContextMiniChip: {
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: theme.raised,
+  },
+  markContextMiniText: {
+    color: theme.textSecondary,
+    fontSize: 12,
+    fontWeight: '800',
+  },
   markTagChip: {
     minHeight: 32,
     paddingHorizontal: 12,
@@ -3701,6 +3720,53 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     fontWeight: '800',
   },
   markTagChipTextActive: {
+    color: theme.bg,
+  },
+  markPersonRow: {
+    gap: 8,
+    paddingRight: 20,
+  },
+  markPersonChip: {
+    minHeight: 34,
+    maxWidth: 190,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    backgroundColor: theme.surface,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+  },
+  markPersonChipActive: {
+    backgroundColor: theme.gold,
+    borderColor: theme.gold,
+  },
+  markPersonAvatar: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    color: theme.gold,
+    textAlign: 'center',
+    lineHeight: 19,
+    fontSize: 10,
+    fontWeight: '900',
+    overflow: 'hidden',
+  },
+  markPersonAvatarActive: {
+    borderColor: theme.bg,
+    color: theme.bg,
+  },
+  markPersonChipText: {
+    color: theme.text,
+    fontSize: 12,
+    fontWeight: '800',
+    maxWidth: 136,
+  },
+  markPersonChipTextActive: {
     color: theme.bg,
   },
   markTagInputRow: {
@@ -3771,6 +3837,11 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     alignItems: 'flex-start',
     gap: 12,
     marginBottom: 12,
+  },
+  groupRelayHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
   },
   groupRelayTitle: {
     color: theme.text,
@@ -3896,6 +3967,21 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     fontWeight: '600',
     marginTop: 4,
   },
+  spaceSettingsDoneBtn: {
+    minHeight: 34,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.gold + '66',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  spaceSettingsDoneText: {
+    color: theme.gold,
+    fontSize: 12,
+    fontWeight: '900',
+  },
   spaceSettingsGrid: {
     flexDirection: 'row',
     gap: 8,
@@ -4020,6 +4106,36 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     borderBottomColor: theme.border,
     padding: 16,
   },
+  invitePanelHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 14,
+  },
+  invitePanelHeaderBtn: {
+    minWidth: 64,
+    minHeight: 34,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  invitePanelHeaderAction: {
+    color: theme.gold,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  invitePanelTitle: {
+    flex: 1,
+    color: theme.text,
+    fontSize: 15,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
   invitePanelTop: { flexDirection: 'row', gap: 16, alignItems: 'flex-start' },
   inviteCodeBlock: { flex: 1 },
   inviteCodeLabel: { fontSize: 10, color: theme.textMuted, fontWeight: '600', letterSpacing: 0.8, marginBottom: 6 },
@@ -4042,38 +4158,7 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     borderWidth: 0.5,
     borderColor: theme.border,
   },
-  inviteMeta: { fontSize: 11, color: '#444', marginTop: 10, lineHeight: 16 },
-
-  // Tabs
-  tabRow: {
-    display: 'none',
-    borderBottomWidth: 0.5,
-    borderBottomColor: theme.border,
-    backgroundColor: theme.bg,
-  },
-  tabRowContent: {
-    paddingHorizontal: 12,
-  },
-  tabBtn: {
-    minWidth: 86,
-    paddingVertical: 13,
-    paddingHorizontal: 6,
-    alignItems: 'center',
-  },
-  tabBtnActive: {
-    borderBottomWidth: 2,
-    borderBottomColor: theme.gold,
-  },
-  tabText: {
-    fontSize: 12,
-    color: theme.textMuted,
-    fontWeight: '700',
-    letterSpacing: 0.1,
-  },
-  tabTextActive: {
-    color: theme.gold,
-    fontWeight: '800',
-  },
+  inviteMeta: { fontSize: 11, color: theme.textMuted, marginTop: 10, lineHeight: 16 },
 
   // Gallery
   galleryGrid: {
@@ -4117,7 +4202,7 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
   },
 
   // Timeline
-  timelineContainer: { padding: 20, paddingBottom: 100 },
+  timelineContainer: { padding: 14, paddingBottom: 100 },
   archivedBanner: { backgroundColor: theme.raised, borderRadius: 10, padding: 12, marginBottom: 16, borderWidth: 0.5, borderColor: '#3a3a00' },
   archivedBannerText: { color: theme.textMuted,fontSize: 13, textAlign: 'center' },
 
@@ -4682,5 +4767,27 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     color: theme.bg,
     fontWeight: '300',
     lineHeight: 34,
+  },
+  spaceMarkFab: {
+    position: 'absolute',
+    right: 18,
+    bottom: 18,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: theme.gold,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: theme.gold,
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  spaceMarkFabText: {
+    color: theme.bg,
+    fontSize: 34,
+    fontWeight: '300',
+    lineHeight: 36,
   },
 });

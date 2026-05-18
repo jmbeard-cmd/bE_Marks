@@ -70,6 +70,8 @@ export type LivingMarkPerson = {
   id?: string;
   npub?: string;
   displayName?: string;
+  avatarUrl?: string;
+  source?: 'current-user' | 'space-member' | 'family-member' | 'contact' | 'manual' | 'derived';
   role?: 'author' | 'subject' | 'mentioned';
 };
 

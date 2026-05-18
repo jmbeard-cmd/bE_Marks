@@ -319,16 +319,6 @@ const handleEntryTypeChange = (nextType: GroupBookEntryType) => {
               {group.name}{group.season ? ` · ${group.season}` : ''}
             </Text>
           </View>
-
-          {canManage && (
-            <TouchableOpacity
-              style={s.addEntryBtn}
-              onPress={() => setShowEntryModal(true)}
-              activeOpacity={0.85}
-            >
-              <Text style={s.addEntryBtnText}>+ Entry</Text>
-            </TouchableOpacity>
-          )}
         </View>
 
         <View style={s.snapshotCard}>
@@ -474,6 +464,16 @@ color: item.type === 'expense'
           </View>
         }
       />
+
+      {canManage && (
+        <TouchableOpacity
+          style={s.entryFab}
+          onPress={() => setShowEntryModal(true)}
+          activeOpacity={0.88}
+        >
+          <Text style={s.entryFabPlus}>+</Text>
+        </TouchableOpacity>
+      )}
 
             <Modal
         visible={!!selectedEntry}
@@ -696,16 +696,16 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     flex: 1,
     backgroundColor: theme.bg,
   },
-    pinnedTop: {
+  pinnedTop: {
     backgroundColor: theme.bg,
     borderBottomWidth: 0.5,
     borderBottomColor: theme.border,
-    paddingBottom: 2,
+    paddingBottom: 0,
   },
   header: {
-    paddingHorizontal: 18,
-    paddingTop: 16,
-    paddingBottom: 10,
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 6,
     flexDirection: 'row',
     justifyContent: 'space-between',
     gap: 12,
@@ -713,27 +713,17 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
   },
   title: {
     color: theme.text,
-    fontSize: 24,
+    fontSize: 19,
     fontWeight: '800',
   },
   subtitle: {
     color: theme.textMuted,
-    fontSize: 12,
-    marginTop: 2,
-  },
-  addEntryBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 999,
-    backgroundColor: theme.gold,
-  },
-  addEntryBtnText: {
-    color: theme.bg,
-    fontSize: 12,
+    fontSize: 11,
+    marginTop: 1,
     fontWeight: '800',
   },
   list: {
-    paddingHorizontal: 18,
+    paddingHorizontal: 14,
     paddingBottom: 110,
   },
   listEmpty: {
@@ -782,64 +772,65 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     fontSize: 14,
   },
   snapshotCard: {
-    marginHorizontal: 18,
-    marginTop: 4,
-    marginBottom: 14,
-    padding: 16,
-    borderRadius: 18,
+    marginHorizontal: 14,
+    marginTop: 2,
+    marginBottom: 8,
+    padding: 10,
+    borderRadius: 16,
     backgroundColor: theme.surface,
     borderWidth: 0.5,
     borderColor: theme.border,
   },
   snapshotLabel: {
     color: theme.textMuted,
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '800',
     letterSpacing: 0.7,
     textTransform: 'uppercase',
   },
   snapshotBalance: {
-    fontSize: 34,
+    fontSize: 25,
     fontWeight: '900',
-    marginTop: 5,
+    marginTop: 2,
   },
   snapshotGrid: {
     flexDirection: 'row',
-    gap: 10,
-    marginTop: 14,
+    gap: 8,
+    marginTop: 8,
   },
   snapshotItem: {
     flex: 1,
-    padding: 12,
-    borderRadius: 14,
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+    borderRadius: 12,
     backgroundColor: theme.bg,
     borderWidth: 0.5,
     borderColor: theme.border,
   },
   snapshotItemLabel: {
     color: theme.textMuted,
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   snapshotIncome: {
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '900',
   },
   snapshotExpense: {
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '900',
   },
   pendingText: {
     color: theme.textMuted,
-    fontSize: 11,
-    marginTop: 12,
+    fontSize: 10,
+    marginTop: 7,
     fontWeight: '600',
   },
   sectionHeader: {
-    paddingHorizontal: 18,
+    paddingHorizontal: 14,
     paddingTop: 4,
-    paddingBottom: 10,
+    paddingBottom: 8,
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
@@ -852,6 +843,33 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     color: theme.textMuted,
     fontSize: 12,
     fontWeight: '600',
+  },
+  entryFab: {
+    position: 'absolute',
+    right: 18,
+    bottom: 18,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: theme.gold,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: theme.gold,
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  entryFabPlus: {
+    color: theme.bg,
+    fontSize: 34,
+    fontWeight: '300',
+    lineHeight: 36,
+  },
+  entryFabText: {
+    color: theme.bg,
+    fontSize: 13,
+    fontWeight: '900',
   },
   entryCard: {
     padding: 14,

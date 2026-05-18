@@ -1,4 +1,5 @@
 import { DEFAULT_RELAY } from './nostr';
+import { createLivingPerson, normalizeLivingPeople } from './living-people';
 import type { Milestone } from './storage';
 import type {
   LivingMarkCaptureSource,
@@ -214,30 +215,8 @@ function cleanOptionalText(value?: string): string | undefined {
   return clean || undefined;
 }
 
-function normalizePeopleIds(peopleIds: string[] = []): string[] {
-  const seen = new Set<string>();
-  const result: string[] = [];
-
-  for (const rawId of peopleIds) {
-    const clean = rawId.trim();
-    if (!clean) continue;
-
-    const key = clean.toLowerCase();
-    if (seen.has(key)) continue;
-
-    seen.add(key);
-    result.push(clean);
-  }
-
-  return result;
-}
-
 function createPeopleFromIds(peopleIds: string[]): LivingMarkPerson[] {
-  return peopleIds.map(id => ({
-    id,
-    displayName: id,
-    role: 'subject' as const,
-  }));
+  return normalizeLivingPeople({ peopleIds, fallbackRole: 'subject' }).people;
 }
 
 function inferSpaceType(group: LivingSpaceGroupSeed): LivingSpaceType {
@@ -385,24 +364,31 @@ export function createLivingMarkMetadata(
   const createdAt = milestone.createdAt || nowSeconds(input.now);
   const authorName = milestone.authorName?.trim();
   const privacy = input.privacy ?? inferPrivacyForMilestone(milestone);
-  const peopleIds = normalizePeopleIds(input.peopleIds);
+  const normalizedPeople = normalizeLivingPeople({
+    peopleIds: input.peopleIds,
+    people: input.people,
+    fallbackRole: 'subject',
+  });
   const authorPeople: LivingMarkPerson[] = milestone.authorNpub
     ? [
-        {
+        createLivingPerson({
           npub: milestone.authorNpub,
           displayName: authorName || undefined,
+          source: 'derived',
           role: 'author',
-        },
+        }),
       ]
     : [];
-  const subjectPeople = input.people?.length ? input.people : createPeopleFromIds(peopleIds);
+  const subjectPeople = normalizedPeople.people.length
+    ? normalizedPeople.people
+    : createPeopleFromIds(normalizedPeople.peopleIds);
 
   return {
     markId: milestone.id,
     title,
     caption,
     normalizedTags: normalizeLivingTags(milestone.tags ?? []),
-    peopleIds,
+    peopleIds: normalizedPeople.peopleIds,
     people: [...authorPeople, ...subjectPeople],
     place: input.place,
     occurredAt: input.occurredAt ?? milestone.createdAt,

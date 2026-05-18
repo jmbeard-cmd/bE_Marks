@@ -13,6 +13,7 @@ import {
   resolveLivingSpaceRoutes,
   SYSTEM_LIVING_SPACE_IDS,
 } from './living-space-routing';
+import { createLivingPerson, getLivingPersonId, normalizeLivingPeople } from './living-people';
 import { getFamily, getMilestones, type Family, type Milestone } from './storage';
 import { getGroups, type BEGroup } from './group-storage';
 import type {
@@ -44,6 +45,7 @@ type LivingMarkContextUpdateInput = {
   milestone: Milestone;
   currentNpub?: string | null;
   peopleIds?: string[];
+  people?: LivingMarkPerson[];
   lifeStage?: string;
   eventId?: string;
   placeName?: string;
@@ -95,10 +97,17 @@ function sortMetadata(items: LivingMarkMetadata[]): LivingMarkMetadata[] {
 }
 
 function normalizeLivingMarkMetadata(item: LivingMarkMetadata): LivingMarkMetadata {
+  const authorPeople = (item.people ?? []).filter(person => person.role === 'author');
+  const subjectPeople = normalizeLivingPeople({
+    people: (item.people ?? []).filter(person => person.role !== 'author'),
+    peopleIds: item.peopleIds ?? [],
+    fallbackRole: 'subject',
+  });
+
   return {
     ...item,
-    peopleIds: item.peopleIds ?? [],
-    people: item.people ?? [],
+    peopleIds: subjectPeople.peopleIds,
+    people: [...authorPeople, ...subjectPeople.people],
     relayTargets: item.relayTargets ?? [],
     savedToBook: item.savedToBook ?? false,
     enrichment: {
@@ -152,48 +161,32 @@ function splitMarkTitleAndPreview(note: string): { title?: string; preview: stri
   };
 }
 
-function normalizePeopleIds(peopleIds: string[] = []): string[] {
-  const seen = new Set<string>();
-  const result: string[] = [];
-
-  for (const rawId of peopleIds) {
-    const clean = rawId.trim();
-    if (!clean) continue;
-
-    const key = clean.toLowerCase();
-    if (seen.has(key)) continue;
-
-    seen.add(key);
-    result.push(clean);
-  }
-
-  return result;
-}
-
 function mergePeopleForContext(input: {
   metadata: LivingMarkMetadata;
   milestone: Milestone;
   peopleIds: string[];
+  people?: LivingMarkPerson[];
 }): LivingMarkPerson[] {
   const authorPeople = input.metadata.people.filter(person => person.role === 'author');
   const hasAuthor = authorPeople.length > 0;
   const authorFallback: LivingMarkPerson[] =
     !hasAuthor && input.milestone.authorNpub
       ? [
-          {
+          createLivingPerson({
             npub: input.milestone.authorNpub,
             displayName: input.milestone.authorName?.trim() || undefined,
+            source: 'derived',
             role: 'author',
-          },
+          }),
         ]
       : [];
-  const subjectPeople = input.peopleIds.map(id => ({
-    id,
-    displayName: id,
-    role: 'subject' as const,
-  }));
+  const normalizedSubjects = normalizeLivingPeople({
+    people: input.people,
+    peopleIds: input.peopleIds,
+    fallbackRole: 'subject',
+  });
 
-  return [...authorPeople, ...authorFallback, ...subjectPeople];
+  return [...authorPeople, ...authorFallback, ...normalizedSubjects.people];
 }
 
 function syncBookPlacement(input: {
@@ -429,6 +422,62 @@ export async function updateLivingMarkPromptStatus(input: {
   );
 }
 
+function promptIsSatisfiedByContext(
+  prompt: LivingMarkPrompt,
+  metadata: LivingMarkMetadata,
+  placement: LivingMarkPlacement
+): boolean {
+  if (prompt.type === 'add-people') {
+    return metadata.peopleIds.length > 0;
+  }
+
+  if (prompt.type === 'add-place') {
+    return !!metadata.place;
+  }
+
+  if (prompt.type === 'confirm-space') {
+    return placement.confidence === 'confirmed' || placement.confidence === 'locked';
+  }
+
+  if (prompt.type === 'add-to-book') {
+    return metadata.savedToBook || placement.spaceIds.includes(SYSTEM_LIVING_SPACE_IDS.livingBook);
+  }
+
+  return false;
+}
+
+function resolveSatisfiedPromptsForContext(input: {
+  prompts: LivingMarkPrompt[];
+  markId: string;
+  metadata: LivingMarkMetadata;
+  placement: LivingMarkPlacement;
+  now: number;
+}): { prompts: LivingMarkPrompt[]; changed: boolean } {
+  let changed = false;
+
+  const prompts = input.prompts.map(prompt => {
+    if (
+      prompt.markId !== input.markId ||
+      (prompt.status !== 'open' && prompt.status !== 'snoozed') ||
+      !promptIsSatisfiedByContext(prompt, input.metadata, input.placement)
+    ) {
+      return prompt;
+    }
+
+    changed = true;
+
+    return {
+      ...prompt,
+      status: 'answered' as const,
+      answeredAt: input.now,
+      updatedAt: input.now,
+      snoozedUntil: undefined,
+    };
+  });
+
+  return { prompts, changed };
+}
+
 export async function getLivingSpaceIndexes(): Promise<LivingSpaceIndexes> {
   const fallback: LivingSpaceIndexes = {
     bySpaceId: {},
@@ -472,6 +521,16 @@ export async function getLivingSpaceIndexes(): Promise<LivingSpaceIndexes> {
 
 export async function saveLivingSpaceIndexes(indexes: LivingSpaceIndexes): Promise<void> {
   await writeJson(LIVING_SPACE_INDEXES_KEY, indexes);
+}
+
+export async function getLivingMarkIdsForPerson(input: {
+  npub?: string;
+  displayName?: string;
+  id?: string;
+}): Promise<string[]> {
+  const personId = getLivingPersonId(input);
+  const indexes = await getLivingSpaceIndexes();
+  return indexes.byPeopleId[personId] ?? indexes.byPeopleId[personId.toLowerCase()] ?? [];
 }
 
 export async function rebuildLivingSpaceIndexes(
@@ -937,7 +996,11 @@ export async function updateLivingMarkContext(input: LivingMarkContextUpdateInpu
       currentNpub: input.currentNpub,
       now,
     });
-  const peopleIds = normalizePeopleIds(input.peopleIds ?? currentMetadata.peopleIds);
+  const normalizedPeople = normalizeLivingPeople({
+    people: input.people ?? currentMetadata.people.filter(person => person.role !== 'author'),
+    peopleIds: input.peopleIds ?? currentMetadata.peopleIds,
+    fallbackRole: 'subject',
+  });
   const selectedSpace = input.selectedSpaceId
     ? spaces.find(space => space.id === input.selectedSpaceId)
     : undefined;
@@ -950,11 +1013,12 @@ export async function updateLivingMarkContext(input: LivingMarkContextUpdateInpu
       : currentMetadata.privacy;
   const nextMetadata: LivingMarkMetadata = {
     ...currentMetadata,
-    peopleIds,
+    peopleIds: normalizedPeople.peopleIds,
     people: mergePeopleForContext({
       metadata: currentMetadata,
       milestone: input.milestone,
-      peopleIds,
+      peopleIds: normalizedPeople.peopleIds,
+      people: normalizedPeople.people,
     }),
     lifeStage: input.lifeStage !== undefined ? cleanOptionalText(input.lifeStage) : currentMetadata.lifeStage,
     eventId: input.eventId !== undefined ? cleanOptionalText(input.eventId) : currentMetadata.eventId,
@@ -1008,11 +1072,23 @@ export async function updateLivingMarkContext(input: LivingMarkContextUpdateInpu
 
   await upsertLivingMarkPlacement(placement);
   await upsertLivingRoutingDecision(input.milestone.id, routingDecision);
+  const resolvedPrompts = resolveSatisfiedPromptsForContext({
+    prompts: await getLivingMarkPrompts(),
+    markId: input.milestone.id,
+    metadata,
+    placement,
+    now,
+  });
+
+  if (resolvedPrompts.changed) {
+    await saveLivingMarkPrompts(resolvedPrompts.prompts);
+  }
+
   await saveLivingSpaceIndexes(
     buildLivingSpaceIndexes(
       await getLivingMarkPlacements(),
       metadataRecordFromList(allMetadata),
-      await getLivingMarkPrompts(),
+      resolvedPrompts.prompts,
       now
     )
   );

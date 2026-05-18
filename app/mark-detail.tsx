@@ -19,8 +19,20 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ImageViewerModal, { ViewerImage } from '../components/ImageViewerModal';
-import type { LivingMarkView, LivingSpace } from '../src/types/living-spaces';
+import type { LivingMarkPerson, LivingMarkView, LivingSpace } from '../src/types/living-spaces';
 import { setAppActivity } from '../src/utils/app-activity';
+import { getContacts } from '../src/utils/contacts-storage';
+import { getGroupMembers } from '../src/utils/group-storage';
+import {
+  getPersonDisplayName,
+  isLivingPersonSelected,
+  livingPeopleToInput,
+  mergeLivingPersonCandidates,
+  normalizeLivingPeople,
+  resolvePeopleSelection,
+  toggleLivingPersonSelection,
+  type LivingPersonCandidate,
+} from '../src/utils/living-people';
 import { SYSTEM_LIVING_SPACE_IDS } from '../src/utils/living-space-routing';
 import {
   getLivingMarkViewForMilestone,
@@ -36,6 +48,7 @@ import {
 import {
   formatDate,
   getMilestones,
+  getFamilyMembers,
   saveRemoteMilestone,
   updateMilestone,
   type Milestone,
@@ -45,17 +58,6 @@ import { useIdentity } from './_layout';
 const { width } = Dimensions.get('window');
 const PRESET_TAGS = ['Family', 'Faith', 'Career', 'School', 'Travel', 'Health', 'Achievement', 'Personal'];
 const LIFE_STAGE_OPTIONS = ['Childhood', 'Elementary', 'Middle School', 'High School', 'College', 'Season', 'Trip'];
-
-function parseContextPeople(input: string): string[] {
-  return input
-    .split(',')
-    .map(item => item.trim())
-    .filter(Boolean);
-}
-
-function joinContextPeople(peopleIds: string[]): string {
-  return peopleIds.join(', ');
-}
 
 function getRouteLabel(kind: string): string {
   if (kind === 'local') return 'Local';
@@ -98,12 +100,13 @@ function MilestonePhoto({ uri }: { uri: string }) {
 }
 
 export default function MilestoneDetail() {
-  const { id, returnToGroupId } = useLocalSearchParams<{
+  const { id, returnToGroupId, returnToGroupTab } = useLocalSearchParams<{
     id: string;
     returnToGroupId?: string;
+    returnToGroupTab?: string;
   }>();
   const router = useRouter();
-  const { npub, nsec, relays, family, theme } = useIdentity();
+  const { npub, nsec, relays, family, profile, theme } = useIdentity();
   const [milestone, setMilestone] = useState<Milestone | null>(null);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
@@ -123,6 +126,8 @@ export default function MilestoneDetail() {
   const [isEditingContext, setIsEditingContext] = useState(false);
   const [savingContext, setSavingContext] = useState(false);
   const [contextPeopleInput, setContextPeopleInput] = useState('');
+  const [contextPersonCandidates, setContextPersonCandidates] = useState<LivingPersonCandidate[]>([]);
+  const [selectedContextPeople, setSelectedContextPeople] = useState<LivingMarkPerson[]>([]);
   const [contextLifeStage, setContextLifeStage] = useState('');
   const [contextEventInput, setContextEventInput] = useState('');
   const [contextPlaceInput, setContextPlaceInput] = useState('');
@@ -141,7 +146,10 @@ export default function MilestoneDetail() {
 
   const handleBack = () => {
     if (returnToGroupId) {
-      router.replace({ pathname: '/group-detail', params: { id: returnToGroupId } } as any);
+      router.replace({
+        pathname: '/group-detail',
+        params: { id: returnToGroupId, tab: returnToGroupTab || 'stickies' },
+      } as any);
       return;
     }
 
@@ -249,6 +257,67 @@ export default function MilestoneDetail() {
   }, [milestone, npub]);
 
   useEffect(() => {
+    let cancelled = false;
+
+    async function loadPersonCandidates() {
+      const groupSpaceIds =
+        livingView?.spaces
+          .filter(space => space.source === 'group' && space.sourceId)
+          .map(space => space.sourceId as string) ?? [];
+
+      const [contacts, familyMembers, groupMemberGroups] = await Promise.all([
+        getContacts(),
+        family ? getFamilyMembers(family.id) : Promise.resolve([]),
+        Promise.all(groupSpaceIds.map(groupId => getGroupMembers(groupId))),
+      ]);
+
+      if (cancelled) return;
+
+      const groupMembers = groupMemberGroups.flat();
+      const myDisplayName =
+        profile?.display_name ||
+        profile?.name ||
+        (npub ? `${npub.slice(0, 12)}...` : 'You');
+
+      setContextPersonCandidates(
+        mergeLivingPersonCandidates([
+          {
+            npub,
+            displayName: myDisplayName,
+            avatarUrl: (profile as any)?.picture || (profile as any)?.avatarUrl,
+            source: 'current-user',
+          },
+          ...groupMembers.map(member => ({
+            npub: member.npub,
+            displayName: member.displayName,
+            avatarUrl: member.avatarUrl,
+            source: 'space-member' as const,
+          })),
+          ...familyMembers.map(member => ({
+            npub: member.npub,
+            displayName: member.displayName,
+            source: 'family-member' as const,
+          })),
+          ...contacts.map(contact => ({
+            npub: contact.npub,
+            displayName: contact.nostrName || contact.name,
+            avatarUrl: contact.nostrAvatar,
+            source: 'contact' as const,
+          })),
+        ])
+      );
+    }
+
+    loadPersonCandidates().catch(error => {
+      console.warn('[Mark Detail] failed to load people candidates:', error);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [family, livingView?.placement.updatedAt, livingView?.spaces, npub, profile]);
+
+  useEffect(() => {
   if (!milestone?.reflections?.length) return;
 
   const authors = Array.from(
@@ -321,7 +390,11 @@ export default function MilestoneDetail() {
 
     const primarySpaceId = livingView.placement.primarySpaceId ?? livingView.placement.spaceIds[0] ?? null;
 
-    setContextPeopleInput(joinContextPeople(livingView.metadata.peopleIds ?? []));
+    const existingPeople = livingView.metadata.people.filter(person => person.role !== 'author');
+    setSelectedContextPeople(existingPeople);
+    setContextPeopleInput(
+      existingPeople.length > 0 ? '' : livingPeopleToInput([], livingView.metadata.peopleIds ?? [])
+    );
     setContextLifeStage(livingView.metadata.lifeStage ?? '');
     setContextEventInput(livingView.metadata.eventId ?? '');
     setContextPlaceInput(livingView.metadata.place?.name ?? '');
@@ -337,6 +410,7 @@ export default function MilestoneDetail() {
   const cancelContextEditing = () => {
     setIsEditingContext(false);
     setContextPeopleInput('');
+    setSelectedContextPeople([]);
     setContextLifeStage('');
     setContextEventInput('');
     setContextPlaceInput('');
@@ -351,10 +425,16 @@ export default function MilestoneDetail() {
     setSavingContext(true);
 
     try {
+      const resolvedPeople = resolvePeopleSelection({
+        selectedPeople: selectedContextPeople,
+        manualInput: contextPeopleInput,
+      });
+
       const updatedView = await updateLivingMarkContext({
         milestone,
         currentNpub: npub,
-        peopleIds: parseContextPeople(contextPeopleInput),
+        peopleIds: resolvedPeople.peopleIds,
+        people: resolvedPeople.people,
         lifeStage: contextLifeStage,
         eventId: contextEventInput,
         placeName: contextPlaceInput,
@@ -516,10 +596,17 @@ const openMediaViewer = (uri: string) => {
   const routeLabels = Array.from(
     new Set((livingView?.metadata.relayTargets ?? []).map(target => getRouteLabel(target.kind)))
   );
+  const contextPeople =
+    livingView?.metadata.people.filter(person => person.role !== 'author') ?? [];
+  const contextPeopleForDisplay =
+    contextPeople.length > 0
+      ? contextPeople
+      : normalizeLivingPeople({ peopleIds: livingView?.metadata.peopleIds ?? [] }).people;
+  const contextPeopleLabel =
+    contextPeopleForDisplay.length > 0
+      ? contextPeopleForDisplay.map(person => getPersonDisplayName(person)).join(', ')
+      : livingPeopleToInput([], livingView?.metadata.peopleIds ?? []);
   const contextChips = [
-    ...(livingView?.metadata.peopleIds.length
-      ? [{ label: 'People', value: livingView.metadata.peopleIds.join(', ') }]
-      : []),
     ...(contextSpaceNames.length
       ? [{ label: 'Space', value: contextSpaceNames.join(', ') }]
       : []),
@@ -827,8 +914,26 @@ const openMediaViewer = (uri: string) => {
 
               {!isEditingContext ? (
                 <>
+                  {contextPeopleForDisplay.length > 0 && (
+                    <View style={s.contextPeopleSelectedRow}>
+                      {contextPeopleForDisplay.map(person => (
+                        <View
+                          key={person.id || person.npub || person.displayName || 'person'}
+                          style={[s.contextPersonChip, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                        >
+                          <Text style={[s.contextPersonAvatar, { color: theme.gold, borderColor: theme.border }]}>
+                            {getPersonDisplayName(person).slice(0, 1).toUpperCase()}
+                          </Text>
+                          <Text style={[s.contextPersonChipText, { color: theme.text }]} numberOfLines={1}>
+                            {getPersonDisplayName(person)}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+
                   {contextChips.length > 0 ? (
-                    <View style={s.contextChips}>
+                    <View style={[s.contextChips, contextPeopleForDisplay.length > 0 && { marginTop: 8 }]}>
                       {contextChips.map(chip => (
                         <View
                           key={`${chip.label}_${chip.value}`}
@@ -840,9 +945,11 @@ const openMediaViewer = (uri: string) => {
                       ))}
                     </View>
                   ) : (
-                    <Text style={[s.reflectionEmpty, { color: theme.textSecondary }]}>
-                      Context will appear here as this Mark is placed into your Living Spaces.
-                    </Text>
+                    !contextPeopleLabel && (
+                      <Text style={[s.reflectionEmpty, { color: theme.textSecondary }]}>
+                        Context will appear here as this Mark is placed into your Living Spaces.
+                      </Text>
+                    )
                   )}
 
                   {livingView?.placement.confidence === 'suggested' && (
@@ -853,11 +960,78 @@ const openMediaViewer = (uri: string) => {
                 </>
               ) : (
                 <View style={s.contextEditor}>
+                  <Text style={[s.contextSubLabel, { color: theme.textMuted }]}>People</Text>
+                  {selectedContextPeople.length > 0 && (
+                    <View style={s.contextPeopleSelectedRow}>
+                      {selectedContextPeople.map(person => {
+                        const personKey = person.id || person.npub || person.displayName || 'person';
+
+                        return (
+                          <TouchableOpacity
+                            key={personKey}
+                            style={[s.contextPersonChip, { backgroundColor: theme.gold, borderColor: theme.gold }]}
+                            onPress={() =>
+                              setSelectedContextPeople(prev =>
+                                prev.filter(item => (item.id || item.npub || item.displayName) !== personKey)
+                              )
+                            }
+                            activeOpacity={0.82}
+                          >
+                            <Text style={[s.contextPersonAvatar, { color: theme.bg, borderColor: theme.bg }]}>
+                              {getPersonDisplayName(person).slice(0, 1).toUpperCase()}
+                            </Text>
+                            <Text style={[s.contextPersonChipText, { color: theme.bg }]} numberOfLines={1}>
+                              {getPersonDisplayName(person)} x
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  )}
+                  {contextPersonCandidates.length > 0 && (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.contextChipScroll}>
+                      {contextPersonCandidates.slice(0, 16).map(person => {
+                        const active = isLivingPersonSelected(selectedContextPeople, person);
+
+                        return (
+                          <TouchableOpacity
+                            key={person.id}
+                            style={[
+                              s.contextPersonChip,
+                              { backgroundColor: theme.surface, borderColor: theme.border },
+                              active && { backgroundColor: theme.gold, borderColor: theme.gold },
+                            ]}
+                            onPress={() => setSelectedContextPeople(prev => toggleLivingPersonSelection(prev, person))}
+                            activeOpacity={0.82}
+                          >
+                            <Text
+                              style={[
+                                s.contextPersonAvatar,
+                                { color: active ? theme.bg : theme.gold, borderColor: active ? theme.bg : theme.border },
+                              ]}
+                            >
+                              {person.displayName.slice(0, 1).toUpperCase()}
+                            </Text>
+                            <Text
+                              style={[
+                                s.contextPersonChipText,
+                                { color: theme.textSecondary },
+                                active && { color: theme.bg },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {person.displayName}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  )}
                   <TextInput
                     style={[s.editInput, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]}
                     value={contextPeopleInput}
                     onChangeText={setContextPeopleInput}
-                    placeholder="People in this Mark, separated by commas"
+                    placeholder="Add another name or npub"
                     placeholderTextColor={theme.textMuted}
                     returnKeyType="next"
                   />
@@ -1188,6 +1362,10 @@ const s = StyleSheet.create({
   contextChipScroll: { gap: 8, paddingRight: 20 },
   contextSelectChip: { minHeight: 34, maxWidth: 170, paddingHorizontal: 12, borderRadius: 17, borderWidth: 0.5, alignItems: 'center', justifyContent: 'center' },
   contextSelectChipText: { fontSize: 12, fontWeight: '700' },
+  contextPeopleSelectedRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  contextPersonChip: { minHeight: 34, maxWidth: 190, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 17, borderWidth: 0.5, flexDirection: 'row', alignItems: 'center', gap: 7 },
+  contextPersonAvatar: { width: 20, height: 20, borderRadius: 10, borderWidth: 0.5, textAlign: 'center', lineHeight: 19, fontSize: 10, fontWeight: '900', overflow: 'hidden' },
+  contextPersonChipText: { maxWidth: 138, fontSize: 12, fontWeight: '800' },
   savingContextBtn: { opacity: 0.55 },
 
   // Reflections

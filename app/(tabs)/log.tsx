@@ -20,11 +20,20 @@ import AudioRecorder from '../../components/AudioRecorder';
 import BEHeader from '../../components/BEHeader';
 import type {
   LivingMarkCaptureSource,
+  LivingMarkPerson,
   LivingMarkPlace,
   LivingSpace,
   MarkPrivacy,
 } from '../../src/types/living-spaces';
+import { getContacts } from '../../src/utils/contacts-storage';
 import { getGroups } from '../../src/utils/group-storage';
+import {
+  isLivingPersonSelected,
+  mergeLivingPersonCandidates,
+  resolvePeopleSelection,
+  toggleLivingPersonSelection,
+  type LivingPersonCandidate,
+} from '../../src/utils/living-people';
 import {
   extractLivingCaptureFromExif,
   SYSTEM_LIVING_SPACE_IDS,
@@ -81,13 +90,6 @@ function getCaptureMetadataForDraft(media: DraftMedia[], audioUri?: string): {
   };
 }
 
-function parseContextPeople(input: string): string[] {
-  return input
-    .split(',')
-    .map(item => item.trim())
-    .filter(Boolean);
-}
-
 export default function LogScreen() {
   const { nsec, npub, family, relays, profile, theme } = useIdentity();
   const router = useRouter();
@@ -106,6 +108,8 @@ const [publishToNostr, setPublishToNostr] = useState(true);
   const [selectedSpaceId, setSelectedSpaceId] = useState<string | null>(null);
   const [showContext, setShowContext] = useState(false);
   const [peopleInput, setPeopleInput] = useState('');
+  const [personCandidates, setPersonCandidates] = useState<LivingPersonCandidate[]>([]);
+  const [selectedPeople, setSelectedPeople] = useState<LivingMarkPerson[]>([]);
   const [lifeStage, setLifeStage] = useState('');
   const [eventInput, setEventInput] = useState('');
   const [savedToBook, setSavedToBook] = useState(false);
@@ -120,7 +124,11 @@ const [publishToNostr, setPublishToNostr] = useState(true);
 
     async function loadLivingSpaces() {
       try {
-        const groups = await getGroups();
+        const [groups, contacts, familyMembers] = await Promise.all([
+          getGroups(),
+          getContacts(),
+          family ? getFamilyMembers(family.id) : Promise.resolve([]),
+        ]);
         const spaces = await ensureDefaultLivingSpaces({
           family: family
             ? {
@@ -147,6 +155,27 @@ const [publishToNostr, setPublishToNostr] = useState(true);
 
         if (!cancelled) {
           setLivingSpaces(spaces);
+          setPersonCandidates(
+            mergeLivingPersonCandidates([
+              {
+                npub,
+                displayName: myDisplayName,
+                avatarUrl: (profile as any)?.picture || (profile as any)?.avatarUrl,
+                source: 'current-user',
+              },
+              ...familyMembers.map(member => ({
+                npub: member.npub,
+                displayName: member.displayName,
+                source: 'family-member' as const,
+              })),
+              ...contacts.map(contact => ({
+                npub: contact.npub,
+                displayName: contact.nostrName || contact.name,
+                avatarUrl: contact.nostrAvatar,
+                source: 'contact' as const,
+              })),
+            ])
+          );
         }
       } catch (error) {
         console.warn('[Living Spaces] failed to load placement chips:', error);
@@ -158,7 +187,7 @@ const [publishToNostr, setPublishToNostr] = useState(true);
     return () => {
       cancelled = true;
     };
-  }, [family]);
+  }, [family, myDisplayName, npub, profile]);
 
   const placementChipSpaces = livingSpaces
     .filter(space => !space.archivedAt)
@@ -491,12 +520,18 @@ if (audioUri) {
             ? 'public'
             : undefined;
 
+      const resolvedPeople = resolvePeopleSelection({
+        selectedPeople,
+        manualInput: peopleInput,
+      });
+
       persistLivingMarkCapture({
         milestone: savedMilestone,
         spaces: livingSpaces,
         selectedSpaceId,
         currentNpub: npub,
-        peopleIds: parseContextPeople(peopleInput),
+        peopleIds: resolvedPeople.peopleIds,
+        people: resolvedPeople.people,
         lifeStage: lifeStage || undefined,
         eventId: eventInput.trim() || undefined,
         savedToBook,
@@ -567,6 +602,7 @@ if (audioUri) {
       setSelectedSpaceId(null);
       setShowContext(false);
       setPeopleInput('');
+      setSelectedPeople([]);
       setLifeStage('');
       setEventInput('');
       setSavedToBook(false);
@@ -817,9 +853,49 @@ setProgress(0);
 
           {showContext && (
             <View style={[s.contextPanel, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <Text style={[s.contextMiniHint, { color: theme.textMuted }]}>People</Text>
+              {personCandidates.length > 0 && (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.contextChipRow}>
+                  {personCandidates.slice(0, 14).map(person => {
+                    const active = isLivingPersonSelected(selectedPeople, person);
+
+                    return (
+                      <TouchableOpacity
+                        key={person.id}
+                        style={[
+                          s.personChip,
+                          { backgroundColor: theme.raised, borderColor: theme.border },
+                          active && { backgroundColor: theme.gold, borderColor: theme.gold },
+                        ]}
+                        onPress={() => setSelectedPeople(prev => toggleLivingPersonSelection(prev, person))}
+                        activeOpacity={0.8}
+                      >
+                        <Text
+                          style={[
+                            s.personChipAvatar,
+                            { color: active ? theme.bg : theme.gold, borderColor: active ? theme.bg : theme.border },
+                          ]}
+                        >
+                          {person.displayName.slice(0, 1).toUpperCase()}
+                        </Text>
+                        <Text
+                          style={[
+                            s.contextChipText,
+                            { color: theme.textSecondary },
+                            active && { color: theme.bg, fontWeight: '700' },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {person.displayName}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              )}
               <TextInput
                 style={[s.contextInput, { color: theme.text, backgroundColor: theme.raised, borderColor: theme.border }]}
-                placeholder="People in this Mark, separated by commas"
+                placeholder="Add another name or npub"
                 placeholderTextColor={theme.textMuted}
                 value={peopleInput}
                 onChangeText={setPeopleInput}
@@ -1099,6 +1175,8 @@ videoBadgeText: {
   contextChipRow: { gap: 8, paddingRight: 20 },
   contextChip: { minHeight: 32, paddingHorizontal: 12, borderRadius: 16, borderWidth: 0.5, alignItems: 'center', justifyContent: 'center' },
   contextChipText: { fontSize: 12, fontWeight: '700' },
+  personChip: { minHeight: 34, maxWidth: 180, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 17, borderWidth: 0.5, flexDirection: 'row', alignItems: 'center', gap: 7 },
+  personChipAvatar: { width: 20, height: 20, borderRadius: 10, borderWidth: 0.5, textAlign: 'center', lineHeight: 19, fontSize: 10, fontWeight: '900', overflow: 'hidden' },
   relayRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22, paddingVertical: 12, borderTopWidth: 0.5, borderBottomWidth: 0.5 },
   relayLabel: { fontSize: 14, fontWeight: '500' },
   relayHint: { fontSize: 11, marginTop: 2 },
