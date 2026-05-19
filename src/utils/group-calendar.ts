@@ -30,6 +30,21 @@ const GROUP_CALENDAR_DELETED_KEY = 'be_group_calendar_deleted_v1';
 
 export type CalendarEventType = 'timed' | 'allday';
 
+export type SpaceEventType =
+  | 'game'
+  | 'practice'
+  | 'meeting'
+  | 'fundraiser'
+  | 'banquet'
+  | 'tournament'
+  | 'deadline'
+  | 'event'
+  | 'other';
+
+export type GameHomeAway = 'home' | 'away' | 'neutral';
+
+export type GameResult = 'win' | 'loss' | 'tie';
+
 export type RSVPStatus = 'accepted' | 'declined' | 'tentative';
 
 export type GroupCalendarEvent = {
@@ -41,6 +56,18 @@ export type GroupCalendarEvent = {
 
   // timed = specific start/end time, allday = just a date
   eventType: CalendarEventType;
+
+  // Optional Space story metadata.
+  // These are intentionally optional so existing stored/relay events remain valid.
+  spaceEventType?: SpaceEventType;
+  opponent?: string;
+  homeAway?: GameHomeAway;
+  ourScore?: number;
+  opponentScore?: number;
+  result?: GameResult;
+  scoreFinal?: boolean;
+  eventNotes?: string;
+  legacyEligible?: boolean;
 
   // Unix timestamps (seconds)
   startTime: number;
@@ -170,6 +197,18 @@ export async function createCalendarEvent(input: {
   description?: string;
   location?: string;
   eventType: CalendarEventType;
+
+  // Optional Space story metadata.
+  spaceEventType?: SpaceEventType;
+  opponent?: string;
+  homeAway?: GameHomeAway;
+  ourScore?: number;
+  opponentScore?: number;
+  result?: GameResult;
+  scoreFinal?: boolean;
+  eventNotes?: string;
+  legacyEligible?: boolean;
+
   startTime: number;
   endTime?: number;
   startDate?: string;
@@ -188,6 +227,17 @@ export async function createCalendarEvent(input: {
     description: input.description?.trim(),
     location: input.location?.trim(),
     eventType: input.eventType,
+
+    spaceEventType: input.spaceEventType,
+    opponent: input.opponent?.trim(),
+    homeAway: input.homeAway,
+    ourScore: input.ourScore,
+    opponentScore: input.opponentScore,
+    result: input.result,
+    scoreFinal: input.scoreFinal,
+    eventNotes: input.eventNotes?.trim(),
+    legacyEligible: input.legacyEligible,
+
     startTime: input.startTime,
     endTime: input.endTime,
     startDate: input.startDate,
@@ -212,7 +262,7 @@ export async function createCalendarEvent(input: {
     }
   }
 
-    await notifyCalendarEventChange(event, 'calendar_created');
+  await notifyCalendarEventChange(event, 'calendar_created');
 
   return event;
 }
@@ -489,4 +539,96 @@ export function getEventDayKey(event: GroupCalendarEvent): string {
   if (event.eventType === 'allday' && event.startDate) return event.startDate;
   const d = new Date(event.startTime * 1000);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+export function getSpaceEventTypeLabel(type?: SpaceEventType): string {
+  switch (type) {
+    case 'game':
+      return 'Game';
+    case 'practice':
+      return 'Practice';
+    case 'meeting':
+      return 'Meeting';
+    case 'fundraiser':
+      return 'Fundraiser';
+    case 'banquet':
+      return 'Banquet';
+    case 'tournament':
+      return 'Tournament';
+    case 'deadline':
+      return 'Deadline';
+    case 'event':
+      return 'Event';
+    case 'other':
+      return 'Other';
+    default:
+      return 'Event';
+  }
+}
+
+export function getSpaceEventTypeIcon(type?: SpaceEventType): string {
+  switch (type) {
+    case 'game':
+      return '🏟️';
+    case 'practice':
+      return ' whistle ';
+    case 'meeting':
+      return '🗓️';
+    case 'fundraiser':
+      return '💵';
+    case 'banquet':
+      return '🏆';
+    case 'tournament':
+      return '🏅';
+    case 'deadline':
+      return '⏰';
+    case 'event':
+      return '📌';
+    case 'other':
+      return '•';
+    default:
+      return '📌';
+  }
+}
+
+export function deriveGameResult(
+  ourScore?: number,
+  opponentScore?: number
+): GameResult | undefined {
+  if (typeof ourScore !== 'number' || typeof opponentScore !== 'number') {
+    return undefined;
+  }
+
+  if (ourScore > opponentScore) return 'win';
+  if (ourScore < opponentScore) return 'loss';
+  return 'tie';
+}
+
+export function getGameResultLabel(result?: GameResult): string {
+  switch (result) {
+    case 'win':
+      return 'Win';
+    case 'loss':
+      return 'Loss';
+    case 'tie':
+      return 'Tie';
+    default:
+      return '';
+  }
+}
+
+export function formatGameScore(event: GroupCalendarEvent): string {
+  if (
+    typeof event.ourScore !== 'number' ||
+    typeof event.opponentScore !== 'number'
+  ) {
+    return '';
+  }
+
+  const result = event.result ?? deriveGameResult(event.ourScore, event.opponentScore);
+  const resultLabel = getGameResultLabel(result);
+  const score = `${event.ourScore}–${event.opponentScore}`;
+
+  if (!resultLabel) return score;
+
+  return `${resultLabel} ${score}`;
 }
