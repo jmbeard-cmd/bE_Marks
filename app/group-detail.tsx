@@ -133,7 +133,7 @@ import {
 import { useIdentity } from './_layout';
 import { GroupChatPanel } from './group-thread';
 
-type Tab = 'chat' | 'stickies' | 'mantle' | 'calendar' | 'gallery' | 'members' | 'legacy' | 'book';
+type Tab = 'overview' | 'chat' | 'stickies' | 'mantle' | 'calendar' | 'gallery' | 'members' | 'legacy' | 'book';
 const GROUP_LOCAL_GALLERY_KEY = 'be_group_local_gallery_v1';
 const SPACE_FAVORITES_KEY = 'be_space_favorite_ids_v1';
 const SPACE_MARK_RELAY_SYNC_ENABLED = true;
@@ -410,6 +410,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   const [spaceMarkSaveStatus, setSpaceMarkSaveStatus] = useState<string | null>(null);
   const [spaceMarkProgress, setSpaceMarkProgress] = useState(0);
   const [tab, setTab] = useState<Tab>(
+  routeTab === 'overview' ||
   routeTab === 'chat' ||
   routeTab === 'stickies' ||
   routeTab === 'mantle' ||
@@ -1042,6 +1043,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
 
   useEffect(() => {
   if (
+    routeTab === 'overview' ||
     routeTab === 'chat' ||
     routeTab === 'stickies' ||
     routeTab === 'mantle' ||
@@ -2605,6 +2607,16 @@ const relaySettingsCard = (
 
           <View style={s.spaceProfilePills}>
             <TouchableOpacity
+              style={[s.spaceProfilePill, tab === 'overview' && s.spaceProfilePillActive]}
+              onPress={() => selectSpaceTab('overview')}
+              activeOpacity={0.86}
+            >
+              <Text style={[s.spaceProfilePillText, tab === 'overview' && s.spaceProfilePillTextActive]}>
+                Overview
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
               style={[s.spaceProfilePill, tab === 'chat' && s.spaceProfilePillActive]}
               onPress={openSpaceChat}
               activeOpacity={0.86}
@@ -3024,6 +3036,146 @@ const relaySettingsCard = (
       )}
 
       <View style={[s.spaceTrayBody, (showSpaceSettingsMenu || showInvite) && s.spaceTrayBodyHidden]}>
+
+      {tab === 'overview' && (
+        <View style={s.spaceTabPanel}>
+          <ScrollView
+            style={s.spaceTabScroll}
+            contentContainerStyle={s.overviewPageContent}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.gold} />}
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={s.overviewHeroCard}>
+              <View style={s.overviewHeroTopRow}>
+                <View style={s.overviewHeroBadge}>
+                  <Text style={s.overviewHeroBadgeText}>
+                    {spaceCategoryIcon ? `${spaceCategoryIcon} ` : ''}{spaceCategoryLabel}
+                  </Text>
+                </View>
+
+                <Text style={s.overviewHeroRelay}>{spaceRelayLabel}</Text>
+              </View>
+
+              <Text style={s.overviewHeroTitle} numberOfLines={2}>
+                {group.name}
+              </Text>
+
+              <Text style={s.overviewHeroSubtitle} numberOfLines={2}>
+                {group.season ? `${group.season} · ` : ''}{members.length} {members.length === 1 ? 'member' : 'members'} · {spaceMarkViews.length} {spaceMarkViews.length === 1 ? 'Mark' : 'Marks'}
+              </Text>
+
+              <Text style={s.overviewHeroTeaching} numberOfLines={3}>
+                Capture Marks, feature them on the Mantle, relive them in the River, and preserve them in the Legacy.
+              </Text>
+            </View>
+
+            <View style={s.overviewFlowCard}>
+              <View style={s.overviewFlowHeader}>
+                <Text style={s.overviewFlowKicker}>How this Space works</Text>
+                <Text style={s.overviewFlowTitle}>Capture → Feature → Relive → Preserve</Text>
+              </View>
+
+              <View style={s.overviewFlowGrid}>
+                <TouchableOpacity
+                  style={s.overviewFlowItem}
+                  onPress={() => selectSpaceTab('stickies')}
+                  activeOpacity={0.86}
+                >
+                  <View style={s.overviewFlowIcon}>
+                    <Ionicons name="images-outline" size={18} color={theme.gold} />
+                  </View>
+                  <Text style={s.overviewFlowAction}>Capture</Text>
+                  <Text style={s.overviewFlowName}>Marks</Text>
+                  <Text style={s.overviewFlowHint}>Photos, videos, audio, captions, people, and places.</Text>
+                  <Text style={s.overviewFlowCount}>{spaceMarkViews.length}</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={s.overviewFlowItem}
+                  onPress={() => selectSpaceTab('mantle')}
+                  activeOpacity={0.86}
+                >
+                  <View style={s.overviewFlowIcon}>
+                    <Ionicons name="sparkles-outline" size={18} color={theme.gold} />
+                  </View>
+                  <Text style={s.overviewFlowAction}>Feature</Text>
+                  <Text style={s.overviewFlowName}>Mantle</Text>
+                  <Text style={s.overviewFlowHint}>Approved highlights displayed for this Space.</Text>
+                  <Text style={s.overviewFlowCount}>{mantleMarkViews.length}</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={s.overviewFlowItem}
+                  onPress={() => {
+                    if (mantleMarkViews.length > 0) {
+                      openRiverForMantle();
+                      return;
+                    }
+
+                    selectSpaceTab('mantle');
+                  }}
+                  activeOpacity={0.86}
+                >
+                  <View style={s.overviewFlowIcon}>
+                    <Ionicons name="play-circle-outline" size={19} color={theme.gold} />
+                  </View>
+                  <Text style={s.overviewFlowAction}>Relive</Text>
+                  <Text style={s.overviewFlowName}>River</Text>
+                  <Text style={s.overviewFlowHint}>Swipe through moments full-screen, one memory at a time.</Text>
+                  <Text style={s.overviewFlowCount}>{mantleMarkViews.length}</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={s.overviewFlowItem}
+                  onPress={() => selectSpaceTab('legacy')}
+                  activeOpacity={0.86}
+                >
+                  <View style={s.overviewFlowIcon}>
+                    <Ionicons name="albums-outline" size={18} color={theme.gold} />
+                  </View>
+                  <Text style={s.overviewFlowAction}>Preserve</Text>
+                  <Text style={s.overviewFlowName}>Legacy</Text>
+                  <Text style={s.overviewFlowHint}>Saved Marks for the season, year, or long-term story.</Text>
+                  <Text style={s.overviewFlowCount}>{legacyMarkViews.length}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={s.overviewQuickBar}>
+              <TouchableOpacity
+                style={s.overviewQuickButton}
+                onPress={openSpaceChat}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="chatbubble-outline" size={17} color={theme.text} />
+                <Text style={s.overviewQuickText}>Chat</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={s.overviewQuickButton}
+                onPress={() => selectSpaceTab('calendar')}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="calendar-outline" size={17} color={theme.text} />
+                <Text style={s.overviewQuickText}>{upcomingCount} Events</Text>
+              </TouchableOpacity>
+
+              {group.bookEnabled === true && (
+                <TouchableOpacity
+                  style={s.overviewQuickButton}
+                  onPress={() => selectSpaceTab('book')}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="book-outline" size={17} color={theme.text} />
+                  <Text style={s.overviewQuickText}>Book</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </ScrollView>
+        </View>
+      )}
+
+
 
       {tab === 'chat' && (
         <View style={s.spaceTabPanel}>
@@ -5279,6 +5431,164 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     borderColor: theme.border,
     backgroundColor: theme.surface,
     marginBottom: 13,
+  },
+  overviewPageContent: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 22,
+  },
+  overviewHeroCard: {
+    padding: 16,
+    borderRadius: 26,
+    backgroundColor: theme.raised,
+    borderWidth: 1,
+    borderColor: theme.gold + '55',
+  },
+  overviewHeroTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 10,
+  },
+  overviewHeroBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: theme.goldDim,
+    borderWidth: 0.5,
+    borderColor: theme.gold + '55',
+  },
+  overviewHeroBadgeText: {
+    color: theme.gold,
+    fontSize: 10,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  overviewHeroRelay: {
+    color: theme.textMuted,
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  overviewHeroTitle: {
+    color: theme.text,
+    fontSize: 28,
+    lineHeight: 32,
+    fontWeight: '900',
+    letterSpacing: -0.6,
+  },
+  overviewHeroSubtitle: {
+    color: theme.textSecondary,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '800',
+    marginTop: 6,
+  },
+  overviewHeroTeaching: {
+    color: theme.text,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '800',
+    marginTop: 12,
+  },
+  overviewFlowCard: {
+    marginTop: 12,
+    padding: 14,
+    borderRadius: 24,
+    backgroundColor: theme.surface,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+  },
+  overviewFlowHeader: {
+    marginBottom: 12,
+  },
+  overviewFlowKicker: {
+    color: theme.gold,
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  overviewFlowTitle: {
+    color: theme.text,
+    fontSize: 18,
+    lineHeight: 22,
+    fontWeight: '900',
+    marginTop: 3,
+  },
+  overviewFlowGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  overviewFlowItem: {
+    width: '48.5%',
+    minHeight: 142,
+    padding: 12,
+    borderRadius: 19,
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+  },
+  overviewFlowIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.goldDim,
+    marginBottom: 8,
+  },
+  overviewFlowAction: {
+    color: theme.gold,
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.7,
+    textTransform: 'uppercase',
+  },
+  overviewFlowName: {
+    color: theme.text,
+    fontSize: 17,
+    fontWeight: '900',
+    marginTop: 2,
+  },
+  overviewFlowHint: {
+    color: theme.textMuted,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  overviewFlowCount: {
+    position: 'absolute',
+    right: 12,
+    top: 12,
+    color: theme.gold,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  overviewQuickBar: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 12,
+  },
+  overviewQuickButton: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 6,
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+  },
+  overviewQuickText: {
+    color: theme.text,
+    fontSize: 12,
+    fontWeight: '900',
   },
   spaceSettingsTop: {
     flexDirection: 'row',
