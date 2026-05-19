@@ -213,7 +213,7 @@ const handleEntryTypeChange = (nextType: GroupBookEntryType) => {
 
   const handleCreateEntry = async () => {
     if (!npub) {
-      Alert.alert('Not signed in', 'Sign in to add a Book entry.');
+      Alert.alert('Not signed in', 'Sign in to add a Ledger entry.');
       return;
     }
 
@@ -262,7 +262,7 @@ const handleEntryTypeChange = (nextType: GroupBookEntryType) => {
 
     Alert.alert(
       'Mark entry confirmed?',
-      'This will count the entry toward the annual Book balance.',
+      'This will count the entry toward the annual Ledger balance.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -283,9 +283,9 @@ const handleEntryTypeChange = (nextType: GroupBookEntryType) => {
     return (
       <View style={s.emptyWrap}>
         <Text style={s.emptyIcon}>📖</Text>
-        <Text style={s.emptyTitle}>The Book is not enabled yet</Text>
+        <Text style={s.emptyTitle}>Ledger is not enabled yet</Text>
         <Text style={s.emptyHint}>
-          Enable The Book when this group needs an annual financial record for donations,
+          Enable Ledger when this Space needs an annual financial record for donations,
           fundraisers, income, expenses, and carryover.
         </Text>
 
@@ -295,7 +295,7 @@ const handleEntryTypeChange = (nextType: GroupBookEntryType) => {
             onPress={handleEnableBook}
             activeOpacity={0.85}
           >
-            <Text style={s.primaryBtnText}>Enable The Book</Text>
+            <Text style={s.primaryBtnText}>Enable Ledger</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -314,7 +314,7 @@ const handleEntryTypeChange = (nextType: GroupBookEntryType) => {
       <View style={s.pinnedTop}>
         <View style={s.header}>
           <View>
-            <Text style={s.title}>The Book</Text>
+            <Text style={s.title}>Ledger</Text>
             <Text style={s.subtitle}>
               {group.name}{group.season ? ` · ${group.season}` : ''}
             </Text>
@@ -446,7 +446,7 @@ color: item.type === 'expense'
         ListEmptyComponent={
           <View style={s.emptyWrapSmall}>
             <Text style={s.emptyIcon}>📖</Text>
-            <Text style={s.emptyTitle}>No Book entries yet</Text>
+            <Text style={s.emptyTitle}>No Ledger entries yet</Text>
             <Text style={s.emptyHint}>
               Add the carryover from last year as the first income entry, then log each donation,
               fundraiser, purchase, and team expense.
@@ -568,7 +568,7 @@ color: selectedEntry.type === 'expense'
           keyboardShouldPersistTaps="handled"
         >
           <View style={s.modalCard}>
-            <Text style={s.modalTitle}>New Book Entry</Text>
+            <Text style={s.modalTitle}>New Ledger Entry</Text>
 
             <Text style={s.inputLabel}>TYPE</Text>
             <View style={s.typeRow}>

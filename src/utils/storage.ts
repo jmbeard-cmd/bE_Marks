@@ -3,8 +3,21 @@ import { clearDMStorage } from './dm-storage';
 import { clearGroupStorage } from './group-storage';
 
 const MILESTONES_KEY = 'milestones_v1';
+const MILESTONES_BACKUP_INDEX_KEY = 'milestones_v1_emergency_backups_index_v1';
+const MILESTONES_BACKUP_PREFIX = 'milestones_v1_emergency_backup_';
 const FAMILY_KEY = 'family_v1';
 const FAMILY_MEMBERS_KEY = 'family_members_v1';
+
+export type MilestoneBackupIndexEntry = {
+  key: string;
+  createdAt: number;
+  reason: string;
+  markCount?: number;
+};
+
+export type MilestoneEmergencyBackup = MilestoneBackupIndexEntry & {
+  raw: string;
+};
 
 export type MarkMedia = {
   id: string;
@@ -19,9 +32,9 @@ export interface Milestone {
   note: string;
   tags: string[];
   photoUri?: string; // old single-photo support
-media?: MarkMedia[]; // new multi-media support
-audioUri?: string;
-videoUri?: string;
+  media?: MarkMedia[]; // new multi-media support
+  audioUri?: string;
+  videoUri?: string;
   createdAt: number;
   nostrEventId?: string;
   publishedToRelay: boolean;
@@ -29,6 +42,9 @@ videoUri?: string;
   familyId?: string;
   authorNpub?: string;
   authorName?: string;
+  spaceRelayEventId?: string;
+  spaceRelayPublishedAt?: number;
+  spaceRelayGroupIds?: string[];
 }
 
 export type FamilyRelayMode = 'default' | 'custom' | 'both';
@@ -54,6 +70,257 @@ export interface FamilyMember {
   status: 'active' | 'removed';
 }
 
+function hasText(value?: string | null): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function hashText(value: string): string {
+  let hash = 0;
+
+  for (let i = 0; i < value.length; i++) {
+    hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0;
+  }
+
+  return Math.abs(hash).toString(36);
+}
+
+function getMediaStableKey(media: Partial<MarkMedia>): string {
+  return [
+    media.type ?? 'image',
+    media.uri ?? '',
+    media.thumbnailUri ?? '',
+  ].join('|');
+}
+
+function normalizeMilestoneMedia(
+  markId: string,
+  mediaItems?: MarkMedia[]
+): { media: MarkMedia[] | undefined; changed: boolean; deduped: number; regenerated: number } {
+  if (!Array.isArray(mediaItems) || mediaItems.length === 0) {
+    return { media: mediaItems, changed: false, deduped: 0, regenerated: 0 };
+  }
+
+  const seenKeys = new Set<string>();
+  const seenIds = new Map<string, string>();
+  let changed = false;
+  let deduped = 0;
+  let regenerated = 0;
+
+  const media = mediaItems.flatMap((item, index) => {
+    if (!item?.uri) {
+      changed = true;
+      deduped += 1;
+      return [];
+    }
+
+    const stableKey = getMediaStableKey(item);
+
+    if (seenKeys.has(stableKey)) {
+      changed = true;
+      deduped += 1;
+      return [];
+    }
+
+    seenKeys.add(stableKey);
+
+    const currentId = hasText(item.id) ? item.id : '';
+    const previousKeyForId = currentId ? seenIds.get(currentId) : undefined;
+    const needsNewId = !currentId || (previousKeyForId !== undefined && previousKeyForId !== stableKey);
+    const id = needsNewId
+      ? `${markId}_media_${index}_${hashText(stableKey)}`
+      : currentId;
+
+    if (needsNewId) {
+      changed = true;
+      regenerated += 1;
+    }
+
+    seenIds.set(id, stableKey);
+    return [{ ...item, id }];
+  });
+
+  return { media, changed, deduped, regenerated };
+}
+
+function normalizeMilestoneForWrite(milestone: Milestone): Milestone {
+  const normalizedMedia = normalizeMilestoneMedia(milestone.id, milestone.media);
+  return {
+    ...milestone,
+    media: normalizedMedia.media,
+  };
+}
+
+function mergeReflections(
+  existing?: Milestone['reflections'],
+  incoming?: Milestone['reflections']
+): Milestone['reflections'] {
+  return [
+    ...(existing ?? []),
+    ...(incoming ?? []),
+  ].filter((reflection, index, arr) => (
+    index === arr.findIndex(r =>
+      r.text === reflection.text &&
+      r.createdAt === reflection.createdAt &&
+      r.authorNpub === reflection.authorNpub
+    )
+  ));
+}
+
+function mergeSameIdMilestones(existing: Milestone, incoming: Milestone): Milestone {
+  const normalizedExisting = normalizeMilestoneMedia(existing.id, existing.media);
+  const normalizedIncoming = normalizeMilestoneMedia(incoming.id, incoming.media);
+  const mergedMediaInput = [
+    ...(normalizedExisting.media ?? []),
+    ...(normalizedIncoming.media ?? []),
+  ];
+  const normalizedMerged = normalizeMilestoneMedia(existing.id, mergedMediaInput);
+
+  return {
+    ...existing,
+    ...incoming,
+    id: existing.id,
+    media: normalizedMerged.media ?? normalizedExisting.media ?? [],
+    reflections: mergeReflections(existing.reflections, incoming.reflections),
+  };
+}
+
+export type MilestoneIntegrityAudit = {
+  total: number;
+  duplicateIds: string[];
+  duplicateMediaUris: { uri: string; markIds: string[] }[];
+  repeatedTitles: { title: string; markIds: string[] }[];
+  missingIds: number;
+  invalidItems: number;
+};
+
+function getMilestoneTitle(note?: string): string {
+  const firstLine = (note ?? '').split('\n\n')[0]?.trim();
+  return firstLine || '(untitled)';
+}
+
+function sortMilestones(milestones: Milestone[]): Milestone[] {
+  return [...milestones].sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export function auditMilestonesForCorruption(input: unknown): MilestoneIntegrityAudit {
+  const audit: MilestoneIntegrityAudit = {
+    total: Array.isArray(input) ? input.length : 0,
+    duplicateIds: [],
+    duplicateMediaUris: [],
+    repeatedTitles: [],
+    missingIds: 0,
+    invalidItems: 0,
+  };
+
+  if (!Array.isArray(input)) {
+    return audit;
+  }
+
+  const ids = new Map<string, number>();
+  const mediaUris = new Map<string, Set<string>>();
+  const titles = new Map<string, Set<string>>();
+
+  input.forEach(raw => {
+    const item = raw as Partial<Milestone>;
+
+    if (!item || typeof item !== 'object') {
+      audit.invalidItems += 1;
+      return;
+    }
+
+    if (!hasText(item.id)) {
+      audit.missingIds += 1;
+      return;
+    }
+
+    const markId = item.id;
+
+    ids.set(markId, (ids.get(markId) ?? 0) + 1);
+
+    const title = getMilestoneTitle(item.note).toLowerCase();
+    const titleMarks = titles.get(title) ?? new Set<string>();
+    titleMarks.add(markId);
+    titles.set(title, titleMarks);
+
+    (item.media ?? []).forEach(media => {
+      if (!hasText(media.uri)) return;
+
+      const marks = mediaUris.get(media.uri) ?? new Set<string>();
+      marks.add(markId);
+      mediaUris.set(media.uri, marks);
+    });
+  });
+
+  audit.duplicateIds = Array.from(ids.entries())
+    .filter(([, count]) => count > 1)
+    .map(([id]) => id);
+  audit.duplicateMediaUris = Array.from(mediaUris.entries())
+    .filter(([, markIds]) => markIds.size > 1)
+    .map(([uri, markIds]) => ({ uri, markIds: Array.from(markIds) }));
+  audit.repeatedTitles = Array.from(titles.entries())
+    .filter(([, markIds]) => markIds.size > 1)
+    .map(([title, markIds]) => ({ title, markIds: Array.from(markIds) }));
+
+  return audit;
+}
+
+async function readMilestoneBackupIndex(): Promise<MilestoneBackupIndexEntry[]> {
+  try {
+    const raw = await AsyncStorage.getItem(MILESTONES_BACKUP_INDEX_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+async function ensureMilestonesEmergencyBackup(reason: string): Promise<void> {
+  const existingBackups = await readMilestoneBackupIndex();
+  if (existingBackups.length > 0) return;
+
+  const raw = await AsyncStorage.getItem(MILESTONES_KEY);
+  if (!raw) return;
+
+  const createdAt = Date.now();
+  const key = `${MILESTONES_BACKUP_PREFIX}${createdAt}`;
+  let markCount: number | undefined;
+
+  try {
+    const parsed = JSON.parse(raw);
+    markCount = Array.isArray(parsed) ? parsed.length : undefined;
+  } catch {
+    markCount = undefined;
+  }
+
+  const entry: MilestoneBackupIndexEntry = { key, createdAt, reason, markCount };
+  const backup: MilestoneEmergencyBackup = { ...entry, raw };
+
+  await AsyncStorage.setItem(key, JSON.stringify(backup));
+  await AsyncStorage.setItem(MILESTONES_BACKUP_INDEX_KEY, JSON.stringify([entry]));
+}
+
+async function writeMilestones(milestones: Milestone[], reason = 'milestone-write'): Promise<void> {
+  await ensureMilestonesEmergencyBackup(reason);
+  await AsyncStorage.setItem(MILESTONES_KEY, JSON.stringify(milestones));
+}
+
+export async function listMilestoneEmergencyBackups(): Promise<MilestoneBackupIndexEntry[]> {
+  return readMilestoneBackupIndex();
+}
+
+export async function getMilestoneEmergencyBackup(key: string): Promise<MilestoneEmergencyBackup | null> {
+  if (!key.startsWith(MILESTONES_BACKUP_PREFIX)) return null;
+
+  const raw = await AsyncStorage.getItem(key);
+  if (!raw) return null;
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
 export async function saveMilestone(m: Omit<Milestone, 'id' | 'createdAt'>): Promise<Milestone> {
   const all = await getMilestones();
   const milestone: Milestone = {
@@ -61,52 +328,48 @@ export async function saveMilestone(m: Omit<Milestone, 'id' | 'createdAt'>): Pro
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     createdAt: Math.floor(Date.now() / 1000),
   };
-  all.unshift(milestone);
-  await AsyncStorage.setItem(MILESTONES_KEY, JSON.stringify(all));
+  all.unshift(normalizeMilestoneForWrite(milestone));
+  await writeMilestones(all, 'save-milestone');
   return milestone;
 }
 
 export async function saveRemoteMilestone(m: Milestone): Promise<void> {
   const all = await getMilestones();
+  const incomingEventId = hasText(m.nostrEventId) ? m.nostrEventId.trim() : undefined;
 
   const existingIndex = all.findIndex(existing =>
-    existing.id === m.id || existing.nostrEventId === m.nostrEventId
+    existing.id === m.id ||
+    (
+      incomingEventId !== undefined &&
+      hasText(existing.nostrEventId) &&
+      existing.nostrEventId.trim() === incomingEventId
+    )
   );
 
   if (existingIndex !== -1) {
     const existing = all[existingIndex];
+    const sameMarkId = existing.id === m.id;
 
-    const mergedReflections = [
-      ...(existing.reflections ?? []),
-      ...(m.reflections ?? []),
-    ].filter((reflection, index, arr) => {
-      return index === arr.findIndex(r =>
-        r.text === reflection.text && r.createdAt === reflection.createdAt
-      );
-    });
+    if (sameMarkId) {
+      all[existingIndex] = mergeSameIdMilestones(existing, m);
+    } else {
+      all[existingIndex] = {
+        ...existing,
+        ...m,
+        id: existing.id,
+        media: normalizeMilestoneMedia(existing.id, existing.media).media ?? [],
+        reflections: mergeReflections(existing.reflections, m.reflections),
+      };
+    }
 
-    const mergedMedia = [
-  ...(existing.media ?? []),
-  ...(m.media ?? []),
-].filter((media, index, arr) => {
-  return index === arr.findIndex(x => x.id === media.id);
-});
-
-all[existingIndex] = {
-  ...existing,
-  ...m,
-  media: mergedMedia.length > 0 ? mergedMedia : existing.media ?? [],
-  reflections: mergedReflections,
-};
-
-    all.sort((a, b) => b.createdAt - a.createdAt);
-    await AsyncStorage.setItem(MILESTONES_KEY, JSON.stringify(all));
+    const sorted = sortMilestones(all);
+    await writeMilestones(sorted, 'save-remote-milestone');
     return;
   }
 
-  all.unshift(m);
-  all.sort((a, b) => b.createdAt - a.createdAt);
-  await AsyncStorage.setItem(MILESTONES_KEY, JSON.stringify(all));
+  const normalized = normalizeMilestoneForWrite(m);
+  all.unshift(normalized);
+  await writeMilestones(sortMilestones(all), 'save-remote-milestone');
 }
 
 export async function getMilestones(): Promise<Milestone[]> {
@@ -116,7 +379,7 @@ export async function getMilestones(): Promise<Milestone[]> {
   const parsed = JSON.parse(raw);
 
   return Array.isArray(parsed)
-    ? parsed.sort((a, b) => b.createdAt - a.createdAt)
+    ? sortMilestones(parsed as Milestone[])
     : [];
 }
 
@@ -124,14 +387,14 @@ export async function updateMilestone(id: string, patch: Partial<Milestone>): Pr
   const all = await getMilestones();
   const idx = all.findIndex(m => m.id === id);
   if (idx === -1) return;
-  all[idx] = { ...all[idx], ...patch };
-  await AsyncStorage.setItem(MILESTONES_KEY, JSON.stringify(all));
+  all[idx] = normalizeMilestoneForWrite({ ...all[idx], ...patch });
+  await writeMilestones(all, 'update-milestone');
 }
 
 export async function deleteMilestone(id: string): Promise<void> {
   const all = await getMilestones();
   const filtered = all.filter(m => m.id !== id);
-  await AsyncStorage.setItem(MILESTONES_KEY, JSON.stringify(filtered));
+  await writeMilestones(filtered, 'delete-milestone');
 }
 
 export async function saveFamily(family: Family): Promise<void> {
@@ -292,6 +555,7 @@ export async function clearNewIdentityLocalData(): Promise<void> {
     await clearGroupStorage();
 
     // 🔥 Clear timeline (Marks)
+    await ensureMilestonesEmergencyBackup('identity-reset-clear');
     await AsyncStorage.removeItem(MILESTONES_KEY);
 
     // 🔥 Clear family + members (extra safety)

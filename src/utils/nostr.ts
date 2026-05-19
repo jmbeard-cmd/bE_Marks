@@ -11,6 +11,14 @@ import {
 } from 'nostr-tools';
 import { Linking, Platform } from 'react-native';
 import { isAppBusy } from './app-activity';
+import type {
+  LivingMarkMetadata,
+  LivingMarkPlacement,
+  LivingSpaceType,
+  SchoolConsentMode,
+  SchoolMinorDefaultPolicy,
+} from '../types/living-spaces';
+import type { Milestone } from './storage';
 
 const SECKEY = 'nostr_nsec';
 const PUBKEY = 'nostr_npub';
@@ -1150,6 +1158,17 @@ export interface NostrGroupPayload {
   name: string;
   description?: string;
   season?: string;
+  spaceType?: LivingSpaceType;
+  spaceLabel?: string;
+  schoolYearId?: string;
+  seasonId?: string;
+  parentSpaceId?: string;
+  isSpace?: boolean;
+  schoolConsentMode?: SchoolConsentMode;
+  requiresGuardianConsent?: boolean;
+  defaultMinorMarkPolicy?: SchoolMinorDefaultPolicy;
+  directoryInfoAllowed?: boolean;
+  consentNoticeVersion?: string;
   sport?: string;
   icon?: string;
   coverImage?: string;
@@ -1157,6 +1176,7 @@ export interface NostrGroupPayload {
   inviteCode: string;
   status: 'active' | 'archived';
   relayUrl: string;
+  relayMode?: 'default' | 'custom' | 'both';
   createdAt: number;
   ownerNpub: string;
   bookEnabled?: boolean;
@@ -1185,8 +1205,19 @@ export async function publishGroup(
     ];
 
     if (group.season) tags.push(['season', group.season]);
+    if (group.spaceType) tags.push(['space-type', group.spaceType]);
+    if (group.schoolYearId) tags.push(['school-year', group.schoolYearId]);
+    if (group.seasonId) tags.push(['season-id', group.seasonId]);
+    if (group.parentSpaceId) tags.push(['parent-space', group.parentSpaceId]);
+    if (group.isSpace) tags.push(['space', 'true']);
+    if (group.schoolConsentMode) tags.push(['school-consent', group.schoolConsentMode]);
+    if (group.requiresGuardianConsent) tags.push(['guardian-consent', 'required']);
+    if (group.defaultMinorMarkPolicy) tags.push(['minor-policy', group.defaultMinorMarkPolicy]);
+    if (group.directoryInfoAllowed) tags.push(['directory-info', 'allowed']);
+    if (group.consentNoticeVersion) tags.push(['consent-notice', group.consentNoticeVersion]);
     if (group.sport) tags.push(['sport', group.sport]);
     if (group.icon) tags.push(['icon', group.icon]);
+    if (group.coverImage) tags.push(['cover-image', group.coverImage]);
     if (group.schoolId) tags.push(['school', group.schoolId]);
     if (group.bookEnabled) tags.push(['book', 'enabled']);
 
@@ -1195,12 +1226,25 @@ export async function publishGroup(
       name: group.name,
       description: group.description,
       season: group.season,
+      spaceType: group.spaceType,
+      spaceLabel: group.spaceLabel,
+      schoolYearId: group.schoolYearId,
+      seasonId: group.seasonId,
+      parentSpaceId: group.parentSpaceId,
+      isSpace: group.isSpace === true,
+      schoolConsentMode: group.schoolConsentMode,
+      requiresGuardianConsent: group.requiresGuardianConsent === true,
+      defaultMinorMarkPolicy: group.defaultMinorMarkPolicy,
+      directoryInfoAllowed: group.directoryInfoAllowed === true,
+      consentNoticeVersion: group.consentNoticeVersion,
       sport: group.sport,
       icon: group.icon,
+      coverImage: group.coverImage,
       schoolId: group.schoolId,
       inviteCode: group.inviteCode,
       status: group.status,
       relayUrl: group.relayUrl,
+      relayMode: group.relayMode,
       createdAt: group.createdAt,
       ownerNpub: group.ownerNpub,
       bookEnabled: group.bookEnabled === true,
@@ -1350,6 +1394,8 @@ export async function publishGroupMembership(input: {
   memberPubkeyHex: string;
   action: 'join' | 'leave' | 'remove';
   role?: 'owner' | 'admin' | 'member';
+  displayName?: string;
+  avatarUrl?: string;
   nsec: string;
   relayUrl: string;
 }): Promise<{ success: boolean; error?: string }> {
@@ -1376,6 +1422,9 @@ export async function publishGroupMembership(input: {
       ['client', 'bE-Marks'],
     ];
 
+    if (input.displayName) tags.push(['name', input.displayName]);
+    if (input.avatarUrl) tags.push(['picture', input.avatarUrl]);
+
     const unsigned: UnsignedEvent = {
       kind: GROUP_MEMBER_KIND,
       created_at: Math.floor(Date.now() / 1000),
@@ -1385,6 +1434,8 @@ export async function publishGroupMembership(input: {
         groupId: input.groupId,
         memberNpub: input.memberNpub,
         role: membershipRole,
+        displayName: input.displayName,
+        avatarUrl: input.avatarUrl,
       }),
       pubkey: pk,
     };
@@ -1402,9 +1453,132 @@ export const GROUP_MESSAGE_DELETE_KIND = 30087;
 export const GROUP_MESSAGE_REACTION_KIND = 30088;
 export const GROUP_MESSAGE_EDIT_KIND = 30089;
 export const GROUP_POLL_VOTE_KIND = 30090;
+export const GROUP_MARK_KIND = 30091;
 export const GROUP_BOOK_ENTRY_KIND = 30086;
 
 export type NostrGroupMediaType = 'image' | 'video' | 'file';
+
+export type NostrGroupMarkPayload = {
+  schemaVersion: 2;
+  groupId: string;
+  milestone: Milestone;
+  metadata?: LivingMarkMetadata;
+  placement?: LivingMarkPlacement;
+  authorNpub?: string;
+  updatedAt: number;
+};
+
+export async function publishGroupMark(input: {
+  groupId: string;
+  milestone: Milestone;
+  metadata?: LivingMarkMetadata;
+  placement?: LivingMarkPlacement;
+  nsec: string;
+  relayUrl: string;
+}): Promise<{ success: boolean; eventId?: string; error?: string }> {
+  try {
+    const decoded = nip19.decode(input.nsec);
+    if (decoded.type !== 'nsec') throw new Error('Invalid nsec');
+
+    const sk = decoded.data as Uint8Array;
+    const pk = getPublicKey(sk);
+    const now = Math.floor(Date.now() / 1000);
+    const payload: NostrGroupMarkPayload = {
+      schemaVersion: 2,
+      groupId: input.groupId,
+      milestone: {
+        ...input.milestone,
+        publishedToRelay: input.milestone.publishedToRelay === true,
+      },
+      metadata: input.metadata,
+      placement: input.placement,
+      authorNpub: input.milestone.authorNpub,
+      updatedAt: now,
+    };
+
+    const tags: string[][] = [
+      ['d', input.milestone.id],
+      ['t', `group-mark:${input.groupId}`],
+      ['group', input.groupId],
+      ['client', 'bE-Marks'],
+    ];
+
+    const unsigned: UnsignedEvent = {
+      kind: GROUP_MARK_KIND,
+      created_at: now,
+      tags,
+      content: JSON.stringify(payload),
+      pubkey: pk,
+    };
+
+    const signed = finalizeEvent(unsigned, sk);
+    return await publishToSpecificRelay(signed, input.relayUrl);
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+}
+
+export function fetchGroupMarks(
+  groupId: string,
+  relayUrl: string = DEFAULT_RELAY
+): Promise<NostrGroupMarkPayload[]> {
+  return new Promise(resolve => {
+    try {
+      const ws = new WebSocket(relayUrl);
+      const seen = new Set<string>();
+      const byMarkId = new Map<string, NostrGroupMarkPayload>();
+
+      const timeout = setTimeout(() => {
+        ws.close();
+        resolve(Array.from(byMarkId.values()).sort((a, b) => b.updatedAt - a.updatedAt));
+      }, 5000);
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify([
+          'REQ',
+          `group-mark-fetch-${groupId}`,
+          {
+            kinds: [GROUP_MARK_KIND],
+            '#t': [`group-mark:${groupId}`],
+            limit: 200,
+          },
+        ]));
+      };
+
+      ws.onmessage = msg => {
+        try {
+          const data = JSON.parse(msg.data);
+
+          if (data[0] === 'EVENT' && data[2]?.kind === GROUP_MARK_KIND) {
+            const evt = data[2];
+            if (seen.has(evt.id)) return;
+            seen.add(evt.id);
+
+            const parsed = JSON.parse(evt.content || '{}') as NostrGroupMarkPayload;
+            if (parsed.schemaVersion !== 2) return;
+            if (!parsed?.milestone?.id || parsed.groupId !== groupId) return;
+
+            const existing = byMarkId.get(parsed.milestone.id);
+            if (!existing || parsed.updatedAt > existing.updatedAt) {
+              byMarkId.set(parsed.milestone.id, parsed);
+            }
+          } else if (data[0] === 'EOSE') {
+            clearTimeout(timeout);
+            ws.close();
+            resolve(Array.from(byMarkId.values()).sort((a, b) => b.updatedAt - a.updatedAt));
+          }
+        } catch {}
+      };
+
+      ws.onerror = () => {
+        clearTimeout(timeout);
+        resolve(Array.from(byMarkId.values()).sort((a, b) => b.updatedAt - a.updatedAt));
+      };
+    } catch {
+      resolve([]);
+    }
+  });
+}
 
 export type NostrGroupMessageMedia = {
   id: string;

@@ -6,14 +6,81 @@ export type LivingSpaceType =
   | 'personal'
   | 'family'
   | 'school'
+  | 'classroom'
   | 'team'
+  | 'club'
   | 'church'
+  | 'organization'
+  | 'pto'
+  | 'booster'
+  | 'district'
   | 'friends'
   | 'group'
   | 'place'
-  | 'book';
+  | 'book'
+  | 'custom';
 
 export type LivingSpaceSource = 'system' | 'family' | 'group' | 'manual' | 'derived';
+export type SchoolConsentMode = 'hybrid';
+export type SchoolMinorDefaultPolicy = 'restricted' | 'privateSpaceOnly';
+export type SchoolConsentStatus = 'missing' | 'granted' | 'revoked';
+
+export type SchoolConsentPermissions = {
+  media?: boolean;
+  name?: boolean;
+  mantle?: boolean;
+  legacy?: boolean;
+  restricted?: boolean;
+};
+
+export type SchoolStudentProfile = {
+  id: string;
+  spaceId: string;
+  personId: string;
+  displayName: string;
+  grade?: string;
+  className?: string;
+  teamName?: string;
+  under13: boolean;
+  guardianNpubs: string[];
+  consentStatus: SchoolConsentStatus;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type SchoolGuardianProfile = {
+  id: string;
+  spaceId: string;
+  npub: string;
+  displayName?: string;
+  linkedStudentIds: string[];
+  contactPreference?: 'app' | 'email' | 'school';
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type SchoolConsentRecord = {
+  id: string;
+  spaceId: string;
+  studentId: string;
+  guardianNpub?: string;
+  consentStatus: SchoolConsentStatus;
+  permissions: SchoolConsentPermissions;
+  noticeVersion: string;
+  source: 'guardian' | 'school-admin' | 'imported';
+  createdAt: number;
+  updatedAt: number;
+  revokedAt?: number;
+};
+
+export type SchoolConsentDecision = {
+  applies: boolean;
+  needsConsent: boolean;
+  restricted: boolean;
+  privateSpaceOnly: boolean;
+  reason?: string;
+  affectedStudentNames: string[];
+};
 
 export type LivingSpace = {
   id: string;
@@ -111,6 +178,15 @@ export type LivingMarkEnrichmentStatus = {
   dismissedPromptTypes: LivingMarkPromptType[];
 };
 
+export type LivingMarkPermissions = {
+  privateSpaceOnly?: boolean;
+  highlightApproved?: boolean;
+  bookApproved?: boolean;
+  restricted?: boolean;
+  guardianConsentNeeded?: boolean;
+  guardianConsentSatisfied?: boolean;
+};
+
 export type LivingMarkMetadata = {
   markId: string;
   title?: string;
@@ -125,6 +201,7 @@ export type LivingMarkMetadata = {
   eventId?: string;
   mediaRoles?: LivingMarkMediaMetadata[];
   privacy: MarkPrivacy;
+  markPermissions: LivingMarkPermissions;
   relayTargets: LivingRelayTarget[];
   savedToBook: boolean;
   captureSource?: LivingMarkCaptureSource;
@@ -215,6 +292,7 @@ export type LivingSpaceFamilySeed = {
 export type LivingSpaceGroupSeed = {
   id: string;
   name: string;
+  spaceType?: LivingSpaceType;
   description?: string;
   sport?: string;
   icon?: string;
@@ -259,5 +337,6 @@ export type LivingMarkCaptureInput = {
   occurredAt?: number;
   capturedAt?: number;
   privacy?: MarkPrivacy;
+  markPermissions?: LivingMarkPermissions;
   now?: number;
 };

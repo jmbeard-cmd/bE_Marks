@@ -393,6 +393,7 @@ enqueueStartupJob({
 
   {/* PUSH SCREENS */}
   <Stack.Screen name="mark-detail" options={{ headerShown: false, animation: 'slide_from_right' }} />
+  <Stack.Screen name="river" options={{ headerShown: false, animation: 'fade' }} />
   <Stack.Screen name="group-thread" options={{ headerShown: false, animation: 'slide_from_right' }} />
   <Stack.Screen name="group-detail" options={{ headerShown: false, animation: 'slide_from_right' }} />
     </Stack>

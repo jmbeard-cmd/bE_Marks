@@ -4,6 +4,7 @@ import type { Milestone } from './storage';
 import type {
   LivingMarkCaptureSource,
   LivingMarkMetadata,
+  LivingMarkPermissions,
   LivingMarkPerson,
   LivingMarkPlacement,
   LivingMarkPlacementConfidence,
@@ -34,6 +35,24 @@ export const SYSTEM_LIVING_SPACE_IDS = {
 } as const;
 
 const PROMPT_STATUS_VALUES: LivingMarkPromptStatus[] = ['open', 'answered', 'dismissed', 'snoozed'];
+const LIVING_SPACE_TYPE_VALUES: LivingSpaceType[] = [
+  'personal',
+  'family',
+  'school',
+  'classroom',
+  'team',
+  'club',
+  'church',
+  'organization',
+  'pto',
+  'booster',
+  'district',
+  'friends',
+  'group',
+  'place',
+  'book',
+  'custom',
+];
 
 export function normalizeLivingTag(tag: string): string {
   return tag
@@ -215,16 +234,41 @@ function cleanOptionalText(value?: string): string | undefined {
   return clean || undefined;
 }
 
+export function normalizeLivingMarkPermissions(
+  permissions?: LivingMarkPermissions | null
+): LivingMarkPermissions {
+  return {
+    privateSpaceOnly: permissions?.privateSpaceOnly === true,
+    highlightApproved: permissions?.restricted ? false : permissions?.highlightApproved === true,
+    bookApproved: permissions?.restricted ? false : permissions?.bookApproved === true,
+    restricted: permissions?.restricted === true,
+    guardianConsentNeeded: permissions?.guardianConsentNeeded === true,
+    guardianConsentSatisfied: permissions?.guardianConsentSatisfied === true,
+  };
+}
+
 function createPeopleFromIds(peopleIds: string[]): LivingMarkPerson[] {
   return normalizeLivingPeople({ peopleIds, fallbackRole: 'subject' }).people;
 }
 
+function isLivingSpaceType(value: unknown): value is LivingSpaceType {
+  return typeof value === 'string' && LIVING_SPACE_TYPE_VALUES.includes(value as LivingSpaceType);
+}
+
 function inferSpaceType(group: LivingSpaceGroupSeed): LivingSpaceType {
+  if (isLivingSpaceType(group.spaceType)) return group.spaceType;
+
   const text = normalizeLivingTag(`${group.sport ?? ''} ${group.name} ${group.description ?? ''}`);
 
   if (text.includes('family')) return 'family';
   if (text.includes('church') || text.includes('ministry')) return 'church';
-  if (text.includes('school') || text.includes('class') || text.includes('pto')) return 'school';
+  if (text.includes('classroom') || text.includes('class')) return 'classroom';
+  if (text.includes('pto')) return 'pto';
+  if (text.includes('booster')) return 'booster';
+  if (text.includes('district')) return 'district';
+  if (text.includes('organization') || text.includes('org')) return 'organization';
+  if (text.includes('club')) return 'club';
+  if (text.includes('school')) return 'school';
   if (
     text.includes('team') ||
     text.includes('basketball') ||
@@ -310,8 +354,8 @@ export function createDefaultLivingSpaces(input: LivingSpaceDefaultsInput = {}):
     createSystemSpace({
       id: SYSTEM_LIVING_SPACE_IDS.livingBook,
       type: 'book',
-      name: 'Living Book',
-      description: 'Preserved chapters and legacy collections.',
+      name: 'Legacy',
+      description: 'Preserved chapters, albums, yearbooks, and season collections.',
       privacyDefault: 'private',
       now,
     }),
@@ -353,6 +397,7 @@ export function createLivingMarkMetadata(
     eventId?: string;
     relayTargets?: LivingRelayTarget[];
     savedToBook?: boolean;
+    markPermissions?: LivingMarkPermissions;
     now?: number;
     captureSource?: LivingMarkCaptureSource;
     place?: LivingMarkPlace;
@@ -396,6 +441,7 @@ export function createLivingMarkMetadata(
     lifeStage: cleanOptionalText(input.lifeStage),
     eventId: cleanOptionalText(input.eventId),
     privacy,
+    markPermissions: normalizeLivingMarkPermissions(input.markPermissions),
     relayTargets: input.relayTargets ?? [],
     savedToBook: input.savedToBook ?? false,
     captureSource: input.captureSource,
@@ -816,7 +862,7 @@ export function createGentleLivingPromptForView(
       markId,
       type: 'add-to-book',
       status: 'open',
-      question: 'Should this be saved into your Living Book?',
+      question: 'Should this be saved into Legacy?',
       suggestedSpaceIds: [SYSTEM_LIVING_SPACE_IDS.livingBook],
       dueAt: now,
       createdAt: now,

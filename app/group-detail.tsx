@@ -62,6 +62,7 @@ import {
   getGroupMembers,
   isGroupAdmin,
   isGroupMember,
+  publishGroupMetadataSnapshot,
   regenerateInviteCode,
   removeMember,
   syncGroupMembersFromRelay,
@@ -85,6 +86,7 @@ import {
 } from '../src/utils/living-space-routing';
 import {
   getLivingMarkViewsForMilestones,
+  importLivingSpaceMarkSnapshot,
   persistLivingMarkCapture,
   syncLivingSpacesFromGroups,
 } from '../src/utils/living-spaces-storage';
@@ -98,13 +100,23 @@ import {
 } from '../src/utils/living-people';
 import {
   DEFAULT_RELAY,
+  fetchGroupMarks,
   fetchGroupMessageDeletes,
   fetchGroupMessages,
   fetchNostrProfile,
+  publishGroupMark,
   publishGroupMembership,
   publishGroupMessage,
 } from '../src/utils/nostr';
 import { normalizeNostrIdentity } from '../src/utils/nostr-identity';
+import {
+  SCHOOL_CONSENT_NOTICE_VERSION,
+  getSchoolSpaceConsentSummary,
+  isSchoolConsentSpace,
+  upsertSchoolConsentRecord,
+  upsertSchoolStudentProfile,
+  type SchoolConsentSummary,
+} from '../src/utils/school-consent-storage';
 import {
   notifyGroupEvent,
   registerGroupMemberForPush,
@@ -114,16 +126,33 @@ import { uploadMilestoneMedia } from '../src/utils/r2';
 import {
   getMilestones,
   saveMilestone,
+  updateMilestone,
   type MarkMedia,
   type Milestone,
 } from '../src/utils/storage';
 import { useIdentity } from './_layout';
 
-type Tab = 'chat' | 'stickies' | 'calendar' | 'gallery' | 'members' | 'book';
+type Tab = 'chat' | 'stickies' | 'mantle' | 'calendar' | 'gallery' | 'members' | 'book';
 const GROUP_LOCAL_GALLERY_KEY = 'be_group_local_gallery_v1';
 const SPACE_FAVORITES_KEY = 'be_space_favorite_ids_v1';
+const SPACE_MARK_RELAY_SYNC_ENABLED = false;
 const SPACE_MARK_PRESET_TAGS = ['Family', 'School', 'Team', 'Church', 'Event', 'Memory'];
 const SPACE_MARK_LIFE_STAGE_OPTIONS = ['Elementary', 'Middle School', 'High School', 'Season', 'Trip', 'Family'];
+const SPORTS_SPACE_KEYS = new Set([
+  'softball',
+  'baseball',
+  'basketball',
+  'football',
+  'volleyball',
+  'track',
+  'crosscountry',
+  'soccer',
+  'wrestling',
+  'golf',
+  'tennis',
+  'swimming',
+  'cheer',
+]);
 
 type LocalGalleryItem = {
   id: string;
@@ -213,6 +242,20 @@ function getGroupTypeIcon(group: BEGroup): string | null {
   }
 
   return null;
+}
+
+function isSportsSpace(group: BEGroup): boolean {
+  const directKey = normalizeGroupType(group.sport);
+  return directKey ? SPORTS_SPACE_KEYS.has(directKey) : false;
+}
+
+function getMantleMarkTimestamp(view: LivingMarkView): number {
+  return view.metadata.occurredAt ?? view.metadata.capturedAt ?? view.milestone.createdAt;
+}
+
+function getMantleMediaImageUri(media?: MarkMedia): string | undefined {
+  if (!media) return undefined;
+  return media.type === 'image' ? media.uri : media.thumbnailUri;
 }
 
 async function readLocalGalleryItems(): Promise<LocalGalleryItem[]> {
@@ -368,6 +411,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   const [tab, setTab] = useState<Tab>(
   routeTab === 'chat' ||
   routeTab === 'stickies' ||
+  routeTab === 'mantle' ||
   routeTab === 'calendar' ||
   routeTab === 'gallery' ||
   routeTab === 'members' ||
@@ -380,6 +424,16 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   const [showInvite, setShowInvite] = useState(false);
   const [showSpaceSettingsMenu, setShowSpaceSettingsMenu] = useState(false);
   const [spaceSettingsRelayOpen, setSpaceSettingsRelayOpen] = useState(false);
+  const [spaceSettingsConsentOpen, setSpaceSettingsConsentOpen] = useState(false);
+  const [schoolConsentSummary, setSchoolConsentSummary] = useState<SchoolConsentSummary | null>(null);
+  const [childNameInput, setChildNameInput] = useState('');
+  const [childGradeInput, setChildGradeInput] = useState('');
+  const [childUnder13, setChildUnder13] = useState(true);
+  const [childConsentMedia, setChildConsentMedia] = useState(false);
+  const [childConsentName, setChildConsentName] = useState(false);
+  const [childConsentMantle, setChildConsentMantle] = useState(false);
+  const [childConsentLegacy, setChildConsentLegacy] = useState(false);
+  const [savingSchoolConsent, setSavingSchoolConsent] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [spaceKeyboardHeight, setSpaceKeyboardHeight] = useState(0);
 
@@ -534,13 +588,87 @@ const { id, tab: routeTab } = useLocalSearchParams<{
       spaces,
       currentNpub: npub,
     });
+    const filteredViews = views
+      .filter(view => view.placement.spaceIds.includes(livingSpaceId))
+      .sort((a, b) => b.milestone.createdAt - a.milestone.createdAt);
 
-    setSpaceMarkViews(
-      views
-        .filter(view => view.placement.spaceIds.includes(livingSpaceId))
-        .sort((a, b) => b.milestone.createdAt - a.milestone.createdAt)
-    );
+    setSpaceMarkViews(filteredViews);
+    return filteredViews;
   }, [npub]);
+
+  const publishSpaceMarkSnapshot = useCallback(async (
+    targetGroup: BEGroup,
+    view: LivingMarkView
+  ) => {
+    if (!SPACE_MARK_RELAY_SYNC_ENABLED || !nsec) return;
+
+    const result = await publishGroupMark({
+      groupId: targetGroup.id,
+      milestone: view.milestone,
+      metadata: view.metadata,
+      placement: view.placement,
+      nsec,
+      relayUrl: targetGroup.relayUrl || DEFAULT_RELAY,
+    });
+
+    if (!result.success) {
+      console.warn('[Space Marks] publish failed:', result.error);
+      return;
+    }
+
+    await updateMilestone(view.milestone.id, {
+      spaceRelayEventId: result.eventId,
+      spaceRelayPublishedAt: Math.floor(Date.now() / 1000),
+      spaceRelayGroupIds: Array.from(new Set([
+        ...(view.milestone.spaceRelayGroupIds ?? []),
+        targetGroup.id,
+      ])),
+    });
+  }, [nsec]);
+
+  const syncSpaceMarksFromRelay = useCallback(async (
+    targetGroup: BEGroup,
+    spaces: LivingSpace[]
+  ) => {
+    if (!SPACE_MARK_RELAY_SYNC_ENABLED) return [] as LivingMarkView[];
+
+    const snapshots = await fetchGroupMarks(targetGroup.id, targetGroup.relayUrl || DEFAULT_RELAY);
+    if (snapshots.length === 0) return [] as LivingMarkView[];
+
+    for (const snapshot of snapshots) {
+      await importLivingSpaceMarkSnapshot({
+        groupId: targetGroup.id,
+        milestone: snapshot.milestone,
+        metadata: snapshot.metadata,
+        placement: snapshot.placement,
+        spaces,
+        currentNpub: npub,
+      });
+    }
+
+    return loadSpaceMarks(targetGroup.id, spaces);
+  }, [loadSpaceMarks, npub]);
+
+  const backfillSpaceMarksToRelay = useCallback(async (
+    targetGroup: BEGroup,
+    views: LivingMarkView[],
+    canPublish: boolean
+  ) => {
+    if (!SPACE_MARK_RELAY_SYNC_ENABLED || !canPublish || !nsec) return;
+
+    const candidates = views
+      .filter(view => {
+        const publishedToGroup = (view.milestone.spaceRelayGroupIds ?? []).includes(targetGroup.id);
+        const publishedAt = view.milestone.spaceRelayPublishedAt ?? 0;
+        return !publishedToGroup || view.metadata.updatedAt > publishedAt;
+      })
+      .slice(0, 8);
+
+    for (const view of candidates) {
+      await publishSpaceMarkSnapshot(targetGroup, view);
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+  }, [nsec, publishSpaceMarkSnapshot]);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -553,6 +681,9 @@ const { id, tab: routeTab } = useLocalSearchParams<{
     if (!g) return;
 
     setGroup(g);
+    getSchoolSpaceConsentSummary(g.id, npub)
+      .then(setSchoolConsentSummary)
+      .catch(error => console.warn('[School Consent] summary load failed:', error));
 
     let spaces: LivingSpace[] = [];
     try {
@@ -695,6 +826,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
         if (groupDetailLoadRunIdRef.current !== runId) return;
 
         setMembers(syncedMembers);
+        setGroup(current => current ? { ...current, memberCount: syncedMembers.length } : current);
         syncedMembers
           .filter(member => member.status === 'active')
           .forEach(member => {
@@ -726,7 +858,20 @@ const { id, tab: routeTab } = useLocalSearchParams<{
           : await getStickiesForGroup(id);
 
         setStickies(syncedStickies);
-        await loadSpaceMarks(id, spaces.length > 0 ? spaces : await syncLivingSpacesFromGroups());
+        const syncedSpaces = spaces.length > 0 ? spaces : await syncLivingSpacesFromGroups();
+        let currentSpaceMarks = await syncSpaceMarksFromRelay(g, syncedSpaces);
+
+        if (currentSpaceMarks.length === 0) {
+          currentSpaceMarks = await loadSpaceMarks(id, syncedSpaces);
+        }
+
+        const canPublishMarks = !!npub && await isGroupAdmin(id, npub);
+        if (canPublishMarks && nsec) {
+          publishGroupMetadataSnapshot(id, nsec).catch(error => {
+            console.warn('[Space Detail] metadata backfill publish failed:', error);
+          });
+        }
+        await backfillSpaceMarksToRelay(g, currentSpaceMarks, canPublishMarks);
       } catch (error) {
         console.warn('[Group Detail] background highlight sync failed:', error);
       }
@@ -798,7 +943,15 @@ const { id, tab: routeTab } = useLocalSearchParams<{
       }
       });
     });
-  }, [id, npub, hydrateMemberProfiles, loadSpaceMarks]);
+  }, [
+    id,
+    nsec,
+    npub,
+    backfillSpaceMarksToRelay,
+    hydrateMemberProfiles,
+    loadSpaceMarks,
+    syncSpaceMarksFromRelay,
+  ]);
 
   useEffect(() => {
     load();
@@ -833,6 +986,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   if (
     routeTab === 'chat' ||
     routeTab === 'stickies' ||
+    routeTab === 'mantle' ||
     routeTab === 'calendar' ||
     routeTab === 'gallery' ||
     routeTab === 'members' ||
@@ -870,8 +1024,25 @@ const { id, tab: routeTab } = useLocalSearchParams<{
     setRefreshing(false);
   };
 
+  const publishCurrentGroupMetadata = async (groupId: string) => {
+    if (!nsec) return;
+
+    try {
+      const result = await publishGroupMetadataSnapshot(groupId, nsec);
+      if (!result.success) {
+        console.warn('[Space Detail] metadata publish failed:', result.error);
+      }
+    } catch (error) {
+      console.warn('[Space Detail] metadata publish error:', error);
+    }
+  };
+
   const openGroupRelayEditor = () => {
     if (!group) return;
+    if (!isAdmin) {
+      Alert.alert('Admin only', 'Only a Space owner or admin can manage relay routing.');
+      return;
+    }
 
     setShowInvite(false);
     setShowSpaceSettingsMenu(true);
@@ -883,6 +1054,10 @@ const { id, tab: routeTab } = useLocalSearchParams<{
 
   const saveGroupRelaySettings = async () => {
     if (!group) return;
+    if (!isAdmin) {
+      Alert.alert('Admin only', 'Only a Space owner or admin can save relay routing.');
+      return;
+    }
 
     const trimmedUrl = groupRelayUrl.trim();
 
@@ -901,6 +1076,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
       relayUrl: groupRelayMode === 'default' ? DEFAULT_RELAY : trimmedUrl,
     });
     await syncLivingSpacesFromGroups();
+    await publishCurrentGroupMetadata(group.id);
 
     setEditingGroupRelay(false);
     await load();
@@ -929,12 +1105,14 @@ const { id, tab: routeTab } = useLocalSearchParams<{
     setShowInvite(false);
     setShowSpaceSettingsMenu(false);
     setSpaceSettingsRelayOpen(false);
+    setSpaceSettingsConsentOpen(false);
     setEditingGroupRelay(false);
   };
 
   const closeSpaceSettingsMenu = () => {
     setShowSpaceSettingsMenu(false);
     setSpaceSettingsRelayOpen(false);
+    setSpaceSettingsConsentOpen(false);
     setEditingGroupRelay(false);
   };
 
@@ -951,11 +1129,17 @@ const { id, tab: routeTab } = useLocalSearchParams<{
 
     setShowInvite(false);
     setSpaceSettingsRelayOpen(false);
+    setSpaceSettingsConsentOpen(false);
     setEditingGroupRelay(false);
     setShowSpaceSettingsMenu(true);
   };
 
   const handleRegenerateCode = () => {
+    if (!isAdmin) {
+      Alert.alert('Admin only', 'Only a Space owner or admin can regenerate invite codes.');
+      return;
+    }
+
     Alert.alert(
       'Regenerate invite code?',
       'The old code will stop working immediately. Share the new code with your Space.',
@@ -965,6 +1149,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
           text: 'Regenerate', onPress: async () => {
             if (!group) return;
             const newCode = await regenerateInviteCode(group.id);
+            await publishCurrentGroupMetadata(group.id);
             await load();
             Alert.alert('New code ready', `Your new invite code is: ${newCode}`);
           }
@@ -974,6 +1159,11 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   };
 
   const handleArchive = () => {
+    if (!isAdmin) {
+      Alert.alert('Admin only', 'Only a Space owner or admin can archive this Space.');
+      return;
+    }
+
     Alert.alert(
       'Archive this Space?',
       'Members can still view past messages and Marks, but no new posts will be allowed. You can start a new season anytime.',
@@ -984,11 +1174,140 @@ const { id, tab: routeTab } = useLocalSearchParams<{
             if (!group) return;
             await archiveGroup(group.id);
             await syncLivingSpacesFromGroups();
+            await publishCurrentGroupMetadata(group.id);
             await load();
           }
         }
       ]
     );
+  };
+
+  const refreshSchoolConsentSummary = async (groupId = group?.id) => {
+    if (!groupId) return;
+
+    const summary = await getSchoolSpaceConsentSummary(groupId, npub);
+    setSchoolConsentSummary(summary);
+  };
+
+  const enableSchoolConsentDefaults = async () => {
+    if (!group || !isAdmin) return;
+
+    await updateGroup(group.id, {
+      schoolConsentMode: 'hybrid',
+      requiresGuardianConsent: true,
+      defaultMinorMarkPolicy: group.defaultMinorMarkPolicy ?? 'restricted',
+      directoryInfoAllowed: group.directoryInfoAllowed === true,
+      consentNoticeVersion: group.consentNoticeVersion ?? SCHOOL_CONSENT_NOTICE_VERSION,
+    });
+    await publishCurrentGroupMetadata(group.id);
+    await load();
+    await refreshSchoolConsentSummary(group.id);
+  };
+
+  const toggleSchoolMinorPolicy = async () => {
+    if (!group || !isAdmin) return;
+
+    await updateGroup(group.id, {
+      defaultMinorMarkPolicy:
+        group.defaultMinorMarkPolicy === 'privateSpaceOnly'
+          ? 'restricted'
+          : 'privateSpaceOnly',
+      schoolConsentMode: 'hybrid',
+      requiresGuardianConsent: true,
+      consentNoticeVersion: group.consentNoticeVersion ?? SCHOOL_CONSENT_NOTICE_VERSION,
+    });
+    await publishCurrentGroupMetadata(group.id);
+    await load();
+  };
+
+  const toggleDirectoryInfoAllowed = async () => {
+    if (!group || !isAdmin) return;
+
+    await updateGroup(group.id, {
+      directoryInfoAllowed: group.directoryInfoAllowed !== true,
+      schoolConsentMode: 'hybrid',
+      requiresGuardianConsent: true,
+      consentNoticeVersion: group.consentNoticeVersion ?? SCHOOL_CONSENT_NOTICE_VERSION,
+    });
+    await publishCurrentGroupMetadata(group.id);
+    await load();
+  };
+
+  const saveChildConsentProfile = async () => {
+    if (!group) return;
+
+    const childName = childNameInput.trim();
+    if (!childName) {
+      Alert.alert('Child name required', 'Add the child or student name before saving consent settings.');
+      return;
+    }
+
+    if (!npub) {
+      Alert.alert('Guardian identity required', 'Sign in with a Nostr identity before linking a child profile.');
+      return;
+    }
+
+    setSavingSchoolConsent(true);
+
+    try {
+      const student = await upsertSchoolStudentProfile({
+        spaceId: group.id,
+        displayName: childName,
+        grade: childGradeInput,
+        under13: childUnder13,
+        guardianNpub: npub,
+      });
+
+      await upsertSchoolConsentRecord({
+        spaceId: group.id,
+        studentId: student.id,
+        guardianNpub: npub,
+        permissions: {
+          media: childConsentMedia,
+          name: childConsentName,
+          mantle: childConsentMantle,
+          legacy: childConsentLegacy,
+          restricted: !childConsentMedia && !childConsentName && !childConsentMantle && !childConsentLegacy,
+        },
+        consentStatus: 'granted',
+        noticeVersion: group.consentNoticeVersion ?? SCHOOL_CONSENT_NOTICE_VERSION,
+        source: isAdmin ? 'school-admin' : 'guardian',
+      });
+
+      setChildNameInput('');
+      setChildGradeInput('');
+      setChildUnder13(true);
+      setChildConsentMedia(false);
+      setChildConsentName(false);
+      setChildConsentMantle(false);
+      setChildConsentLegacy(false);
+      await refreshSchoolConsentSummary(group.id);
+    } catch (error: any) {
+      Alert.alert('Consent not saved', error?.message ?? 'Could not save the child consent profile.');
+    } finally {
+      setSavingSchoolConsent(false);
+    }
+  };
+
+  const revokeStudentConsent = async (studentId: string) => {
+    if (!group) return;
+
+    await upsertSchoolConsentRecord({
+      spaceId: group.id,
+      studentId,
+      guardianNpub: npub,
+      permissions: {
+        media: false,
+        name: false,
+        mantle: false,
+        legacy: false,
+        restricted: true,
+      },
+      consentStatus: 'revoked',
+      noticeVersion: group.consentNoticeVersion ?? SCHOOL_CONSENT_NOTICE_VERSION,
+      source: isAdmin ? 'school-admin' : 'guardian',
+    });
+    await refreshSchoolConsentSummary(group.id);
   };
 
   const handlePickSpaceMarkMedia = async () => {
@@ -1183,7 +1502,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
       manualInput: spaceMarkPeopleInput,
     });
 
-    await persistLivingMarkCapture({
+    const captureResult = await persistLivingMarkCapture({
       milestone: savedMilestone,
       spaces,
       selectedSpaceId: getGroupLivingSpaceId(group.id),
@@ -1199,6 +1518,27 @@ const { id, tab: routeTab } = useLocalSearchParams<{
       capturedAt: capture.occurredAt ?? savedMilestone.createdAt,
       privacy: 'space',
     });
+
+    if (SPACE_MARK_RELAY_SYNC_ENABLED && nsec) {
+      const publishResult = await publishGroupMark({
+        groupId: group.id,
+        milestone: savedMilestone,
+        metadata: captureResult.metadata,
+        placement: captureResult.placement,
+        nsec,
+        relayUrl: group.relayUrl || DEFAULT_RELAY,
+      });
+
+      if (publishResult.success) {
+        await updateMilestone(savedMilestone.id, {
+          spaceRelayEventId: publishResult.eventId,
+          spaceRelayPublishedAt: Math.floor(Date.now() / 1000),
+          spaceRelayGroupIds: [group.id],
+        });
+      } else {
+        console.warn('[Space Mark create] relay publish failed:', publishResult.error);
+      }
+    }
 
     setSpaceMarkProgress(100);
     resetSpaceMarkDraft();
@@ -1259,10 +1599,10 @@ const openViewerForMilestone = (mark: Milestone, startIndex: number) => {
   setSelectedGalleryImage(images[startIndex]?.uri ?? null);
 };
 
-const openMarkDetail = (markId: string) => {
+const openMarkDetail = (markId: string, returnToGroupTab: Tab = 'stickies') => {
   router.push({
     pathname: '/mark-detail',
-    params: { id: markId, returnToGroupId: group?.id, returnToGroupTab: 'stickies' },
+    params: { id: markId, returnToGroupId: group?.id, returnToGroupTab },
   } as any);
 };
 
@@ -1722,6 +2062,18 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
   );
 
 const deepLink = `https://beginningend.com/join/${group.inviteCode}`;
+const canShowSchoolConsentSettings =
+  isAdmin ||
+  group.requiresGuardianConsent === true ||
+  (schoolConsentSummary?.students ?? []).length > 0 ||
+  !!schoolConsentSummary?.guardian;
+const schoolConsentEnabled = isSchoolConsentSpace(group);
+const schoolConsentNeedsCount = schoolConsentSummary?.needsConsentCount ?? 0;
+const schoolConsentStatusLabel = schoolConsentEnabled
+  ? schoolConsentNeedsCount > 0
+    ? `${schoolConsentNeedsCount} need review`
+    : 'Safeguards on'
+  : 'Not enabled';
 
 const highlightViewerImages: ViewerImage[] = stickies
   .flatMap(sticky => {
@@ -1762,6 +2114,136 @@ const galleryViewerImages: ViewerImage[] = [
     }),
   ...highlightViewerImages,
 ];
+
+const sportsMantle = isSportsSpace(group);
+const mantleMarkViews = spaceMarkViews
+  .filter(view =>
+    view.metadata.markPermissions.highlightApproved === true &&
+    view.metadata.markPermissions.restricted !== true
+  )
+  .sort((a, b) => getMantleMarkTimestamp(b) - getMantleMarkTimestamp(a));
+const leadMantleView = mantleMarkViews[0] ?? null;
+const supportingMantleViews = mantleMarkViews.slice(1, 4);
+const recapMantleViews = mantleMarkViews.slice(4);
+
+const openRiverForMantle = (markId?: string) => {
+  if (mantleMarkViews.length === 0) return;
+
+  const ids = mantleMarkViews.map(view => view.milestone.id);
+  const requestedIndex = markId ? ids.indexOf(markId) : 0;
+  const start = requestedIndex >= 0 ? requestedIndex : 0;
+
+  router.push({
+    pathname: '/river',
+    params: {
+      ids: ids.join(','),
+      start: String(start),
+      title: sportsMantle ? `${group.name} Showcase` : `${group.name} Mantle`,
+      subtitle: `${mantleMarkViews.length} approved ${mantleMarkViews.length === 1 ? 'Mark' : 'Marks'}`,
+      returnToGroupId: group.id,
+      returnToGroupTab: 'mantle',
+    },
+  } as any);
+};
+
+const renderMantleMarkCard = (
+  view: LivingMarkView,
+  variant: 'lead' | 'podium' | 'recap',
+  index = 0
+) => {
+  const mark = view.milestone;
+  const markText = getMilestoneText(mark);
+  const markMedia = getMilestoneMediaItems(mark);
+  const authorProfile = getSpaceMarkAuthorProfile(mark);
+  const firstMedia = markMedia.find(item => item.type === 'image' || item.type === 'video');
+  const mantleImageUri = getMantleMediaImageUri(firstMedia);
+  const markDate = formatStickyDate(getMantleMarkTimestamp(view));
+
+  if (variant === 'lead') {
+    return (
+      <TouchableOpacity
+        key={`mantle_lead_${mark.id}`}
+        style={[s.mantleFeatureCard, sportsMantle && s.mantleFeatureCardSports]}
+        onPress={() => openRiverForMantle(mark.id)}
+        activeOpacity={0.88}
+      >
+        <View style={s.mantleFeatureLabelRow}>
+          <Text style={s.mantleFeatureLabel}>{sportsMantle ? 'Lead highlight' : 'Lead memory'}</Text>
+          <Text style={s.mantleFeatureDate}>{markDate}</Text>
+        </View>
+
+        {markMedia.length > 0 ? (
+          <View style={s.mantleFeatureMediaFrame}>
+            <MediaCollage
+              media={markMedia}
+              onPressMedia={() => openRiverForMantle(mark.id)}
+            />
+          </View>
+        ) : (
+          <View style={s.mantleFeatureTextFallback}>
+            <Text style={s.mantleFeatureFallbackTitle} numberOfLines={3}>{markText.title}</Text>
+          </View>
+        )}
+
+        <View style={s.mantleFeatureCopy}>
+          <Text style={s.mantleFeatureTitle} numberOfLines={2}>{markText.title}</Text>
+          {markText.body ? (
+            <Text style={s.mantleFeatureBody} numberOfLines={3}>{markText.body}</Text>
+          ) : null}
+          <Text style={s.mantleFeatureMeta} numberOfLines={1}>
+            {authorProfile.displayName}
+          </Text>
+        </View>
+      </TouchableOpacity>
+    );
+  }
+
+  const isPodium = variant === 'podium';
+
+  return (
+    <TouchableOpacity
+      key={`mantle_${variant}_${mark.id}`}
+      style={isPodium ? s.mantlePodiumCard : s.mantleRecapCard}
+      onPress={() => openRiverForMantle(mark.id)}
+      activeOpacity={0.88}
+    >
+      <View style={isPodium ? s.mantlePodiumMediaWrap : s.mantleRecapMediaWrap}>
+        {mantleImageUri ? (
+          <Image
+            source={{ uri: mantleImageUri }}
+            style={s.mantleMiniMedia}
+            resizeMode="cover"
+          />
+        ) : (
+          <View style={s.mantleMiniFallback}>
+            <Text style={s.mantleMiniFallbackLabel}>Mark</Text>
+          </View>
+        )}
+
+        {isPodium && (
+          <View style={s.mantlePodiumRank}>
+            <Text style={s.mantlePodiumRankText}>{index + 2}</Text>
+          </View>
+        )}
+
+        {firstMedia?.type === 'video' && (
+          <View style={s.mantleVideoBadge}>
+            <Text style={s.mantleVideoText}>Play</Text>
+          </View>
+        )}
+      </View>
+
+      <View style={isPodium ? s.mantlePodiumCopy : s.mantleRecapCopy}>
+        <Text style={isPodium ? s.mantlePodiumTitle : s.mantleRecapTitle} numberOfLines={2}>
+          {markText.title}
+        </Text>
+        <Text style={s.mantleCardMeta} numberOfLines={1}>
+          {authorProfile.displayName} - {markDate}
+        </Text>
+      </View>
+    </TouchableOpacity>
+  );
+};
 
 const openViewerForGalleryItem = (mediaUrl: string) => {
   const galleryOnlyViewerImages: ViewerImage[] = galleryItems
@@ -2051,6 +2533,16 @@ const relaySettingsCard = (
             </TouchableOpacity>
 
             <TouchableOpacity
+              style={[s.spaceProfilePill, tab === 'mantle' && s.spaceProfilePillActive]}
+              onPress={() => selectSpaceTab('mantle')}
+              activeOpacity={0.86}
+            >
+              <Text style={[s.spaceProfilePillText, tab === 'mantle' && s.spaceProfilePillTextActive]}>
+                Mantle
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
               style={[s.spaceProfilePill, tab === 'calendar' && s.spaceProfilePillActive]}
               onPress={() => selectSpaceTab('calendar')}
               activeOpacity={0.86}
@@ -2067,7 +2559,7 @@ const relaySettingsCard = (
                 activeOpacity={0.86}
               >
                 <Text style={[s.spaceProfilePillText, tab === 'book' && s.spaceProfilePillTextActive]}>
-                  Book
+                  Ledger
                 </Text>
               </TouchableOpacity>
             )}
@@ -2095,7 +2587,7 @@ const relaySettingsCard = (
             <View style={{ flex: 1 }}>
               <Text style={s.spaceSettingsTitle}>{group.name}</Text>
               <Text style={s.spaceSettingsHint} numberOfLines={2}>
-                {group.description || 'Chat, Marks, calendar, gallery, and book work for this Space.'}
+                {group.description || 'Chat, Marks, calendar, gallery, and ledger work for this Space.'}
               </Text>
             </View>
 
@@ -2131,6 +2623,160 @@ const relaySettingsCard = (
             </View>
             <Text style={s.spaceSettingsRowAction}>Open</Text>
           </TouchableOpacity>
+
+          {canShowSchoolConsentSettings && (
+            <>
+              <TouchableOpacity
+                style={s.spaceSettingsRow}
+                onPress={() => setSpaceSettingsConsentOpen(prev => !prev)}
+                activeOpacity={0.85}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={s.spaceSettingsRowTitle}>Safety & Consent</Text>
+                  <Text style={s.spaceSettingsRowHint}>
+                    Parent settings for minors, Mantle, Legacy, and restricted use.
+                  </Text>
+                </View>
+                <Text style={s.spaceSettingsRowAction}>
+                  {spaceSettingsConsentOpen ? 'Hide' : schoolConsentStatusLabel}
+                </Text>
+              </TouchableOpacity>
+
+              {spaceSettingsConsentOpen && (
+                <View style={s.schoolConsentPanel}>
+                  <View style={s.schoolConsentHeader}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.schoolConsentTitle}>School-safe settings</Text>
+                      <Text style={s.schoolConsentHint}>
+                        Hybrid mode lets the school authorize the Space while guardians control child-specific media use.
+                      </Text>
+                    </View>
+                    <Text style={s.schoolConsentBadge}>{schoolConsentEnabled ? 'Hybrid' : 'Off'}</Text>
+                  </View>
+
+                  {!schoolConsentEnabled ? (
+                    <TouchableOpacity
+                      style={[s.schoolConsentPrimaryBtn, !isAdmin && s.schoolConsentDisabled]}
+                      onPress={enableSchoolConsentDefaults}
+                      disabled={!isAdmin}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={s.schoolConsentPrimaryText}>
+                        {isAdmin ? 'Enable school safeguards' : 'Admin setup required'}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <>
+                      <View style={s.schoolConsentPolicyGrid}>
+                        <TouchableOpacity
+                          style={s.schoolConsentPolicyCard}
+                          onPress={toggleSchoolMinorPolicy}
+                          disabled={!isAdmin}
+                          activeOpacity={0.85}
+                        >
+                          <Text style={s.schoolConsentPolicyLabel}>Minor default</Text>
+                          <Text style={s.schoolConsentPolicyValue}>
+                            {group.defaultMinorMarkPolicy === 'privateSpaceOnly' ? 'Private Space' : 'Restricted'}
+                          </Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={s.schoolConsentPolicyCard}
+                          onPress={toggleDirectoryInfoAllowed}
+                          disabled={!isAdmin}
+                          activeOpacity={0.85}
+                        >
+                          <Text style={s.schoolConsentPolicyLabel}>Directory info</Text>
+                          <Text style={s.schoolConsentPolicyValue}>
+                            {group.directoryInfoAllowed ? 'Allowed' : 'Off'}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      <Text style={s.schoolConsentSectionLabel}>My Children</Text>
+                      {(schoolConsentSummary?.students ?? []).length === 0 ? (
+                        <Text style={s.schoolConsentEmpty}>No child profiles linked yet.</Text>
+                      ) : (
+                        <View style={s.schoolConsentChildList}>
+                          {(schoolConsentSummary?.students ?? []).map(student => (
+                            <View key={student.id} style={s.schoolConsentChildCard}>
+                              <View style={{ flex: 1 }}>
+                                <Text style={s.schoolConsentChildName}>{student.displayName}</Text>
+                                <Text style={s.schoolConsentChildMeta}>
+                                  {student.under13 ? 'Under 13' : '13+'}
+                                  {student.grade ? ` - ${student.grade}` : ''}
+                                  {student.consentStatus === 'granted' ? ' - consent on file' : ' - consent needed'}
+                                </Text>
+                              </View>
+                              <TouchableOpacity
+                                style={s.schoolConsentRevokeBtn}
+                                onPress={() => revokeStudentConsent(student.id)}
+                                activeOpacity={0.85}
+                              >
+                                <Text style={s.schoolConsentRevokeText}>Restrict</Text>
+                              </TouchableOpacity>
+                            </View>
+                          ))}
+                        </View>
+                      )}
+
+                      <Text style={s.schoolConsentSectionLabel}>Add or Update Child</Text>
+                      <TextInput
+                        style={s.schoolConsentInput}
+                        value={childNameInput}
+                        onChangeText={setChildNameInput}
+                        placeholder="Child / student name"
+                        placeholderTextColor={theme.textMuted}
+                      />
+                      <TextInput
+                        style={s.schoolConsentInput}
+                        value={childGradeInput}
+                        onChangeText={setChildGradeInput}
+                        placeholder="Grade, class, or team"
+                        placeholderTextColor={theme.textMuted}
+                      />
+
+                      <View style={s.schoolConsentToggleGrid}>
+                        {[
+                          { label: 'Under 13', active: childUnder13, onPress: () => setChildUnder13(prev => !prev) },
+                          { label: 'Media', active: childConsentMedia, onPress: () => setChildConsentMedia(prev => !prev) },
+                          { label: 'Name', active: childConsentName, onPress: () => setChildConsentName(prev => !prev) },
+                          { label: 'Mantle', active: childConsentMantle, onPress: () => setChildConsentMantle(prev => !prev) },
+                          { label: 'Legacy', active: childConsentLegacy, onPress: () => setChildConsentLegacy(prev => !prev) },
+                        ].map(option => (
+                          <TouchableOpacity
+                            key={option.label}
+                            style={[s.schoolConsentToggle, option.active && s.schoolConsentToggleActive]}
+                            onPress={option.onPress}
+                            activeOpacity={0.85}
+                          >
+                            <Text style={[s.schoolConsentToggleText, option.active && s.schoolConsentToggleTextActive]}>
+                              {option.label}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+
+                      <TouchableOpacity
+                        style={[s.schoolConsentPrimaryBtn, savingSchoolConsent && s.schoolConsentDisabled]}
+                        onPress={saveChildConsentProfile}
+                        disabled={savingSchoolConsent}
+                        activeOpacity={0.85}
+                      >
+                        <Text style={s.schoolConsentPrimaryText}>
+                          {savingSchoolConsent ? 'Saving...' : 'Save consent settings'}
+                        </Text>
+                      </TouchableOpacity>
+
+                      <Text style={s.schoolConsentNotice}>
+                        Notice version: {group.consentNoticeVersion ?? SCHOOL_CONSENT_NOTICE_VERSION}
+                      </Text>
+                    </>
+                  )}
+                </View>
+              )}
+            </>
+          )}
 
           <TouchableOpacity
             style={s.spaceSettingsRow}
@@ -2283,6 +2929,91 @@ const relaySettingsCard = (
         </View>
       )}
 
+      {tab === 'mantle' && (
+        <View style={s.spaceTabPanel}>
+          <ScrollView
+            style={s.spaceTabScroll}
+            contentContainerStyle={s.mantlePageContent}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.gold} />}
+          >
+            <View style={[s.mantleCompactHeader, sportsMantle && s.mantleCompactHeaderSports]}>
+              <View style={s.mantleCompactTopRow}>
+                <View style={s.mantleCompactBadge}>
+                  <Text style={s.mantleCompactBadgeText}>
+                    {spaceCategoryIcon ? `${spaceCategoryIcon} ` : ''}{sportsMantle ? 'Trophy case' : 'Living collage'}
+                  </Text>
+                </View>
+                <Text style={s.mantleCompactCount}>
+                  {mantleMarkViews.length} {mantleMarkViews.length === 1 ? 'Mark' : 'Marks'}
+                </Text>
+              </View>
+              <Text style={s.mantleCompactTitle} numberOfLines={2}>
+                {sportsMantle ? `${group.name} Showcase` : `${group.name} Mantle`}
+              </Text>
+              <Text style={s.mantleCompactSubtitle} numberOfLines={2}>
+                Approved highlights from this Space.
+              </Text>
+              <TouchableOpacity
+                style={[
+                  s.mantleRiverButton,
+                  mantleMarkViews.length === 0 && s.mantleRiverButtonDisabled,
+                ]}
+                onPress={() => openRiverForMantle()}
+                disabled={mantleMarkViews.length === 0}
+                activeOpacity={0.86}
+              >
+                <View style={s.mantleRiverIconWrap}>
+                  <Ionicons name="play" size={13} color={theme.bg} />
+                </View>
+                <Text style={s.mantleRiverButtonText}>Enter River</Text>
+              </TouchableOpacity>
+            </View>
+
+            {leadMantleView ? (
+              <>
+                {renderMantleMarkCard(leadMantleView, 'lead')}
+
+                {supportingMantleViews.length > 0 && (
+                  <View style={s.mantlePodiumSection}>
+                    <View style={s.mantleSectionHeader}>
+                      <Text style={s.mantleSectionKicker}>
+                        {sportsMantle ? 'Top moments' : 'Featured memories'}
+                      </Text>
+                      <Text style={s.mantleSectionTitle}>
+                        {sportsMantle ? 'The showcase stand' : 'The collage wall'}
+                      </Text>
+                    </View>
+                    <View style={s.mantlePodiumGrid}>
+                      {supportingMantleViews.map((view, index) => renderMantleMarkCard(view, 'podium', index))}
+                    </View>
+                  </View>
+                )}
+
+                {recapMantleViews.length > 0 && (
+                  <View style={s.mantleRecapSection}>
+                    <View style={s.mantleSectionHeader}>
+                      <Text style={s.mantleSectionKicker}>Recap</Text>
+                      <Text style={s.mantleSectionTitle}>More from this stretch</Text>
+                    </View>
+                    <View style={s.mantleRecapGrid}>
+                      {recapMantleViews.map((view, index) => renderMantleMarkCard(view, 'recap', index))}
+                    </View>
+                  </View>
+                )}
+              </>
+            ) : (
+              <View style={s.empty}>
+                <Text style={s.emptyIcon}>M</Text>
+                <Text style={s.emptyText}>No Mantle highlights yet</Text>
+                <Text style={s.emptyHint}>
+                  Approved, unrestricted Marks will appear here.
+                </Text>
+              </View>
+            )}
+          </ScrollView>
+        </View>
+      )}
+
       {/* Stickies tab */}
       {tab === 'stickies' && (
         <View style={s.spaceTabPanel}>
@@ -2325,7 +3056,7 @@ const relaySettingsCard = (
             view.metadata.lifeStage,
             view.metadata.eventId,
             placeLabel,
-            view.metadata.savedToBook ? 'Book' : null,
+            view.metadata.savedToBook ? 'Legacy' : null,
           ].filter(Boolean) as string[];
           const markMeta = [
             `Logged by ${authorProfile.displayName}`,
@@ -2559,7 +3290,7 @@ const relaySettingsCard = (
         />
       )}
 
-            {/* Book tab */}
+            {/* Ledger tab */}
       {tab === 'book' && (
         <View style={s.spaceTabPanel}>
         <GroupBookTab
@@ -2977,7 +3708,7 @@ const relaySettingsCard = (
               >
                 <View style={{ flex: 1 }}>
                   <Text style={s.markContextTitle}>Optional details</Text>
-                  <Text style={s.markContextHint}>People, life stage, event, or Living Book.</Text>
+                  <Text style={s.markContextHint}>People, life stage, event, or Legacy.</Text>
                 </View>
                 <Text style={s.markContextAction}>{spaceMarkShowContext ? 'Hide' : 'Add'}</Text>
               </TouchableOpacity>
@@ -3049,10 +3780,10 @@ const relaySettingsCard = (
                     onPress={() => setSpaceMarkSavedToBook(prev => !prev)}
                     activeOpacity={0.82}
                   >
-                    <Text style={s.visibilityIcon}>Book</Text>
+                    <Text style={s.visibilityIcon}>Legacy</Text>
                     <View style={{ flex: 1 }}>
-                      <Text style={s.visibilityTitle}>Save toward Living Book</Text>
-                      <Text style={s.visibilityHint}>Add this Mark to the future book view.</Text>
+                      <Text style={s.visibilityTitle}>Save toward Legacy</Text>
+                      <Text style={s.visibilityHint}>Add this Mark to the future Legacy view.</Text>
                     </View>
                     <Text style={s.visibilityStatus}>{spaceMarkSavedToBook ? 'ON' : 'OFF'}</Text>
                   </TouchableOpacity>
@@ -3407,6 +4138,375 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
   },
   spaceSettingsPanelContent: {
     paddingBottom: 26,
+  },
+  mantlePageContent: {
+    padding: 14,
+    paddingBottom: 28,
+  },
+  mantleCompactHeader: {
+    borderRadius: 22,
+    padding: 16,
+    marginBottom: 14,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    backgroundColor: theme.surface,
+  },
+  mantleCompactHeaderSports: {
+    borderColor: theme.gold,
+    backgroundColor: theme.raised,
+  },
+  mantleCompactTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 10,
+  },
+  mantleCompactBadge: {
+    maxWidth: '70%',
+    borderRadius: 999,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    backgroundColor: theme.goldDim,
+  },
+  mantleCompactBadgeText: {
+    color: theme.gold,
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  mantleCompactCount: {
+    color: theme.textMuted,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  mantleCompactTitle: {
+    color: theme.text,
+    fontSize: 24,
+    lineHeight: 30,
+    fontWeight: '900',
+  },
+  mantleCompactSubtitle: {
+    color: theme.textSecondary,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
+    marginTop: 5,
+  },
+  mantleRiverButton: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    minHeight: 40,
+    borderRadius: 20,
+    paddingLeft: 6,
+    paddingRight: 15,
+    marginTop: 14,
+    backgroundColor: theme.gold,
+  },
+  mantleRiverButtonDisabled: {
+    opacity: 0.48,
+  },
+  mantleRiverIconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.goldLight,
+  },
+  mantleRiverButtonText: {
+    color: theme.bg,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  mantleShowcaseHero: {
+    minHeight: 190,
+    borderRadius: 24,
+    overflow: 'hidden',
+    marginBottom: 14,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    backgroundColor: theme.raised,
+  },
+  mantleShowcaseHeroSports: {
+    borderColor: theme.gold,
+  },
+  mantleShowcaseHeroGeneric: {
+    borderColor: theme.border,
+  },
+  mantleShowcaseImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
+  },
+  mantleShowcaseFallback: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.goldDim,
+  },
+  mantleShowcaseFallbackText: {
+    color: theme.gold,
+    fontSize: 54,
+    fontWeight: '900',
+  },
+  mantleShowcaseShade: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.38)',
+  },
+  mantleShowcaseContent: {
+    flex: 1,
+    minHeight: 190,
+    justifyContent: 'flex-end',
+    padding: 18,
+  },
+  mantleHeroBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 10,
+  },
+  mantleHeroBadge: {
+    maxWidth: '70%',
+    borderRadius: 999,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(255,255,255,0.34)',
+  },
+  mantleHeroBadgeText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  mantleHeroCount: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  mantleHeroTitle: {
+    color: '#fff',
+    fontSize: 29,
+    lineHeight: 34,
+    fontWeight: '900',
+  },
+  mantleHeroSubtitle: {
+    color: 'rgba(255,255,255,0.84)',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
+    marginTop: 6,
+  },
+  mantleFeatureCard: {
+    borderRadius: 22,
+    padding: 13,
+    marginBottom: 14,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    backgroundColor: theme.surface,
+  },
+  mantleFeatureCardSports: {
+    borderColor: theme.gold,
+    backgroundColor: theme.raised,
+  },
+  mantleFeatureLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 10,
+  },
+  mantleFeatureLabel: {
+    color: theme.gold,
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  mantleFeatureDate: {
+    color: theme.textMuted,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  mantleFeatureMediaFrame: {
+    borderRadius: 18,
+    overflow: 'hidden',
+    backgroundColor: theme.bg,
+    marginBottom: 12,
+  },
+  mantleFeatureTextFallback: {
+    minHeight: 170,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 18,
+    backgroundColor: theme.goldDim,
+    marginBottom: 12,
+  },
+  mantleFeatureFallbackTitle: {
+    color: theme.gold,
+    fontSize: 24,
+    lineHeight: 30,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  mantleFeatureCopy: {
+    gap: 6,
+  },
+  mantleFeatureTitle: {
+    color: theme.text,
+    fontSize: 22,
+    lineHeight: 27,
+    fontWeight: '900',
+  },
+  mantleFeatureBody: {
+    color: theme.textSecondary,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  mantleFeatureMeta: {
+    color: theme.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  mantlePodiumSection: {
+    marginBottom: 14,
+  },
+  mantleSectionHeader: {
+    marginBottom: 10,
+  },
+  mantleSectionKicker: {
+    color: theme.gold,
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  mantleSectionTitle: {
+    color: theme.text,
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: '900',
+    marginTop: 2,
+  },
+  mantlePodiumGrid: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  mantlePodiumCard: {
+    flex: 1,
+    minWidth: 0,
+    borderRadius: 18,
+    overflow: 'hidden',
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    backgroundColor: theme.surface,
+  },
+  mantlePodiumMediaWrap: {
+    height: 112,
+    backgroundColor: theme.bg,
+    position: 'relative',
+  },
+  mantleMiniMedia: {
+    width: '100%',
+    height: '100%',
+  },
+  mantleMiniFallback: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.goldDim,
+  },
+  mantleMiniFallbackLabel: {
+    color: theme.gold,
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  mantlePodiumRank: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.gold,
+  },
+  mantlePodiumRankText: {
+    color: theme.bg,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  mantleVideoBadge: {
+    position: 'absolute',
+    right: 8,
+    bottom: 8,
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: theme.gold,
+  },
+  mantleVideoText: {
+    color: theme.bg,
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  mantlePodiumCopy: {
+    padding: 10,
+    gap: 4,
+  },
+  mantlePodiumTitle: {
+    color: theme.text,
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '900',
+  },
+  mantleRecapSection: {
+    marginTop: 2,
+  },
+  mantleRecapGrid: {
+    gap: 10,
+  },
+  mantleRecapCard: {
+    flexDirection: 'row',
+    gap: 11,
+    borderRadius: 18,
+    padding: 10,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    backgroundColor: theme.surface,
+  },
+  mantleRecapMediaWrap: {
+    width: 92,
+    height: 78,
+    borderRadius: 14,
+    overflow: 'hidden',
+    backgroundColor: theme.bg,
+    position: 'relative',
+  },
+  mantleRecapCopy: {
+    flex: 1,
+    minWidth: 0,
+    justifyContent: 'center',
+    gap: 5,
+  },
+  mantleRecapTitle: {
+    color: theme.text,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '900',
+  },
+  mantleCardMeta: {
+    color: theme.textMuted,
+    fontSize: 10,
+    fontWeight: '700',
   },
   stickyCard: {
     backgroundColor: theme.surface,
@@ -4050,6 +5150,183 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     color: theme.gold,
     fontSize: 12,
     fontWeight: '900',
+    textAlign: 'right',
+    maxWidth: 92,
+  },
+  schoolConsentPanel: {
+    marginTop: 9,
+    padding: 13,
+    borderRadius: 16,
+    borderWidth: 0.5,
+    borderColor: theme.gold + '55',
+    backgroundColor: theme.raised,
+  },
+  schoolConsentHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginBottom: 12,
+  },
+  schoolConsentTitle: {
+    color: theme.text,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  schoolConsentHint: {
+    color: theme.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '600',
+    marginTop: 3,
+  },
+  schoolConsentBadge: {
+    color: theme.gold,
+    fontSize: 11,
+    fontWeight: '900',
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: theme.goldDim,
+    overflow: 'hidden',
+  },
+  schoolConsentPrimaryBtn: {
+    minHeight: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.gold,
+    marginTop: 10,
+  },
+  schoolConsentPrimaryText: {
+    color: theme.bg,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  schoolConsentDisabled: {
+    opacity: 0.5,
+  },
+  schoolConsentPolicyGrid: {
+    flexDirection: 'row',
+    gap: 9,
+    marginBottom: 12,
+  },
+  schoolConsentPolicyCard: {
+    flex: 1,
+    borderRadius: 14,
+    padding: 10,
+    backgroundColor: theme.surface,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+  },
+  schoolConsentPolicyLabel: {
+    color: theme.textMuted,
+    fontSize: 10,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  schoolConsentPolicyValue: {
+    color: theme.gold,
+    fontSize: 13,
+    fontWeight: '900',
+    marginTop: 5,
+  },
+  schoolConsentSectionLabel: {
+    color: theme.text,
+    fontSize: 12,
+    fontWeight: '900',
+    marginTop: 10,
+    marginBottom: 7,
+    textTransform: 'uppercase',
+  },
+  schoolConsentEmpty: {
+    color: theme.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  schoolConsentChildList: {
+    gap: 8,
+  },
+  schoolConsentChildCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 10,
+    borderRadius: 14,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    backgroundColor: theme.surface,
+  },
+  schoolConsentChildName: {
+    color: theme.text,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  schoolConsentChildMeta: {
+    color: theme.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  schoolConsentRevokeBtn: {
+    minHeight: 32,
+    borderRadius: 16,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 0.5,
+    borderColor: theme.danger,
+  },
+  schoolConsentRevokeText: {
+    color: theme.danger,
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  schoolConsentInput: {
+    minHeight: 42,
+    borderRadius: 14,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    backgroundColor: theme.surface,
+    color: theme.text,
+    paddingHorizontal: 12,
+    fontSize: 13,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  schoolConsentToggleGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 2,
+  },
+  schoolConsentToggle: {
+    minHeight: 34,
+    borderRadius: 17,
+    paddingHorizontal: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    backgroundColor: theme.surface,
+  },
+  schoolConsentToggleActive: {
+    borderColor: theme.gold,
+    backgroundColor: theme.gold,
+  },
+  schoolConsentToggleText: {
+    color: theme.textSecondary,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  schoolConsentToggleTextActive: {
+    color: theme.bg,
+  },
+  schoolConsentNotice: {
+    color: theme.textMuted,
+    fontSize: 10,
+    fontWeight: '700',
+    marginTop: 9,
   },
   spaceSettingsDangerGroup: {
     flexDirection: 'row',

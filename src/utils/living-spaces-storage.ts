@@ -10,15 +10,21 @@ import {
   deriveLivingMarkPlacement,
   hasLivingPromptQueuedToday,
   livingRelayTargetsFromRoutingDecision,
+  normalizeLivingMarkPermissions,
   resolveLivingSpaceRoutes,
   SYSTEM_LIVING_SPACE_IDS,
 } from './living-space-routing';
 import { createLivingPerson, getLivingPersonId, normalizeLivingPeople } from './living-people';
-import { getFamily, getMilestones, type Family, type Milestone } from './storage';
+import { getFamily, getMilestones, saveRemoteMilestone, type Family, type Milestone } from './storage';
 import { getGroups, type BEGroup } from './group-storage';
+import {
+  applySchoolConsentDecisionToPermissions,
+  getSchoolConsentDecisionForMark,
+} from './school-consent-storage';
 import type {
   LivingMarkCaptureInput,
   LivingMarkMetadata,
+  LivingMarkPermissions,
   LivingMarkPerson,
   LivingMarkPlacement,
   LivingMarkPlacementReason,
@@ -52,6 +58,7 @@ type LivingMarkContextUpdateInput = {
   selectedSpaceId?: string | null;
   spaceChanged?: boolean;
   savedToBook?: boolean;
+  markPermissions?: LivingMarkPermissions;
   now?: number;
 };
 
@@ -109,6 +116,7 @@ function normalizeLivingMarkMetadata(item: LivingMarkMetadata): LivingMarkMetada
     peopleIds: subjectPeople.peopleIds,
     people: [...authorPeople, ...subjectPeople.people],
     relayTargets: item.relayTargets ?? [],
+    markPermissions: normalizeLivingMarkPermissions(item.markPermissions),
     savedToBook: item.savedToBook ?? false,
     enrichment: {
       isComplete: item.enrichment?.isComplete ?? false,
@@ -841,6 +849,7 @@ function groupToSeed(group: BEGroup) {
   return {
     id: group.id,
     name: group.name,
+    spaceType: group.spaceType,
     description: group.description,
     sport: group.sport,
     icon: group.icon,
@@ -866,6 +875,42 @@ function inferPrivacyForSelectedSpace(input: {
 function familyRelayUrlForPlacement(spaces: LivingSpace[], placement: LivingMarkPlacement): string | undefined {
   const selectedSpaceIds = new Set(placement.spaceIds);
   return spaces.find(space => selectedSpaceIds.has(space.id) && space.type === 'family')?.relayUrl;
+}
+
+async function applySchoolConsentSafety(input: {
+  metadata: LivingMarkMetadata;
+  placement: LivingMarkPlacement;
+  spaces: LivingSpace[];
+}): Promise<LivingMarkMetadata> {
+  const selectedSpaceIds = new Set(input.placement.spaceIds);
+  const groupSpace = input.spaces.find(space =>
+    selectedSpaceIds.has(space.id) &&
+    space.source === 'group' &&
+    !!space.sourceId
+  );
+
+  if (!groupSpace?.sourceId) return input.metadata;
+
+  const groups = await getGroups();
+  const group = groups.find(item => item.id === groupSpace.sourceId);
+
+  if (!group) return input.metadata;
+
+  const decision = await getSchoolConsentDecisionForMark({
+    group,
+    people: input.metadata.people.filter(person => person.role !== 'author'),
+    permissions: input.metadata.markPermissions,
+  });
+
+  const nextPermissions = applySchoolConsentDecisionToPermissions(
+    input.metadata.markPermissions,
+    decision
+  );
+
+  return {
+    ...input.metadata,
+    markPermissions: nextPermissions,
+  };
 }
 
 async function queuePromptForViewIfAllowed(
@@ -904,6 +949,7 @@ export async function persistLivingMarkCapture(input: LivingMarkCaptureInput): P
     lifeStage: input.lifeStage,
     eventId: input.eventId,
     savedToBook: input.savedToBook,
+    markPermissions: input.markPermissions,
     relayTargets: input.relayTargets,
     now,
     captureSource: input.captureSource,
@@ -935,6 +981,12 @@ export async function persistLivingMarkCapture(input: LivingMarkCaptureInput): P
     familyId: input.milestone.familyId,
     familyRelayUrl: familyRelayUrlForPlacement(spaces, placement),
     now,
+  });
+
+  metadata = await applySchoolConsentSafety({
+    metadata,
+    placement,
+    spaces,
   });
 
   metadata = {
@@ -976,6 +1028,88 @@ export async function persistLivingMarkCapture(input: LivingMarkCaptureInput): P
     placement,
     prompts,
   };
+}
+
+export async function importLivingSpaceMarkSnapshot(input: {
+  groupId: string;
+  milestone: Milestone;
+  metadata?: LivingMarkMetadata;
+  placement?: LivingMarkPlacement;
+  spaces?: LivingSpace[];
+  currentNpub?: string | null;
+  now?: number;
+}): Promise<void> {
+  const now = input.now ?? Math.floor(Date.now() / 1000);
+  const spaces = input.spaces ?? (await getLivingSpaces());
+  const spaceId = `group:${input.groupId}`;
+  const milestone: Milestone = {
+    ...input.milestone,
+    publishedToRelay: input.milestone.publishedToRelay === true,
+    spaceRelayPublishedAt: input.milestone.spaceRelayPublishedAt ?? now,
+    spaceRelayGroupIds: Array.from(new Set([
+      ...(input.milestone.spaceRelayGroupIds ?? []),
+      input.groupId,
+    ])),
+  };
+  const existingLocalMilestone = (await getMilestones()).find(item => item.id === milestone.id);
+  const isSelfImport =
+    !!input.currentNpub &&
+    !!milestone.authorNpub &&
+    milestone.authorNpub === input.currentNpub &&
+    !!existingLocalMilestone;
+
+  if (!isSelfImport) {
+    await saveRemoteMilestone(milestone);
+  }
+
+  if (input.metadata && input.placement) {
+    const placement = {
+      ...input.placement,
+      spaceIds: Array.from(new Set([...(input.placement.spaceIds ?? []), spaceId])),
+      primarySpaceId: input.placement.primarySpaceId ?? spaceId,
+      updatedAt: input.placement.updatedAt ?? now,
+    };
+    const metadata = await applySchoolConsentSafety({
+      metadata: {
+        ...input.metadata,
+        updatedAt: input.metadata.updatedAt ?? now,
+      },
+      placement,
+      spaces,
+    });
+    const allMetadata = await upsertLivingMarkMetadata(metadata);
+    await upsertLivingMarkPlacement(placement);
+
+    const routingDecision = resolveLivingSpaceRoutes({
+      markId: milestone.id,
+      privacy: metadata.privacy,
+      placement,
+      spaces,
+      familyId: milestone.familyId,
+      familyRelayUrl: familyRelayUrlForPlacement(spaces, placement),
+      now,
+    });
+
+    await upsertLivingRoutingDecision(milestone.id, routingDecision);
+    await saveLivingSpaceIndexes(
+      buildLivingSpaceIndexes(
+        await getLivingMarkPlacements(),
+        metadataRecordFromList(allMetadata),
+        await getLivingMarkPrompts(),
+        now
+      )
+    );
+    return;
+  }
+
+  await persistLivingMarkCapture({
+    milestone,
+    spaces,
+    selectedSpaceId: spaceId,
+    currentNpub: input.currentNpub,
+    privacy: 'space',
+    now,
+  });
 }
 
 export async function updateLivingMarkContext(input: LivingMarkContextUpdateInput): Promise<LivingMarkView> {
@@ -1033,6 +1167,10 @@ export async function updateLivingMarkContext(input: LivingMarkContextUpdateInpu
           : undefined
         : currentMetadata.place,
     savedToBook: input.savedToBook ?? currentMetadata.savedToBook,
+    markPermissions:
+      input.markPermissions !== undefined
+        ? normalizeLivingMarkPermissions(input.markPermissions)
+        : normalizeLivingMarkPermissions(currentMetadata.markPermissions),
     privacy,
     updatedAt: now,
   };
@@ -1055,9 +1193,14 @@ export async function updateLivingMarkContext(input: LivingMarkContextUpdateInpu
     savedToBook: nextMetadata.savedToBook,
     now,
   });
+  const consentCheckedMetadata = await applySchoolConsentSafety({
+    metadata: nextMetadata,
+    placement,
+    spaces,
+  });
   const routingDecision = resolveLivingSpaceRoutes({
     markId: input.milestone.id,
-    privacy: nextMetadata.privacy,
+    privacy: consentCheckedMetadata.privacy,
     placement,
     spaces,
     familyId: input.milestone.familyId,
@@ -1065,7 +1208,7 @@ export async function updateLivingMarkContext(input: LivingMarkContextUpdateInpu
     now,
   });
   const metadata: LivingMarkMetadata = {
-    ...nextMetadata,
+    ...consentCheckedMetadata,
     relayTargets: livingRelayTargetsFromRoutingDecision(routingDecision, spaces),
   };
   const allMetadata = await upsertLivingMarkMetadata(metadata);

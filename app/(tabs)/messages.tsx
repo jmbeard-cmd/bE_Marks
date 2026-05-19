@@ -30,7 +30,14 @@ import {
   type DMThread,
 } from '../../src/utils/dm-storage';
 import { saveLocalGroupSystemMessage } from '../../src/utils/group-messages';
-import { createGroup, joinGroupByCode, updateGroup, type BEGroup } from '../../src/utils/group-storage';
+import {
+  createGroup,
+  isGroupAdmin,
+  joinGroupByCode,
+  publishGroupMetadataSnapshot,
+  updateGroup,
+  type BEGroup,
+} from '../../src/utils/group-storage';
 import {
   getCachedGroupsIndex,
   rebuildGroupsIndexForNpub,
@@ -45,7 +52,7 @@ import { DEFAULT_RELAY, fetchNostrProfile, npubToHex, publishGroupMessage } from
 import { normalizeNostrIdentity } from '../../src/utils/nostr-identity';
 import { syncLivingSpacesFromGroups } from '../../src/utils/living-spaces-storage';
 import { notifyGroupEvent, registerGroupMemberForPush } from '../../src/utils/push-notifications';
-import type { LivingSpace } from '../../src/types/living-spaces';
+import type { LivingSpace, LivingSpaceType } from '../../src/types/living-spaces';
 import { useIdentity } from '../_layout';
 
 
@@ -54,6 +61,10 @@ type SpaceFilter = 'all' | 'unread' | 'dms' | 'groups';
 type SpaceInboxItem =
   | { id: string; type: 'dm'; updatedAt: number; unread: number; thread: DMThread }
   | { id: string; type: 'group'; updatedAt: number; unread: number; group: BEGroup };
+type SpaceTypeOption = {
+  value: LivingSpaceType;
+  label: string;
+};
 
 function formatThreadTime(unixSecs: number): string {
   const date = new Date(unixSecs * 1000);
@@ -155,6 +166,39 @@ const GROUP_TYPE_OPTIONS = [
   'robotics',
 ];
 
+const SPACE_TYPE_OPTIONS: SpaceTypeOption[] = [
+  { value: 'family', label: 'Family' },
+  { value: 'classroom', label: 'Classroom' },
+  { value: 'team', label: 'Team' },
+  { value: 'club', label: 'Club' },
+  { value: 'church', label: 'Church' },
+  { value: 'organization', label: 'Organization' },
+  { value: 'pto', label: 'PTO' },
+  { value: 'booster', label: 'Booster' },
+  { value: 'school', label: 'School' },
+  { value: 'district', label: 'District' },
+  { value: 'custom', label: 'Custom' },
+];
+
+const SPACE_TYPE_LABELS: Partial<Record<LivingSpaceType, string>> = {
+  personal: 'Home',
+  family: 'Family',
+  school: 'School',
+  classroom: 'Classroom',
+  team: 'Team',
+  club: 'Club',
+  church: 'Church',
+  organization: 'Organization',
+  pto: 'PTO',
+  booster: 'Booster',
+  district: 'District',
+  friends: 'Friends',
+  group: 'Group',
+  place: 'Place',
+  book: 'Legacy',
+  custom: 'Custom',
+};
+
 function normalizeGroupType(value?: string): string {
   return value?.trim().toLowerCase().replace(/[^a-z0-9]+/g, '') ?? '';
 }
@@ -170,22 +214,12 @@ function getGroupTypeIcon(group: BEGroup): string | null {
 }
 
 function formatLivingSpaceType(space?: LivingSpace): string {
-  if (!space) return 'Group';
+  if (!space) return 'Space';
+  return SPACE_TYPE_LABELS[space.type] ?? 'Space';
+}
 
-  switch (space.type) {
-    case 'family':
-      return 'Family';
-    case 'school':
-      return 'School';
-    case 'team':
-      return 'Team';
-    case 'church':
-      return 'Church';
-    case 'friends':
-      return 'Friends';
-    default:
-      return 'Group';
-  }
+function getSpaceTypeLabel(type: LivingSpaceType): string {
+  return SPACE_TYPE_LABELS[type] ?? 'Space';
 }
 
 function formatRelayLabel(group: BEGroup): string {
@@ -295,6 +329,7 @@ export default function MessagesScreen() {
   const [creating, setCreating] = useState(false);
   const [groupName, setGroupName] = useState('');
   const [groupSeason, setGroupSeason] = useState('');
+  const [groupSpaceType, setGroupSpaceType] = useState<LivingSpaceType>('custom');
   const [groupType, setGroupType] = useState('');
   const [groupDescription, setGroupDescription] = useState('');
   const [groupImageUri, setGroupImageUri] = useState<string | null>(null);
@@ -709,6 +744,7 @@ export default function MessagesScreen() {
     setNewNpub('');
     setGroupName('');
     setGroupSeason('');
+    setGroupSpaceType('custom');
     setGroupType('');
     setGroupDescription('');
     setGroupImageUri(null);
@@ -745,10 +781,21 @@ export default function MessagesScreen() {
     router.push({ pathname: '/group-detail', params: { id: group.id } } as any);
   };
 
-  const openEditGroup = (group: BEGroup) => {
+  const openEditGroup = async (group: BEGroup) => {
+    const canEdit = !!npub && (
+      group.ownerNpub === npub ||
+      await isGroupAdmin(group.id, npub)
+    );
+
+    if (!canEdit) {
+      Alert.alert('Admin only', 'Only a Space owner or admin can edit Space identity and type.');
+      return;
+    }
+
     setEditingGroupId(group.id);
     setGroupName(group.name);
     setGroupSeason(group.season ?? '');
+    setGroupSpaceType(group.spaceType ?? 'custom');
     setGroupType(group.sport ?? '');
     setGroupDescription(group.description ?? '');
     setGroupImageUri(group.coverImage ?? null);
@@ -856,12 +903,16 @@ export default function MessagesScreen() {
         name: cleanName,
         description: groupDescription.trim() || undefined,
         season: groupSeason.trim() || undefined,
+        spaceType: groupSpaceType,
+        spaceLabel: getSpaceTypeLabel(groupSpaceType),
+        isSpace: true,
         sport: groupType || undefined,
         coverImage: groupImageUri || undefined,
         relayUrl: DEFAULT_RELAY,
         ownerNpub: npub,
         ownerPubkeyHex: pubkeyHex,
         ownerDisplayName: myDisplayName,
+        ownerAvatarUrl: profile?.picture,
         nsec: nsec ?? undefined,
       });
 
@@ -902,13 +953,34 @@ export default function MessagesScreen() {
     setCreating(true);
 
     try {
+      const editingGroup = groups.find(group => group.id === editingGroupId);
+      const canEdit = !!npub && (
+        editingGroup?.ownerNpub === npub ||
+        await isGroupAdmin(editingGroupId, npub)
+      );
+
+      if (!canEdit) {
+        Alert.alert('Admin only', 'Only a Space owner or admin can save these changes.');
+        return;
+      }
+
       await updateGroup(editingGroupId, {
         name: cleanName,
         description: groupDescription.trim() || undefined,
         season: groupSeason.trim() || undefined,
+        spaceType: groupSpaceType,
+        spaceLabel: getSpaceTypeLabel(groupSpaceType),
+        isSpace: true,
         sport: groupType || undefined,
         coverImage: groupImageUri || undefined,
       });
+
+      if (nsec) {
+        const publishResult = await publishGroupMetadataSnapshot(editingGroupId, nsec);
+        if (!publishResult.success) {
+          console.warn('[Spaces] failed to publish Space metadata update:', publishResult.error);
+        }
+      }
 
       closeSheet();
       await loadGroups();
@@ -1165,7 +1237,7 @@ export default function MessagesScreen() {
           style={s.threadRow}
           activeOpacity={0.82}
           onPress={() => openGroup(group)}
-          onLongPress={() => openEditGroup(group)}
+          onLongPress={() => { void openEditGroup(group); }}
         >
           <View style={s.avatar}>
             {group.coverImage ? (
@@ -1203,7 +1275,7 @@ export default function MessagesScreen() {
 
           <TouchableOpacity
             style={s.moreBtn}
-            onPress={() => openEditGroup(group)}
+            onPress={() => { void openEditGroup(group); }}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
             <Text style={s.moreText}>⋯</Text>
@@ -1438,6 +1510,30 @@ export default function MessagesScreen() {
                     placeholderTextColor={theme.textMuted}
                     multiline
                   />
+
+                  <Text style={s.inputHelp}>Space type</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.groupTypeStrip}>
+                    {SPACE_TYPE_OPTIONS.map(option => {
+                      const active = groupSpaceType === option.value;
+
+                      return (
+                        <TouchableOpacity
+                          key={option.value}
+                          style={[s.groupTypePill, active && s.groupTypePillActive]}
+                          onPress={() => setGroupSpaceType(option.value)}
+                          activeOpacity={0.84}
+                        >
+                          <Text style={[s.groupTypePillText, active && s.groupTypePillTextActive]}>
+                            {option.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+
+                  <Text style={s.inputHelp}>
+                    Space type controls how this Space can organize Marks, Mantles, River views, and Legacy later.
+                  </Text>
 
                   <Text style={s.inputHelp}>Category badge</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.groupTypeStrip}>

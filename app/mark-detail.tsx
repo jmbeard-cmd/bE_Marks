@@ -19,10 +19,15 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ImageViewerModal, { ViewerImage } from '../components/ImageViewerModal';
-import type { LivingMarkPerson, LivingMarkView, LivingSpace } from '../src/types/living-spaces';
+import type {
+  LivingMarkPermissions,
+  LivingMarkPerson,
+  LivingMarkView,
+  LivingSpace,
+} from '../src/types/living-spaces';
 import { setAppActivity } from '../src/utils/app-activity';
 import { getContacts } from '../src/utils/contacts-storage';
-import { getGroupMembers } from '../src/utils/group-storage';
+import { getGroupMembers, isGroupAdmin } from '../src/utils/group-storage';
 import {
   getPersonDisplayName,
   isLivingPersonSelected,
@@ -134,6 +139,10 @@ export default function MilestoneDetail() {
   const [contextSpaceId, setContextSpaceId] = useState<string | null>(null);
   const [contextInitialSpaceId, setContextInitialSpaceId] = useState<string | null>(null);
   const [contextSavedToBook, setContextSavedToBook] = useState(false);
+  const [canManageMarkPermissions, setCanManageMarkPermissions] = useState(false);
+  const [isEditingPermissions, setIsEditingPermissions] = useState(false);
+  const [savingPermissions, setSavingPermissions] = useState(false);
+  const [permissionDraft, setPermissionDraft] = useState<LivingMarkPermissions>({});
 
   const audioPlayer = useAudioPlayer(
     milestone?.audioUri ? { uri: milestone.audioUri } : null
@@ -318,6 +327,50 @@ export default function MilestoneDetail() {
   }, [family, livingView?.placement.updatedAt, livingView?.spaces, npub, profile]);
 
   useEffect(() => {
+    let cancelled = false;
+
+    async function resolvePermissionAccess() {
+      if (!milestone) {
+        setCanManageMarkPermissions(false);
+        return;
+      }
+
+      if (!milestone.authorNpub || milestone.authorNpub === npub) {
+        setCanManageMarkPermissions(true);
+        return;
+      }
+
+      if (!npub) {
+        setCanManageMarkPermissions(false);
+        return;
+      }
+
+      const groupSpaceIds =
+        livingView?.spaces
+          .filter(space => space.source === 'group' && space.sourceId)
+          .map(space => space.sourceId as string) ?? [];
+
+      for (const groupId of groupSpaceIds) {
+        if (await isGroupAdmin(groupId, npub)) {
+          if (!cancelled) setCanManageMarkPermissions(true);
+          return;
+        }
+      }
+
+      if (!cancelled) setCanManageMarkPermissions(false);
+    }
+
+    resolvePermissionAccess().catch(error => {
+      console.warn('[Mark Detail] failed to resolve permission access:', error);
+      if (!cancelled) setCanManageMarkPermissions(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [milestone, npub, livingView?.spaces]);
+
+  useEffect(() => {
   if (!milestone?.reflections?.length) return;
 
   const authors = Array.from(
@@ -362,6 +415,7 @@ export default function MilestoneDetail() {
     setEditNote(hasTitle ? milestone.note.split('\n\n').slice(1).join('\n\n') : milestone.note);
     setEditTags(milestone.tags ?? []);
     setIsEditingContext(false);
+    setIsEditingPermissions(false);
     setIsEditing(true);
   };
 
@@ -404,6 +458,7 @@ export default function MilestoneDetail() {
       livingView.metadata.savedToBook ||
         livingView.placement.spaceIds.includes(SYSTEM_LIVING_SPACE_IDS.livingBook)
     );
+    setIsEditingPermissions(false);
     setIsEditingContext(true);
   };
 
@@ -450,6 +505,60 @@ export default function MilestoneDetail() {
       Alert.alert('Context not saved', error?.message ?? 'Unable to save Mark context.');
     } finally {
       setSavingContext(false);
+    }
+  };
+
+  const startPermissionEditing = () => {
+    if (!livingView || !canManageMarkPermissions) return;
+
+    setPermissionDraft(livingView.metadata.markPermissions ?? {});
+    setIsEditingContext(false);
+    setIsEditingPermissions(true);
+  };
+
+  const cancelPermissionEditing = () => {
+    setIsEditingPermissions(false);
+    setPermissionDraft({});
+  };
+
+  const setPermissionValue = (key: keyof LivingMarkPermissions, value: boolean) => {
+    setPermissionDraft(prev => {
+      const next: LivingMarkPermissions = {
+        ...prev,
+        [key]: value,
+      };
+
+      if (key === 'restricted' && value) {
+        next.highlightApproved = false;
+        next.bookApproved = false;
+      }
+
+      if ((key === 'highlightApproved' || key === 'bookApproved') && value) {
+        next.restricted = false;
+      }
+
+      return next;
+    });
+  };
+
+  const savePermissionEditing = async () => {
+    if (!milestone || !livingView || !canManageMarkPermissions || savingPermissions) return;
+
+    setSavingPermissions(true);
+
+    try {
+      const updatedView = await updateLivingMarkContext({
+        milestone,
+        currentNpub: npub,
+        markPermissions: permissionDraft,
+      });
+
+      setLivingView(updatedView);
+      cancelPermissionEditing();
+    } catch (error: any) {
+      Alert.alert('Permissions not saved', error?.message ?? 'Unable to save Mark permissions.');
+    } finally {
+      setSavingPermissions(false);
     }
   };
 const getReflectionAuthorLabel = (authorNpub?: string) => {
@@ -618,7 +727,7 @@ const openMediaViewer = (uri: string) => {
       : []),
     ...(placeLabel ? [{ label: 'Place', value: placeLabel }] : []),
     ...(livingView?.metadata.savedToBook || livingView?.placement.spaceIds.includes(SYSTEM_LIVING_SPACE_IDS.livingBook)
-      ? [{ label: 'Book', value: 'Saved' }]
+      ? [{ label: 'Legacy', value: 'Saved' }]
       : []),
     ...(livingView?.metadata.privacy
       ? [{ label: 'Privacy', value: livingView.metadata.privacy }]
@@ -626,6 +735,53 @@ const openMediaViewer = (uri: string) => {
     ...(routeLabels.length
       ? [{ label: 'Route', value: routeLabels.join(' + ') }]
       : []),
+  ];
+  const markPermissions = livingView?.metadata.markPermissions ?? {};
+  const permissionChips = [
+    ...(markPermissions.guardianConsentNeeded
+      ? [{ label: 'Consent', value: 'Guardian consent needed', tone: 'danger' as const }]
+      : []),
+    ...(markPermissions.guardianConsentSatisfied && !markPermissions.guardianConsentNeeded
+      ? [{ label: 'Consent', value: 'Guardian consent on file', tone: 'gold' as const }]
+      : []),
+    ...(markPermissions.restricted
+      ? [{ label: 'Restricted', value: 'Do not feature, print, or promote', tone: 'danger' as const }]
+      : []),
+    ...(markPermissions.privateSpaceOnly
+      ? [{ label: 'Private only', value: 'Keep inside this Space', tone: 'neutral' as const }]
+      : []),
+    ...(markPermissions.highlightApproved && !markPermissions.restricted
+      ? [{ label: 'Highlight', value: 'Approved for Mantle', tone: 'gold' as const }]
+      : []),
+    ...(markPermissions.bookApproved && !markPermissions.restricted
+      ? [{ label: 'Legacy', value: 'Approved for Legacy', tone: 'gold' as const }]
+      : []),
+  ];
+  const permissionOptions: {
+    key: keyof LivingMarkPermissions;
+    label: string;
+    detail: string;
+  }[] = [
+    {
+      key: 'privateSpaceOnly',
+      label: 'Private only',
+      detail: 'Visible only inside the trusted Space.',
+    },
+    {
+      key: 'highlightApproved',
+      label: 'Approve for Highlight',
+      detail: 'Can appear in Space Mantle or featured recaps.',
+    },
+    {
+      key: 'bookApproved',
+      label: 'Approve for Legacy',
+      detail: 'Can be included in future Legacy drafts.',
+    },
+    {
+      key: 'restricted',
+      label: 'Restricted',
+      detail: 'Do not use for highlights, Legacy, reels, or public views.',
+    },
   ];
 
   return (
@@ -1131,7 +1287,7 @@ const openMediaViewer = (uri: string) => {
                         contextSavedToBook && { color: theme.bg, fontWeight: '800' },
                       ]}
                     >
-                      Save toward Living Book
+                      Save toward Legacy
                     </Text>
                   </TouchableOpacity>
 
@@ -1150,6 +1306,129 @@ const openMediaViewer = (uri: string) => {
                     >
                       <Text style={[s.saveEditText, { color: theme.bg }]}>
                         {savingContext ? 'Saving...' : 'Save context'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+            </View>
+          )}
+
+          {!isEditing && livingView && (
+            <View style={s.section}>
+              <View style={s.contextHeader}>
+                <Text style={[s.sectionLabel, { color: theme.textMuted }]}>MARK PERMISSIONS</Text>
+                {canManageMarkPermissions && !isEditingPermissions && (
+                  <TouchableOpacity onPress={startPermissionEditing}>
+                    <Text style={[s.addReflectionBtn, { color: theme.gold }]}>Edit Permissions</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {!isEditingPermissions ? (
+                <>
+                  {permissionChips.length > 0 ? (
+                    <View style={s.contextChips}>
+                      {permissionChips.map(chip => (
+                        <View
+                          key={`${chip.label}_${chip.value}`}
+                          style={[
+                            s.contextChip,
+                            {
+                              backgroundColor: chip.tone === 'danger' ? theme.danger : theme.surface,
+                              borderColor: chip.tone === 'danger' ? theme.danger : theme.border,
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              s.contextChipLabel,
+                              { color: chip.tone === 'danger' ? theme.bg : theme.textMuted },
+                            ]}
+                          >
+                            {chip.label}
+                          </Text>
+                          <Text
+                            style={[
+                              s.contextChipValue,
+                              { color: chip.tone === 'danger' ? theme.bg : theme.text },
+                            ]}
+                          >
+                            {chip.value}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  ) : (
+                    <Text style={[s.reflectionEmpty, { color: theme.textSecondary }]}>
+                      No special approvals set. This Mark follows its current Space privacy.
+                    </Text>
+                  )}
+                  <Text style={[s.contextHint, { color: theme.textMuted }]}>
+                    These flags prepare Mantle and Legacy drafts. They do not change current visibility yet.
+                  </Text>
+                </>
+              ) : (
+                <View style={s.contextEditor}>
+                  {permissionOptions.map(option => {
+                    const active = permissionDraft[option.key] === true;
+                    const disabled =
+                      permissionDraft.restricted === true &&
+                      (option.key === 'highlightApproved' || option.key === 'bookApproved');
+
+                    return (
+                      <TouchableOpacity
+                        key={option.key}
+                        style={[
+                          s.permissionOption,
+                          { backgroundColor: theme.surface, borderColor: theme.border },
+                          active && { backgroundColor: option.key === 'restricted' ? theme.danger : theme.gold, borderColor: option.key === 'restricted' ? theme.danger : theme.gold },
+                          disabled && s.permissionOptionDisabled,
+                        ]}
+                        onPress={() => !disabled && setPermissionValue(option.key, !active)}
+                        activeOpacity={0.82}
+                        disabled={disabled}
+                      >
+                        <View style={s.permissionOptionText}>
+                          <Text
+                            style={[
+                              s.permissionOptionLabel,
+                              { color: active ? theme.bg : theme.text },
+                            ]}
+                          >
+                            {option.label}
+                          </Text>
+                          <Text
+                            style={[
+                              s.permissionOptionDetail,
+                              { color: active ? theme.bg : theme.textSecondary },
+                            ]}
+                          >
+                            {option.detail}
+                          </Text>
+                        </View>
+                        <Text style={[s.permissionCheck, { color: active ? theme.bg : theme.textMuted }]}>
+                          {active ? 'On' : 'Off'}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+
+                  <View style={s.editActions}>
+                    <TouchableOpacity
+                      style={[s.cancelEditBtn, { borderColor: theme.border }]}
+                      onPress={cancelPermissionEditing}
+                      disabled={savingPermissions}
+                    >
+                      <Text style={[s.cancelEditText, { color: theme.textMuted }]}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[s.saveEditBtn, { backgroundColor: theme.gold }, savingPermissions && s.savingContextBtn]}
+                      onPress={savePermissionEditing}
+                      disabled={savingPermissions}
+                    >
+                      <Text style={[s.saveEditText, { color: theme.bg }]}>
+                        {savingPermissions ? 'Saving...' : 'Save permissions'}
                       </Text>
                     </TouchableOpacity>
                   </View>
@@ -1366,6 +1645,12 @@ const s = StyleSheet.create({
   contextPersonChip: { minHeight: 34, maxWidth: 190, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 17, borderWidth: 0.5, flexDirection: 'row', alignItems: 'center', gap: 7 },
   contextPersonAvatar: { width: 20, height: 20, borderRadius: 10, borderWidth: 0.5, textAlign: 'center', lineHeight: 19, fontSize: 10, fontWeight: '900', overflow: 'hidden' },
   contextPersonChipText: { maxWidth: 138, fontSize: 12, fontWeight: '800' },
+  permissionOption: { minHeight: 58, borderRadius: 14, borderWidth: 0.5, paddingHorizontal: 12, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  permissionOptionDisabled: { opacity: 0.48 },
+  permissionOptionText: { flex: 1, gap: 3 },
+  permissionOptionLabel: { fontSize: 13, fontWeight: '900' },
+  permissionOptionDetail: { fontSize: 11, lineHeight: 15, fontWeight: '600' },
+  permissionCheck: { minWidth: 28, textAlign: 'right', fontSize: 12, fontWeight: '900' },
   savingContextBtn: { opacity: 0.55 },
 
   // Reflections

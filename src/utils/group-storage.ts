@@ -10,6 +10,11 @@ import {
   publishGroupMembership,
   type NostrGroupPayload,
 } from './nostr';
+import type {
+  LivingSpaceType,
+  SchoolConsentMode,
+  SchoolMinorDefaultPolicy,
+} from '../types/living-spaces';
 const GROUPS_KEY = 'be_groups_v1';
 const MEMBERS_KEY = 'be_group_members_v1';
 
@@ -25,6 +30,17 @@ export type BEGroup = {
   name: string;
   description?: string;
   season?: string;            // e.g. "2025-2026"
+  spaceType?: LivingSpaceType; // compatibility metadata while groups evolve into spaces
+  spaceLabel?: string;        // user-facing label such as "Classroom" or "Team"
+  schoolYearId?: string;      // future school-year grouping without migration
+  seasonId?: string;          // future season grouping without migration
+  parentSpaceId?: string;     // future school/district -> classroom/team hierarchy
+  isSpace?: boolean;          // compatibility flag while Group remains the storage backbone
+  schoolConsentMode?: SchoolConsentMode;
+  requiresGuardianConsent?: boolean;
+  defaultMinorMarkPolicy?: SchoolMinorDefaultPolicy;
+  directoryInfoAllowed?: boolean;
+  consentNoticeVersion?: string;
   sport?: string;             // for theming e.g. "softball", "basketball"
   icon?: string;              // owner-selected emoji/icon for group avatar
   schoolId?: string;          // "washington" | "rush_springs" | custom
@@ -216,6 +232,12 @@ export async function syncGroupMembersFromRelay(
     const rawStatus =
       statusTag?.[1] ||
       content?.status;
+    const displayName =
+      content?.displayName ||
+      event.tags.find(tag => tag[0] === 'name')?.[1];
+    const avatarUrl =
+      content?.avatarUrl ||
+      event.tags.find(tag => tag[0] === 'picture')?.[1];
 
     const isRemovedEvent =
       rawAction === 'remove' ||
@@ -242,8 +264,8 @@ export async function syncGroupMembersFromRelay(
       groupId,
       npub: memberNpub,
       pubkeyHex: existing?.pubkeyHex ?? pTag?.[1] ?? event.pubkey,
-      displayName: existing?.displayName,
-      avatarUrl: existing?.avatarUrl,
+      displayName: displayName ?? existing?.displayName,
+      avatarUrl: avatarUrl ?? existing?.avatarUrl,
       role: resolvedRole,
       status: isRemovedEvent ? 'removed' : 'active',
       joinedAt: existing?.joinedAt ?? event.created_at,
@@ -366,10 +388,62 @@ export async function getGroupByInviteCode(code: string): Promise<BEGroup | null
   ) ?? null;
 }
 
+export function groupToNostrPayload(group: BEGroup): NostrGroupPayload {
+  return {
+    id: group.id,
+    name: group.name,
+    description: group.description,
+    season: group.season,
+    spaceType: group.spaceType,
+    spaceLabel: group.spaceLabel,
+    schoolYearId: group.schoolYearId,
+    seasonId: group.seasonId,
+    parentSpaceId: group.parentSpaceId,
+    isSpace: group.isSpace === true,
+    schoolConsentMode: group.schoolConsentMode,
+    requiresGuardianConsent: group.requiresGuardianConsent === true,
+    defaultMinorMarkPolicy: group.defaultMinorMarkPolicy,
+    directoryInfoAllowed: group.directoryInfoAllowed === true,
+    consentNoticeVersion: group.consentNoticeVersion,
+    sport: group.sport,
+    icon: group.icon,
+    coverImage: group.coverImage,
+    schoolId: group.schoolId,
+    inviteCode: group.inviteCode,
+    status: group.status,
+    relayUrl: group.relayUrl,
+    relayMode: group.relayMode,
+    createdAt: group.createdAt,
+    ownerNpub: group.ownerNpub ?? '',
+    bookEnabled: group.bookEnabled === true,
+    bookOfficerNpubs: group.bookOfficerNpubs ?? [],
+  };
+}
+
+export async function publishGroupMetadataSnapshot(
+  groupId: string,
+  nsec: string
+): Promise<{ success: boolean; eventId?: string; error?: string }> {
+  const group = await getGroupById(groupId);
+  if (!group) return { success: false, error: 'Space not found' };
+  return publishGroup(groupToNostrPayload(group), nsec);
+}
+
 export async function createGroup(input: {
   name: string;
   description?: string;
   season?: string;
+  spaceType?: LivingSpaceType;
+  spaceLabel?: string;
+  schoolYearId?: string;
+  seasonId?: string;
+  parentSpaceId?: string;
+  isSpace?: boolean;
+  schoolConsentMode?: SchoolConsentMode;
+  requiresGuardianConsent?: boolean;
+  defaultMinorMarkPolicy?: SchoolMinorDefaultPolicy;
+  directoryInfoAllowed?: boolean;
+  consentNoticeVersion?: string;
   sport?: string;
   icon?: string;
   coverImage?: string;
@@ -378,6 +452,7 @@ export async function createGroup(input: {
   ownerNpub: string;
   ownerPubkeyHex: string;
   ownerDisplayName?: string;
+  ownerAvatarUrl?: string;
   bookEnabled?: boolean;
   nsec?: string;           // needed to sign and publish to relay
 }): Promise<BEGroup> {
@@ -389,6 +464,17 @@ export async function createGroup(input: {
     name: input.name.trim(),
     description: input.description?.trim(),
     season: input.season?.trim(),
+    spaceType: input.spaceType,
+    spaceLabel: input.spaceLabel?.trim() || undefined,
+    schoolYearId: input.schoolYearId?.trim() || undefined,
+    seasonId: input.seasonId?.trim() || undefined,
+    parentSpaceId: input.parentSpaceId?.trim() || undefined,
+    isSpace: input.isSpace ?? true,
+    schoolConsentMode: input.schoolConsentMode,
+    requiresGuardianConsent: input.requiresGuardianConsent === true,
+    defaultMinorMarkPolicy: input.defaultMinorMarkPolicy,
+    directoryInfoAllowed: input.directoryInfoAllowed === true,
+    consentNoticeVersion: input.consentNoticeVersion?.trim() || undefined,
     sport: input.sport,
     icon: input.icon?.trim() || undefined,
     coverImage: input.coverImage?.trim() || undefined,
@@ -414,30 +500,13 @@ export async function createGroup(input: {
     npub: input.ownerNpub,
     pubkeyHex: input.ownerPubkeyHex,
     displayName: input.ownerDisplayName,
+    avatarUrl: input.ownerAvatarUrl,
     role: 'owner',
   });
 
   // Publish to relay so others can find and join by invite code
   if (input.nsec) {
-    const payload: NostrGroupPayload = {
-      id: group.id,
-      name: group.name,
-      description: group.description,
-      season: group.season,
-      sport: group.sport,
-      icon: group.icon,
-      coverImage: group.coverImage,
-      schoolId: group.schoolId,
-      inviteCode: group.inviteCode,
-      status: group.status,
-      relayUrl: group.relayUrl,
-      createdAt: group.createdAt,
-      ownerNpub: input.ownerNpub,
-      bookEnabled: group.bookEnabled === true,
-      bookOfficerNpubs: group.bookOfficerNpubs ?? [],
-    };
-
-    const publishResult = await publishGroup(payload, input.nsec);
+    const publishResult = await publishGroup(groupToNostrPayload(group), input.nsec);
 
     console.log('[Groups] publish result:', publishResult);
     console.log('[Groups] created group invite code:', group.inviteCode);
@@ -453,6 +522,8 @@ export async function createGroup(input: {
       memberPubkeyHex: input.ownerPubkeyHex,
       action: 'join',
       role: 'owner',
+      displayName: input.ownerDisplayName,
+      avatarUrl: input.ownerAvatarUrl,
       nsec: input.nsec,
       relayUrl: group.relayUrl,
     });
@@ -713,6 +784,17 @@ export async function joinGroupByCode(input: {
         name: remoteGroup.name,
         description: remoteGroup.description,
         season: remoteGroup.season,
+        spaceType: remoteGroup.spaceType,
+        spaceLabel: remoteGroup.spaceLabel,
+        schoolYearId: remoteGroup.schoolYearId,
+        seasonId: remoteGroup.seasonId,
+        parentSpaceId: remoteGroup.parentSpaceId,
+        isSpace: remoteGroup.isSpace === true,
+        schoolConsentMode: remoteGroup.schoolConsentMode,
+        requiresGuardianConsent: remoteGroup.requiresGuardianConsent === true,
+        defaultMinorMarkPolicy: remoteGroup.defaultMinorMarkPolicy,
+        directoryInfoAllowed: remoteGroup.directoryInfoAllowed === true,
+        consentNoticeVersion: remoteGroup.consentNoticeVersion,
         sport: remoteGroup.sport,
         icon: remoteGroup.icon,
         coverImage: remoteGroup.coverImage,
@@ -779,6 +861,8 @@ export async function joinGroupByCode(input: {
       memberPubkeyHex: input.pubkeyHex,
       action: 'join',
       role: 'member',
+      displayName: input.displayName,
+      avatarUrl: input.avatarUrl,
       nsec: input.nsec,
       relayUrl: group.relayUrl,
     }).catch(e => console.warn('[Groups] Failed to publish membership:', e));
@@ -866,14 +950,27 @@ export async function restoreGroupsFromRelay(input: {
           name: groupEvent.name,
           description: groupEvent.description,
           season: groupEvent.season,
+          spaceType: groupEvent.spaceType,
+          spaceLabel: groupEvent.spaceLabel,
+          schoolYearId: groupEvent.schoolYearId,
+          seasonId: groupEvent.seasonId,
+          parentSpaceId: groupEvent.parentSpaceId,
+          isSpace: groupEvent.isSpace === true,
+          schoolConsentMode: groupEvent.schoolConsentMode,
+          requiresGuardianConsent: groupEvent.requiresGuardianConsent === true,
+          defaultMinorMarkPolicy: groupEvent.defaultMinorMarkPolicy,
+          directoryInfoAllowed: groupEvent.directoryInfoAllowed === true,
+          consentNoticeVersion: groupEvent.consentNoticeVersion,
           sport: groupEvent.sport,
           icon: groupEvent.icon,
+          coverImage: groupEvent.coverImage,
           schoolId: groupEvent.schoolId,
           inviteCode: groupEvent.inviteCode,
           status: groupEvent.status,
           createdAt: groupEvent.createdAt,
           updatedAt: now,
           relayUrl: groupEvent.relayUrl,
+          relayMode: groupEvent.relayMode,
           ownerNpub: groupEvent.ownerNpub,
           memberCount: groupEvent.ownerNpub ? 1 : 0,
           postCount: 0,
@@ -887,12 +984,25 @@ export async function restoreGroupsFromRelay(input: {
           name: groupEvent.name,
           description: groupEvent.description,
           season: groupEvent.season,
+          spaceType: groupEvent.spaceType,
+          spaceLabel: groupEvent.spaceLabel,
+          schoolYearId: groupEvent.schoolYearId,
+          seasonId: groupEvent.seasonId,
+          parentSpaceId: groupEvent.parentSpaceId,
+          isSpace: groupEvent.isSpace === true,
+          schoolConsentMode: groupEvent.schoolConsentMode,
+          requiresGuardianConsent: groupEvent.requiresGuardianConsent === true,
+          defaultMinorMarkPolicy: groupEvent.defaultMinorMarkPolicy,
+          directoryInfoAllowed: groupEvent.directoryInfoAllowed === true,
+          consentNoticeVersion: groupEvent.consentNoticeVersion,
           sport: groupEvent.sport,
           icon: groupEvent.icon,
+          coverImage: groupEvent.coverImage,
           schoolId: groupEvent.schoolId,
           inviteCode: groupEvent.inviteCode,
           status: groupEvent.status,
           relayUrl: groupEvent.relayUrl,
+          relayMode: groupEvent.relayMode,
           ownerNpub: groupEvent.ownerNpub,
           bookEnabled: groupEvent.bookEnabled === true,
           bookOfficerNpubs: groupEvent.bookOfficerNpubs ?? [],
