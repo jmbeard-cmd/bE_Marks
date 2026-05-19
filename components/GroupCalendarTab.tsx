@@ -776,6 +776,23 @@ function EventCard({
           )}
         </View>
 
+        <View style={s.eventBadgeRow}>
+          <View style={s.eventTypeBadge}>
+            <Text style={s.eventTypeBadgeIcon}>
+              {getSpaceEventTypeIcon(event.spaceEventType)}
+            </Text>
+            <Text style={s.eventTypeBadgeText}>
+              {getSpaceEventTypeLabel(event.spaceEventType)}
+            </Text>
+          </View>
+
+          {!!event.legacyEligible && (
+            <View style={s.legacyBadge}>
+              <Text style={s.legacyBadgeText}>Legacy-ready</Text>
+            </View>
+          )}
+        </View>
+
         <View style={s.metaRow}>
           <Text style={s.metaText}>🕐 {formatEventTime(event)}</Text>
           {!!event.location && (
@@ -783,8 +800,30 @@ function EventCard({
           )}
         </View>
 
+        {(event.spaceEventType === 'game' || event.spaceEventType === 'tournament') && (
+          <View style={s.gameMetaBox}>
+            {!!event.opponent && (
+              <Text style={s.gameMetaText} numberOfLines={1}>
+                vs. {event.opponent}
+              </Text>
+            )}
+
+            {!!event.homeAway && (
+              <Text style={s.gameMetaSubText}>
+                {formatHomeAway(event.homeAway)}
+              </Text>
+            )}
+          </View>
+        )}
+
         {expanded && !!event.description && (
           <Text style={s.description}>{event.description}</Text>
+        )}
+
+        {expanded && !!event.legacyEligible && (
+          <Text style={s.legacyHint}>
+            This event can help organize Marks into a future Legacy collection.
+          </Text>
         )}
 
         {rsvp !== undefined && (rsvp.accepted + rsvp.declined + rsvp.tentative) > 0 && (
@@ -842,6 +881,19 @@ function getShortDate(event: GroupCalendarEvent): string {
   }
   const date = new Date(event.startTime * 1000);
   return `${date.getMonth() + 1}/${date.getDate()}`;
+}
+
+function formatHomeAway(value: GroupCalendarEvent['homeAway']): string {
+  switch (value) {
+    case 'home':
+      return 'Home';
+    case 'away':
+      return 'Away';
+    case 'neutral':
+      return 'Neutral site';
+    default:
+      return '';
+  }
 }
 
 function formatDateInput(date: Date): string {
@@ -974,9 +1026,74 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
   cardTitlePast: { color: theme.textMuted },
   deleteBtn:     { color: theme.textMuted, fontSize: 14, fontWeight: '700', paddingHorizontal: 2 },
 
+  eventBadgeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 7,
+  },
+  eventTypeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    alignSelf: 'flex-start',
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    borderRadius: 999,
+    backgroundColor: theme.raised,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  eventTypeBadgeIcon: {
+    fontSize: 11,
+  },
+  eventTypeBadgeText: {
+    color: theme.textMuted,
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  legacyBadge: {
+    alignSelf: 'flex-start',
+    borderWidth: 0.5,
+    borderColor: theme.gold,
+    borderRadius: 999,
+    backgroundColor: theme.bg,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  legacyBadgeText: {
+    color: theme.gold,
+    fontSize: 10,
+    fontWeight: '800',
+  },
   metaRow:     { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 6 },
   metaText:    { fontSize: 12, color: theme.textMuted, fontWeight: '500' },
+  gameMetaBox: {
+    borderLeftWidth: 2,
+    borderLeftColor: theme.gold,
+    paddingLeft: 9,
+    marginTop: 2,
+    marginBottom: 7,
+  },
+  gameMetaText: {
+    color: theme.text,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  gameMetaSubText: {
+    color: theme.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 2,
+  },
   description: { color: theme.textMuted, fontSize: 13, lineHeight: 19, marginTop: 6, marginBottom: 8 },
+  legacyHint: {
+    color: theme.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    fontStyle: 'italic',
+    marginBottom: 6,
+  },
   expandHint:  { fontSize: 11, color: theme.textMuted, fontStyle: 'italic', marginTop: 4 },
 
   rsvpCountRow: { flexDirection: 'row', gap: 10, marginTop: 6, marginBottom: 4 },
