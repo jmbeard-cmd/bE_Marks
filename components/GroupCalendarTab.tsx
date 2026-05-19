@@ -391,6 +391,17 @@ export default function GroupCalendarTab({
   const upcomingEvents = events.filter(e => !isEventPast(e));
   const pastEvents     = events.filter(e =>  isEventPast(e));
 
+  const thisWeekEvents = upcomingEvents.filter(isEventThisWeek);
+  const laterUpcomingEvents = upcomingEvents.filter(e => !isEventThisWeek(e));
+
+  const seasonResultEvents = pastEvents.filter(
+    e => e.spaceEventType === 'game' || e.spaceEventType === 'tournament'
+  );
+
+  const otherPastEvents = pastEvents.filter(
+    e => e.spaceEventType !== 'game' && e.spaceEventType !== 'tournament'
+  );
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   if (loading) {
@@ -413,60 +424,160 @@ export default function GroupCalendarTab({
           />
         }
       >
-        {upcomingEvents.length === 0 ? (
+        <View style={s.calendarHero}>
+          <View style={s.calendarHeroTop}>
+            <View>
+              <Text style={s.calendarHeroEyebrow}>SPACE CALENDAR</Text>
+              <Text style={s.calendarHeroTitle}>Structure the season story</Text>
+            </View>
+            <Text style={s.calendarHeroIcon}>📅</Text>
+          </View>
+
+          <Text style={s.calendarHeroText}>
+            Games, meetings, fundraisers, banquets, and key dates become the structure for Marks, Mantle, River, and Legacy.
+          </Text>
+
+          <View style={s.calendarStatsRow}>
+            <View style={s.calendarStatCard}>
+              <Text style={s.calendarStatValue}>{thisWeekEvents.length}</Text>
+              <Text style={s.calendarStatLabel}>This Week</Text>
+            </View>
+
+            <View style={s.calendarStatCard}>
+              <Text style={s.calendarStatValue}>{laterUpcomingEvents.length}</Text>
+              <Text style={s.calendarStatLabel}>Upcoming</Text>
+            </View>
+
+            <View style={s.calendarStatCard}>
+              <Text style={s.calendarStatValue}>{seasonResultEvents.length}</Text>
+              <Text style={s.calendarStatLabel}>Results</Text>
+            </View>
+          </View>
+        </View>
+
+        {upcomingEvents.length === 0 && pastEvents.length === 0 ? (
           <View style={s.empty}>
             <Text style={s.emptyIcon}>📅</Text>
-            <Text style={s.emptyText}>No upcoming events</Text>
+            <Text style={s.emptyText}>No calendar events yet</Text>
             <Text style={s.emptyHint}>
               {isAdmin
-                ? 'Tap + Event to add a game, practice, or meeting to the group calendar.'
-                : "Your admin hasn't added any upcoming events yet."}
+                ? 'Tap + Event to add a game, practice, meeting, fundraiser, or banquet.'
+                : "Your admin hasn't added any calendar events yet."}
             </Text>
           </View>
         ) : (
-          upcomingEvents.map(event => (
-            <EventCard
-              key={event.id}
-              event={event}
-              isAdmin={isAdmin}
-              isMember={isMember}
-              rsvp={rsvpState[event.id]}
-              expanded={expandedId === event.id}
-              onToggleExpand={() => setExpandedId(id => (id === event.id ? null : event.id))}
-              onRSVP={status => handleRSVP(event, status)}
-              onDelete={() => handleDelete(event)}
-              s={s}
-            />
-          ))
-        )}
+          <>
+            {thisWeekEvents.length > 0 && (
+              <View style={s.calendarSection}>
+                <View style={s.sectionHeader}>
+                  <View>
+                    <Text style={s.sectionEyebrow}>NOW</Text>
+                    <Text style={s.sectionTitle}>This Week</Text>
+                  </View>
+                  <Text style={s.sectionCount}>{thisWeekEvents.length}</Text>
+                </View>
 
-        {pastEvents.length > 0 && (
-          <View style={s.pastSection}>
-            <TouchableOpacity
-              style={s.pastToggle}
-              onPress={() => setShowPast(v => !v)}
-            >
-              <Text style={s.pastToggleText}>
-                {showPast ? '▾' : '▸'} Past events ({pastEvents.length})
-              </Text>
-            </TouchableOpacity>
+                {thisWeekEvents.map(event => (
+                  <EventCard
+                    key={event.id}
+                    event={event}
+                    isAdmin={isAdmin}
+                    isMember={isMember}
+                    rsvp={rsvpState[event.id]}
+                    expanded={expandedId === event.id}
+                    onToggleExpand={() => setExpandedId(id => (id === event.id ? null : event.id))}
+                    onRSVP={status => handleRSVP(event, status)}
+                    onDelete={() => handleDelete(event)}
+                    s={s}
+                  />
+                ))}
+              </View>
+            )}
 
-            {showPast && pastEvents.map(event => (
-              <EventCard
-                key={event.id}
-                event={event}
-                isAdmin={isAdmin}
-                isMember={isMember}
-                rsvp={rsvpState[event.id]}
-                expanded={expandedId === event.id}
-                onToggleExpand={() => setExpandedId(id => (id === event.id ? null : event.id))}
-                onRSVP={status => handleRSVP(event, status)}
-                onDelete={() => handleDelete(event)}
-                isPast
-                s={s}
-              />
-            ))}
-          </View>
+            {laterUpcomingEvents.length > 0 && (
+              <View style={s.calendarSection}>
+                <View style={s.sectionHeader}>
+                  <View>
+                    <Text style={s.sectionEyebrow}>NEXT</Text>
+                    <Text style={s.sectionTitle}>Upcoming</Text>
+                  </View>
+                  <Text style={s.sectionCount}>{laterUpcomingEvents.length}</Text>
+                </View>
+
+                {laterUpcomingEvents.map(event => (
+                  <EventCard
+                    key={event.id}
+                    event={event}
+                    isAdmin={isAdmin}
+                    isMember={isMember}
+                    rsvp={rsvpState[event.id]}
+                    expanded={expandedId === event.id}
+                    onToggleExpand={() => setExpandedId(id => (id === event.id ? null : event.id))}
+                    onRSVP={status => handleRSVP(event, status)}
+                    onDelete={() => handleDelete(event)}
+                    s={s}
+                  />
+                ))}
+              </View>
+            )}
+
+            {seasonResultEvents.length > 0 && (
+              <View style={s.calendarSection}>
+                <View style={s.sectionHeader}>
+                  <View>
+                    <Text style={s.sectionEyebrow}>STORY</Text>
+                    <Text style={s.sectionTitle}>Season Results</Text>
+                  </View>
+                  <Text style={s.sectionCount}>{seasonResultEvents.length}</Text>
+                </View>
+
+                {seasonResultEvents.map(event => (
+                  <EventCard
+                    key={event.id}
+                    event={event}
+                    isAdmin={isAdmin}
+                    isMember={isMember}
+                    rsvp={rsvpState[event.id]}
+                    expanded={expandedId === event.id}
+                    onToggleExpand={() => setExpandedId(id => (id === event.id ? null : event.id))}
+                    onRSVP={status => handleRSVP(event, status)}
+                    onDelete={() => handleDelete(event)}
+                    isPast
+                    s={s}
+                  />
+                ))}
+              </View>
+            )}
+
+            {otherPastEvents.length > 0 && (
+              <View style={s.pastSection}>
+                <TouchableOpacity
+                  style={s.pastToggle}
+                  onPress={() => setShowPast(v => !v)}
+                >
+                  <Text style={s.pastToggleText}>
+                    {showPast ? '▾' : '▸'} Past Events ({otherPastEvents.length})
+                  </Text>
+                </TouchableOpacity>
+
+                {showPast && otherPastEvents.map(event => (
+                  <EventCard
+                    key={event.id}
+                    event={event}
+                    isAdmin={isAdmin}
+                    isMember={isMember}
+                    rsvp={rsvpState[event.id]}
+                    expanded={expandedId === event.id}
+                    onToggleExpand={() => setExpandedId(id => (id === event.id ? null : event.id))}
+                    onRSVP={status => handleRSVP(event, status)}
+                    onDelete={() => handleDelete(event)}
+                    isPast
+                    s={s}
+                  />
+                ))}
+              </View>
+            )}
+          </>
         )}
       </ScrollView>
 
@@ -902,6 +1013,17 @@ function formatDateInput(date: Date): string {
   return `${month}/${day}/${date.getFullYear()}`;
 }
 
+function isEventThisWeek(event: GroupCalendarEvent): boolean {
+  const now = new Date();
+  const eventDate = new Date(event.startTime * 1000);
+
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const endOfWeek = new Date(startOfToday);
+  endOfWeek.setDate(startOfToday.getDate() + 7);
+
+  return eventDate >= startOfToday && eventDate < endOfWeek;
+}
+
 function buildCalendarDays(monthDate: Date): (Date | null)[] {
   const year = monthDate.getFullYear();
   const month = monthDate.getMonth();
@@ -966,6 +1088,72 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     marginTop: 6,
     textAlign: 'center',
     lineHeight: 19,
+  },
+
+  calendarHero: {
+    backgroundColor: theme.surface,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    borderRadius: 22,
+    padding: 16,
+    marginBottom: 18,
+  },
+  calendarHeroTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginBottom: 10,
+  },
+  calendarHeroEyebrow: {
+    color: theme.gold,
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1.1,
+    marginBottom: 4,
+  },
+  calendarHeroTitle: {
+    color: theme.text,
+    fontSize: 21,
+    fontWeight: '900',
+    letterSpacing: -0.6,
+  },
+  calendarHeroIcon: {
+    fontSize: 28,
+    opacity: 0.85,
+  },
+  calendarHeroText: {
+    color: theme.textMuted,
+    fontSize: 13,
+    lineHeight: 19,
+    marginBottom: 14,
+  },
+  calendarStatsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  calendarStatCard: {
+    flex: 1,
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    borderRadius: 14,
+    paddingVertical: 11,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+  },
+  calendarStatValue: {
+    color: theme.gold,
+    fontSize: 20,
+    fontWeight: '900',
+    lineHeight: 22,
+  },
+  calendarStatLabel: {
+    color: theme.textMuted,
+    fontSize: 10,
+    fontWeight: '800',
+    marginTop: 3,
+    textAlign: 'center',
   },
 
    card: {
@@ -1124,9 +1312,39 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
   },
   rsvpBtnTextActive: { color: theme.gold },
 
-  pastSection:    { marginTop: 8 },
+  calendarSection: {
+    marginBottom: 14,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+    paddingHorizontal: 2,
+  },
+  sectionEyebrow: {
+    color: theme.gold,
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1,
+    marginBottom: 2,
+  },
+  sectionTitle: {
+    color: theme.text,
+    fontSize: 18,
+    fontWeight: '900',
+    letterSpacing: -0.4,
+  },
+  sectionCount: {
+    color: theme.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
+    marginBottom: 2,
+  },
+
+  pastSection:    { marginTop: 2 },
   pastToggle:     { paddingVertical: 12, paddingHorizontal: 4 },
-  pastToggleText: { color: theme.textMuted, fontSize: 13, fontWeight: '500' },
+  pastToggleText: { color: theme.textMuted, fontSize: 13, fontWeight: '700' },
 
   fab: {
     position: 'absolute',
