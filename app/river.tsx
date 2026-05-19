@@ -8,6 +8,7 @@ import {
   Image,
   NativeScrollEvent,
   NativeSyntheticEvent,
+  Pressable,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -209,6 +210,7 @@ export default function RiverScreen() {
   const [loading, setLoading] = useState(true);
   const [marks, setMarks] = useState<Milestone[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [controlsVisible, setControlsVisible] = useState(true);
   const riverSlides = useMemo(() => buildRiverSlides(marks), [marks]);
 
   const title = getParamValue(params.title) || 'River';
@@ -276,8 +278,9 @@ export default function RiverScreen() {
     if (width <= 0) return;
 
     const nextIndex = Math.round(event.nativeEvent.contentOffset.x / width);
-    if (nextIndex >= 0 && nextIndex < marks.length) {
+    if (nextIndex >= 0 && nextIndex < riverSlides.length) {
       setActiveIndex(nextIndex);
+      setControlsVisible(true);
     }
   };
 
@@ -288,7 +291,10 @@ export default function RiverScreen() {
     const isActive = index === activeIndex;
 
     return (
-      <View style={[localStyles.slide, { width }]}>
+      <Pressable
+        style={[localStyles.slide, { width }]}
+        onPress={() => setControlsVisible(current => !current)}
+      >
         <View style={localStyles.mediaStage}>
           {primaryMedia?.type === 'image' ? (
             <Image
@@ -318,6 +324,7 @@ export default function RiverScreen() {
           )}
         </View>
 
+        {controlsVisible && (
         <View style={localStyles.captionPanel}>
           <View style={localStyles.captionTopRow}>
             <Text style={localStyles.dateText}>{formatRiverDate(mark.createdAt)}</Text>
@@ -353,31 +360,34 @@ export default function RiverScreen() {
             <Text style={localStyles.detailButtonText}>Open Mark Detail</Text>
             <Ionicons name="chevron-forward" size={16} color={theme.bg} />
           </TouchableOpacity>
-        </View>
-      </View>
+         </View>
+        )}
+       </Pressable>
     );
   };
 
   return (
     <SafeAreaView style={localStyles.safe}>
-      <View style={[localStyles.topBar, { paddingTop: insets.top + 8 }]}>
-        <TouchableOpacity
-          style={localStyles.iconButton}
-          onPress={handleBack}
-          activeOpacity={0.82}
-        >
-          <Ionicons name="chevron-back" size={22} color={theme.text} />
-        </TouchableOpacity>
+      {controlsVisible && (
+        <View style={[localStyles.topBar, { paddingTop: insets.top + 8 }]}>
+          <TouchableOpacity
+            style={localStyles.iconButton}
+            onPress={handleBack}
+            activeOpacity={0.82}
+          >
+            <Ionicons name="chevron-back" size={22} color="#FFFFFF" />
+          </TouchableOpacity>
 
-        <View style={localStyles.titleBlock}>
-          <Text style={localStyles.title} numberOfLines={1}>{title}</Text>
-          <Text style={localStyles.subtitle} numberOfLines={1}>{subtitle}</Text>
-        </View>
+          <View style={localStyles.titleBlock}>
+            <Text style={localStyles.title} numberOfLines={1}>{title}</Text>
+            <Text style={localStyles.subtitle} numberOfLines={1}>{subtitle}</Text>
+          </View>
 
-        <View style={localStyles.iconButton}>
-          <Text style={localStyles.topCount}>{marks.length}</Text>
+          <View style={localStyles.iconButton}>
+            <Text style={localStyles.topCount}>{riverSlides.length}</Text>
+          </View>
         </View>
-      </View>
+      )}
 
       {loading ? (
         <View style={localStyles.centerState}>
