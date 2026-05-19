@@ -1,10 +1,10 @@
 import GroupBookTab from '@/components/GroupBookTab';
 import GroupCalendarTab from '@/components/GroupCalendarTab';
-import { Ionicons } from '@expo/vector-icons';
 import {
   getUpcomingEventsForGroup,
   syncCalendarEventsFromRelay,
 } from '@/src/utils/group-calendar';
+import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
@@ -36,7 +36,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import ImageViewerModal, { ViewerImage } from '../components/ImageViewerModal';
 import MediaCollage from '../components/MediaCollage';
 import { Colors } from '../src/constants/theme';
-import { GroupChatPanel } from './group-thread';
+import type {
+  LivingMarkCaptureSource,
+  LivingMarkPerson,
+  LivingMarkPlace,
+  LivingMarkView,
+  LivingSpace,
+} from '../src/types/living-spaces';
 import {
   getContactByNpub,
   getContacts,
@@ -74,14 +80,14 @@ import {
   type BEGroupMember,
   type GroupRelayMode,
 } from '../src/utils/group-storage';
-import { compressMediaForUpload } from '../src/utils/media-compression';
-import type {
-  LivingMarkCaptureSource,
-  LivingMarkPerson,
-  LivingMarkPlace,
-  LivingMarkView,
-  LivingSpace,
-} from '../src/types/living-spaces';
+import {
+  getPersonDisplayName,
+  isLivingPersonSelected,
+  mergeLivingPersonCandidates,
+  resolvePeopleSelection,
+  toggleLivingPersonSelection,
+  type LivingPersonCandidate,
+} from '../src/utils/living-people';
 import {
   extractLivingCaptureFromExif,
 } from '../src/utils/living-space-routing';
@@ -91,14 +97,7 @@ import {
   persistLivingMarkCapture,
   syncLivingSpacesFromGroups,
 } from '../src/utils/living-spaces-storage';
-import {
-  getPersonDisplayName,
-  isLivingPersonSelected,
-  mergeLivingPersonCandidates,
-  resolvePeopleSelection,
-  toggleLivingPersonSelection,
-  type LivingPersonCandidate,
-} from '../src/utils/living-people';
+import { compressMediaForUpload } from '../src/utils/media-compression';
 import {
   DEFAULT_RELAY,
   fetchGroupMarks,
@@ -111,6 +110,12 @@ import {
 } from '../src/utils/nostr';
 import { normalizeNostrIdentity } from '../src/utils/nostr-identity';
 import {
+  notifyGroupEvent,
+  registerGroupMemberForPush,
+  removeGroupMemberFromPush,
+} from '../src/utils/push-notifications';
+import { uploadMilestoneMedia } from '../src/utils/r2';
+import {
   SCHOOL_CONSENT_NOTICE_VERSION,
   getSchoolSpaceConsentSummary,
   isSchoolConsentSpace,
@@ -119,12 +124,6 @@ import {
   type SchoolConsentSummary,
 } from '../src/utils/school-consent-storage';
 import {
-  notifyGroupEvent,
-  registerGroupMemberForPush,
-  removeGroupMemberFromPush,
-} from '../src/utils/push-notifications';
-import { uploadMilestoneMedia } from '../src/utils/r2';
-import {
   getMilestones,
   saveMilestone,
   updateMilestone,
@@ -132,8 +131,9 @@ import {
   type Milestone,
 } from '../src/utils/storage';
 import { useIdentity } from './_layout';
+import { GroupChatPanel } from './group-thread';
 
-type Tab = 'chat' | 'stickies' | 'mantle' | 'calendar' | 'gallery' | 'members' | 'book';
+type Tab = 'chat' | 'stickies' | 'mantle' | 'calendar' | 'gallery' | 'members' | 'legacy' | 'book';
 const GROUP_LOCAL_GALLERY_KEY = 'be_group_local_gallery_v1';
 const SPACE_FAVORITES_KEY = 'be_space_favorite_ids_v1';
 const SPACE_MARK_RELAY_SYNC_ENABLED = true;
@@ -416,6 +416,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   routeTab === 'calendar' ||
   routeTab === 'gallery' ||
   routeTab === 'members' ||
+  routeTab === 'legacy' ||
   routeTab === 'book'
     ? routeTab
     : 'chat'
@@ -1047,6 +1048,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
     routeTab === 'calendar' ||
     routeTab === 'gallery' ||
     routeTab === 'members' ||
+    routeTab === 'legacy' ||
     routeTab === 'book'
   ) {
     setTab(routeTab);
@@ -2183,6 +2185,19 @@ const leadMantleView = mantleMarkViews[0] ?? null;
 const supportingMantleViews = mantleMarkViews.slice(1, 4);
 const recapMantleViews = mantleMarkViews.slice(4);
 
+const legacyMarkViews = spaceMarkViews
+  .filter(view =>
+    view.metadata.markPermissions.restricted !== true &&
+    (
+      view.metadata.savedToBook === true ||
+      view.metadata.markPermissions.bookApproved === true
+    )
+  )
+  .sort((a, b) => getMantleMarkTimestamp(b) - getMantleMarkTimestamp(a));
+const leadLegacyView = legacyMarkViews[0] ?? null;
+const supportingLegacyViews = legacyMarkViews.slice(1, 4);
+const recapLegacyViews = legacyMarkViews.slice(4);
+
 const openRiverForMantle = (markId?: string) => {
   if (mantleMarkViews.length === 0) return;
 
@@ -2199,6 +2214,26 @@ const openRiverForMantle = (markId?: string) => {
       subtitle: `${mantleMarkViews.length} approved ${mantleMarkViews.length === 1 ? 'Mark' : 'Marks'}`,
       returnToGroupId: group.id,
       returnToGroupTab: 'mantle',
+    },
+  } as any);
+};
+
+const openRiverForLegacy = (markId?: string) => {
+  if (legacyMarkViews.length === 0) return;
+
+  const ids = legacyMarkViews.map(view => view.milestone.id);
+  const requestedIndex = markId ? ids.indexOf(markId) : 0;
+  const start = requestedIndex >= 0 ? requestedIndex : 0;
+
+  router.push({
+    pathname: '/river',
+    params: {
+      ids: ids.join(','),
+      start: String(start),
+      title: `${group.name} Legacy`,
+      subtitle: `${legacyMarkViews.length} saved ${legacyMarkViews.length === 1 ? 'Mark' : 'Marks'}`,
+      returnToGroupId: group.id,
+      returnToGroupTab: 'legacy',
     },
   } as any);
 };
@@ -2609,6 +2644,16 @@ const relaySettingsCard = (
               </Text>
             </TouchableOpacity>
 
+            <TouchableOpacity
+              style={[s.spaceProfilePill, tab === 'legacy' && s.spaceProfilePillActive]}
+              onPress={() => selectSpaceTab('legacy')}
+              activeOpacity={0.86}
+            >
+              <Text style={[s.spaceProfilePillText, tab === 'legacy' && s.spaceProfilePillTextActive]}>
+                Legacy
+              </Text>
+            </TouchableOpacity>
+
             {group.bookEnabled === true && (
               <TouchableOpacity
                 style={[s.spaceProfilePill, tab === 'book' && s.spaceProfilePillActive]}
@@ -2616,7 +2661,7 @@ const relaySettingsCard = (
                 activeOpacity={0.86}
               >
                 <Text style={[s.spaceProfilePillText, tab === 'book' && s.spaceProfilePillTextActive]}>
-                  Ledger
+                  Book
                 </Text>
               </TouchableOpacity>
             )}
@@ -2644,7 +2689,7 @@ const relaySettingsCard = (
             <View style={{ flex: 1 }}>
               <Text style={s.spaceSettingsTitle}>{group.name}</Text>
               <Text style={s.spaceSettingsHint} numberOfLines={2}>
-                {group.description || 'Chat, Marks, calendar, gallery, and ledger work for this Space.'}
+                {group.description || 'Chat, Marks, calendar, gallery, and the Book work for this Space.'}
               </Text>
             </View>
 
@@ -3115,6 +3160,17 @@ const relaySettingsCard = (
             placeLabel,
             view.metadata.savedToBook ? 'Legacy' : null,
           ].filter(Boolean) as string[];
+          const permissionLabels = [
+            view.metadata.markPermissions.guardianConsentNeeded ? { label: 'Consent needed', tone: 'danger' as const } : null,
+            view.metadata.markPermissions.restricted ? { label: 'Restricted', tone: 'danger' as const } : null,
+            view.metadata.markPermissions.highlightApproved && !view.metadata.markPermissions.restricted
+              ? { label: 'Mantle', tone: 'gold' as const }
+              : null,
+            view.metadata.markPermissions.bookApproved && !view.metadata.markPermissions.restricted
+              ? { label: 'Legacy', tone: 'gold' as const }
+              : null,
+            view.metadata.markPermissions.privateSpaceOnly ? { label: 'Private Space', tone: 'neutral' as const } : null,
+          ].filter(Boolean) as { label: string; tone: 'danger' | 'gold' | 'neutral' }[];
           const markMeta = [
             `Logged by ${authorProfile.displayName}`,
             formatStickyDate(mark.createdAt),
@@ -3166,6 +3222,49 @@ const relaySettingsCard = (
                   {contextLabels.map(label => (
                     <View key={`${mark.id}_${label}`} style={s.markContextMiniChip}>
                       <Text style={s.markContextMiniText}>{label}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              {permissionLabels.length > 0 && (
+                <View style={s.markTagRow}>
+                  {permissionLabels.map(item => (
+                    <View
+                      key={`${mark.id}_${item.label}`}
+                      style={[
+                        s.markPermissionMiniChip,
+                        {
+                          borderColor:
+                            item.tone === 'danger'
+                              ? theme.danger
+                              : item.tone === 'gold'
+                                ? theme.gold
+                                : theme.border,
+                          backgroundColor:
+                            item.tone === 'danger'
+                              ? theme.danger
+                              : item.tone === 'gold'
+                                ? theme.goldLight
+                                : theme.raised,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          s.markPermissionMiniText,
+                          {
+                            color:
+                              item.tone === 'danger'
+                                ? theme.bg
+                                : item.tone === 'gold'
+                                  ? theme.gold
+                                  : theme.textSecondary,
+                          },
+                        ]}
+                      >
+                        {item.label}
+                      </Text>
                     </View>
                   ))}
                 </View>
@@ -3347,7 +3446,94 @@ const relaySettingsCard = (
         />
       )}
 
-            {/* Ledger tab */}
+      {/* Legacy tab */}
+      {tab === 'legacy' && (
+        <View style={s.spaceTabPanel}>
+          <ScrollView
+            style={s.spaceTabScroll}
+            contentContainerStyle={s.mantlePageContent}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.gold} />}
+          >
+            <View style={[s.mantleCompactHeader, sportsMantle && s.mantleCompactHeaderSports]}>
+              <View style={s.mantleCompactTopRow}>
+                <View style={s.mantleCompactBadge}>
+                  <Text style={s.mantleCompactBadgeText}>
+                    {spaceCategoryIcon ? `${spaceCategoryIcon} ` : ''}Legacy builder
+                  </Text>
+                </View>
+                <Text style={s.mantleCompactCount}>
+                  {legacyMarkViews.length} {legacyMarkViews.length === 1 ? 'Mark' : 'Marks'}
+                </Text>
+              </View>
+
+              <Text style={s.mantleCompactTitle} numberOfLines={2}>
+                {group.name} Legacy
+              </Text>
+
+              <Text style={s.mantleCompactSubtitle} numberOfLines={3}>
+                Saved Marks that can become a season recap, classroom memory, family keepsake, or year-end collection.
+              </Text>
+
+              <TouchableOpacity
+                style={[
+                  s.mantleRiverButton,
+                  legacyMarkViews.length === 0 && s.mantleRiverButtonDisabled,
+                ]}
+                onPress={() => openRiverForLegacy()}
+                disabled={legacyMarkViews.length === 0}
+                activeOpacity={0.86}
+              >
+                <View style={s.mantleRiverIconWrap}>
+                  <Ionicons name="play" size={13} color={theme.bg} />
+                </View>
+                <Text style={s.mantleRiverButtonText}>Preview in River</Text>
+              </TouchableOpacity>
+            </View>
+
+            {leadLegacyView ? (
+              <>
+                {renderMantleMarkCard(leadLegacyView, 'lead')}
+
+                {supportingLegacyViews.length > 0 && (
+                  <View style={s.mantlePodiumSection}>
+                    <View style={s.mantleSectionHeader}>
+                      <Text style={s.mantleSectionKicker}>Saved for Legacy</Text>
+                      <Text style={s.mantleSectionTitle}>Core memories</Text>
+                    </View>
+
+                    <View style={s.mantlePodiumGrid}>
+                      {supportingLegacyViews.map((view, index) => renderMantleMarkCard(view, 'podium', index))}
+                    </View>
+                  </View>
+                )}
+
+                {recapLegacyViews.length > 0 && (
+                  <View style={s.mantleRecapSection}>
+                    <View style={s.mantleSectionHeader}>
+                      <Text style={s.mantleSectionKicker}>More saved Marks</Text>
+                      <Text style={s.mantleSectionTitle}>Building the collection</Text>
+                    </View>
+
+                    <View style={s.mantleRecapGrid}>
+                      {recapLegacyViews.map((view, index) => renderMantleMarkCard(view, 'recap', index))}
+                    </View>
+                  </View>
+                )}
+              </>
+            ) : (
+              <View style={s.empty}>
+                <Text style={s.emptyIcon}>L</Text>
+                <Text style={s.emptyText}>No Legacy Marks yet</Text>
+                <Text style={s.emptyHint}>
+                  Marks saved toward Legacy or approved for Legacy will appear here.
+                </Text>
+              </View>
+            )}
+          </ScrollView>
+        </View>
+      )}
+
+      {/* Book tab */}
       {tab === 'book' && (
         <View style={s.spaceTabPanel}>
         <GroupBookTab
@@ -4856,6 +5042,16 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     color: theme.textSecondary,
     fontSize: 12,
     fontWeight: '800',
+  },
+  markPermissionMiniChip: {
+    borderWidth: 0.5,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  markPermissionMiniText: {
+    fontSize: 12,
+    fontWeight: '900',
   },
   markTagChip: {
     minHeight: 32,
