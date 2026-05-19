@@ -52,8 +52,8 @@ import {
 } from '../src/utils/nostr';
 import {
   formatDate,
-  getMilestones,
   getFamilyMembers,
+  getMilestones,
   saveRemoteMilestone,
   updateMilestone,
   type Milestone,
@@ -769,8 +769,8 @@ const openMediaViewer = (uri: string) => {
     },
     {
       key: 'highlightApproved',
-      label: 'Approve for Highlight',
-      detail: 'Can appear in Space Mantle or featured recaps.',
+      label: 'Approve for Mantle',
+      detail: 'Can appear in the Space Mantle or featured recaps.',
     },
     {
       key: 'bookApproved',
@@ -1365,7 +1365,7 @@ const openMediaViewer = (uri: string) => {
                     </Text>
                   )}
                   <Text style={[s.contextHint, { color: theme.textMuted }]}>
-                    These flags prepare Mantle and Legacy drafts. They do not change current visibility yet.
+                    Mantle uses these approvals now. Legacy approval prepares future album drafts. Restricted overrides both.
                   </Text>
                 </>
               ) : (
