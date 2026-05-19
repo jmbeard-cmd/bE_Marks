@@ -36,6 +36,14 @@ export const FAST_RELAYS = [
 export const FAMILY_MILESTONE_KIND = 30078;
 export const FAMILY_MEMBERSHIP_KIND = 30079;
 
+const DM_LIVE_DEBUG = false;
+
+function dmLiveLog(...args: unknown[]) {
+  if (DM_LIVE_DEBUG) {
+    console.log(...args);
+  }
+}
+
 // ─── Key Management ───────────────────────────────────────────────
 
 export async function generateAndStoreKeypair(): Promise<{ npub: string; nsec: string }> {
@@ -474,7 +482,7 @@ export async function subscribeToNostrDMs(
     const seen = new Set<string>();
 
     ws.onopen = () => {
-  console.log('[DM LIVE] connected');
+  dmLiveLog('[DM LIVE] connected');
 
   const authEvent = finalizeEvent({
     kind: 22242,
@@ -487,11 +495,11 @@ export async function subscribeToNostrDMs(
   }, sk);
 
   ws.send(JSON.stringify(['AUTH', authEvent]));
-  console.log('[DM AUTH] proactive auth sent');
+  dmLiveLog('[DM AUTH] proactive auth sent');
 
   // 🔥 WAIT before sending REQ
   setTimeout(() => {
-    console.log('[DM LIVE] sending REQ after AUTH');
+    dmLiveLog('[DM LIVE] sending REQ after AUTH');
 
     ws.send(JSON.stringify([
   'REQ',
@@ -510,7 +518,7 @@ export async function subscribeToNostrDMs(
 
         // 🔐 HANDLE AUTH
         if (data[0] === 'AUTH') {
-          console.log('[DM AUTH] challenge received');
+          dmLiveLog('[DM AUTH] challenge received');
 
           const challenge = data[1];
 
@@ -525,7 +533,7 @@ export async function subscribeToNostrDMs(
           }, sk);
 
           ws.send(JSON.stringify(['AUTH', authEvent]));
-          console.log('[DM AUTH] response sent');
+          dmLiveLog('[DM AUTH] response sent');
           return;
         }
 
@@ -537,14 +545,13 @@ const wrapPTag = wrapped.tags?.find((tag: string[]) => tag[0] === 'p');
 const wrapRecipient = wrapPTag?.[1] || '';
 
 if (wrapRecipient.toLowerCase() !== myPubkey.toLowerCase()) {
-  console.log('[DM LIVE] skipped 1059 not addressed to me');
   return;
 }
 
 if (seen.has(wrapped.id)) return;
 seen.add(wrapped.id);
 
-console.log('[DM LIVE] wrapped event received for me');
+dmLiveLog('[DM LIVE] wrapped event received for me');
 
           let inner: any = null;
 
@@ -581,7 +588,7 @@ try {
         }
 
         if (data[0] === 'EOSE') {
-          console.log('[DM LIVE] EOSE');
+          dmLiveLog('[DM LIVE] EOSE');
         }
 
       } catch (e) {

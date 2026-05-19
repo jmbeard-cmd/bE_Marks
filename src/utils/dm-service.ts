@@ -54,9 +54,15 @@ let _running = false;
 let _unsubscribe: (() => void) | null = null;
 let _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let _appStateSubscription: any = null;
+let _restoreInFlight: Promise<void> | null = null;
+let _lastRestorePubkey = '';
+let _lastRestoreAt = 0;
+let _lastConnectAt = 0;
 const _seenIds = new Set<string>();
 const RESTORE_CHUNK_SIZE = 20;
 const BUSY_WAIT_MS = 500;
+const RESTORE_COOLDOWN_MS = 5 * 60_000;
+const ACTIVE_RECONNECT_COOLDOWN_MS = 45_000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -131,7 +137,11 @@ export async function startDMService(): Promise<void> {
         console.log('[DMService] AppState:', state);
 
         if (state === 'active') {
-          _scheduleReconnect(500);
+          const recentlyConnected = Date.now() - _lastConnectAt < ACTIVE_RECONNECT_COOLDOWN_MS;
+
+          if (!_unsubscribe || !recentlyConnected) {
+            _scheduleReconnect(1500);
+          }
         }
       }
     );
@@ -279,6 +289,7 @@ await sendLocalDMNotification({
 });
 
 _unsubscribe = unsubscribe;
+_lastConnectAt = Date.now();
 console.log('[DMService] subscription started (nostr.ts)');
 
     _scheduleKeepAlive();
@@ -326,6 +337,21 @@ function _scheduleKeepAlive(): void {
   }, 5 * 60_000);
 }
 export async function restoreDMsFromRelay(): Promise<void> {
+  if (_restoreInFlight) {
+    console.log('[DM RESTORE] already running; joining existing restore');
+    return _restoreInFlight;
+  }
+
+  _restoreInFlight = restoreDMsFromRelayNow();
+
+  try {
+    await _restoreInFlight;
+  } finally {
+    _restoreInFlight = null;
+  }
+}
+
+async function restoreDMsFromRelayNow(): Promise<void> {
   if (isAppBusy()) {
     console.log('[DM RESTORE] app busy, waiting to restore');
     await waitUntilAppIsNotBusy();
@@ -352,6 +378,15 @@ export async function restoreDMsFromRelay(): Promise<void> {
     const normalizedMyPubkey = myPubkey.toLowerCase();
 
     console.log('[DM RESTORE] myPubkey:', myPubkey.slice(0, 16));
+
+    const now = Date.now();
+    if (
+      _lastRestorePubkey === myPubkey &&
+      now - _lastRestoreAt < RESTORE_COOLDOWN_MS
+    ) {
+      console.log('[DM RESTORE] skipped; recently restored');
+      return;
+    }
 
     const existingThreads = await getDMThreads();
 
@@ -465,6 +500,9 @@ if (!threadId) {
 
       emitDMChanged('__restore_done__');
     }, 500);
+
+    _lastRestorePubkey = myPubkey;
+    _lastRestoreAt = Date.now();
 
     console.log('[DM RESTORE] complete, saved candidates:', messagesToSave.length);
 
