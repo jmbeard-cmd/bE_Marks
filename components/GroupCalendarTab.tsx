@@ -5,10 +5,14 @@ import {
   getCalendarEventsForGroup,
   getMyRSVP,
   getRSVPCounts,
+  getSpaceEventTypeIcon,
+  getSpaceEventTypeLabel,
   isEventPast,
   submitRSVP,
+  type GameHomeAway,
   type GroupCalendarEvent,
   type RSVPStatus,
+  type SpaceEventType,
 } from '@/src/utils/group-calendar';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -88,6 +92,23 @@ const TIME_OPTIONS = [
   '9:00 PM',
 ];
 
+const SPACE_EVENT_TYPE_OPTIONS: SpaceEventType[] = [
+  'game',
+  'practice',
+  'tournament',
+  'meeting',
+  'fundraiser',
+  'banquet',
+  'event',
+  'other',
+];
+
+const HOME_AWAY_OPTIONS: { value: GameHomeAway; label: string }[] = [
+  { value: 'home', label: 'Home' },
+  { value: 'away', label: 'Away' },
+  { value: 'neutral', label: 'Neutral' },
+];
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function GroupCalendarTab({
@@ -111,14 +132,18 @@ export default function GroupCalendarTab({
   const [rsvpState, setRsvpState]   = useState<Record<string, RSVPEntry>>({});
 
   // Form state
-  const [evTitle, setEvTitle]         = useState('');
-  const [evDescription, setEvDesc]    = useState('');
-  const [evLocation, setEvLocation]   = useState('');
-  const [evIsAllDay, setEvIsAllDay]   = useState(false);
-  const [evDate, setEvDate]           = useState('');
-  const [evStartTime, setEvStartTime] = useState('');
-  const [evEndTime, setEvEndTime]     = useState('');
-  const [pickerMonth, setPickerMonth] = useState(() => new Date());
+  const [evTitle, setEvTitle]                 = useState('');
+  const [evDescription, setEvDesc]            = useState('');
+  const [evLocation, setEvLocation]           = useState('');
+  const [evIsAllDay, setEvIsAllDay]           = useState(false);
+  const [evDate, setEvDate]                   = useState('');
+  const [evStartTime, setEvStartTime]         = useState('');
+  const [evEndTime, setEvEndTime]             = useState('');
+  const [evSpaceEventType, setEvSpaceEventType] = useState<SpaceEventType>('event');
+  const [evOpponent, setEvOpponent]           = useState('');
+  const [evHomeAway, setEvHomeAway]           = useState<GameHomeAway>('home');
+  const [evLegacyEligible, setEvLegacyEligible] = useState(true);
+  const [pickerMonth, setPickerMonth]         = useState(() => new Date());
 
   // ── Load ──────────────────────────────────────────────────────────────────
 
@@ -235,6 +260,10 @@ export default function GroupCalendarTab({
     setEvStartTime('');
     setEvEndTime('');
     setEvIsAllDay(false);
+    setEvSpaceEventType('event');
+    setEvOpponent('');
+    setEvHomeAway('home');
+    setEvLegacyEligible(true);
   };
 
   const selectDate = (date: Date) => {
@@ -320,17 +349,25 @@ export default function GroupCalendarTab({
       }
 
       const createdEvent = await createCalendarEvent({
-        groupId:     group.id,
-        title:       evTitle.trim(),
-        description: evDescription.trim() || undefined,
-        location:    evLocation.trim() || undefined,
-        eventType:   evIsAllDay ? 'allday' : 'timed',
+        groupId:       group.id,
+        title:         evTitle.trim(),
+        description:   evDescription.trim() || undefined,
+        location:      evLocation.trim() || undefined,
+        eventType:     evIsAllDay ? 'allday' : 'timed',
+        spaceEventType: evSpaceEventType,
+        opponent:      evSpaceEventType === 'game' || evSpaceEventType === 'tournament'
+          ? evOpponent.trim() || undefined
+          : undefined,
+        homeAway:      evSpaceEventType === 'game' || evSpaceEventType === 'tournament'
+          ? evHomeAway
+          : undefined,
+        legacyEligible: evLegacyEligible,
         startTime,
         endTime,
         startDate,
-        authorNpub:  npub,
-        authorName:  displayName,
-        relayUrl:    group.relayUrl,
+        authorNpub:    npub,
+        authorName:    displayName,
+        relayUrl:      group.relayUrl,
       });
 
       setEvents(current =>
@@ -469,6 +506,85 @@ export default function GroupCalendarTab({
                 placeholderTextColor={theme.textMuted}
                 autoFocus
               />
+
+                            <Text style={s.inputLabel}>EVENT TYPE</Text>
+              <View style={s.eventTypeGrid}>
+                {SPACE_EVENT_TYPE_OPTIONS.map(type => {
+                  const selected = evSpaceEventType === type;
+
+                  return (
+                    <TouchableOpacity
+                      key={type}
+                      style={[s.eventTypeChip, selected && s.eventTypeChipSelected]}
+                      onPress={() => setEvSpaceEventType(type)}
+                      activeOpacity={0.82}
+                    >
+                      <Text style={s.eventTypeEmoji}>{getSpaceEventTypeIcon(type)}</Text>
+                      <Text
+                        style={[
+                          s.eventTypeText,
+                          selected && s.eventTypeTextSelected,
+                        ]}
+                      >
+                        {getSpaceEventTypeLabel(type)}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {(evSpaceEventType === 'game' || evSpaceEventType === 'tournament') && (
+                <>
+                  <Text style={s.inputLabel}>OPPONENT  (optional)</Text>
+                  <TextInput
+                    style={s.input}
+                    value={evOpponent}
+                    onChangeText={setEvOpponent}
+                    placeholder="Rush Springs, Lindsay, Tuttle…"
+                    placeholderTextColor={theme.textMuted}
+                  />
+
+                  <Text style={s.inputLabel}>HOME / AWAY</Text>
+                  <View style={s.homeAwayRow}>
+                    {HOME_AWAY_OPTIONS.map(option => {
+                      const selected = evHomeAway === option.value;
+
+                      return (
+                        <TouchableOpacity
+                          key={option.value}
+                          style={[s.homeAwayChip, selected && s.homeAwayChipSelected]}
+                          onPress={() => setEvHomeAway(option.value)}
+                          activeOpacity={0.82}
+                        >
+                          <Text
+                            style={[
+                              s.homeAwayText,
+                              selected && s.homeAwayTextSelected,
+                            ]}
+                          >
+                            {option.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </>
+              )}
+
+              <View style={s.legacyToggleRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.toggleLabel}>Legacy-ready</Text>
+                  <Text style={s.toggleHint}>
+                    Use this event later when building season memories.
+                  </Text>
+                </View>
+                <Switch
+                  value={evLegacyEligible}
+                  onValueChange={setEvLegacyEligible}
+                  trackColor={{ false: theme.raised, true: theme.gold }}
+                  thumbColor="#fff"
+                />
+              </View>
 
               <Text style={s.inputLabel}>DATE *  (MM/DD/YYYY)</Text>
               <View style={s.datePickerBox}>
@@ -1090,6 +1206,78 @@ fabText: {
     marginTop: 8,
   },
   inputMulti: { minHeight: 80, textAlignVertical: 'top', lineHeight: 21 },
+    eventTypeGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 4,
+  },
+  eventTypeChip: {
+    width: '48%',
+    minHeight: 42,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    borderRadius: 12,
+    backgroundColor: theme.surface,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+  },
+  eventTypeChipSelected: {
+    borderColor: theme.gold,
+    backgroundColor: theme.raised,
+  },
+  eventTypeEmoji: {
+    fontSize: 15,
+  },
+  eventTypeText: {
+    flex: 1,
+    color: theme.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  eventTypeTextSelected: {
+    color: theme.gold,
+  },
+  homeAwayRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 4,
+  },
+  homeAwayChip: {
+    flex: 1,
+    minHeight: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    borderRadius: 12,
+    backgroundColor: theme.surface,
+    paddingHorizontal: 10,
+  },
+  homeAwayChipSelected: {
+    borderColor: theme.gold,
+    backgroundColor: theme.raised,
+  },
+  homeAwayText: {
+    color: theme.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  homeAwayTextSelected: {
+    color: theme.gold,
+  },
+  legacyToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderBottomWidth: 0.5,
+    borderBottomColor: theme.border,
+    marginBottom: 4,
+    gap: 12,
+  },
 
   modalActions:       { flexDirection: 'row', gap: 10, marginTop: 16 },
   cancelBtn:          { flex: 1, padding: 12, borderRadius: 10, borderWidth: 0.5, borderColor: theme.border, alignItems: 'center' },
