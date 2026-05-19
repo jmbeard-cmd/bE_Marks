@@ -6,6 +6,9 @@ import ts from 'typescript';
 
 const root = process.cwd();
 const storagePath = path.join(root, 'src', 'utils', 'storage.ts');
+const groupDetailPath = path.join(root, 'app', 'group-detail.tsx');
+const messagesPath = path.join(root, 'app', '(tabs)', 'messages.tsx');
+const livingSpacesStoragePath = path.join(root, 'src', 'utils', 'living-spaces-storage.ts');
 const store = new Map();
 let setCalls = [];
 
@@ -84,6 +87,55 @@ function loadStorageModule() {
   }
 
   return storageModule.exports;
+}
+
+function readSource(filePath) {
+  return fs.readFileSync(filePath, 'utf8');
+}
+
+function extractBlock(source, marker) {
+  const markerIndex = source.indexOf(marker);
+  assert.notEqual(markerIndex, -1, `missing source marker: ${marker}`);
+
+  const braceIndex = source.indexOf('{', markerIndex);
+  assert.notEqual(braceIndex, -1, `missing block body for marker: ${marker}`);
+
+  let depth = 0;
+
+  for (let index = braceIndex; index < source.length; index += 1) {
+    const char = source[index];
+
+    if (char === '{') {
+      depth += 1;
+    } else if (char === '}') {
+      depth -= 1;
+
+      if (depth === 0) {
+        return source.slice(markerIndex, index + 1);
+      }
+    }
+  }
+
+  throw new Error(`unterminated block for marker: ${marker}`);
+}
+
+function sliceBetween(source, startMarker, endMarker) {
+  const start = source.indexOf(startMarker);
+  assert.notEqual(start, -1, `missing source marker: ${startMarker}`);
+
+  const end = source.indexOf(endMarker, start + startMarker.length);
+  assert.notEqual(end, -1, `missing end marker: ${endMarker}`);
+
+  return source.slice(start, end);
+}
+
+function assertOrdered(source, first, second, label) {
+  const firstIndex = source.indexOf(first);
+  const secondIndex = source.indexOf(second);
+
+  assert.notEqual(firstIndex, -1, `${label}: missing "${first}"`);
+  assert.notEqual(secondIndex, -1, `${label}: missing "${second}"`);
+  assert.ok(firstIndex < secondIndex, `${label}: "${first}" must appear before "${second}"`);
 }
 
 const {
@@ -203,11 +255,113 @@ function testAuditIsReadOnlyAndFindsSuspects() {
   assert.deepEqual(audit.repeatedTitles, [{ title: 'shared title', markIds: ['a', 'b'] }]);
 }
 
+function testGetMilestonesSourceStaysReadOnly() {
+  const source = readSource(storagePath);
+  const block = extractBlock(source, 'export async function getMilestones');
+
+  assert.ok(!block.includes('setItem('), 'getMilestones must not write AsyncStorage');
+  assert.ok(!block.includes('removeItem('), 'getMilestones must not remove AsyncStorage keys');
+  assert.ok(!block.includes('writeMilestones('), 'getMilestones must not call writeMilestones');
+  assert.ok(!block.includes('saveRemoteMilestone('), 'getMilestones must not import or repair remote Marks');
+}
+
+function testSpaceMarkRelaySyncStaysDisabledAndGated() {
+  const source = readSource(groupDetailPath);
+
+  assert.ok(
+    source.includes('const SPACE_MARK_RELAY_SYNC_ENABLED = false;'),
+    'Space Mark relay sync must remain disabled until import safety is proven'
+  );
+
+  const syncBlock = extractBlock(source, 'const syncSpaceMarksFromRelay = useCallback');
+  assertOrdered(
+    syncBlock,
+    'if (!SPACE_MARK_RELAY_SYNC_ENABLED) return [] as LivingMarkView[];',
+    'fetchGroupMarks',
+    'Space Mark fetch must be gated'
+  );
+
+  const backfillBlock = extractBlock(source, 'const backfillSpaceMarksToRelay = useCallback');
+  assertOrdered(
+    backfillBlock,
+    'if (!SPACE_MARK_RELAY_SYNC_ENABLED || !canPublish || !nsec) return;',
+    'publishSpaceMarkSnapshot',
+    'Space Mark backfill must be gated'
+  );
+
+  const createBlock = extractBlock(source, 'const handleCreateSpaceMark = async () =>');
+  assertOrdered(
+    createBlock,
+    'if (SPACE_MARK_RELAY_SYNC_ENABLED && nsec)',
+    'publishGroupMark',
+    'Space Mark creation must not publish unless relay sync is explicitly enabled'
+  );
+}
+
+function testSpaceMarkImportKeepsSelfOwnedLocalMarksSafe() {
+  const source = readSource(livingSpacesStoragePath);
+  const block = sliceBetween(
+    source,
+    'export async function importLivingSpaceMarkSnapshot',
+    'export async function updateLivingMarkContext'
+  );
+
+  assertOrdered(block, 'const existingLocalMilestone', 'const isSelfImport', 'self-import guard setup');
+  assertOrdered(block, 'const isSelfImport', 'if (!isSelfImport)', 'self-import check');
+  assertOrdered(block, 'if (!isSelfImport)', 'await saveRemoteMilestone(milestone);', 'remote save must be behind self-import guard');
+}
+
+function testSpaceIdentityEditsRequireAdminInMessagesTab() {
+  const source = readSource(messagesPath);
+
+  const openEditBlock = extractBlock(source, 'const openEditGroup = async');
+  assertOrdered(openEditBlock, 'const canEdit', 'if (!canEdit)', 'opening Space edit sheet must compute admin access first');
+  assertOrdered(openEditBlock, 'if (!canEdit)', "setSheet('edit-group')", 'opening Space edit sheet must block non-admins');
+
+  const saveEditBlock = extractBlock(source, 'const saveGroupSpaceEdits = async');
+  assertOrdered(saveEditBlock, 'const canEdit', 'if (!canEdit)', 'saving Space identity must compute admin access first');
+  assertOrdered(saveEditBlock, 'if (!canEdit)', 'await updateGroup(editingGroupId', 'saving Space identity must block non-admins');
+  assertOrdered(saveEditBlock, 'await updateGroup(editingGroupId', 'publishGroupMetadataSnapshot', 'Space identity saves must publish metadata');
+}
+
+function testSpaceDetailAdminOnlyMutationsStayGuarded() {
+  const source = readSource(groupDetailPath);
+
+  const relayBlock = extractBlock(source, 'const saveGroupRelaySettings = async');
+  assertOrdered(relayBlock, 'if (!isAdmin)', 'await updateGroup(group.id', 'relay settings must be admin-gated');
+  assertOrdered(relayBlock, 'await updateGroup(group.id', 'publishCurrentGroupMetadata(group.id)', 'relay updates must publish metadata');
+
+  const regenerateBlock = extractBlock(source, 'const handleRegenerateCode = () =>');
+  assertOrdered(regenerateBlock, 'if (!isAdmin)', 'regenerateInviteCode', 'invite regeneration must be admin-gated');
+
+  const archiveBlock = extractBlock(source, 'const handleArchive = () =>');
+  assertOrdered(archiveBlock, 'if (!isAdmin)', 'archiveGroup(group.id)', 'archiving must be admin-gated');
+
+  for (const marker of [
+    'const enableSchoolConsentDefaults = async () =>',
+    'const toggleSchoolMinorPolicy = async () =>',
+    'const toggleDirectoryInfoAllowed = async () =>',
+  ]) {
+    const block = extractBlock(source, marker);
+    assert.ok(
+      block.includes('if (!group || !isAdmin) return;'),
+      `${marker} must remain admin-gated`
+    );
+    assertOrdered(block, 'if (!group || !isAdmin) return;', 'await updateGroup(group.id', `${marker} updateGroup guard`);
+    assertOrdered(block, 'await updateGroup(group.id', 'publishCurrentGroupMetadata(group.id)', `${marker} metadata publish`);
+  }
+}
+
 await testGetMilestonesDoesNotRepairWrite();
 await testMissingEventIdsDoNotMerge();
 await testSameMarkIdCanMergeWithUniqueMediaKeys();
 await testSameEventDifferentIdsDoesNotMoveMedia();
 await testEmergencyBackupCreatedOnceBeforeWrite();
 testAuditIsReadOnlyAndFindsSuspects();
+testGetMilestonesSourceStaysReadOnly();
+testSpaceMarkRelaySyncStaysDisabledAndGated();
+testSpaceMarkImportKeepsSelfOwnedLocalMarksSafe();
+testSpaceIdentityEditsRequireAdminInMessagesTab();
+testSpaceDetailAdminOnlyMutationsStayGuarded();
 
 console.log('storage safety tests passed');
