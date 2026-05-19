@@ -1,7 +1,9 @@
 import {
   createCalendarEvent,
   deleteCalendarEvent,
+  deriveGameResult,
   formatEventTime,
+  formatGameScore,
   getCalendarEventsForGroup,
   getMyRSVP,
   getRSVPCounts,
@@ -9,6 +11,7 @@ import {
   getSpaceEventTypeLabel,
   isEventPast,
   submitRSVP,
+  updateCalendarEvent,
   type GameHomeAway,
   type GroupCalendarEvent,
   type RSVPStatus,
@@ -62,6 +65,7 @@ type EventCardProps = {
   onToggleExpand: () => void;
   onRSVP: (status: RSVPStatus) => void;
   onDelete: () => void;
+  onEditScore: () => void;
   isPast?: boolean;
   s: ReturnType<typeof createStyles>;
 };
@@ -130,6 +134,13 @@ export default function GroupCalendarTab({
   const [saving, setSaving]         = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [rsvpState, setRsvpState]   = useState<Record<string, RSVPEntry>>({});
+
+  const [scoreEvent, setScoreEvent] = useState<GroupCalendarEvent | null>(null);
+  const [scoreOur, setScoreOur] = useState('');
+  const [scoreOpponent, setScoreOpponent] = useState('');
+  const [scoreFinal, setScoreFinal] = useState(true);
+  const [scoreNotes, setScoreNotes] = useState('');
+  const [scoreSaving, setScoreSaving] = useState(false);
 
   // Form state
   const [evTitle, setEvTitle]                 = useState('');
@@ -247,6 +258,78 @@ export default function GroupCalendarTab({
         },
       ]
     );
+  };
+
+    // ── Score handler ─────────────────────────────────────────────────────────
+
+  const openScoreEditor = (event: GroupCalendarEvent) => {
+    setScoreEvent(event);
+    setScoreOur(
+      typeof event.ourScore === 'number' ? String(event.ourScore) : ''
+    );
+    setScoreOpponent(
+      typeof event.opponentScore === 'number' ? String(event.opponentScore) : ''
+    );
+    setScoreFinal(event.scoreFinal ?? true);
+    setScoreNotes(event.eventNotes ?? '');
+  };
+
+  const closeScoreEditor = () => {
+    setScoreEvent(null);
+    setScoreOur('');
+    setScoreOpponent('');
+    setScoreFinal(true);
+    setScoreNotes('');
+    setScoreSaving(false);
+  };
+
+  const handleSaveScore = async () => {
+    if (!scoreEvent) return;
+
+    const ourValue = Number(scoreOur);
+    const opponentValue = Number(scoreOpponent);
+
+    if (!Number.isFinite(ourValue) || !Number.isFinite(opponentValue)) {
+      Alert.alert('Score required', 'Enter both scores before saving.');
+      return;
+    }
+
+    if (ourValue < 0 || opponentValue < 0) {
+      Alert.alert('Invalid score', 'Scores cannot be negative.');
+      return;
+    }
+
+    const ourScore = Math.floor(ourValue);
+    const opponentScore = Math.floor(opponentValue);
+    const result = deriveGameResult(ourScore, opponentScore);
+
+    setScoreSaving(true);
+
+    await updateCalendarEvent(scoreEvent.id, {
+      ourScore,
+      opponentScore,
+      result,
+      scoreFinal,
+      eventNotes: scoreNotes.trim() || undefined,
+    });
+
+    setEvents(current =>
+      current.map(event =>
+        event.id === scoreEvent.id
+          ? {
+              ...event,
+              ourScore,
+              opponentScore,
+              result,
+              scoreFinal,
+              eventNotes: scoreNotes.trim() || undefined,
+              updatedAt: Math.floor(Date.now() / 1000),
+            }
+          : event
+      )
+    );
+
+    closeScoreEditor();
   };
 
   // ── Create event ──────────────────────────────────────────────────────────
@@ -478,18 +561,19 @@ export default function GroupCalendarTab({
                 </View>
 
                 {thisWeekEvents.map(event => (
-                  <EventCard
-                    key={event.id}
-                    event={event}
-                    isAdmin={isAdmin}
-                    isMember={isMember}
-                    rsvp={rsvpState[event.id]}
-                    expanded={expandedId === event.id}
-                    onToggleExpand={() => setExpandedId(id => (id === event.id ? null : event.id))}
-                    onRSVP={status => handleRSVP(event, status)}
-                    onDelete={() => handleDelete(event)}
-                    s={s}
-                  />
+<EventCard
+  key={event.id}
+  event={event}
+  isAdmin={isAdmin}
+  isMember={isMember}
+  rsvp={rsvpState[event.id]}
+  expanded={expandedId === event.id}
+  onToggleExpand={() => setExpandedId(id => (id === event.id ? null : event.id))}
+  onRSVP={status => handleRSVP(event, status)}
+  onDelete={() => handleDelete(event)}
+  onEditScore={() => openScoreEditor(event)}
+  s={s}
+/>
                 ))}
               </View>
             )}
@@ -515,6 +599,7 @@ export default function GroupCalendarTab({
                     onToggleExpand={() => setExpandedId(id => (id === event.id ? null : event.id))}
                     onRSVP={status => handleRSVP(event, status)}
                     onDelete={() => handleDelete(event)}
+                    onEditScore={() => openScoreEditor(event)}
                     s={s}
                   />
                 ))}
@@ -542,6 +627,7 @@ export default function GroupCalendarTab({
                     onToggleExpand={() => setExpandedId(id => (id === event.id ? null : event.id))}
                     onRSVP={status => handleRSVP(event, status)}
                     onDelete={() => handleDelete(event)}
+                    onEditScore={() => openScoreEditor(event)}
                     isPast
                     s={s}
                   />
@@ -571,6 +657,7 @@ export default function GroupCalendarTab({
                     onToggleExpand={() => setExpandedId(id => (id === event.id ? null : event.id))}
                     onRSVP={status => handleRSVP(event, status)}
                     onDelete={() => handleDelete(event)}
+                    onEditScore={() => openScoreEditor(event)}
                     isPast
                     s={s}
                   />
@@ -834,6 +921,107 @@ export default function GroupCalendarTab({
           </ScrollView>
         </KeyboardAvoidingView>
       </Modal>
+
+      <Modal
+        visible={!!scoreEvent}
+        transparent
+        animationType="slide"
+        onRequestClose={closeScoreEditor}
+      >
+        <KeyboardAvoidingView
+          style={s.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <View style={s.scoreModalWrap}>
+            <View style={s.modalCard}>
+              <Text style={s.modalTitle}>Game Result</Text>
+
+              {!!scoreEvent && (
+                <>
+                  <Text style={s.scoreEventTitle}>{scoreEvent.title}</Text>
+
+                  {!!scoreEvent.opponent && (
+                    <Text style={s.scoreEventSub}>
+                      vs. {scoreEvent.opponent}
+                    </Text>
+                  )}
+
+                  <View style={s.scoreInputsRow}>
+                    <View style={s.scoreInputBox}>
+                      <Text style={s.inputLabel}>US</Text>
+                      <TextInput
+                        style={[s.input, s.scoreInput]}
+                        value={scoreOur}
+                        onChangeText={setScoreOur}
+                        keyboardType="number-pad"
+                        placeholder="0"
+                        placeholderTextColor={theme.textMuted}
+                      />
+                    </View>
+
+                    <View style={s.scoreInputBox}>
+                      <Text style={s.inputLabel}>THEM</Text>
+                      <TextInput
+                        style={[s.input, s.scoreInput]}
+                        value={scoreOpponent}
+                        onChangeText={setScoreOpponent}
+                        keyboardType="number-pad"
+                        placeholder="0"
+                        placeholderTextColor={theme.textMuted}
+                      />
+                    </View>
+                  </View>
+
+                  <View style={s.toggleRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.toggleLabel}>Final score</Text>
+                      <Text style={s.toggleHint}>
+                        Turn off if the score is still in progress.
+                      </Text>
+                    </View>
+                    <Switch
+                      value={scoreFinal}
+                      onValueChange={setScoreFinal}
+                      trackColor={{ false: theme.raised, true: theme.gold }}
+                      thumbColor="#fff"
+                    />
+                  </View>
+
+                  <Text style={s.inputLabel}>RECAP NOTE  (optional)</Text>
+                  <TextInput
+                    style={[s.input, s.inputMulti]}
+                    value={scoreNotes}
+                    onChangeText={setScoreNotes}
+                    placeholder="Big win, close finish, tournament opener…"
+                    placeholderTextColor={theme.textMuted}
+                    multiline
+                    textAlignVertical="top"
+                  />
+
+                  <View style={s.modalActions}>
+                    <TouchableOpacity
+                      style={s.cancelBtn}
+                      onPress={closeScoreEditor}
+                    >
+                      <Text style={s.cancelText}>Cancel</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[s.confirmBtn, scoreSaving && s.confirmBtnDisabled]}
+                      onPress={handleSaveScore}
+                      disabled={scoreSaving}
+                    >
+                      {scoreSaving
+                        ? <ActivityIndicator size="small" color={theme.bg} />
+                        : <Text style={s.confirmText}>Save result</Text>}
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </>
   );
 }
@@ -849,6 +1037,7 @@ function EventCard({
   onToggleExpand,
   onRSVP,
   onDelete,
+  onEditScore,
   isPast = false,
   s,
 }: EventCardProps) {
@@ -913,16 +1102,44 @@ function EventCard({
 
         {(event.spaceEventType === 'game' || event.spaceEventType === 'tournament') && (
           <View style={s.gameMetaBox}>
-            {!!event.opponent && (
-              <Text style={s.gameMetaText} numberOfLines={1}>
-                vs. {event.opponent}
-              </Text>
+            <View style={s.gameMetaTopRow}>
+              <View style={{ flex: 1 }}>
+                {!!event.opponent && (
+                  <Text style={s.gameMetaText} numberOfLines={1}>
+                    vs. {event.opponent}
+                  </Text>
+                )}
+
+                {!!event.homeAway && (
+                  <Text style={s.gameMetaSubText}>
+                    {formatHomeAway(event.homeAway)}
+                  </Text>
+                )}
+              </View>
+
+              {!!formatGameScore(event) && (
+                <View style={s.scorePill}>
+                  <Text style={s.scorePillText}>
+                    {formatGameScore(event)}
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {expanded && isAdmin && past && (
+              <TouchableOpacity
+                style={s.scoreEditBtn}
+                onPress={onEditScore}
+                activeOpacity={0.82}
+              >
+                <Text style={s.scoreEditText}>
+                  {formatGameScore(event) ? 'Edit result' : 'Add result'}
+                </Text>
+              </TouchableOpacity>
             )}
 
-            {!!event.homeAway && (
-              <Text style={s.gameMetaSubText}>
-                {formatHomeAway(event.homeAway)}
-              </Text>
+            {expanded && !!event.eventNotes && (
+              <Text style={s.scoreNote}>{event.eventNotes}</Text>
             )}
           </View>
         )}
@@ -1263,6 +1480,11 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     marginTop: 2,
     marginBottom: 7,
   },
+  gameMetaTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   gameMetaText: {
     color: theme.text,
     fontSize: 13,
@@ -1273,6 +1495,40 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     marginTop: 2,
+  },
+  scorePill: {
+    borderWidth: 0.5,
+    borderColor: theme.gold,
+    borderRadius: 999,
+    backgroundColor: theme.raised,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  scorePillText: {
+    color: theme.gold,
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  scoreEditBtn: {
+    alignSelf: 'flex-start',
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    borderRadius: 999,
+    backgroundColor: theme.bg,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginTop: 9,
+  },
+  scoreEditText: {
+    color: theme.text,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  scoreNote: {
+    color: theme.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 8,
   },
   description: { color: theme.textMuted, fontSize: 13, lineHeight: 19, marginTop: 6, marginBottom: 8 },
   legacyHint: {
@@ -1612,6 +1868,35 @@ fabText: {
     borderBottomColor: theme.border,
     marginBottom: 4,
     gap: 12,
+  },
+
+    scoreModalWrap: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  scoreEventTitle: {
+    color: theme.text,
+    fontSize: 16,
+    fontWeight: '900',
+    marginBottom: 3,
+  },
+  scoreEventSub: {
+    color: theme.textMuted,
+    fontSize: 13,
+    fontWeight: '700',
+    marginBottom: 12,
+  },
+  scoreInputsRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  scoreInputBox: {
+    flex: 1,
+  },
+  scoreInput: {
+    textAlign: 'center',
+    fontSize: 24,
+    fontWeight: '900',
   },
 
   modalActions:       { flexDirection: 'row', gap: 10, marginTop: 16 },
