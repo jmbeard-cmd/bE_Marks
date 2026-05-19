@@ -138,6 +138,23 @@ function sortPrompts(prompts: LivingMarkPrompt[]): LivingMarkPrompt[] {
   });
 }
 
+function isRemoteMediaUri(uri?: string): boolean {
+  return !uri || /^https?:\/\//i.test(uri.trim());
+}
+
+function milestoneHasOnlyRemoteMedia(milestone: Milestone): boolean {
+  const mediaItems = milestone.media ?? [];
+  return (
+    isRemoteMediaUri(milestone.photoUri) &&
+    isRemoteMediaUri(milestone.videoUri) &&
+    isRemoteMediaUri(milestone.audioUri) &&
+    mediaItems.every(item =>
+      isRemoteMediaUri(item.uri) &&
+      isRemoteMediaUri(item.thumbnailUri)
+    )
+  );
+}
+
 function metadataRecordFromList(items: LivingMarkMetadata[]): Record<string, LivingMarkMetadata> {
   return items.reduce(
     (acc, item) => {
@@ -1052,11 +1069,35 @@ export async function importLivingSpaceMarkSnapshot(input: {
     ])),
   };
   const existingLocalMilestone = (await getMilestones()).find(item => item.id === milestone.id);
+
+  if (!milestone.authorNpub) {
+    console.warn('[Space Marks] skipped snapshot without author identity:', milestone.id);
+    return;
+  }
+
+  if (!milestoneHasOnlyRemoteMedia(milestone)) {
+    console.warn('[Space Marks] skipped local-media snapshot:', milestone.id);
+    return;
+  }
+
+  if (
+    existingLocalMilestone &&
+    (
+      !existingLocalMilestone.authorNpub ||
+      existingLocalMilestone.authorNpub !== milestone.authorNpub
+    )
+  ) {
+    console.warn('[Space Marks] skipped id collision with different local Mark:', milestone.id);
+    return;
+  }
+
   const isSelfImport =
     !!input.currentNpub &&
     !!milestone.authorNpub &&
     milestone.authorNpub === input.currentNpub &&
     !!existingLocalMilestone;
+
+  if (isSelfImport) return;
 
   if (!isSelfImport) {
     await saveRemoteMilestone(milestone);

@@ -1482,6 +1482,23 @@ export type NostrGroupMarkPayload = {
   updatedAt: number;
 };
 
+function isRemoteMediaUri(uri?: string): boolean {
+  return !uri || /^https?:\/\//i.test(uri.trim());
+}
+
+function milestoneHasOnlyRemoteMedia(milestone: Milestone): boolean {
+  const mediaItems = milestone.media ?? [];
+  return (
+    isRemoteMediaUri(milestone.photoUri) &&
+    isRemoteMediaUri(milestone.videoUri) &&
+    isRemoteMediaUri(milestone.audioUri) &&
+    mediaItems.every(item =>
+      isRemoteMediaUri(item.uri) &&
+      isRemoteMediaUri(item.thumbnailUri)
+    )
+  );
+}
+
 export async function publishGroupMark(input: {
   groupId: string;
   milestone: Milestone;
@@ -1497,6 +1514,15 @@ export async function publishGroupMark(input: {
     const sk = decoded.data as Uint8Array;
     const pk = getPublicKey(sk);
     const now = Math.floor(Date.now() / 1000);
+
+    if (!input.milestone.authorNpub) {
+      return { success: false, error: 'Space Mark snapshot missing author identity' };
+    }
+
+    if (!milestoneHasOnlyRemoteMedia(input.milestone)) {
+      return { success: false, error: 'Space Mark snapshot has local-only media' };
+    }
+
     const payload: NostrGroupMarkPayload = {
       schemaVersion: 2,
       groupId: input.groupId,

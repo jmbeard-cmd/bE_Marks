@@ -136,7 +136,7 @@ import { useIdentity } from './_layout';
 type Tab = 'chat' | 'stickies' | 'mantle' | 'calendar' | 'gallery' | 'members' | 'book';
 const GROUP_LOCAL_GALLERY_KEY = 'be_group_local_gallery_v1';
 const SPACE_FAVORITES_KEY = 'be_space_favorite_ids_v1';
-const SPACE_MARK_RELAY_SYNC_ENABLED = false;
+const SPACE_MARK_RELAY_SYNC_ENABLED = true;
 const SPACE_MARK_PRESET_TAGS = ['Family', 'School', 'Team', 'Church', 'Event', 'Memory'];
 const SPACE_MARK_LIFE_STAGE_OPTIONS = ['Elementary', 'Middle School', 'High School', 'Season', 'Trip', 'Family'];
 const SPORTS_SPACE_KEYS = new Set([

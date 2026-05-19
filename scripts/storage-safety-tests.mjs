@@ -9,6 +9,7 @@ const storagePath = path.join(root, 'src', 'utils', 'storage.ts');
 const groupDetailPath = path.join(root, 'app', 'group-detail.tsx');
 const messagesPath = path.join(root, 'app', '(tabs)', 'messages.tsx');
 const livingSpacesStoragePath = path.join(root, 'src', 'utils', 'living-spaces-storage.ts');
+const nostrPath = path.join(root, 'src', 'utils', 'nostr.ts');
 const store = new Map();
 let setCalls = [];
 
@@ -265,12 +266,12 @@ function testGetMilestonesSourceStaysReadOnly() {
   assert.ok(!block.includes('saveRemoteMilestone('), 'getMilestones must not import or repair remote Marks');
 }
 
-function testSpaceMarkRelaySyncStaysDisabledAndGated() {
+function testSpaceMarkRelaySyncUsesSafeV2Gates() {
   const source = readSource(groupDetailPath);
 
   assert.ok(
-    source.includes('const SPACE_MARK_RELAY_SYNC_ENABLED = false;'),
-    'Space Mark relay sync must remain disabled until import safety is proven'
+    source.includes('const SPACE_MARK_RELAY_SYNC_ENABLED = true;'),
+    'Space Mark relay sync should only be enabled after V2 import gates are present'
   );
 
   const syncBlock = extractBlock(source, 'const syncSpaceMarksFromRelay = useCallback');
@@ -296,6 +297,37 @@ function testSpaceMarkRelaySyncStaysDisabledAndGated() {
     'publishGroupMark',
     'Space Mark creation must not publish unless relay sync is explicitly enabled'
   );
+
+  const nostrSource = readSource(nostrPath);
+  const publishBlock = sliceBetween(
+    nostrSource,
+    'export async function publishGroupMark',
+    'export function fetchGroupMarks'
+  );
+  assertOrdered(
+    publishBlock,
+    'if (!input.milestone.authorNpub)',
+    'const payload: NostrGroupMarkPayload =',
+    'Space Mark publish must require author identity before creating payload'
+  );
+  assertOrdered(
+    publishBlock,
+    'if (!milestoneHasOnlyRemoteMedia(input.milestone))',
+    'const payload: NostrGroupMarkPayload =',
+    'Space Mark publish must reject local-only media before creating payload'
+  );
+  assert.ok(
+    publishBlock.includes('schemaVersion: 2'),
+    'Space Mark publish must use schemaVersion 2 payloads'
+  );
+
+  const fetchBlock = extractBlock(nostrSource, 'export function fetchGroupMarks');
+  assertOrdered(
+    fetchBlock,
+    'if (parsed.schemaVersion !== 2) return;',
+    'byMarkId.set(parsed.milestone.id, parsed);',
+    'Space Mark fetch must ignore unversioned or non-V2 snapshots'
+  );
 }
 
 function testSpaceMarkImportKeepsSelfOwnedLocalMarksSafe() {
@@ -307,6 +339,9 @@ function testSpaceMarkImportKeepsSelfOwnedLocalMarksSafe() {
   );
 
   assertOrdered(block, 'const existingLocalMilestone', 'const isSelfImport', 'self-import guard setup');
+  assertOrdered(block, 'if (!milestone.authorNpub)', 'const isSelfImport', 'Space Mark import must require author identity before import');
+  assertOrdered(block, 'if (!milestoneHasOnlyRemoteMedia(milestone))', 'const isSelfImport', 'Space Mark import must reject local-only media before import');
+  assertOrdered(block, 'existingLocalMilestone.authorNpub !== milestone.authorNpub', 'const isSelfImport', 'Space Mark import must skip unsafe id collisions before import');
   assertOrdered(block, 'const isSelfImport', 'if (!isSelfImport)', 'self-import check');
   assertOrdered(block, 'if (!isSelfImport)', 'await saveRemoteMilestone(milestone);', 'remote save must be behind self-import guard');
 }
@@ -359,7 +394,7 @@ await testSameEventDifferentIdsDoesNotMoveMedia();
 await testEmergencyBackupCreatedOnceBeforeWrite();
 testAuditIsReadOnlyAndFindsSuspects();
 testGetMilestonesSourceStaysReadOnly();
-testSpaceMarkRelaySyncStaysDisabledAndGated();
+testSpaceMarkRelaySyncUsesSafeV2Gates();
 testSpaceMarkImportKeepsSelfOwnedLocalMarksSafe();
 testSpaceIdentityEditsRequireAdminInMessagesTab();
 testSpaceDetailAdminOnlyMutationsStayGuarded();
