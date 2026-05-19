@@ -1190,6 +1190,10 @@ export interface NostrGroupPayload {
   bookOfficerNpubs?: string[];
 }
 
+function isRemoteImageUrl(uri?: string): uri is string {
+  return typeof uri === 'string' && /^https?:\/\//i.test(uri.trim());
+}
+
 export async function publishGroup(
   group: NostrGroupPayload,
   nsec: string
@@ -1201,6 +1205,7 @@ export async function publishGroup(
     const pk = getPublicKey(sk);
 
     const normalizedInviteCode = group.inviteCode.toUpperCase();
+    const coverImage = isRemoteImageUrl(group.coverImage) ? group.coverImage.trim() : undefined;
 
     const tags: string[][] = [
       ['d', group.id],
@@ -1224,7 +1229,7 @@ export async function publishGroup(
     if (group.consentNoticeVersion) tags.push(['consent-notice', group.consentNoticeVersion]);
     if (group.sport) tags.push(['sport', group.sport]);
     if (group.icon) tags.push(['icon', group.icon]);
-    if (group.coverImage) tags.push(['cover-image', group.coverImage]);
+    if (coverImage) tags.push(['cover-image', coverImage]);
     if (group.schoolId) tags.push(['school', group.schoolId]);
     if (group.bookEnabled) tags.push(['book', 'enabled']);
 
@@ -1246,7 +1251,7 @@ export async function publishGroup(
       consentNoticeVersion: group.consentNoticeVersion,
       sport: group.sport,
       icon: group.icon,
-      coverImage: group.coverImage,
+      coverImage,
       schoolId: group.schoolId,
       inviteCode: group.inviteCode,
       status: group.status,
@@ -1312,8 +1317,9 @@ export function fetchGroupByInviteCode(
             clearTimeout(timeout);
             ws.close();
             const parsed = JSON.parse(data[2].content || '{}') as NostrGroupPayload;
+            const coverImage = parsed.coverImage || data[2].tags?.find((tag: string[]) => tag[0] === 'cover-image')?.[1];
             console.log('[Groups] invite code matched group');
-            resolve(parsed);
+            resolve({ ...parsed, coverImage });
           } else if (data[0] === 'EOSE') {
             clearTimeout(timeout);
             ws.close();
@@ -1370,8 +1376,9 @@ export function fetchGroupById(
             ws.close();
 
             const parsed = JSON.parse(data[2].content || '{}') as NostrGroupPayload;
+            const coverImage = parsed.coverImage || data[2].tags?.find((tag: string[]) => tag[0] === 'cover-image')?.[1];
 
-            resolve(parsed);
+            resolve({ ...parsed, coverImage });
           }
 
           if (data[0] === 'EOSE') {

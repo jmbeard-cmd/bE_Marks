@@ -94,6 +94,57 @@ export type BEGroupVisibilitySnapshot = {
 // SecureStore is used only as a one-time fallback for older installs
 // that previously saved this data there.
 
+function isRemoteImageUrl(uri?: string): uri is string {
+  return typeof uri === 'string' && /^https?:\/\//i.test(uri.trim());
+}
+
+function groupFromNostrPayload(
+  groupEvent: NostrGroupPayload,
+  existing?: BEGroup | null
+): BEGroup {
+  const now = Math.floor(Date.now() / 1000);
+  const coverImage = isRemoteImageUrl(groupEvent.coverImage)
+    ? groupEvent.coverImage.trim()
+    : existing?.coverImage;
+
+  return {
+    id: groupEvent.id,
+    name: groupEvent.name,
+    description: groupEvent.description,
+    season: groupEvent.season,
+    spaceType: groupEvent.spaceType,
+    spaceLabel: groupEvent.spaceLabel,
+    schoolYearId: groupEvent.schoolYearId,
+    seasonId: groupEvent.seasonId,
+    parentSpaceId: groupEvent.parentSpaceId,
+    isSpace: groupEvent.isSpace === true,
+    schoolConsentMode: groupEvent.schoolConsentMode,
+    requiresGuardianConsent: groupEvent.requiresGuardianConsent === true,
+    defaultMinorMarkPolicy: groupEvent.defaultMinorMarkPolicy,
+    directoryInfoAllowed: groupEvent.directoryInfoAllowed === true,
+    consentNoticeVersion: groupEvent.consentNoticeVersion,
+    sport: groupEvent.sport,
+    icon: groupEvent.icon,
+    coverImage,
+    schoolId: groupEvent.schoolId,
+    inviteCode: groupEvent.inviteCode,
+    inviteCodeExpiry: existing?.inviteCodeExpiry,
+    status: groupEvent.status,
+    createdAt: existing?.createdAt ?? groupEvent.createdAt,
+    updatedAt: now,
+    lastPostAt: existing?.lastPostAt,
+    lastPostPreview: existing?.lastPostPreview,
+    relayUrl: groupEvent.relayUrl,
+    relayMode: groupEvent.relayMode,
+    nostrEventId: existing?.nostrEventId,
+    ownerNpub: groupEvent.ownerNpub,
+    memberCount: existing?.memberCount ?? (groupEvent.ownerNpub ? 1 : 0),
+    postCount: existing?.postCount ?? 0,
+    bookEnabled: groupEvent.bookEnabled === true,
+    bookOfficerNpubs: groupEvent.bookOfficerNpubs ?? [],
+  };
+}
+
 async function readJson<T>(key: string, fallback: T): Promise<T> {
   try {
     const asyncRaw = await AsyncStorage.getItem(key);
@@ -407,7 +458,7 @@ export function groupToNostrPayload(group: BEGroup): NostrGroupPayload {
     consentNoticeVersion: group.consentNoticeVersion,
     sport: group.sport,
     icon: group.icon,
-    coverImage: group.coverImage,
+    coverImage: isRemoteImageUrl(group.coverImage) ? group.coverImage.trim() : undefined,
     schoolId: group.schoolId,
     inviteCode: group.inviteCode,
     status: group.status,
@@ -477,7 +528,7 @@ export async function createGroup(input: {
     consentNoticeVersion: input.consentNoticeVersion?.trim() || undefined,
     sport: input.sport,
     icon: input.icon?.trim() || undefined,
-    coverImage: input.coverImage?.trim() || undefined,
+    coverImage: isRemoteImageUrl(input.coverImage) ? input.coverImage.trim() : undefined,
     schoolId: input.schoolId,
     inviteCode: generateInviteCode(),
     status: 'active',
@@ -542,13 +593,42 @@ export async function createGroup(input: {
 }
 
 export async function updateGroup(id: string, updates: Partial<BEGroup>): Promise<void> {
+  const safeUpdates = { ...updates };
+  if ('coverImage' in safeUpdates) {
+    safeUpdates.coverImage = isRemoteImageUrl(safeUpdates.coverImage)
+      ? safeUpdates.coverImage.trim()
+      : undefined;
+  }
+
   const groups = await readGroups();
   const updated = groups.map(g =>
     g.id === id
-      ? { ...g, ...updates, updatedAt: Math.floor(Date.now() / 1000) }
+      ? { ...g, ...safeUpdates, updatedAt: Math.floor(Date.now() / 1000) }
       : g
   );
   await writeGroups(updated);
+}
+
+export async function refreshGroupMetadataFromRelay(
+  groupId: string,
+  relayUrl?: string
+): Promise<BEGroup | null> {
+  const groups = await readGroups();
+  const existing = groups.find(g => g.id === groupId) ?? null;
+  const remoteGroup = await fetchGroupById(
+    groupId,
+    relayUrl || existing?.relayUrl || 'wss://relay.beginningend.com'
+  );
+
+  if (!remoteGroup) return existing;
+
+  const refreshed = groupFromNostrPayload(remoteGroup, existing);
+  const nextGroups = existing
+    ? groups.map(group => group.id === groupId ? refreshed : group)
+    : [...groups, refreshed];
+
+  await writeGroups(nextGroups);
+  return refreshed;
 }
 
 export async function archiveGroup(id: string): Promise<void> {
@@ -777,39 +857,8 @@ export async function joinGroupByCode(input: {
 
     if (remoteGroup) {
       const groups = await readGroups();
-      const now = Math.floor(Date.now() / 1000);
 
-      const newGroup: BEGroup = {
-        id: remoteGroup.id,
-        name: remoteGroup.name,
-        description: remoteGroup.description,
-        season: remoteGroup.season,
-        spaceType: remoteGroup.spaceType,
-        spaceLabel: remoteGroup.spaceLabel,
-        schoolYearId: remoteGroup.schoolYearId,
-        seasonId: remoteGroup.seasonId,
-        parentSpaceId: remoteGroup.parentSpaceId,
-        isSpace: remoteGroup.isSpace === true,
-        schoolConsentMode: remoteGroup.schoolConsentMode,
-        requiresGuardianConsent: remoteGroup.requiresGuardianConsent === true,
-        defaultMinorMarkPolicy: remoteGroup.defaultMinorMarkPolicy,
-        directoryInfoAllowed: remoteGroup.directoryInfoAllowed === true,
-        consentNoticeVersion: remoteGroup.consentNoticeVersion,
-        sport: remoteGroup.sport,
-        icon: remoteGroup.icon,
-        coverImage: remoteGroup.coverImage,
-        schoolId: remoteGroup.schoolId,
-        inviteCode: remoteGroup.inviteCode,
-        status: remoteGroup.status,
-        createdAt: remoteGroup.createdAt,
-        updatedAt: now,
-        relayUrl: remoteGroup.relayUrl,
-        ownerNpub: remoteGroup.ownerNpub,
-        memberCount: remoteGroup.ownerNpub ? 1 : 0,
-        postCount: 0,
-        bookEnabled: remoteGroup.bookEnabled === true,
-        bookOfficerNpubs: remoteGroup.bookOfficerNpubs ?? [],
-      };
+      const newGroup = groupFromNostrPayload(remoteGroup, null);
 
       groups.push(newGroup);
       await writeGroups(groups);
@@ -834,6 +883,16 @@ export async function joinGroupByCode(input: {
 
   if (!group) {
     return { success: false, error: 'Invalid or expired invite code. Make sure you have the right code from your group admin.' };
+  }
+
+  try {
+    const refreshedGroup = await refreshGroupMetadataFromRelay(
+      group.id,
+      input.relayUrl ?? group.relayUrl
+    );
+    if (refreshedGroup) group = refreshedGroup;
+  } catch (refreshError) {
+    console.warn('[Groups] metadata refresh during join failed:', refreshError);
   }
 
   if (group.inviteCodeExpiry && group.inviteCodeExpiry < Math.floor(Date.now() / 1000)) {
@@ -932,8 +991,6 @@ export async function restoreGroupsFromRelay(input: {
     console.log('[Groups] unique groupIds:', Array.from(groupIds));
 
     const existingGroups = await readGroups();
-    const now = Math.floor(Date.now() / 1000);
-
     for (const groupId of groupIds) {
       const groupEvent = await fetchGroupById(groupId);
 
@@ -945,69 +1002,9 @@ export async function restoreGroupsFromRelay(input: {
       const alreadyExists = existingGroups.find(g => g.id === groupId);
 
       if (!alreadyExists) {
-        const newGroup: BEGroup = {
-          id: groupEvent.id,
-          name: groupEvent.name,
-          description: groupEvent.description,
-          season: groupEvent.season,
-          spaceType: groupEvent.spaceType,
-          spaceLabel: groupEvent.spaceLabel,
-          schoolYearId: groupEvent.schoolYearId,
-          seasonId: groupEvent.seasonId,
-          parentSpaceId: groupEvent.parentSpaceId,
-          isSpace: groupEvent.isSpace === true,
-          schoolConsentMode: groupEvent.schoolConsentMode,
-          requiresGuardianConsent: groupEvent.requiresGuardianConsent === true,
-          defaultMinorMarkPolicy: groupEvent.defaultMinorMarkPolicy,
-          directoryInfoAllowed: groupEvent.directoryInfoAllowed === true,
-          consentNoticeVersion: groupEvent.consentNoticeVersion,
-          sport: groupEvent.sport,
-          icon: groupEvent.icon,
-          coverImage: groupEvent.coverImage,
-          schoolId: groupEvent.schoolId,
-          inviteCode: groupEvent.inviteCode,
-          status: groupEvent.status,
-          createdAt: groupEvent.createdAt,
-          updatedAt: now,
-          relayUrl: groupEvent.relayUrl,
-          relayMode: groupEvent.relayMode,
-          ownerNpub: groupEvent.ownerNpub,
-          memberCount: groupEvent.ownerNpub ? 1 : 0,
-          postCount: 0,
-          bookEnabled: groupEvent.bookEnabled === true,
-          bookOfficerNpubs: groupEvent.bookOfficerNpubs ?? [],
-        };
-
-        existingGroups.push(newGroup);
+        existingGroups.push(groupFromNostrPayload(groupEvent, null));
       } else {
-        Object.assign(alreadyExists, {
-          name: groupEvent.name,
-          description: groupEvent.description,
-          season: groupEvent.season,
-          spaceType: groupEvent.spaceType,
-          spaceLabel: groupEvent.spaceLabel,
-          schoolYearId: groupEvent.schoolYearId,
-          seasonId: groupEvent.seasonId,
-          parentSpaceId: groupEvent.parentSpaceId,
-          isSpace: groupEvent.isSpace === true,
-          schoolConsentMode: groupEvent.schoolConsentMode,
-          requiresGuardianConsent: groupEvent.requiresGuardianConsent === true,
-          defaultMinorMarkPolicy: groupEvent.defaultMinorMarkPolicy,
-          directoryInfoAllowed: groupEvent.directoryInfoAllowed === true,
-          consentNoticeVersion: groupEvent.consentNoticeVersion,
-          sport: groupEvent.sport,
-          icon: groupEvent.icon,
-          coverImage: groupEvent.coverImage,
-          schoolId: groupEvent.schoolId,
-          inviteCode: groupEvent.inviteCode,
-          status: groupEvent.status,
-          relayUrl: groupEvent.relayUrl,
-          relayMode: groupEvent.relayMode,
-          ownerNpub: groupEvent.ownerNpub,
-          bookEnabled: groupEvent.bookEnabled === true,
-          bookOfficerNpubs: groupEvent.bookOfficerNpubs ?? [],
-          updatedAt: now,
-        });
+        Object.assign(alreadyExists, groupFromNostrPayload(groupEvent, alreadyExists));
       }
 
       await syncGroupMembersFromRelay(groupId, input.relayUrls);

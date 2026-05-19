@@ -29,12 +29,18 @@ import {
   getDMThreads,
   type DMThread,
 } from '../../src/utils/dm-storage';
-import { saveLocalGroupSystemMessage } from '../../src/utils/group-messages';
+import {
+  getGroupMessagePreview,
+  getMessagesForGroup,
+  saveLocalGroupSystemMessage,
+  type GroupMessage,
+} from '../../src/utils/group-messages';
 import {
   createGroup,
   isGroupAdmin,
   joinGroupByCode,
   publishGroupMetadataSnapshot,
+  refreshGroupMetadataFromRelay,
   updateGroup,
   type BEGroup,
 } from '../../src/utils/group-storage';
@@ -50,6 +56,7 @@ import {
 } from '../../src/utils/dm-thread-list-cache';
 import { DEFAULT_RELAY, fetchNostrProfile, npubToHex, publishGroupMessage } from '../../src/utils/nostr';
 import { normalizeNostrIdentity } from '../../src/utils/nostr-identity';
+import { uploadToR2 } from '../../src/utils/r2';
 import { syncLivingSpacesFromGroups } from '../../src/utils/living-spaces-storage';
 import { notifyGroupEvent, registerGroupMemberForPush } from '../../src/utils/push-notifications';
 import type { LivingSpace, LivingSpaceType } from '../../src/types/living-spaces';
@@ -61,6 +68,10 @@ type SpaceFilter = 'all' | 'unread' | 'dms' | 'groups';
 type SpaceInboxItem =
   | { id: string; type: 'dm'; updatedAt: number; unread: number; thread: DMThread }
   | { id: string; type: 'group'; updatedAt: number; unread: number; group: BEGroup };
+type GroupPreviewOverride = {
+  preview?: string;
+  updatedAt?: number;
+};
 type SpaceTypeOption = {
   value: LivingSpaceType;
   label: string;
@@ -96,6 +107,16 @@ function getGroupInitials(name: string): string {
 function getGroupAvatarText(group: BEGroup): string {
   const customIcon = group.icon?.trim();
   return customIcon || getGroupInitials(group.name);
+}
+
+function isRemoteImageUri(uri?: string | null): uri is string {
+  return typeof uri === 'string' && /^https?:\/\//i.test(uri.trim());
+}
+
+function getLatestVisibleGroupMessage(messages: GroupMessage[]) {
+  return messages
+    .filter(message => !message.isDeleted)
+    .sort((a, b) => b.createdAt - a.createdAt)[0];
 }
 
 type DiscoveryProfile = {
@@ -323,6 +344,8 @@ export default function MessagesScreen() {
   const [profilePictures, setProfilePictures] = useState<Record<string, string>>({});
   const [sheet, setSheet] = useState<Sheet>('none');
   const [search, setSearch] = useState('');
+  const [editableGroupIds, setEditableGroupIds] = useState<Set<string>>(() => new Set());
+  const [groupPreviewOverrides, setGroupPreviewOverrides] = useState<Record<string, GroupPreviewOverride>>({});
 
   const [newTitle, setNewTitle] = useState('');
   const [newNpub, setNewNpub] = useState('');
@@ -448,6 +471,35 @@ export default function MessagesScreen() {
       loadingProfilesRef.current = false;
     }
   }, [saveThreadCardSnapshot]);
+
+  const hydrateGroupCardPreviews = useCallback(async (groupList: BEGroup[]) => {
+    if (groupList.length === 0) {
+      setGroupPreviewOverrides({});
+      return;
+    }
+
+    const entries = await Promise.all(
+      groupList.map(async group => {
+        try {
+          const messages = await getMessagesForGroup(group.id);
+          const latest = getLatestVisibleGroupMessage(messages);
+
+          return [
+            group.id,
+            {
+              preview: latest ? getGroupMessagePreview(latest) : undefined,
+              updatedAt: latest?.createdAt,
+            },
+          ] as const;
+        } catch (error) {
+          console.warn('[Spaces] failed to hydrate group card preview:', error);
+          return [group.id, {}] as const;
+        }
+      })
+    );
+
+    setGroupPreviewOverrides(Object.fromEntries(entries));
+  }, []);
 
   const loadData = useCallback(async () => {
     if (loadingThreadsRef.current) {
@@ -577,6 +629,7 @@ export default function MessagesScreen() {
 
       if (cached.updatedAt > 0) {
         setGroups(cached.activeGroups);
+        hydrateGroupCardPreviews(cached.activeGroups);
         setLoadingInitialGroups(false);
       }
 
@@ -593,13 +646,14 @@ export default function MessagesScreen() {
 
       const rebuilt = await rebuildGroupsIndexForNpub(npub);
       setGroups(rebuilt.activeGroups);
+      hydrateGroupCardPreviews(rebuilt.activeGroups);
       setLivingSpaces(await syncLivingSpacesFromGroups());
     } catch (error) {
       console.warn('[Spaces] failed to load groups:', error);
     } finally {
       setLoadingInitialGroups(false);
     }
-  }, [npub]);
+  }, [hydrateGroupCardPreviews, npub]);
 
   useFocusEffect(
     useCallback(() => {
@@ -615,6 +669,7 @@ export default function MessagesScreen() {
   useEffect(() => {
     const unsubscribe = subscribeToGroupsIndex(snapshot => {
       setGroups(snapshot.activeGroups);
+      hydrateGroupCardPreviews(snapshot.activeGroups);
       setLoadingInitialGroups(false);
       syncLivingSpacesFromGroups()
         .then(setLivingSpaces)
@@ -624,7 +679,36 @@ export default function MessagesScreen() {
     });
 
     return unsubscribe;
-  }, []);
+  }, [hydrateGroupCardPreviews]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!npub || groups.length === 0) {
+      setEditableGroupIds(new Set());
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    Promise.all(
+      groups.map(async group => {
+        const canEdit = group.ownerNpub === npub || await isGroupAdmin(group.id, npub);
+        return canEdit ? group.id : null;
+      })
+    )
+      .then(ids => {
+        if (cancelled) return;
+        setEditableGroupIds(new Set(ids.filter((id): id is string => !!id)));
+      })
+      .catch(error => {
+        console.warn('[Spaces] failed to resolve editable Space cards:', error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [groups, npub]);
 
   useEffect(() => {
     const unsubscribe = subscribeToDMEvents(() => {
@@ -681,7 +765,7 @@ export default function MessagesScreen() {
         if (!q) return true;
 
         const title = group.name.toLowerCase();
-        const preview = (group.lastPostPreview || '').toLowerCase();
+        const preview = (groupPreviewOverrides[group.id]?.preview || group.lastPostPreview || '').toLowerCase();
         const season = (group.season || '').toLowerCase();
 
         return title.includes(q) || preview.includes(q) || season.includes(q);
@@ -689,7 +773,7 @@ export default function MessagesScreen() {
       .map(group => ({
         id: `group_${group.id}`,
         type: 'group',
-        updatedAt: group.lastPostAt ?? group.updatedAt,
+        updatedAt: groupPreviewOverrides[group.id]?.updatedAt ?? group.lastPostAt ?? group.updatedAt,
         unread: 0,
         group,
       }));
@@ -704,7 +788,7 @@ export default function MessagesScreen() {
             : [...dmItems, ...groupItems];
 
     return combined.sort((a, b) => b.updatedAt - a.updatedAt);
-  }, [filteredThreads, groups, search, spaceFilter]);
+  }, [filteredThreads, groupPreviewOverrides, groups, search, spaceFilter]);
 
   const livingSpaceByGroupId = useMemo(() => {
     const map = new Map<string, LivingSpace>();
@@ -880,6 +964,20 @@ export default function MessagesScreen() {
     }
   };
 
+  const resolveGroupCoverImage = async (): Promise<string | undefined> => {
+    const imageUri = groupImageUri?.trim();
+    if (!imageUri) return undefined;
+    if (isRemoteImageUri(imageUri)) return imageUri;
+
+    const uploadedUrl = await uploadToR2(imageUri, 'photo');
+    if (!uploadedUrl) {
+      throw new Error('The Space image could not be uploaded. Please try again before saving.');
+    }
+
+    setGroupImageUri(uploadedUrl);
+    return uploadedUrl;
+  };
+
   const createGroupSpace = async () => {
     if (creating) return;
 
@@ -899,6 +997,7 @@ export default function MessagesScreen() {
 
     try {
       const pubkeyHex = npubToHex(npub);
+      const coverImage = await resolveGroupCoverImage();
       const group = await createGroup({
         name: cleanName,
         description: groupDescription.trim() || undefined,
@@ -907,7 +1006,7 @@ export default function MessagesScreen() {
         spaceLabel: getSpaceTypeLabel(groupSpaceType),
         isSpace: true,
         sport: groupType || undefined,
-        coverImage: groupImageUri || undefined,
+        coverImage,
         relayUrl: DEFAULT_RELAY,
         ownerNpub: npub,
         ownerPubkeyHex: pubkeyHex,
@@ -964,6 +1063,7 @@ export default function MessagesScreen() {
         return;
       }
 
+      const coverImage = await resolveGroupCoverImage();
       await updateGroup(editingGroupId, {
         name: cleanName,
         description: groupDescription.trim() || undefined,
@@ -972,7 +1072,7 @@ export default function MessagesScreen() {
         spaceLabel: getSpaceTypeLabel(groupSpaceType),
         isSpace: true,
         sport: groupType || undefined,
-        coverImage: groupImageUri || undefined,
+        coverImage,
       });
 
       if (nsec) {
@@ -1081,11 +1181,18 @@ export default function MessagesScreen() {
         });
       }
 
+      const joinedGroup =
+        await refreshGroupMetadataFromRelay(result.group.id, result.group.relayUrl || DEFAULT_RELAY)
+          .catch(error => {
+            console.warn('[Spaces] metadata refresh after join failed:', error);
+            return result.group;
+          }) ?? result.group;
+
       closeSheet();
       await loadGroups();
       setLivingSpaces(await syncLivingSpacesFromGroups());
       setSpaceFilter('groups');
-      openGroup(result.group);
+      openGroup(joinedGroup);
     } catch (error: any) {
       Alert.alert('Error', error?.message || 'Could not join that Space.');
     } finally {
@@ -1228,7 +1335,9 @@ export default function MessagesScreen() {
       const group = item.group;
       const livingSpace = livingSpaceByGroupId.get(group.id);
       const groupTypeIcon = getGroupTypeIcon(group);
+      const canEditGroup = editableGroupIds.has(group.id);
       const preview =
+        groupPreviewOverrides[group.id]?.preview ||
         group.lastPostPreview ||
         `${group.memberCount ?? 0} member${(group.memberCount ?? 0) !== 1 ? 's' : ''}`;
 
@@ -1237,7 +1346,7 @@ export default function MessagesScreen() {
           style={s.threadRow}
           activeOpacity={0.82}
           onPress={() => openGroup(group)}
-          onLongPress={() => { void openEditGroup(group); }}
+          onLongPress={canEditGroup ? () => { void openEditGroup(group); } : undefined}
         >
           <View style={s.avatar}>
             {group.coverImage ? (
@@ -1274,8 +1383,8 @@ export default function MessagesScreen() {
           </View>
 
           <TouchableOpacity
-            style={s.moreBtn}
-            onPress={() => { void openEditGroup(group); }}
+            style={[s.moreBtn, !canEditGroup && s.moreBtnHidden]}
+            onPress={canEditGroup ? () => { void openEditGroup(group); } : undefined}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
             <Text style={s.moreText}>⋯</Text>
@@ -2091,6 +2200,10 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     height: 42,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  moreBtnHidden: {
+    width: 0,
+    opacity: 0,
   },
   moreText: {
     color: theme.textMuted,

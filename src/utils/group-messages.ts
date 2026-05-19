@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
-import { recordGroupPost } from './group-storage';
+import { recordGroupPost, updateGroup } from './group-storage';
 
 const GROUP_MESSAGES_KEY = 'be_group_messages_v1';
 
@@ -218,6 +218,27 @@ function getMessagePreview(input: {
   if (first.type === 'file') return `📎 ${first.fileName || 'File'}`;
 
   return '📷 Photo';
+}
+
+export function getGroupMessagePreview(input: Parameters<typeof getMessagePreview>[0]) {
+  return getMessagePreview(input);
+}
+
+export async function refreshGroupPostPreviewFromMessages(
+  groupId: string,
+  messages?: GroupMessage[]
+): Promise<void> {
+  const allMessages = messages ?? await getAllGroupMessages();
+  const visibleMessages = allMessages
+    .filter(message => message.groupId === groupId && !message.isDeleted)
+    .sort((a, b) => b.createdAt - a.createdAt);
+  const latest = visibleMessages[0];
+
+  await updateGroup(groupId, {
+    lastPostAt: latest?.createdAt,
+    lastPostPreview: latest ? getMessagePreview(latest).slice(0, 80) : undefined,
+    postCount: visibleMessages.length,
+  });
 }
 
 function isMembershipSystemText(text?: string): boolean {
@@ -498,7 +519,7 @@ export async function markGroupMessageDeleted(input: {
   if (!changed) return false;
 
   await saveAllGroupMessages(updated);
-  await recordGroupPost(input.groupId, 'Message deleted');
+  await refreshGroupPostPreviewFromMessages(input.groupId, updated);
 
   return true;
 }

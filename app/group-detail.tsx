@@ -63,6 +63,7 @@ import {
   isGroupAdmin,
   isGroupMember,
   publishGroupMetadataSnapshot,
+  refreshGroupMetadataFromRelay,
   regenerateInviteCode,
   removeMember,
   syncGroupMembersFromRelay,
@@ -580,6 +581,22 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   }
   }, []);
 
+  const refreshMembersOnly = useCallback(async (targetGroup: BEGroup) => {
+    const syncedMembers = await syncGroupMembersFromRelay(
+      targetGroup.id,
+      targetGroup.relayUrl ? [targetGroup.relayUrl] : []
+    );
+
+    setMembers(syncedMembers);
+    setGroup(current => current
+      ? { ...current, memberCount: syncedMembers.filter(member => member.status === 'active').length }
+      : current
+    );
+    hydrateMemberProfiles(targetGroup.id, syncedMembers).catch(error => {
+      console.warn('[Group Members] profile hydration failed:', error);
+    });
+  }, [hydrateMemberProfiles]);
+
   const loadSpaceMarks = useCallback(async (groupId: string, spaces: LivingSpace[]) => {
     const livingSpaceId = getGroupLivingSpaceId(groupId);
     const milestones = await getMilestones();
@@ -817,49 +834,77 @@ const { id, tab: routeTab } = useLocalSearchParams<{
     InteractionManager.runAfterInteractions(() => {
       Promise.resolve().then(async () => {
         if (groupDetailLoadRunIdRef.current !== runId) return;
-      try {
-        const syncedMembers = await syncGroupMembersFromRelay(
-          id,
-          g.relayUrl ? [g.relayUrl] : []
-        );
+        let relayGroup = g;
 
-        if (groupDetailLoadRunIdRef.current !== runId) return;
+        try {
+          const refreshedGroup = await refreshGroupMetadataFromRelay(
+            id,
+            g.relayUrl || DEFAULT_RELAY
+          );
 
-        setMembers(syncedMembers);
-        setGroup(current => current ? { ...current, memberCount: syncedMembers.length } : current);
-        syncedMembers
-          .filter(member => member.status === 'active')
-          .forEach(member => {
-            registerGroupMemberForPush({
-              groupId: g.id,
-              groupName: g.name,
-              relayUrl: g.relayUrl,
-              memberNpub: member.npub,
-              role: member.role,
-              status: 'active',
-              displayName: member.displayName,
-            }).catch(error => {
-              console.warn('[Group Detail] push member backfill failed:', error);
+          if (groupDetailLoadRunIdRef.current !== runId) return;
+
+          if (refreshedGroup) {
+            relayGroup = refreshedGroup;
+            setGroup(current => current
+              ? {
+                  ...current,
+                  ...refreshedGroup,
+                  memberCount: Math.max(current.memberCount ?? 0, refreshedGroup.memberCount ?? 0),
+                }
+              : refreshedGroup
+            );
+          }
+        } catch (error) {
+          console.warn('[Space Detail] metadata refresh failed:', error);
+        }
+
+        try {
+          const syncedMembers = await syncGroupMembersFromRelay(
+            id,
+            relayGroup.relayUrl ? [relayGroup.relayUrl] : []
+          );
+
+          if (groupDetailLoadRunIdRef.current !== runId) return;
+
+          setMembers(syncedMembers);
+          setGroup(current => current
+            ? { ...current, memberCount: syncedMembers.filter(member => member.status === 'active').length }
+            : current
+          );
+          syncedMembers
+            .filter(member => member.status === 'active')
+            .forEach(member => {
+              registerGroupMemberForPush({
+                groupId: relayGroup.id,
+                groupName: relayGroup.name,
+                relayUrl: relayGroup.relayUrl,
+                memberNpub: member.npub,
+                role: member.role,
+                status: 'active',
+                displayName: member.displayName,
+              }).catch(error => {
+                console.warn('[Group Detail] push member backfill failed:', error);
+              });
             });
-          });
 
-        hydrateMemberProfiles(id, syncedMembers).catch(error => {
-          console.warn('[Group Members] profile hydration failed:', error);
-        });
-      } catch (error) {
-        console.warn('[Group Detail] background member sync failed:', error);
-      }
+          hydrateMemberProfiles(id, syncedMembers).catch(error => {
+            console.warn('[Group Members] profile hydration failed:', error);
+          });
+        } catch (error) {
+          console.warn('[Group Detail] background member sync failed:', error);
+        }
 
       if (groupDetailLoadRunIdRef.current !== runId) return;
 
       try {
-        const syncedStickies = g.relayUrl
-          ? await syncGroupStickiesFromRelay(id, g.relayUrl)
+        const syncedStickies = relayGroup.relayUrl
+          ? await syncGroupStickiesFromRelay(id, relayGroup.relayUrl)
           : await getStickiesForGroup(id);
 
         setStickies(syncedStickies);
         const syncedSpaces = spaces.length > 0 ? spaces : await syncLivingSpacesFromGroups();
-        let currentSpaceMarks = await syncSpaceMarksFromRelay(g, syncedSpaces);
+        let currentSpaceMarks = await syncSpaceMarksFromRelay(relayGroup, syncedSpaces);
 
         if (currentSpaceMarks.length === 0) {
           currentSpaceMarks = await loadSpaceMarks(id, syncedSpaces);
@@ -871,7 +916,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
             console.warn('[Space Detail] metadata backfill publish failed:', error);
           });
         }
-        await backfillSpaceMarksToRelay(g, currentSpaceMarks, canPublishMarks);
+        await backfillSpaceMarksToRelay(relayGroup, currentSpaceMarks, canPublishMarks);
       } catch (error) {
         console.warn('[Group Detail] background highlight sync failed:', error);
       }
@@ -960,6 +1005,18 @@ const { id, tab: routeTab } = useLocalSearchParams<{
       groupDetailLoadRunIdRef.current += 1;
     };
   }, [load]);
+
+  useEffect(() => {
+    if (!group?.id || !group.relayUrl) return;
+
+    const timer = setInterval(() => {
+      refreshMembersOnly(group).catch(error => {
+        console.warn('[Group Members] focused refresh failed:', error);
+      });
+    }, 20000);
+
+    return () => clearInterval(timer);
+  }, [group, refreshMembersOnly]);
 
   useEffect(() => {
     let mounted = true;
