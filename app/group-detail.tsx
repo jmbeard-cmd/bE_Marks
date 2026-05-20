@@ -33,8 +33,6 @@ import ImageViewerModal, { ViewerImage } from '../components/ImageViewerModal';
 import MediaCollage from '../components/MediaCollage';
 import { Colors } from '../src/constants/theme';
 import type {
-  LivingMarkCaptureSource,
-  LivingMarkPlace,
   LivingMarkView,
   LivingSpace
 } from '../src/types/living-spaces';
@@ -119,8 +117,6 @@ type Tab = 'overview' | 'chat' | 'stickies' | 'mantle' | 'calendar' | 'gallery' 
 const GROUP_LOCAL_GALLERY_KEY = 'be_group_local_gallery_v1';
 const SPACE_FAVORITES_KEY = 'be_space_favorite_ids_v1';
 const SPACE_MARK_RELAY_SYNC_ENABLED = true;
-const SPACE_MARK_PRESET_TAGS = ['Family', 'School', 'Team', 'Church', 'Event', 'Memory'];
-const SPACE_MARK_LIFE_STAGE_OPTIONS = ['Elementary', 'Middle School', 'High School', 'Season', 'Trip', 'Family'];
 const SPORTS_SPACE_KEYS = new Set([
   'softball',
   'baseball',
@@ -145,16 +141,6 @@ type LocalGalleryItem = {
   thumbnailUrl?: string;
   createdAt: number;
   source: 'highlight';
-};
-
-type SpaceMarkDraftMedia = {
-  id: string;
-  uri: string;
-  type: 'image' | 'video';
-  thumbnailUri?: string;
-  place?: LivingMarkPlace;
-  occurredAt?: number;
-  captureSource: Extract<LivingMarkCaptureSource, 'camera' | 'library'>;
 };
 
 const GROUP_TYPE_ICONS: Record<string, string> = {
@@ -288,26 +274,6 @@ async function saveHighlightMediaToLocalGallery(groupId: string, sticky: GroupSt
   await AsyncStorage.setItem(GROUP_LOCAL_GALLERY_KEY, JSON.stringify(merged));
 
   return validItems;
-}
-
-function getSpaceMarkCaptureMetadata(media: SpaceMarkDraftMedia[]): {
-  place?: LivingMarkPlace;
-  occurredAt?: number;
-  captureSource?: LivingMarkCaptureSource;
-} {
-  const mediaWithPlace = media.find(item => item.place);
-  const mediaWithDate = media.find(item => item.occurredAt);
-  const firstMedia = media[0];
-
-  if (!firstMedia) {
-    return { captureSource: 'manual' };
-  }
-
-  return {
-    place: mediaWithPlace?.place,
-    occurredAt: mediaWithDate?.occurredAt,
-    captureSource: firstMedia.captureSource,
-  };
 }
 
 function getMilestoneMediaItems(mark: Milestone): MarkMedia[] {
