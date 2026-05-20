@@ -741,10 +741,15 @@ export async function getLivingMarkPromptCards(input: {
   ]);
   const milestoneById = new Map(milestones.map(milestone => [milestone.id, milestone]));
   const cards: LivingMarkPromptCard[] = [];
+  const satisfiedPromptIds: string[] = [];
 
   for (const prompt of prompts) {
     const milestone = milestoneById.get(prompt.markId);
-    if (!milestone) continue;
+
+    if (!milestone) {
+      satisfiedPromptIds.push(prompt.id);
+      continue;
+    }
 
     const view = await getLivingMarkViewForMilestone({
       milestone,
@@ -752,6 +757,12 @@ export async function getLivingMarkPromptCards(input: {
       currentNpub: input.currentNpub,
       now,
     });
+
+    if (promptIsSatisfiedByContext(prompt, view.metadata, view.placement)) {
+      satisfiedPromptIds.push(prompt.id);
+      continue;
+    }
+
     const markCopy = splitMarkTitleAndPreview(milestone.note);
 
     cards.push({
@@ -763,6 +774,27 @@ export async function getLivingMarkPromptCards(input: {
     });
 
     if (cards.length >= limit) break;
+  }
+
+  if (satisfiedPromptIds.length > 0) {
+    const satisfiedPromptIdSet = new Set(satisfiedPromptIds);
+    const allPrompts = await getLivingMarkPrompts();
+
+    await saveLivingMarkPrompts(
+      allPrompts.map(prompt => {
+        if (!satisfiedPromptIdSet.has(prompt.id)) return prompt;
+
+        return {
+          ...prompt,
+          status: 'answered' as const,
+          answeredAt: now,
+          updatedAt: now,
+          snoozedUntil: undefined,
+        };
+      })
+    );
+
+    await rebuildLivingSpaceIndexesFromStorage(now);
   }
 
   return cards;
