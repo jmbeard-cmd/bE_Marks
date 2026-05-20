@@ -1118,10 +1118,21 @@ function EventCard({
               </View>
 
               {!!formatGameScore(event) && (
-                <View style={s.scorePill}>
-                  <Text style={s.scorePillText}>
-                    {formatGameScore(event)}
-                  </Text>
+                <View style={s.scoreCluster}>
+                  <View style={s.resultPill}>
+                    <Text style={s.resultPillText}>
+                      {formatResultBadge(event)}
+                    </Text>
+                  </View>
+
+                  <View style={s.scorePill}>
+                    <Text style={s.scorePillText}>
+                      {formatGameScore(event)}
+                    </Text>
+                    <Text style={s.scoreStatusText}>
+                      {event.scoreFinal === false ? 'Live' : 'Final'}
+                    </Text>
+                  </View>
                 </View>
               )}
             </View>
@@ -1139,7 +1150,10 @@ function EventCard({
             )}
 
             {expanded && !!event.eventNotes && (
-              <Text style={s.scoreNote}>{event.eventNotes}</Text>
+              <View style={s.scoreStoryBox}>
+                <Text style={s.scoreStoryLabel}>Game story</Text>
+                <Text style={s.scoreNote}>{event.eventNotes}</Text>
+              </View>
             )}
           </View>
         )}
@@ -1221,6 +1235,19 @@ function formatHomeAway(value: GroupCalendarEvent['homeAway']): string {
       return 'Neutral site';
     default:
       return '';
+  }
+}
+
+function formatResultBadge(event: GroupCalendarEvent): string {
+  switch (event.result) {
+    case 'win':
+      return 'W';
+    case 'loss':
+      return 'L';
+    case 'tie':
+      return 'T';
+    default:
+      return '–';
   }
 }
 
@@ -1496,18 +1523,45 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     fontWeight: '700',
     marginTop: 2,
   },
+  scoreCluster: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  resultPill: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.gold,
+  },
+  resultPillText: {
+    color: theme.bg,
+    fontSize: 13,
+    fontWeight: '900',
+  },
   scorePill: {
     borderWidth: 0.5,
     borderColor: theme.gold,
-    borderRadius: 999,
+    borderRadius: 12,
     backgroundColor: theme.raised,
     paddingHorizontal: 9,
     paddingVertical: 5,
+    alignItems: 'center',
   },
   scorePillText: {
     color: theme.gold,
     fontSize: 11,
     fontWeight: '900',
+  },
+  scoreStatusText: {
+    color: theme.textMuted,
+    fontSize: 9,
+    fontWeight: '800',
+    marginTop: 1,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   scoreEditBtn: {
     alignSelf: 'flex-start',
@@ -1524,11 +1578,26 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
   },
+  scoreStoryBox: {
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    borderRadius: 12,
+    backgroundColor: theme.bg,
+    padding: 10,
+    marginTop: 9,
+  },
+  scoreStoryLabel: {
+    color: theme.gold,
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  },
   scoreNote: {
     color: theme.textMuted,
     fontSize: 12,
     lineHeight: 17,
-    marginTop: 8,
   },
   description: { color: theme.textMuted, fontSize: 13, lineHeight: 19, marginTop: 6, marginBottom: 8 },
   legacyHint: {
