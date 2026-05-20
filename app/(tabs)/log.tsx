@@ -278,14 +278,13 @@ export default function LogScreen() {
     };
   }, [selectedGroupId]);
 
-  const placementChipSpaces = livingSpaces
-    .filter(space => !space.archivedAt)
-    .filter(space =>
-      space.id === SYSTEM_LIVING_SPACE_IDS.profile ||
-      (space.id === SYSTEM_LIVING_SPACE_IDS.family && !!family) ||
-      space.source === 'group'
-    )
-    .slice(0, 8);
+const placementChipSpaces = livingSpaces
+  .filter(space => !space.archivedAt)
+  .filter(space =>
+    space.id === SYSTEM_LIVING_SPACE_IDS.profile ||
+    (space.id === SYSTEM_LIVING_SPACE_IDS.family && !!family) ||
+    space.source === 'group'
+  );
 
   const pickPhoto = async () => {
   const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
