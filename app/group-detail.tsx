@@ -7,9 +7,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
-import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import * as VideoThumbnails from 'expo-video-thumbnails';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -36,15 +34,13 @@ import MediaCollage from '../components/MediaCollage';
 import { Colors } from '../src/constants/theme';
 import type {
   LivingMarkCaptureSource,
-  LivingMarkPerson,
   LivingMarkPlace,
   LivingMarkView,
-  LivingSpace,
+  LivingSpace
 } from '../src/types/living-spaces';
 import {
   getContactByNpub,
-  getContacts,
-  saveContact,
+  saveContact
 } from '../src/utils/contacts-storage';
 import {
   createThread,
@@ -79,21 +75,13 @@ import {
   type GroupRelayMode,
 } from '../src/utils/group-storage';
 import {
-  getPersonDisplayName,
-  mergeLivingPersonCandidates,
-  resolvePeopleSelection,
-  type LivingPersonCandidate
+  getPersonDisplayName
 } from '../src/utils/living-people';
-import {
-  extractLivingCaptureFromExif,
-} from '../src/utils/living-space-routing';
 import {
   getLivingMarkViewsForMilestones,
   importLivingSpaceMarkSnapshot,
-  persistLivingMarkCapture,
-  syncLivingSpacesFromGroups,
+  syncLivingSpacesFromGroups
 } from '../src/utils/living-spaces-storage';
-import { compressMediaForUpload } from '../src/utils/media-compression';
 import {
   DEFAULT_RELAY,
   fetchGroupMarks,
@@ -110,7 +98,6 @@ import {
   registerGroupMemberForPush,
   removeGroupMemberFromPush,
 } from '../src/utils/push-notifications';
-import { uploadMilestoneMedia } from '../src/utils/r2';
 import {
   SCHOOL_CONSENT_NOTICE_VERSION,
   getSchoolSpaceConsentSummary,
@@ -121,10 +108,9 @@ import {
 } from '../src/utils/school-consent-storage';
 import {
   getMilestones,
-  saveMilestone,
   updateMilestone,
   type MarkMedia,
-  type Milestone,
+  type Milestone
 } from '../src/utils/storage';
 import { useIdentity } from './_layout';
 import { GroupChatPanel } from './group-thread';
@@ -389,22 +375,6 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   const [galleryItems, setGalleryItems] = useState<any[]>([]);
   const [selectedGalleryImage, setSelectedGalleryImage] = useState<string | null>(null);
   const [activeViewerImages, setActiveViewerImages] = useState<ViewerImage[]>([]);
-  const [showSpaceMarkModal, setShowSpaceMarkModal] = useState(false);
-  const [spaceMarkTitle, setSpaceMarkTitle] = useState('');
-  const [spaceMarkNote, setSpaceMarkNote] = useState('');
-  const [spaceMarkTags, setSpaceMarkTags] = useState<string[]>([]);
-  const [spaceMarkTagInput, setSpaceMarkTagInput] = useState('');
-  const [spaceMarkMedia, setSpaceMarkMedia] = useState<SpaceMarkDraftMedia[]>([]);
-  const [spaceMarkShowContext, setSpaceMarkShowContext] = useState(false);
-  const [spaceMarkPeopleInput, setSpaceMarkPeopleInput] = useState('');
-  const [spacePersonCandidates, setSpacePersonCandidates] = useState<LivingPersonCandidate[]>([]);
-  const [selectedSpaceMarkPeople, setSelectedSpaceMarkPeople] = useState<LivingMarkPerson[]>([]);
-  const [spaceMarkLifeStage, setSpaceMarkLifeStage] = useState('');
-  const [spaceMarkEventInput, setSpaceMarkEventInput] = useState('');
-  const [spaceMarkSavedToBook, setSpaceMarkSavedToBook] = useState(false);
-  const [spaceMarkSaving, setSpaceMarkSaving] = useState(false);
-  const [spaceMarkSaveStatus, setSpaceMarkSaveStatus] = useState<string | null>(null);
-  const [spaceMarkProgress, setSpaceMarkProgress] = useState(0);
   const [tab, setTab] = useState<Tab>(
   routeTab === 'overview' ||
   routeTab === 'chat' ||
@@ -457,47 +427,6 @@ const { id, tab: routeTab } = useLocalSearchParams<{
 
     return members.find(member => member.npub === npub) ?? null;
   }, [members, npub]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadSpacePeople() {
-      const contacts = await getContacts();
-
-      if (cancelled) return;
-
-      setSpacePersonCandidates(
-        mergeLivingPersonCandidates([
-          {
-            npub,
-            displayName: myDisplayName,
-            avatarUrl: (profile as any)?.picture || (profile as any)?.avatarUrl,
-            source: 'current-user',
-          },
-          ...members.map(member => ({
-            npub: member.npub,
-            displayName: member.displayName,
-            avatarUrl: member.avatarUrl,
-            source: 'space-member' as const,
-          })),
-          ...contacts.map(contact => ({
-            npub: contact.npub,
-            displayName: contact.nostrName || contact.name,
-            avatarUrl: contact.nostrAvatar,
-            source: 'contact' as const,
-          })),
-        ])
-      );
-    }
-
-    loadSpacePeople().catch(error => {
-      console.warn('[Space People] failed to load candidates:', error);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [members, myDisplayName, npub, profile]);
 
   const getSpaceMarkAuthorProfile = useCallback((mark: Milestone) => {
     const authorMember = mark.authorNpub
@@ -1367,250 +1296,6 @@ const { id, tab: routeTab } = useLocalSearchParams<{
     await refreshSchoolConsentSummary(group.id);
   };
 
-  const handlePickSpaceMarkMedia = async () => {
-    try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-      if (!permission.granted) {
-        Alert.alert('Permission needed', 'Allow photo library access to add media to a Mark.');
-        return;
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images', 'videos'],
-        allowsEditing: false,
-        quality: 0.85,
-        videoQuality: ImagePicker.UIImagePickerControllerQualityType.Medium,
-        allowsMultipleSelection: true,
-        selectionLimit: 10,
-        exif: true,
-      });
-
-      if (result.canceled || !result.assets?.length) return;
-
-      const pickedAt = Date.now();
-      const newItems: SpaceMarkDraftMedia[] = result.assets
-        .filter(asset => !!asset.uri)
-        .map((asset, index) => {
-          const capture = extractLivingCaptureFromExif(asset.exif);
-
-          return {
-            id: `space_mark_media_${pickedAt}_${index}_${Math.random().toString(36).slice(2, 7)}`,
-            uri: asset.uri,
-            type: asset.type === 'video' ? 'video' : 'image',
-            place: capture.place,
-            occurredAt: capture.occurredAt,
-            captureSource: 'library',
-          };
-        });
-
-      setSpaceMarkMedia(prev => [...prev, ...newItems]);
-    } catch (e) {
-      console.warn('[Space Mark media picker] failed', e);
-      Alert.alert('Media error', 'Could not open your photo library.');
-    }
-  };
-
-  const resetSpaceMarkDraft = () => {
-    setSpaceMarkTitle('');
-    setSpaceMarkNote('');
-    setSpaceMarkTags([]);
-    setSpaceMarkTagInput('');
-    setSpaceMarkMedia([]);
-    setSpaceMarkShowContext(false);
-    setSpaceMarkPeopleInput('');
-    setSelectedSpaceMarkPeople([]);
-    setSpaceMarkLifeStage('');
-    setSpaceMarkEventInput('');
-    setSpaceMarkSavedToBook(false);
-    setSpaceMarkSaveStatus(null);
-    setSpaceMarkProgress(0);
-  };
-
-  const addSpaceMarkTag = (tag: string) => {
-    const clean = tag.trim();
-    if (!clean) return;
-
-    setSpaceMarkTags(prev => (
-      prev.some(existing => existing.toLowerCase() === clean.toLowerCase())
-        ? prev
-        : [...prev, clean]
-    ));
-    setSpaceMarkTagInput('');
-  };
-
-  const removeSpaceMarkTag = (tag: string) => {
-    setSpaceMarkTags(prev => prev.filter(existing => existing !== tag));
-  };
-
-  const handleCreateSpaceMark = async () => {
-  if (!group || spaceMarkSaving) return;
-
-  const title = spaceMarkTitle.trim();
-  const note = spaceMarkNote.trim();
-
-  if (!title && !note && spaceMarkMedia.length === 0) {
-    Alert.alert('Nothing to save', 'Add a title, note, photo, or video first.');
-    return;
-  }
-
-  const mediaToUpload = spaceMarkMedia;
-
-  setSpaceMarkSaving(true);
-  setSpaceMarkSaveStatus(
-    mediaToUpload.length > 0 ? 'Preparing media...' : 'Saving Mark...'
-  );
-  setSpaceMarkProgress(0);
-
-  try {
-    const fullNote = title ? `${title}\n\n${note}`.trim() : note;
-    const uploadedMedia: MarkMedia[] = [];
-    const total = Math.max(mediaToUpload.length, 1);
-
-    for (let i = 0; i < mediaToUpload.length; i++) {
-      const item = mediaToUpload[i];
-
-      setSpaceMarkSaveStatus(
-        item.type === 'video'
-          ? `Compressing video ${i + 1} of ${mediaToUpload.length}...`
-          : `Optimizing photo ${i + 1} of ${mediaToUpload.length}...`
-      );
-
-      const compressed = await compressMediaForUpload({
-        uri: item.uri,
-        type: item.type,
-        onStatus: setSpaceMarkSaveStatus,
-        onProgress: compressionProgress => {
-          const baseProgress = Math.floor((i / total) * 45);
-          const itemProgress = Math.floor(compressionProgress * (45 / total));
-          setSpaceMarkProgress(Math.min(45, baseProgress + itemProgress));
-        },
-      });
-
-      let thumbnailUri: string | undefined;
-
-      if (item.type === 'video') {
-        try {
-          setSpaceMarkSaveStatus(`Creating video thumbnail ${i + 1} of ${mediaToUpload.length}...`);
-          const thumbnail = await VideoThumbnails.getThumbnailAsync(compressed.uri, {
-            time: 1000,
-          });
-
-          setSpaceMarkSaveStatus(`Uploading video thumbnail ${i + 1} of ${mediaToUpload.length}...`);
-          const thumbUpload = await uploadMilestoneMedia({
-            photoUri: thumbnail.uri,
-          });
-          thumbnailUri = thumbUpload.photoUri || thumbnail.uri;
-        } catch (error) {
-          console.warn('[Space Mark thumbnail] failed:', error);
-        }
-      }
-
-      setSpaceMarkSaveStatus(
-        item.type === 'video'
-          ? `Uploading video ${i + 1} of ${mediaToUpload.length}...`
-          : `Uploading photo ${i + 1} of ${mediaToUpload.length}...`
-      );
-
-      const upload = await uploadMilestoneMedia({
-        photoUri: item.type === 'image' ? compressed.uri : undefined,
-        videoUri: item.type === 'video' ? compressed.uri : undefined,
-      });
-      const uploadedUri =
-        item.type === 'image'
-          ? upload.photoUri || item.uri
-          : upload.videoUri || item.uri;
-
-      uploadedMedia.push({
-        id: item.id,
-        uri: uploadedUri,
-        type: item.type,
-        source: uploadedUri.startsWith('http') ? 'r2' : 'local',
-        thumbnailUri,
-      });
-
-      setSpaceMarkProgress(45 + Math.floor(((i + 1) / total) * 35));
-    }
-
-    setSpaceMarkSaveStatus('Saving Mark...');
-    setSpaceMarkProgress(85);
-
-    const uploadedPhoto = uploadedMedia.find(item => item.type === 'image')?.uri;
-    const uploadedVideo = uploadedMedia.find(item => item.type === 'video')?.uri;
-    const savedMilestone = await saveMilestone({
-      note: fullNote,
-      tags: spaceMarkTags,
-      photoUri: uploadedPhoto,
-      videoUri: uploadedVideo,
-      media: uploadedMedia,
-      publishedToRelay: false,
-      authorNpub: npub ?? undefined,
-      authorName: myDisplayName,
-    });
-
-    setSpaceMarkSaveStatus('Placing Mark in this Space...');
-    setSpaceMarkProgress(95);
-
-    const spaces = livingSpaces.length > 0 ? livingSpaces : await syncLivingSpacesFromGroups();
-    const capture = getSpaceMarkCaptureMetadata(spaceMarkMedia);
-
-    const resolvedPeople = resolvePeopleSelection({
-      selectedPeople: selectedSpaceMarkPeople,
-      manualInput: spaceMarkPeopleInput,
-    });
-
-    const captureResult = await persistLivingMarkCapture({
-      milestone: savedMilestone,
-      spaces,
-      selectedSpaceId: getGroupLivingSpaceId(group.id),
-      currentNpub: npub,
-      peopleIds: resolvedPeople.peopleIds,
-      people: resolvedPeople.people,
-      lifeStage: spaceMarkLifeStage || undefined,
-      eventId: spaceMarkEventInput.trim() || undefined,
-      savedToBook: spaceMarkSavedToBook,
-      captureSource: capture.captureSource,
-      place: capture.place,
-      occurredAt: capture.occurredAt,
-      capturedAt: capture.occurredAt ?? savedMilestone.createdAt,
-      privacy: 'space',
-    });
-
-    if (SPACE_MARK_RELAY_SYNC_ENABLED && nsec) {
-      const publishResult = await publishGroupMark({
-        groupId: group.id,
-        milestone: savedMilestone,
-        metadata: captureResult.metadata,
-        placement: captureResult.placement,
-        nsec,
-        relayUrl: group.relayUrl || DEFAULT_RELAY,
-      });
-
-      if (publishResult.success) {
-        await updateMilestone(savedMilestone.id, {
-          spaceRelayEventId: publishResult.eventId,
-          spaceRelayPublishedAt: Math.floor(Date.now() / 1000),
-          spaceRelayGroupIds: [group.id],
-        });
-      } else {
-        console.warn('[Space Mark create] relay publish failed:', publishResult.error);
-      }
-    }
-
-    setSpaceMarkProgress(100);
-    resetSpaceMarkDraft();
-    setShowSpaceMarkModal(false);
-
-    await load();
-  } catch (e: any) {
-    console.warn('[Space Mark create] failed', e);
-    Alert.alert('Error', e?.message || 'Could not save Mark.');
-  } finally {
-    setSpaceMarkSaving(false);
-    setSpaceMarkSaveStatus(null);
-  }
-};
-
 const openViewerForSticky = (sticky: GroupSticky, startIndex: number) => {
   const media = (sticky as any).media;
   const mediaItems = media ? (Array.isArray(media) ? media : [media]) : [];
@@ -2414,7 +2099,6 @@ const spaceHomeMeta = [
 const isFavoriteSpace = favoriteSpaceIds.includes(group.id);
 const shouldLiftSpaceChatTray =
   spaceKeyboardHeight > 0 &&
-  !showSpaceMarkModal &&
   (
     (tab === 'chat' && !showSpaceSettingsMenu && !showInvite && !editingGroupRelay) ||
     editingGroupRelay
