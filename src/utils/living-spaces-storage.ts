@@ -1,26 +1,4 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {
-  buildLivingSpaceIndexes,
-  createGentleLivingPromptForView,
-  createDefaultLivingSpaces,
-  createLockedLivingMarkPlacement,
-  createLivingMarkMetadata,
-  createLivingSpaceFromGroup,
-  createLivingMarkView,
-  deriveLivingMarkPlacement,
-  hasLivingPromptQueuedToday,
-  livingRelayTargetsFromRoutingDecision,
-  normalizeLivingMarkPermissions,
-  resolveLivingSpaceRoutes,
-  SYSTEM_LIVING_SPACE_IDS,
-} from './living-space-routing';
-import { createLivingPerson, getLivingPersonId, normalizeLivingPeople } from './living-people';
-import { getFamily, getMilestones, saveRemoteMilestone, type Family, type Milestone } from './storage';
-import { getGroups, type BEGroup } from './group-storage';
-import {
-  applySchoolConsentDecisionToPermissions,
-  getSchoolConsentDecisionForMark,
-} from './school-consent-storage';
 import type {
   LivingMarkCaptureInput,
   LivingMarkMetadata,
@@ -37,6 +15,28 @@ import type {
   LivingSpaceDefaultsInput,
   LivingSpaceIndexes,
 } from '../types/living-spaces';
+import { getGroups, type BEGroup } from './group-storage';
+import { createLivingPerson, getLivingPersonId, normalizeLivingPeople } from './living-people';
+import {
+  buildLivingSpaceIndexes,
+  createDefaultLivingSpaces,
+  createGentleLivingPromptForView,
+  createLivingMarkMetadata,
+  createLivingMarkView,
+  createLivingSpaceFromGroup,
+  createLockedLivingMarkPlacement,
+  deriveLivingMarkPlacement,
+  hasLivingPromptQueuedToday,
+  livingRelayTargetsFromRoutingDecision,
+  normalizeLivingMarkPermissions,
+  resolveLivingSpaceRoutes,
+  SYSTEM_LIVING_SPACE_IDS,
+} from './living-space-routing';
+import {
+  applySchoolConsentDecisionToPermissions,
+  getSchoolConsentDecisionForMark,
+} from './school-consent-storage';
+import { getFamily, getMilestones, saveRemoteMilestone, type Family, type Milestone } from './storage';
 
 export const LIVING_SPACES_KEY = 'living_spaces_v1';
 export const LIVING_MARK_PLACEMENTS_KEY = 'living_mark_placements_v1';
@@ -367,6 +367,51 @@ export async function removeLivingMarkPlacement(markId: string): Promise<void> {
 
 export async function getLivingMarkMetadataItems(): Promise<LivingMarkMetadata[]> {
   return sortMetadata(await readJson<LivingMarkMetadata[]>(LIVING_MARK_METADATA_KEY, []));
+}
+
+export async function getLivingMarksForCalendarEvent(
+  eventId: string
+): Promise<LivingMarkMetadata[]> {
+  const cleanEventId = eventId.trim();
+
+  if (!cleanEventId) return [];
+
+  const metadata = await getLivingMarkMetadataItems();
+
+  return metadata.filter(item => item.eventId === cleanEventId);
+}
+
+export async function getLivingMarkCountForCalendarEvent(
+  eventId: string
+): Promise<number> {
+  const marks = await getLivingMarksForCalendarEvent(eventId);
+  return marks.length;
+}
+
+export async function getLivingMarkCountsForCalendarEvents(
+  eventIds: string[]
+): Promise<Record<string, number>> {
+  const cleanIds = Array.from(
+    new Set(eventIds.map(id => id.trim()).filter(Boolean))
+  );
+
+  if (cleanIds.length === 0) return {};
+
+  const idSet = new Set(cleanIds);
+  const counts: Record<string, number> = {};
+
+  cleanIds.forEach(id => {
+    counts[id] = 0;
+  });
+
+  const metadata = await getLivingMarkMetadataItems();
+
+  metadata.forEach(item => {
+    if (!item.eventId || !idSet.has(item.eventId)) return;
+    counts[item.eventId] = (counts[item.eventId] ?? 0) + 1;
+  });
+
+  return counts;
 }
 
 export async function saveLivingMarkMetadataItems(items: LivingMarkMetadata[]): Promise<void> {
