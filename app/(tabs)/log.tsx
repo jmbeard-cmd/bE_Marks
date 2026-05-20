@@ -273,14 +273,23 @@ const [publishToNostr, setPublishToNostr] = useState(true);
     ? livingSpaces.find(space => space.id === selectedSpaceId)
     : null;
 
+  const selectedIsFamilySpace =
+    selectedSpace?.id === SYSTEM_LIVING_SPACE_IDS.family ||
+    selectedSpace?.type === 'family';
+
   const selectedGroupSpaceId =
     selectedSpace?.source === 'group' ? selectedSpace.id : null;
+
+  const selectedGroupId =
+    selectedSpace?.source === 'group'
+      ? selectedSpace.sourceId ?? selectedSpace.id.replace(/^group:/, '')
+      : null;
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadCalendarEventsForSelectedSpace() {
-      if (!selectedGroupSpaceId) {
+      if (!selectedGroupId) {
         setCalendarEvents([]);
         setSelectedCalendarEventId(null);
         return;
@@ -289,7 +298,7 @@ const [publishToNostr, setPublishToNostr] = useState(true);
       setLoadingCalendarEvents(true);
 
       try {
-        const loaded = await getCalendarEventsForGroup(selectedGroupSpaceId);
+        const loaded = await getCalendarEventsForGroup(selectedGroupId);
 
         if (!cancelled) {
           setCalendarEvents(loaded.slice(0, 12));
@@ -312,7 +321,7 @@ const [publishToNostr, setPublishToNostr] = useState(true);
     return () => {
       cancelled = true;
     };
-  }, [selectedGroupSpaceId]);
+  }, [selectedGroupId]);
 
   const placementChipSpaces = livingSpaces
     .filter(space => !space.archivedAt)
@@ -635,35 +644,42 @@ if (audioUri) {
       // ── Step 4: Save to local storage ──
       setSaveStatus('Saving Mark...');
       setProgress(85);
+
+      const shouldSaveAsFamilyMark = !!family && (shareWithFamily || selectedIsFamilySpace);
+
       const savedMilestone = await saveMilestone({
-        note: fullNote,   // store clean note without the URL appended
+        note: fullNote,
         tags,
         photoUri: uploadedPhoto,
-        media:  uploadedMedia,
+        media: uploadedMedia,
         audioUri: uploadedAudio,
         videoUri: uploadedVideo,
         nostrEventId,
         publishedToRelay: published,
-        familyId: shareWithFamily && family ? family.id : undefined,
+        familyId: shouldSaveAsFamilyMark ? family.id : undefined,
         authorNpub: npub ?? undefined,
         authorName: myDisplayName,
       });
 
       setSaveStatus('Placing Mark...');
+      setProgress(90);
+
       const captureMetadata = getCaptureMetadataForDraft(media, audioUri);
       const privacyHint: MarkPrivacy | undefined =
-        shareWithFamily && family
+        shouldSaveAsFamilyMark
           ? 'family'
-          : publishToNostr && published
-            ? 'public'
-            : undefined;
+          : selectedGroupSpaceId
+            ? 'space'
+            : publishToNostr && published
+              ? 'public'
+              : undefined;
 
       const resolvedPeople = resolvePeopleSelection({
         selectedPeople,
         manualInput: peopleInput,
       });
 
-      persistLivingMarkCapture({
+      await persistLivingMarkCapture({
         milestone: savedMilestone,
         spaces: livingSpaces,
         selectedSpaceId,
@@ -678,14 +694,12 @@ if (audioUri) {
         occurredAt: captureMetadata.occurredAt,
         capturedAt: captureMetadata.occurredAt ?? savedMilestone.createdAt,
         privacy: privacyHint,
-      }).catch(error => {
-        console.warn('[Living Spaces] Mark enrichment failed:', error);
       });
 
       // ── Step 5: Publish to family relay if sharing ──
       setSaveStatus('Sharing with family...');
       setProgress(95);
-      if (shareWithFamily && family && nsec && npub) {
+      if (shouldSaveAsFamilyMark && family && nsec && npub) {
         publishFamilyMilestone(
           {
             id: savedMilestone.id,
