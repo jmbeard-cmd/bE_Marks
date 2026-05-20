@@ -2201,43 +2201,19 @@ const supportingLegacyViews = legacyMarkViews.slice(1, 4);
 const recapLegacyViews = legacyMarkViews.slice(4);
 
 const openRiverForMantle = (markId?: string) => {
-  if (mantleMarkViews.length === 0) return;
+  const targetMarkId = markId ?? mantleMarkViews[0]?.milestone.id;
 
-  const ids = mantleMarkViews.map(view => view.milestone.id);
-  const requestedIndex = markId ? ids.indexOf(markId) : 0;
-  const start = requestedIndex >= 0 ? requestedIndex : 0;
+  if (!targetMarkId) return;
 
-  router.push({
-    pathname: '/river',
-    params: {
-      ids: ids.join(','),
-      start: String(start),
-      title: sportsMantle ? `${group.name} Showcase` : `${group.name} Mantle`,
-      subtitle: `${mantleMarkViews.length} approved ${mantleMarkViews.length === 1 ? 'Mark' : 'Marks'}`,
-      returnToGroupId: group.id,
-      returnToGroupTab: 'mantle',
-    },
-  } as any);
+  openMarkDetail(targetMarkId, 'mantle');
 };
 
 const openRiverForLegacy = (markId?: string) => {
-  if (legacyMarkViews.length === 0) return;
+  const targetMarkId = markId ?? legacyMarkViews[0]?.milestone.id;
 
-  const ids = legacyMarkViews.map(view => view.milestone.id);
-  const requestedIndex = markId ? ids.indexOf(markId) : 0;
-  const start = requestedIndex >= 0 ? requestedIndex : 0;
+  if (!targetMarkId) return;
 
-  router.push({
-    pathname: '/river',
-    params: {
-      ids: ids.join(','),
-      start: String(start),
-      title: `${group.name} Legacy`,
-      subtitle: `${legacyMarkViews.length} saved ${legacyMarkViews.length === 1 ? 'Mark' : 'Marks'}`,
-      returnToGroupId: group.id,
-      returnToGroupTab: 'legacy',
-    },
-  } as any);
+  openMarkDetail(targetMarkId, 'legacy');
 };
 
 const renderMantleMarkCard = (
@@ -2266,12 +2242,19 @@ const renderMantleMarkCard = (
           <Text style={s.mantleFeatureDate}>{markDate}</Text>
         </View>
 
-        {markMedia.length > 0 ? (
+        {mantleImageUri ? (
           <View style={s.mantleFeatureMediaFrame}>
-            <MediaCollage
-              media={markMedia}
-              onPressMedia={() => openRiverForMantle(mark.id)}
+            <Image
+              source={{ uri: mantleImageUri }}
+              style={s.mantleFeatureMediaImage}
+              resizeMode="cover"
             />
+
+            {firstMedia?.type === 'video' && (
+              <View style={s.mantleVideoBadge}>
+                <Text style={s.mantleVideoText}>Play</Text>
+              </View>
+            )}
           </View>
         ) : (
           <View style={s.mantleFeatureTextFallback}>
@@ -3065,7 +3048,7 @@ const relaySettingsCard = (
               </Text>
 
               <Text style={s.overviewHeroTeaching} numberOfLines={3}>
-                Capture Marks, feature them on the Mantle, relive them in the River, and preserve them in the Legacy.
+                Capture Marks, feature them on the Mantle, open the full story, and preserve them in the Legacy.
               </Text>
             </View>
 
@@ -3078,16 +3061,23 @@ const relaySettingsCard = (
               <View style={s.overviewFlowGrid}>
                 <TouchableOpacity
                   style={s.overviewFlowItem}
-                  onPress={() => selectSpaceTab('stickies')}
+                  onPress={() => {
+                    if (mantleMarkViews.length > 0) {
+                      openRiverForMantle();
+                      return;
+                    }
+
+                    selectSpaceTab('mantle');
+                  }}
                   activeOpacity={0.86}
                 >
                   <View style={s.overviewFlowIcon}>
-                    <Ionicons name="images-outline" size={18} color={theme.gold} />
+                    <Ionicons name="open-outline" size={18} color={theme.gold} />
                   </View>
-                  <Text style={s.overviewFlowAction}>Capture</Text>
-                  <Text style={s.overviewFlowName}>Marks</Text>
-                  <Text style={s.overviewFlowHint}>Photos, videos, audio, captions, people, and places.</Text>
-                  <Text style={s.overviewFlowCount}>{spaceMarkViews.length}</Text>
+                  <Text style={s.overviewFlowAction}>Open</Text>
+                  <Text style={s.overviewFlowName}>Featured Mark</Text>
+                  <Text style={s.overviewFlowHint}>Open the lead Mantle Mark with photos, video, audio, and notes.</Text>
+                  <Text style={s.overviewFlowCount}>{mantleMarkViews.length}</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -3219,7 +3209,7 @@ const relaySettingsCard = (
                 <View style={s.mantleRiverIconWrap}>
                   <Ionicons name="play" size={13} color={theme.bg} />
                 </View>
-                <Text style={s.mantleRiverButtonText}>Enter River</Text>
+                <Text style={s.mantleRiverButtonText}>Open Lead Mark</Text>
               </TouchableOpacity>
             </View>
 
@@ -3638,7 +3628,7 @@ const relaySettingsCard = (
                 <View style={s.mantleRiverIconWrap}>
                   <Ionicons name="play" size={13} color={theme.bg} />
                 </View>
-                <Text style={s.mantleRiverButtonText}>Preview in River</Text>
+                <Text style={s.mantleRiverButtonText}>Open Legacy Mark</Text>
               </TouchableOpacity>
             </View>
 
@@ -4727,10 +4717,16 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     fontWeight: '800',
   },
   mantleFeatureMediaFrame: {
+    height: 260,
     borderRadius: 18,
     overflow: 'hidden',
     backgroundColor: theme.bg,
     marginBottom: 12,
+    position: 'relative',
+  },
+  mantleFeatureMediaImage: {
+    width: '100%',
+    height: '100%',
   },
   mantleFeatureTextFallback: {
     minHeight: 170,

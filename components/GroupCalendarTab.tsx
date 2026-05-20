@@ -36,6 +36,7 @@ import {
 import { useIdentity } from '../app/_layout';
 import { Colors } from '../src/constants/theme';
 import type { BEGroup } from '../src/utils/group-storage';
+import { getLivingMarkCountsForCalendarEvents } from '../src/utils/living-spaces-storage';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -60,6 +61,7 @@ type EventCardProps = {
   event: GroupCalendarEvent;
   isAdmin: boolean;
   isMember: boolean;
+  linkedMarkCount: number;
   rsvp?: RSVPEntry;
   expanded: boolean;
   onToggleExpand: () => void;
@@ -126,6 +128,7 @@ export default function GroupCalendarTab({
   const [editingEvent, setEditingEvent] = useState<GroupCalendarEvent | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [rsvpState, setRsvpState]   = useState<Record<string, RSVPEntry>>({});
+  const [linkedMarkCounts, setLinkedMarkCounts] = useState<Record<string, number>>({});
 
   const [scoreEvent, setScoreEvent] = useState<GroupCalendarEvent | null>(null);
   const [scoreOur, setScoreOur] = useState('');
@@ -150,6 +153,20 @@ export default function GroupCalendarTab({
 
   // ── Load ──────────────────────────────────────────────────────────────────
 
+   const hydrateLinkedMarkCounts = useCallback((loadedEvents: GroupCalendarEvent[]) => {
+    Promise.resolve().then(async () => {
+      try {
+        const counts = await getLivingMarkCountsForCalendarEvents(
+          loadedEvents.map(event => event.id)
+        );
+
+        setLinkedMarkCounts(counts);
+      } catch (error) {
+        console.warn('[Group Calendar] linked Mark count hydrate failed:', error);
+      }
+    });
+  }, []);
+ 
   const hydrateRSVPState = useCallback((loadedEvents: GroupCalendarEvent[]) => {
     Promise.resolve().then(async () => {
       const stateMap: Record<string, RSVPEntry> = {};
@@ -184,8 +201,9 @@ export default function GroupCalendarTab({
     setEvents(loaded);
     setLoading(false);
 
+    hydrateLinkedMarkCounts(loaded);
     hydrateRSVPState(loaded);
-  }, [group?.id, hydrateRSVPState]);
+  }, [group?.id, hydrateLinkedMarkCounts, hydrateRSVPState]);
 
   useEffect(() => { loadEvents(); }, [loadEvents]);
 
@@ -688,6 +706,7 @@ export default function GroupCalendarTab({
   event={event}
   isAdmin={isAdmin}
   isMember={isMember}
+  linkedMarkCount={linkedMarkCounts[event.id] ?? 0}
   rsvp={rsvpState[event.id]}
   expanded={expandedId === event.id}
   onToggleExpand={() => setExpandedId(id => (id === event.id ? null : event.id))}
@@ -717,6 +736,7 @@ export default function GroupCalendarTab({
                     event={event}
                     isAdmin={isAdmin}
                     isMember={isMember}
+                    linkedMarkCount={linkedMarkCounts[event.id] ?? 0}
                     rsvp={rsvpState[event.id]}
                     expanded={expandedId === event.id}
                     onToggleExpand={() => setExpandedId(id => (id === event.id ? null : event.id))}
@@ -746,6 +766,7 @@ export default function GroupCalendarTab({
                     event={event}
                     isAdmin={isAdmin}
                     isMember={isMember}
+                    linkedMarkCount={linkedMarkCounts[event.id] ?? 0}
                     rsvp={rsvpState[event.id]}
                     expanded={expandedId === event.id}
                     onToggleExpand={() => setExpandedId(id => (id === event.id ? null : event.id))}
@@ -777,6 +798,7 @@ export default function GroupCalendarTab({
                     event={event}
                     isAdmin={isAdmin}
                     isMember={isMember}
+                    linkedMarkCount={linkedMarkCounts[event.id] ?? 0}
                     rsvp={rsvpState[event.id]}
                     expanded={expandedId === event.id}
                     onToggleExpand={() => setExpandedId(id => (id === event.id ? null : event.id))}
@@ -1160,6 +1182,7 @@ function EventCard({
   event,
   isAdmin,
   isMember,
+  linkedMarkCount,
   rsvp,
   expanded,
   onToggleExpand,
@@ -1195,14 +1218,6 @@ function EventCard({
           >
             {event.title}
           </Text>
-          {isAdmin && (
-            <TouchableOpacity
-              onPress={onDelete}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Text style={s.deleteBtn}>✕</Text>
-            </TouchableOpacity>
-          )}
         </View>
 
         <View style={s.eventBadgeRow}>
@@ -1218,6 +1233,13 @@ function EventCard({
           {!!event.legacyEligible && (
             <View style={s.legacyBadge}>
               <Text style={s.legacyBadgeText}>Legacy-ready</Text>
+            </View>
+          )}
+                    {linkedMarkCount > 0 && (
+            <View style={s.markCountBadge}>
+              <Text style={s.markCountBadgeText}>
+                {linkedMarkCount} {linkedMarkCount === 1 ? 'Mark' : 'Marks'}
+              </Text>
             </View>
           )}
         </View>
@@ -1266,18 +1288,6 @@ function EventCard({
               )}
             </View>
 
-            {expanded && isAdmin && past && (
-              <TouchableOpacity
-                style={s.scoreEditBtn}
-                onPress={onEditScore}
-                activeOpacity={0.82}
-              >
-                <Text style={s.scoreEditText}>
-                  {formatGameScore(event) ? 'Edit result' : 'Add result'}
-                </Text>
-              </TouchableOpacity>
-            )}
-
             {expanded && !!event.eventNotes && (
               <View style={s.scoreStoryBox}>
                 <Text style={s.scoreStoryLabel}>Game story</Text>
@@ -1293,11 +1303,13 @@ function EventCard({
 
         {expanded && !!event.legacyEligible && (
           <Text style={s.legacyHint}>
-            This event can help organize Marks into a future Legacy collection.
+            {linkedMarkCount > 0
+              ? `${linkedMarkCount} ${linkedMarkCount === 1 ? 'Mark is' : 'Marks are'} linked to this event for future River and Legacy collections.`
+              : 'This event can help organize Marks into a future Legacy collection.'}
           </Text>
         )}
 
-                {expanded && isAdmin && (
+        {expanded && isAdmin && (
           <View style={s.adminActionRow}>
             <TouchableOpacity
               style={s.adminActionBtn}
@@ -1305,6 +1317,26 @@ function EventCard({
               activeOpacity={0.82}
             >
               <Text style={s.adminActionText}>Edit event</Text>
+            </TouchableOpacity>
+
+            {(event.spaceEventType === 'game' || event.spaceEventType === 'tournament') && past && (
+              <TouchableOpacity
+                style={s.adminActionBtn}
+                onPress={onEditScore}
+                activeOpacity={0.82}
+              >
+                <Text style={s.adminActionText}>
+                  {formatGameScore(event) ? 'Edit result' : 'Add result'}
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity
+              style={[s.adminActionBtn, s.adminDeleteBtn]}
+              onPress={onDelete}
+              activeOpacity={0.82}
+            >
+              <Text style={[s.adminActionText, s.adminDeleteText]}>Delete</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -1746,6 +1778,20 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     fontSize: 10,
     fontWeight: '800',
   },
+    markCountBadge: {
+    alignSelf: 'flex-start',
+    borderWidth: 0.5,
+    borderColor: theme.info,
+    borderRadius: 999,
+    backgroundColor: theme.bg,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  markCountBadgeText: {
+    color: theme.info,
+    fontSize: 10,
+    fontWeight: '800',
+  },
   metaRow:     { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 6 },
   metaText:    { fontSize: 12, color: theme.textMuted, fontWeight: '500' },
   gameMetaBox: {
@@ -1856,10 +1902,14 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     marginBottom: 6,
   },
   expandHint:  { fontSize: 11, color: theme.textMuted, fontStyle: 'italic', marginTop: 4 },
-    adminActionRow: {
+  adminActionRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
-    marginTop: 8,
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 0.5,
+    borderTopColor: theme.border,
   },
   adminActionBtn: {
     alignSelf: 'flex-start',
@@ -1867,13 +1917,19 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     borderColor: theme.border,
     borderRadius: 999,
     backgroundColor: theme.bg,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
   },
   adminActionText: {
     color: theme.text,
     fontSize: 11,
     fontWeight: '800',
+  },
+  adminDeleteBtn: {
+    borderColor: theme.danger,
+  },
+  adminDeleteText: {
+    color: theme.danger,
   },
 
   rsvpCountRow: { flexDirection: 'row', gap: 10, marginTop: 6, marginBottom: 4 },

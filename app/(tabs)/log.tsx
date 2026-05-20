@@ -26,6 +26,12 @@ import type {
   MarkPrivacy,
 } from '../../src/types/living-spaces';
 import { getContacts } from '../../src/utils/contacts-storage';
+import {
+  formatEventDate,
+  formatEventTime,
+  getCalendarEventsForGroup,
+  type GroupCalendarEvent,
+} from '../../src/utils/group-calendar';
 import { getGroups } from '../../src/utils/group-storage';
 import {
   isLivingPersonSelected,
@@ -112,6 +118,9 @@ const [publishToNostr, setPublishToNostr] = useState(true);
   const [selectedPeople, setSelectedPeople] = useState<LivingMarkPerson[]>([]);
   const [lifeStage, setLifeStage] = useState('');
   const [eventInput, setEventInput] = useState('');
+  const [calendarEvents, setCalendarEvents] = useState<GroupCalendarEvent[]>([]);
+  const [selectedCalendarEventId, setSelectedCalendarEventId] = useState<string | null>(null);
+  const [loadingCalendarEvents, setLoadingCalendarEvents] = useState(false);
   const [savedToBook, setSavedToBook] = useState(false);
 
   const myDisplayName =
@@ -188,6 +197,122 @@ const [publishToNostr, setPublishToNostr] = useState(true);
       cancelled = true;
     };
   }, [family, myDisplayName, npub, profile]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadLivingSpaces() {
+      try {
+        const [groups, contacts, familyMembers] = await Promise.all([
+          getGroups(),
+          getContacts(),
+          family ? getFamilyMembers(family.id) : Promise.resolve([]),
+        ]);
+
+        const spaces = await ensureDefaultLivingSpaces({
+          family: family
+            ? {
+                id: family.id,
+                name: family.name,
+                relayUrl: family.relayUrl,
+                relayMode: family.relayMode,
+              }
+            : null,
+          groups: groups.map(group => ({
+            id: group.id,
+            name: group.name,
+            description: group.description,
+            sport: group.sport,
+            icon: group.icon,
+            coverImage: group.coverImage,
+            schoolId: group.schoolId,
+            relayUrl: group.relayUrl,
+            relayMode: group.relayMode,
+            createdAt: group.createdAt,
+            updatedAt: group.updatedAt,
+          })),
+        });
+
+        if (!cancelled) {
+          setLivingSpaces(spaces);
+          setPersonCandidates(
+            mergeLivingPersonCandidates([
+              {
+                npub,
+                displayName: myDisplayName,
+                avatarUrl: (profile as any)?.picture || (profile as any)?.avatarUrl,
+                source: 'current-user',
+              },
+              ...familyMembers.map(member => ({
+                npub: member.npub,
+                displayName: member.displayName,
+                source: 'family-member' as const,
+              })),
+              ...contacts.map(contact => ({
+                npub: contact.npub,
+                displayName: contact.nostrName || contact.name,
+                avatarUrl: contact.nostrAvatar,
+                source: 'contact' as const,
+              })),
+            ])
+          );
+        }
+      } catch (error) {
+        console.warn('[Living Spaces] failed to load placement chips:', error);
+      }
+    }
+
+    loadLivingSpaces();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [family, myDisplayName, npub, profile]);
+
+  const selectedSpace = selectedSpaceId
+    ? livingSpaces.find(space => space.id === selectedSpaceId)
+    : null;
+
+  const selectedGroupSpaceId =
+    selectedSpace?.source === 'group' ? selectedSpace.id : null;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCalendarEventsForSelectedSpace() {
+      if (!selectedGroupSpaceId) {
+        setCalendarEvents([]);
+        setSelectedCalendarEventId(null);
+        return;
+      }
+
+      setLoadingCalendarEvents(true);
+
+      try {
+        const loaded = await getCalendarEventsForGroup(selectedGroupSpaceId);
+
+        if (!cancelled) {
+          setCalendarEvents(loaded.slice(0, 12));
+        }
+      } catch (error) {
+        console.warn('[Log Calendar Events] failed to load:', error);
+
+        if (!cancelled) {
+          setCalendarEvents([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingCalendarEvents(false);
+        }
+      }
+    }
+
+    loadCalendarEventsForSelectedSpace();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedGroupSpaceId]);
 
   const placementChipSpaces = livingSpaces
     .filter(space => !space.archivedAt)
@@ -343,6 +468,19 @@ const mediaItem: DraftMedia = {
 
 setMedia(prev => [...prev, mediaItem]);
   }
+};
+
+const toggleCalendarEvent = (event: GroupCalendarEvent) => {
+  const active = selectedCalendarEventId === event.id;
+
+  if (active) {
+    setSelectedCalendarEventId(null);
+    setEventInput('');
+    return;
+  }
+
+  setSelectedCalendarEventId(event.id);
+  setEventInput(event.title);
 };
 
 const addTag = (t: string) => {
@@ -533,7 +671,7 @@ if (audioUri) {
         peopleIds: resolvedPeople.peopleIds,
         people: resolvedPeople.people,
         lifeStage: lifeStage || undefined,
-        eventId: eventInput.trim() || undefined,
+        eventId: selectedCalendarEventId || eventInput.trim() || undefined,
         savedToBook,
         captureSource: captureMetadata.captureSource,
         place: captureMetadata.place,
@@ -603,9 +741,7 @@ if (audioUri) {
       setShowContext(false);
       setPeopleInput('');
       setSelectedPeople([]);
-      setLifeStage('');
-      setEventInput('');
-      setSavedToBook(false);
+        eventId: selectedCalendarEventId || eventInput.trim() || undefined,
 
       setProgress(100);
 
@@ -893,13 +1029,83 @@ setProgress(0);
                   })}
                 </ScrollView>
               )}
+              <Text style={[s.contextMiniHint, { color: theme.textMuted }]}>Calendar event</Text>
+
+              {selectedGroupSpaceId ? (
+                <>
+                  {loadingCalendarEvents ? (
+                    <View style={s.calendarEventLoadingRow}>
+                      <ActivityIndicator size="small" color={theme.gold} />
+                      <Text style={[s.calendarEventLoadingText, { color: theme.textMuted }]}>
+                        Loading calendar events…
+                      </Text>
+                    </View>
+                  ) : calendarEvents.length > 0 ? (
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={s.contextChipRow}
+                    >
+                      {calendarEvents.map(event => {
+                        const active = selectedCalendarEventId === event.id;
+
+                        return (
+                          <TouchableOpacity
+                            key={event.id}
+                            style={[
+                              s.calendarEventChip,
+                              { backgroundColor: theme.raised, borderColor: theme.border },
+                              active && { backgroundColor: theme.gold, borderColor: theme.gold },
+                            ]}
+                            onPress={() => toggleCalendarEvent(event)}
+                            activeOpacity={0.8}
+                          >
+                            <Text
+                              style={[
+                                s.calendarEventChipTitle,
+                                { color: theme.textSecondary },
+                                active && { color: theme.bg, fontWeight: '800' },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {event.title}
+                            </Text>
+                            <Text
+                              style={[
+                                s.calendarEventChipMeta,
+                                { color: theme.textMuted },
+                                active && { color: theme.bg },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {formatEventDate(event)} • {formatEventTime(event)}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  ) : (
+                    <Text style={[s.calendarEventEmptyText, { color: theme.textMuted }]}>
+                      No calendar events found for this Space yet.
+                    </Text>
+                  )}
+                </>
+              ) : (
+                <Text style={[s.calendarEventEmptyText, { color: theme.textMuted }]}>
+                  Pick a group Space above to attach this Mark to a calendar event.
+                </Text>
+              )}
+
               <TextInput
                 style={[s.contextInput, { color: theme.text, backgroundColor: theme.raised, borderColor: theme.border }]}
-                placeholder="Add another name or npub"
+                placeholder="Or type event name, season, trip, or ceremony"
                 placeholderTextColor={theme.textMuted}
-                value={peopleInput}
-                onChangeText={setPeopleInput}
-                returnKeyType="next"
+                value={eventInput}
+                onChangeText={text => {
+                  setEventInput(text);
+                  setSelectedCalendarEventId(null);
+                }}
+                returnKeyType="done"
               />
 
               <Text style={[s.contextMiniHint, { color: theme.textMuted }]}>Life stage</Text>
@@ -1177,6 +1383,12 @@ videoBadgeText: {
   contextChipText: { fontSize: 12, fontWeight: '700' },
   personChip: { minHeight: 34, maxWidth: 180, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 17, borderWidth: 0.5, flexDirection: 'row', alignItems: 'center', gap: 7 },
   personChipAvatar: { width: 20, height: 20, borderRadius: 10, borderWidth: 0.5, textAlign: 'center', lineHeight: 19, fontSize: 10, fontWeight: '900', overflow: 'hidden' },
+    calendarEventLoadingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 },
+  calendarEventLoadingText: { fontSize: 12, fontWeight: '600' },
+  calendarEventEmptyText: { fontSize: 12, lineHeight: 17 },
+  calendarEventChip: { width: 210, minHeight: 54, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 14, borderWidth: 0.5, justifyContent: 'center' },
+  calendarEventChipTitle: { fontSize: 12, fontWeight: '800', marginBottom: 3 },
+  calendarEventChipMeta: { fontSize: 10, fontWeight: '700' },
   relayRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22, paddingVertical: 12, borderTopWidth: 0.5, borderBottomWidth: 0.5 },
   relayLabel: { fontSize: 14, fontWeight: '500' },
   relayHint: { fontSize: 11, marginTop: 2 },
