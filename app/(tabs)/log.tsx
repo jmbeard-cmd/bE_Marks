@@ -1,7 +1,7 @@
 import * as ImagePicker from 'expo-image-picker';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as VideoThumbnails from 'expo-video-thumbnails';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -96,9 +96,23 @@ function getCaptureMetadataForDraft(media: DraftMedia[], audioUri?: string): {
   };
 }
 
+function getRouteParam(value?: string | string[]): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
 export default function LogScreen() {
   const { nsec, npub, family, relays, profile, theme } = useIdentity();
   const router = useRouter();
+  const params = useLocalSearchParams<{
+    selectedSpaceId?: string;
+    returnToGroupId?: string;
+    returnToGroupTab?: string;
+  }>();
+
+  const routeSelectedSpaceId = getRouteParam(params.selectedSpaceId);
+  const returnToGroupId = getRouteParam(params.returnToGroupId);
+  const returnToGroupTab = getRouteParam(params.returnToGroupTab) || 'stickies';
+  const routePreselectAppliedRef = useRef(false);
   const [title, setTitle] = useState('');
   const [note, setNote] = useState('');
   const [tags, setTags] = useState<string[]>([]);
@@ -272,6 +286,18 @@ const [publishToNostr, setPublishToNostr] = useState(true);
   const selectedSpace = selectedSpaceId
     ? livingSpaces.find(space => space.id === selectedSpaceId)
     : null;
+
+      useEffect(() => {
+    if (routePreselectAppliedRef.current) return;
+    if (!routeSelectedSpaceId || livingSpaces.length === 0) return;
+
+    const routeSpaceExists = livingSpaces.some(space => space.id === routeSelectedSpaceId);
+
+    if (!routeSpaceExists) return;
+
+    routePreselectAppliedRef.current = true;
+    setSelectedSpaceId(routeSelectedSpaceId);
+  }, [livingSpaces, routeSelectedSpaceId]);
 
   const selectedIsFamilySpace =
     selectedSpace?.id === SYSTEM_LIVING_SPACE_IDS.family ||
@@ -762,7 +788,25 @@ if (audioUri) {
       Alert.alert(
         '✓ Saved',
         published ? 'Published to your relay.' : 'Saved locally.',
-        [{ text: 'OK', onPress: () => router.replace('/(tabs)/timeline') }]
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              if (returnToGroupId) {
+                router.replace({
+                  pathname: '/group-detail',
+                  params: {
+                    id: returnToGroupId,
+                    tab: returnToGroupTab,
+                  },
+                } as any);
+                return;
+              }
+
+              router.replace('/(tabs)/timeline' as any);
+            },
+          },
+        ]
       );
     } catch (e: any) {
       Alert.alert('Error', e.message);

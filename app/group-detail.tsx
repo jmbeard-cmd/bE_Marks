@@ -1667,6 +1667,19 @@ const openMarkDetail = (markId: string, returnToGroupTab: Tab = 'stickies') => {
   } as any);
 };
 
+const openUnifiedMarkComposer = () => {
+  if (!group) return;
+
+  router.push({
+    pathname: '/(tabs)/log',
+    params: {
+      selectedSpaceId: getGroupLivingSpaceId(group.id),
+      returnToGroupId: group.id,
+      returnToGroupTab: 'stickies',
+    },
+  } as any);
+};
+
 const handleOpenHighlightFile = async (fileUrl?: string) => {
   if (!fileUrl) {
     Alert.alert('File unavailable', 'This file does not have a saved URL.');
@@ -3492,7 +3505,7 @@ const relaySettingsCard = (
         {group.status === 'active' && isAdmin && isMember && (
           <TouchableOpacity
             style={s.spaceMarkFab}
-            onPress={() => setShowSpaceMarkModal(true)}
+            onPress={openUnifiedMarkComposer}
             activeOpacity={0.88}
           >
             <Text style={s.spaceMarkFabText}>+</Text>
