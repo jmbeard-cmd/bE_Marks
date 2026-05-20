@@ -3270,243 +3270,269 @@ const relaySettingsCard = (
       {/* Stickies tab */}
       {tab === 'stickies' && (
         <View style={s.spaceTabPanel}>
-        <ScrollView
-          style={s.spaceTabScroll}
-          contentContainerStyle={s.timelineContainer}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.gold} />}
-        >
-
-    {group.status === 'archived' && (
-      <View style={s.archivedBanner}>
-        <Text style={s.archivedBannerText}>
-          📦 This Space is archived. Marks can still be viewed.
-        </Text>
-      </View>
-    )}
-
-    {spaceMarkViews.length === 0 && stickies.length === 0 ? (
-      <View style={s.empty}>
-        <Text style={s.emptyIcon}>📌</Text>
-        <Text style={s.emptyText}>No Marks yet</Text>
-        <Text style={s.emptyHint}>
-          Admins can add Marks, reminders, or important notes here.
-        </Text>
-      </View>
-    ) : (
-      <>
-        {spaceMarkViews.map(view => {
-          const mark = view.milestone;
-          const markText = getMilestoneText(mark);
-          const markMedia = getMilestoneMediaItems(mark);
-          const authorProfile = getSpaceMarkAuthorProfile(mark);
-          const markPeople = view.metadata.people.filter(person => person.role !== 'author');
-          const placeLabel =
-            view.metadata.place?.name ||
-            (view.metadata.place?.latitude !== undefined && view.metadata.place?.longitude !== undefined
-              ? `${view.metadata.place.latitude.toFixed(2)}, ${view.metadata.place.longitude.toFixed(2)}`
-              : undefined);
-          const contextLabels = [
-            view.metadata.lifeStage,
-            view.metadata.eventId,
-            placeLabel,
-            view.metadata.savedToBook ? 'Legacy' : null,
-          ].filter(Boolean) as string[];
-          const permissionLabels = [
-            view.metadata.markPermissions.guardianConsentNeeded ? { label: 'Consent needed', tone: 'danger' as const } : null,
-            view.metadata.markPermissions.restricted ? { label: 'Restricted', tone: 'danger' as const } : null,
-            view.metadata.markPermissions.highlightApproved && !view.metadata.markPermissions.restricted
-              ? { label: 'Mantle', tone: 'gold' as const }
-              : null,
-            view.metadata.markPermissions.bookApproved && !view.metadata.markPermissions.restricted
-              ? { label: 'Legacy', tone: 'gold' as const }
-              : null,
-            view.metadata.markPermissions.privateSpaceOnly ? { label: 'Private Space', tone: 'neutral' as const } : null,
-          ].filter(Boolean) as { label: string; tone: 'danger' | 'gold' | 'neutral' }[];
-          const markMeta = [
-            `Logged by ${authorProfile.displayName}`,
-            formatStickyDate(mark.createdAt),
-            view.metadata.privacy === 'space' ? 'Space' : view.metadata.privacy,
-          ].filter(Boolean).join(' - ');
-
-          return (
-            <TouchableOpacity
-              key={mark.id}
-              style={s.spaceMarkCard}
-              onPress={() => openMarkDetail(mark.id)}
-              activeOpacity={0.86}
-            >
-              <View style={s.spaceMarkCardTop}>
-                <View style={s.spaceMarkAvatar}>
-                  {authorProfile.avatarUrl ? (
-                    <Image source={{ uri: authorProfile.avatarUrl }} style={s.spaceMarkAvatarImage} />
-                  ) : (
-                    <Text style={s.spaceMarkAvatarText}>{authorProfile.initials}</Text>
-                  )}
-                </View>
-
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={s.spaceMarkTitle} numberOfLines={2}>{markText.title}</Text>
-                  <Text style={s.spaceMarkMeta} numberOfLines={1}>{markMeta}</Text>
-                </View>
-
-                <Text style={s.spaceMarkBadge}>Mark</Text>
-              </View>
-
-              {markText.body ? (
-                <Text style={s.spaceMarkBody}>{markText.body}</Text>
-              ) : null}
-
-              {markMedia.length > 0 && (
-                <MediaCollage
-                  media={markMedia}
-                  onPressMedia={(index) => openViewerForMilestone(mark, index)}
-                />
-              )}
-
-              {(markPeople.length > 0 || contextLabels.length > 0) && (
-                <View style={s.markTagRow}>
-                  {markPeople.slice(0, 4).map(person => (
-                    <View key={`${mark.id}_${person.id || person.npub || person.displayName}`} style={s.markPersonMiniChip}>
-                      <Text style={s.markPersonMiniText}>{getPersonDisplayName(person)}</Text>
-                    </View>
-                  ))}
-                  {contextLabels.map(label => (
-                    <View key={`${mark.id}_${label}`} style={s.markContextMiniChip}>
-                      <Text style={s.markContextMiniText}>{label}</Text>
-                    </View>
-                  ))}
-                </View>
-              )}
-
-              {permissionLabels.length > 0 && (
-                <View style={s.markTagRow}>
-                  {permissionLabels.map(item => (
-                    <View
-                      key={`${mark.id}_${item.label}`}
-                      style={[
-                        s.markPermissionMiniChip,
-                        {
-                          borderColor:
-                            item.tone === 'danger'
-                              ? theme.danger
-                              : item.tone === 'gold'
-                                ? theme.gold
-                                : theme.border,
-                          backgroundColor:
-                            item.tone === 'danger'
-                              ? theme.danger
-                              : item.tone === 'gold'
-                                ? theme.goldLight
-                                : theme.raised,
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          s.markPermissionMiniText,
-                          {
-                            color:
-                              item.tone === 'danger'
-                                ? theme.bg
-                                : item.tone === 'gold'
-                                  ? theme.gold
-                                  : theme.textSecondary,
-                          },
-                        ]}
-                      >
-                        {item.label}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
-              )}
-
-              {mark.tags.length > 0 && (
-                <View style={s.markTagRow}>
-                  {mark.tags.map(tag => (
-                    <View key={`${mark.id}_${tag}`} style={s.markTag}>
-                      <Text style={s.markTagText}>{tag}</Text>
-                    </View>
-                  ))}
-                </View>
-              )}
-
-              <Text style={s.spaceMarkOpenHint}>Open Mark Detail</Text>
-            </TouchableOpacity>
-          );
-        })}
-
-        {stickies.map(sticky => (
-          <View key={sticky.id} style={s.stickyCard}>
-            <View style={s.stickyTop}>
-              <View style={{ flex: 1 }}>
-                <Text style={s.stickyTitle}>{sticky.title}</Text>
-                <Text style={s.legacyStickyLabel}>Legacy highlight</Text>
-              </View>
-              {isAdmin && (
-                <TouchableOpacity onPress={() => handleDeleteSticky(sticky)}>
-                  <Text style={s.stickyDelete}>✕</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-
-            {sticky.body ? (
-              <Text style={s.stickyBody}>{sticky.body}</Text>
-            ) : null}
-
-            {getStickyVisualMediaItems(sticky).length > 0 && (
-              <MediaCollage
-                media={getStickyVisualMediaItems(sticky)}
-                onPressMedia={(index) => openViewerForSticky(sticky, index)}
+          <FlatList<any>
+            style={s.spaceTabList}
+            data={[
+              ...spaceMarkViews.map(view => ({
+                itemType: 'mark' as const,
+                id: view.milestone.id,
+                view,
+              })),
+              ...stickies.map(sticky => ({
+                itemType: 'sticky' as const,
+                id: sticky.id,
+                sticky,
+              })),
+            ]}
+            keyExtractor={item => `${item.itemType}_${item.id}`}
+            contentContainerStyle={s.timelineContainer}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                tintColor={theme.gold}
               />
-            )}
-
-            {getStickyFileItems(sticky).length > 0 && (
-              <View style={s.stickyFileList}>
-                {getStickyFileItems(sticky).map((file, index) => (
-        <TouchableOpacity
-          key={`${sticky.id}_file_${index}`}
-          style={s.stickyFileRow}
-          onPress={() => handleOpenHighlightFile(file.mediaUrl || file.uri)}
-          activeOpacity={0.82}
-        >
-          <Text style={s.stickyFileIcon}>📎</Text>
-
-          <View style={{ flex: 1 }}>
-            <Text style={s.stickyFileName} numberOfLines={1}>
-              {file.fileName || file.name || 'Attached file'}
-            </Text>
-
-            {!!file.mimeType && (
-              <Text style={s.stickyFileMeta} numberOfLines={1}>
-                {file.mimeType}
-              </Text>
-            )}
-          </View>
-
-          <Text style={s.stickyFileOpen}>Open</Text>
-        </TouchableOpacity>
-                ))}
+            }
+            initialNumToRender={4}
+            maxToRenderPerBatch={4}
+            windowSize={5}
+            removeClippedSubviews={Platform.OS === 'android'}
+            ListHeaderComponent={
+              group.status === 'archived' ? (
+                <View style={s.archivedBanner}>
+                  <Text style={s.archivedBannerText}>
+                    📦 This Space is archived. Marks can still be viewed.
+                  </Text>
+                </View>
+              ) : null
+            }
+            ListEmptyComponent={
+              <View style={s.empty}>
+                <Text style={s.emptyIcon}>📌</Text>
+                <Text style={s.emptyText}>No Marks yet</Text>
+                <Text style={s.emptyHint}>
+                  Admins can add Marks, reminders, or important notes here.
+                </Text>
               </View>
-            )}
+            }
+            renderItem={({ item }) => {
+              if (item.itemType === 'sticky') {
+                const sticky = item.sticky as GroupSticky;
 
-            <Text style={s.stickyMeta}>
-              Legacy note - {formatStickyDate(sticky.createdAt)}
-            </Text>
-          </View>
-        ))}
-      </>
-    )}
-        </ScrollView>
-        {group.status === 'active' && isAdmin && isMember && (
-          <TouchableOpacity
-            style={s.spaceMarkFab}
-            onPress={openUnifiedMarkComposer}
-            activeOpacity={0.88}
-          >
-            <Text style={s.spaceMarkFabText}>+</Text>
-          </TouchableOpacity>
-        )}
+                return (
+                  <View style={s.stickyCard}>
+                    <View style={s.stickyTop}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.stickyTitle}>{sticky.title}</Text>
+                        <Text style={s.legacyStickyLabel}>Legacy highlight</Text>
+                      </View>
+
+                      {isAdmin && (
+                        <TouchableOpacity onPress={() => handleDeleteSticky(sticky)}>
+                          <Text style={s.stickyDelete}>✕</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+
+                    {sticky.body ? (
+                      <Text style={s.stickyBody}>{sticky.body}</Text>
+                    ) : null}
+
+                    {getStickyVisualMediaItems(sticky).length > 0 && (
+                      <MediaCollage
+                        media={getStickyVisualMediaItems(sticky)}
+                        onPressMedia={(index) => openViewerForSticky(sticky, index)}
+                      />
+                    )}
+
+                    {getStickyFileItems(sticky).length > 0 && (
+                      <View style={s.stickyFileList}>
+                        {getStickyFileItems(sticky).map((file, index) => (
+                          <TouchableOpacity
+                            key={`${sticky.id}_file_${index}`}
+                            style={s.stickyFileRow}
+                            onPress={() => handleOpenHighlightFile(file.mediaUrl || file.uri)}
+                            activeOpacity={0.82}
+                          >
+                            <Text style={s.stickyFileIcon}>📎</Text>
+
+                            <View style={{ flex: 1 }}>
+                              <Text style={s.stickyFileName} numberOfLines={1}>
+                                {file.fileName || file.name || 'Attached file'}
+                              </Text>
+
+                              {!!file.mimeType && (
+                                <Text style={s.stickyFileMeta} numberOfLines={1}>
+                                  {file.mimeType}
+                                </Text>
+                              )}
+                            </View>
+
+                            <Text style={s.stickyFileOpen}>Open</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+
+                    <Text style={s.stickyMeta}>
+                      Legacy note - {formatStickyDate(sticky.createdAt)}
+                    </Text>
+                  </View>
+                );
+              }
+
+              const view = item.view as LivingMarkView;
+              const mark = view.milestone;
+              const markText = getMilestoneText(mark);
+              const markMedia = getMilestoneMediaItems(mark);
+              const authorProfile = getSpaceMarkAuthorProfile(mark);
+              const markPeople = view.metadata.people.filter(person => person.role !== 'author');
+              const placeLabel =
+                view.metadata.place?.name ||
+                (view.metadata.place?.latitude !== undefined && view.metadata.place?.longitude !== undefined
+                  ? `${view.metadata.place.latitude.toFixed(2)}, ${view.metadata.place.longitude.toFixed(2)}`
+                  : undefined);
+              const contextLabels = [
+                view.metadata.lifeStage,
+                view.metadata.eventId,
+                placeLabel,
+                view.metadata.savedToBook ? 'Legacy' : null,
+              ].filter(Boolean) as string[];
+              const permissionLabels = [
+                view.metadata.markPermissions.guardianConsentNeeded ? { label: 'Consent needed', tone: 'danger' as const } : null,
+                view.metadata.markPermissions.restricted ? { label: 'Restricted', tone: 'danger' as const } : null,
+                view.metadata.markPermissions.highlightApproved && !view.metadata.markPermissions.restricted
+                  ? { label: 'Mantle', tone: 'gold' as const }
+                  : null,
+                view.metadata.markPermissions.bookApproved && !view.metadata.markPermissions.restricted
+                  ? { label: 'Legacy', tone: 'gold' as const }
+                  : null,
+                view.metadata.markPermissions.privateSpaceOnly ? { label: 'Private Space', tone: 'neutral' as const } : null,
+              ].filter(Boolean) as { label: string; tone: 'danger' | 'gold' | 'neutral' }[];
+              const markMeta = [
+                `Logged by ${authorProfile.displayName}`,
+                formatStickyDate(mark.createdAt),
+                view.metadata.privacy === 'space' ? 'Space' : view.metadata.privacy,
+              ].filter(Boolean).join(' - ');
+
+              return (
+                <TouchableOpacity
+                  style={s.spaceMarkCard}
+                  onPress={() => openMarkDetail(mark.id)}
+                  activeOpacity={0.86}
+                >
+                  <View style={s.spaceMarkCardTop}>
+                    <View style={s.spaceMarkAvatar}>
+                      {authorProfile.avatarUrl ? (
+                        <Image source={{ uri: authorProfile.avatarUrl }} style={s.spaceMarkAvatarImage} />
+                      ) : (
+                        <Text style={s.spaceMarkAvatarText}>{authorProfile.initials}</Text>
+                      )}
+                    </View>
+
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={s.spaceMarkTitle} numberOfLines={2}>{markText.title}</Text>
+                      <Text style={s.spaceMarkMeta} numberOfLines={1}>{markMeta}</Text>
+                    </View>
+
+                    <Text style={s.spaceMarkBadge}>Mark</Text>
+                  </View>
+
+                  {markText.body ? (
+                    <Text style={s.spaceMarkBody}>{markText.body}</Text>
+                  ) : null}
+
+                  {markMedia.length > 0 && (
+                    <MediaCollage
+                      media={markMedia}
+                      onPressMedia={(index) => openViewerForMilestone(mark, index)}
+                    />
+                  )}
+
+                  {(markPeople.length > 0 || contextLabels.length > 0) && (
+                    <View style={s.markTagRow}>
+                      {markPeople.slice(0, 4).map(person => (
+                        <View key={`${mark.id}_${person.id || person.npub || person.displayName}`} style={s.markPersonMiniChip}>
+                          <Text style={s.markPersonMiniText}>{getPersonDisplayName(person)}</Text>
+                        </View>
+                      ))}
+
+                      {contextLabels.map(label => (
+                        <View key={`${mark.id}_${label}`} style={s.markContextMiniChip}>
+                          <Text style={s.markContextMiniText}>{label}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+
+                  {permissionLabels.length > 0 && (
+                    <View style={s.markTagRow}>
+                      {permissionLabels.map(permission => (
+                        <View
+                          key={`${mark.id}_${permission.label}`}
+                          style={[
+                            s.markPermissionMiniChip,
+                            {
+                              borderColor:
+                                permission.tone === 'danger'
+                                  ? theme.danger
+                                  : permission.tone === 'gold'
+                                    ? theme.gold
+                                    : theme.border,
+                              backgroundColor:
+                                permission.tone === 'danger'
+                                  ? theme.danger
+                                  : permission.tone === 'gold'
+                                    ? theme.goldLight
+                                    : theme.raised,
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              s.markPermissionMiniText,
+                              {
+                                color:
+                                  permission.tone === 'danger'
+                                    ? theme.bg
+                                    : permission.tone === 'gold'
+                                      ? theme.gold
+                                      : theme.textSecondary,
+                              },
+                            ]}
+                          >
+                            {permission.label}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+
+                  {mark.tags.length > 0 && (
+                    <View style={s.markTagRow}>
+                      {mark.tags.map(tag => (
+                        <View key={`${mark.id}_${tag}`} style={s.markTag}>
+                          <Text style={s.markTagText}>{tag}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+
+                  <Text style={s.spaceMarkOpenHint}>Open Mark Detail</Text>
+                </TouchableOpacity>
+              );
+            }}
+          />
+
+          {group.status === 'active' && isAdmin && isMember && (
+            <TouchableOpacity
+              style={s.spaceMarkFab}
+              onPress={openUnifiedMarkComposer}
+              activeOpacity={0.88}
+            >
+              <Text style={s.spaceMarkFabText}>+</Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
 
