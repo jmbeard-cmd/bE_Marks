@@ -152,76 +152,6 @@ const [publishToNostr, setPublishToNostr] = useState(true);
           getContacts(),
           family ? getFamilyMembers(family.id) : Promise.resolve([]),
         ]);
-        const spaces = await ensureDefaultLivingSpaces({
-          family: family
-            ? {
-                id: family.id,
-                name: family.name,
-                relayUrl: family.relayUrl,
-                relayMode: family.relayMode,
-              }
-            : null,
-          groups: groups.map(group => ({
-            id: group.id,
-            name: group.name,
-            description: group.description,
-            sport: group.sport,
-            icon: group.icon,
-            coverImage: group.coverImage,
-            schoolId: group.schoolId,
-            relayUrl: group.relayUrl,
-            relayMode: group.relayMode,
-            createdAt: group.createdAt,
-            updatedAt: group.updatedAt,
-          })),
-        });
-
-        if (!cancelled) {
-          setLivingSpaces(spaces);
-          setPersonCandidates(
-            mergeLivingPersonCandidates([
-              {
-                npub,
-                displayName: myDisplayName,
-                avatarUrl: (profile as any)?.picture || (profile as any)?.avatarUrl,
-                source: 'current-user',
-              },
-              ...familyMembers.map(member => ({
-                npub: member.npub,
-                displayName: member.displayName,
-                source: 'family-member' as const,
-              })),
-              ...contacts.map(contact => ({
-                npub: contact.npub,
-                displayName: contact.nostrName || contact.name,
-                avatarUrl: contact.nostrAvatar,
-                source: 'contact' as const,
-              })),
-            ])
-          );
-        }
-      } catch (error) {
-        console.warn('[Living Spaces] failed to load placement chips:', error);
-      }
-    }
-
-    loadLivingSpaces();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [family, myDisplayName, npub, profile]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadLivingSpaces() {
-      try {
-        const [groups, contacts, familyMembers] = await Promise.all([
-          getGroups(),
-          getContacts(),
-          family ? getFamilyMembers(family.id) : Promise.resolve([]),
-        ]);
 
         const spaces = await ensureDefaultLivingSpaces({
           family: family
@@ -781,7 +711,10 @@ if (audioUri) {
       setShowContext(false);
       setPeopleInput('');
       setSelectedPeople([]);
-        eventId: selectedCalendarEventId || eventInput.trim() || undefined,
+      setLifeStage('');
+      setEventInput('');
+      setSelectedCalendarEventId(null);
+      setSavedToBook(false);
 
       setProgress(100);
 
@@ -1037,7 +970,7 @@ setProgress(0);
             <View style={s.contextTitleWrap}>
               <Text style={[s.contextTitle, { color: theme.text }]}>Context</Text>
               <Text style={[s.contextHint, { color: theme.textMuted }]}>
-                Optional details can help place this Mark later.
+                Add what you know now. bE can calmly ask for missing details later.
               </Text>
             </View>
             <Text style={[s.contextToggleText, { color: theme.gold }]}>
@@ -1048,6 +981,7 @@ setProgress(0);
           {showContext && (
             <View style={[s.contextPanel, { backgroundColor: theme.surface, borderColor: theme.border }]}>
               <Text style={[s.contextMiniHint, { color: theme.textMuted }]}>People</Text>
+
               {personCandidates.length > 0 && (
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.contextChipRow}>
                   {personCandidates.slice(0, 14).map(person => {
@@ -1087,6 +1021,16 @@ setProgress(0);
                   })}
                 </ScrollView>
               )}
+
+              <TextInput
+                style={[s.contextInput, { color: theme.text, backgroundColor: theme.raised, borderColor: theme.border }]}
+                placeholder="Add another person, name, or npub"
+                placeholderTextColor={theme.textMuted}
+                value={peopleInput}
+                onChangeText={setPeopleInput}
+                returnKeyType="done"
+              />
+
               <Text style={[s.contextMiniHint, { color: theme.textMuted }]}>Calendar event</Text>
 
               {selectedGroupSpaceId ? (
@@ -1167,6 +1111,7 @@ setProgress(0);
               />
 
               <Text style={[s.contextMiniHint, { color: theme.textMuted }]}>Life stage</Text>
+
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.contextChipRow}>
                 {LIFE_STAGE_OPTIONS.map(option => {
                   const active = lifeStage === option;
@@ -1195,15 +1140,6 @@ setProgress(0);
                   );
                 })}
               </ScrollView>
-
-              <TextInput
-                style={[s.contextInput, { color: theme.text, backgroundColor: theme.raised, borderColor: theme.border }]}
-                placeholder="Event name, season, trip, or ceremony"
-                placeholderTextColor={theme.textMuted}
-                value={eventInput}
-                onChangeText={setEventInput}
-                returnKeyType="done"
-              />
 
               <TouchableOpacity
                 style={[
