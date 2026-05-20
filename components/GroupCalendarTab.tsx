@@ -78,23 +78,13 @@ const RSVP_OPTIONS: { status: RSVPStatus; label: string; emoji: string }[] = [
   { status: 'declined',  label: "Can't go", emoji: '❌' },
 ];
 
-const TIME_OPTIONS = [
-  '7:00 AM',
-  '8:00 AM',
-  '9:00 AM',
-  '10:00 AM',
-  '11:00 AM',
-  '12:00 PM',
-  '1:00 PM',
-  '2:00 PM',
-  '3:00 PM',
-  '4:00 PM',
-  '5:00 PM',
-  '6:00 PM',
-  '7:00 PM',
-  '8:00 PM',
-  '9:00 PM',
-];
+const TIME_HOURS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'];
+
+const TIME_MINUTES = ['00', '15', '30', '45'];
+
+const TIME_PERIODS = ['AM', 'PM'] as const;
+
+type TimePeriod = typeof TIME_PERIODS[number];
 
 const SPACE_EVENT_TYPE_OPTIONS: SpaceEventType[] = [
   'game',
@@ -362,36 +352,105 @@ export default function GroupCalendarTab({
     value: string,
     onSelect: (next: string) => void,
     placeholder: string
-  ) => (
-    <View style={s.timePickerBox}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-        {TIME_OPTIONS.map(time => {
-          const selected = value === time;
+  ) => {
+    const parsed = parseTimeParts(value);
 
-          return (
-            <TouchableOpacity
-              key={time}
-              style={[s.timeChip, selected && s.timeChipSelected]}
-              onPress={() => onSelect(time)}
-              activeOpacity={0.82}
-            >
-              <Text style={[s.timeChipText, selected && s.timeChipTextSelected]}>
-                {time}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
+    const setHour = (hour: string) => {
+      onSelect(formatTimeParts(hour, parsed.minute, parsed.period));
+    };
 
-      <TextInput
-        style={[s.input, s.timeManualInput]}
-        value={value}
-        onChangeText={onSelect}
-        placeholder={placeholder}
-        placeholderTextColor={theme.textMuted}
-      />
-    </View>
-  );
+    const setMinute = (minute: string) => {
+      onSelect(formatTimeParts(parsed.hour, minute, parsed.period));
+    };
+
+    const setPeriod = (period: TimePeriod) => {
+      onSelect(formatTimeParts(parsed.hour, parsed.minute, period));
+    };
+
+    return (
+      <View style={s.timePickerBox}>
+        <View style={s.timePickerSection}>
+          <Text style={s.timePickerLabel}>Hour</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            {TIME_HOURS.map(hour => {
+              const selected = parsed.hour === hour;
+
+              return (
+                <TouchableOpacity
+                  key={hour}
+                  style={[s.timeChip, selected && s.timeChipSelected]}
+                  onPress={() => setHour(hour)}
+                  activeOpacity={0.82}
+                >
+                  <Text style={[s.timeChipText, selected && s.timeChipTextSelected]}>
+                    {hour}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+
+        <View style={s.timePickerSection}>
+          <Text style={s.timePickerLabel}>Minutes</Text>
+          <View style={s.minuteGrid}>
+            {TIME_MINUTES.map(minute => {
+              const selected = parsed.minute === minute;
+
+              return (
+                <TouchableOpacity
+                  key={minute}
+                  style={[s.minuteChip, selected && s.timeChipSelected]}
+                  onPress={() => setMinute(minute)}
+                  activeOpacity={0.82}
+                >
+                  <Text style={[s.timeChipText, selected && s.timeChipTextSelected]}>
+                    {minute}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+
+        <View style={s.periodRow}>
+          {TIME_PERIODS.map(period => {
+            const selected = parsed.period === period;
+
+            return (
+              <TouchableOpacity
+                key={period}
+                style={[s.periodChip, selected && s.timeChipSelected]}
+                onPress={() => setPeriod(period)}
+                activeOpacity={0.82}
+              >
+                <Text style={[s.timeChipText, selected && s.timeChipTextSelected]}>
+                  {period}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <TextInput
+          style={[s.input, s.timeManualInput]}
+          value={value}
+          onChangeText={onSelect}
+          onBlur={() => {
+            const normalized = normalizeTimeInput(value);
+            if (normalized) onSelect(normalized);
+          }}
+          placeholder={placeholder}
+          placeholderTextColor={theme.textMuted}
+          keyboardType="numbers-and-punctuation"
+        />
+
+        <Text style={s.timePickerHint}>
+          You can type 7:30 PM, 730pm, 7pm, or 19:30.
+        </Text>
+      </View>
+    );
+  };
 
   const handleCreate = async () => {
     if (!evTitle.trim()) {
@@ -1292,16 +1351,111 @@ function parseTimeInput(
   month: number,
   day: number
 ): number {
-  const str     = input.trim().toUpperCase();
-  const isPM    = str.includes('PM');
-  const isAM    = str.includes('AM');
-  const cleaned = str.replace(/[APM\s]/g, '');
-  const parts   = cleaned.split(':');
-  let hours     = parseInt(parts[0] ?? '0', 10);
-  const minutes = parseInt(parts[1] ?? '0', 10);
-  if (isPM && hours !== 12) hours += 12;
-  if (isAM && hours === 12) hours = 0;
+  const normalized = normalizeTimeInput(input);
+
+  if (!normalized) {
+    throw new Error('Invalid time. Use 7:30 PM, 730pm, 7pm, or 19:30.');
+  }
+
+  const parsed = parseTimeParts(normalized);
+  let hours = Number(parsed.hour);
+  const minutes = Number(parsed.minute);
+
+  if (parsed.period === 'PM' && hours !== 12) hours += 12;
+  if (parsed.period === 'AM' && hours === 12) hours = 0;
+
   return Math.floor(new Date(year, month - 1, day, hours, minutes, 0).getTime() / 1000);
+}
+
+function parseTimeParts(input: string): {
+  hour: string;
+  minute: string;
+  period: TimePeriod;
+} {
+  const normalized = normalizeTimeInput(input);
+
+  if (!normalized) {
+    return {
+      hour: '7',
+      minute: '00',
+      period: 'PM',
+    };
+  }
+
+  const match = normalized.match(/^(\d{1,2}):(\d{2})\s?(AM|PM)$/);
+
+  if (!match) {
+    return {
+      hour: '7',
+      minute: '00',
+      period: 'PM',
+    };
+  }
+
+  return {
+    hour: String(Number(match[1])),
+    minute: match[2],
+    period: match[3] as TimePeriod,
+  };
+}
+
+function formatTimeParts(
+  hour: string,
+  minute: string,
+  period: TimePeriod
+): string {
+  return `${hour}:${minute} ${period}`;
+}
+
+function normalizeTimeInput(input: string): string {
+  const raw = input.trim().toUpperCase();
+
+  if (!raw) return '';
+
+  const compact = raw.replace(/\s+/g, '');
+
+  const twelveHourMatch = compact.match(/^(\d{1,2})(?::?(\d{2}))?(AM|PM)$/);
+  if (twelveHourMatch) {
+    const hour = Number(twelveHourMatch[1]);
+    const minute = twelveHourMatch[2] ?? '00';
+    const period = twelveHourMatch[3] as TimePeriod;
+
+    if (hour < 1 || hour > 12) return '';
+    if (!isValidMinute(minute)) return '';
+
+    return `${hour}:${minute} ${period}`;
+  }
+
+  const militaryMatch = compact.match(/^(\d{1,2}):?(\d{2})$/);
+  if (militaryMatch) {
+    const first = militaryMatch[1];
+    const minute = militaryMatch[2];
+    const hour24 = Number(first);
+
+    if (hour24 < 0 || hour24 > 23) return '';
+    if (!isValidMinute(minute)) return '';
+
+    const period: TimePeriod = hour24 >= 12 ? 'PM' : 'AM';
+    const hour12 = hour24 === 0 ? 12 : hour24 > 12 ? hour24 - 12 : hour24;
+
+    return `${hour12}:${minute} ${period}`;
+  }
+
+  const plainHourMatch = compact.match(/^(\d{1,2})$/);
+  if (plainHourMatch) {
+    const hour = Number(plainHourMatch[1]);
+
+    if (hour < 1 || hour > 12) return '';
+
+    return `${hour}:00 PM`;
+  }
+
+  return '';
+}
+
+function isValidMinute(minute: string): boolean {
+  const value = Number(minute);
+  return /^\d{2}$/.test(minute) && value >= 0 && value <= 59;
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
@@ -1837,10 +1991,22 @@ fabText: {
     borderColor: theme.border,
     borderRadius: 14,
     backgroundColor: theme.surface,
-    padding: 8,
+    padding: 10,
+    gap: 10,
+  },
+  timePickerSection: {
+    gap: 6,
+  },
+  timePickerLabel: {
+    color: theme.textMuted,
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
   },
   timeChip: {
     minHeight: 34,
+    minWidth: 42,
     borderRadius: 17,
     paddingHorizontal: 12,
     alignItems: 'center',
@@ -1849,6 +2015,34 @@ fabText: {
     borderWidth: 0.5,
     borderColor: theme.border,
     marginRight: 8,
+  },
+  minuteGrid: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  minuteChip: {
+    flex: 1,
+    minHeight: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+  },
+  periodRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  periodChip: {
+    flex: 1,
+    minHeight: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.border,
   },
   timeChipSelected: {
     backgroundColor: theme.gold,
@@ -1863,7 +2057,13 @@ fabText: {
     color: theme.bg,
   },
   timeManualInput: {
-    marginTop: 8,
+    marginTop: 0,
+  },
+  timePickerHint: {
+    color: theme.textMuted,
+    fontSize: 10,
+    lineHeight: 14,
+    fontStyle: 'italic',
   },
   inputMulti: { minHeight: 80, textAlignVertical: 'top', lineHeight: 21 },
     eventTypeGrid: {
