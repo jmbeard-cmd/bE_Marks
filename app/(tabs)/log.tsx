@@ -119,10 +119,9 @@ export default function LogScreen() {
   const [tagInput, setTagInput] = useState('');
   const [media, setMedia] = useState<DraftMedia[]>([]);
   const [saving, setSaving] = useState(false);
-const [saveStatus, setSaveStatus] = useState('');
-const [progress, setProgress] = useState(0);
-const [publishToNostr, setPublishToNostr] = useState(true);
-  const [shareWithFamily, setShareWithFamily] = useState(false);
+  const [saveStatus, setSaveStatus] = useState('');
+  const [progress, setProgress] = useState(0);
+  const [publishToNostr, setPublishToNostr] = useState(true);
   const [audioUri, setAudioUri] = useState<string | undefined>();
   const [livingSpaces, setLivingSpaces] = useState<LivingSpace[]>([]);
   const [selectedSpaceId, setSelectedSpaceId] = useState<string | null>(null);
@@ -601,7 +600,7 @@ if (audioUri) {
       setSaveStatus('Saving Mark...');
       setProgress(85);
 
-      const shouldSaveAsFamilyMark = !!family && (shareWithFamily || selectedIsFamilySpace);
+      const shouldSaveAsFamilyMark = !!family && selectedIsFamilySpace;
 
       const savedMilestone = await saveMilestone({
         note: fullNote,
@@ -705,7 +704,6 @@ if (audioUri) {
       setTags([]);
       setMedia([]);
       setAudioUri(undefined);
-      setShareWithFamily(false);
       setTagInput('');
       setSelectedSpaceId(null);
       setShowContext(false);
@@ -1182,22 +1180,18 @@ setProgress(0);
           </TouchableOpacity>
         </View>
 
-        {family && (
+        {selectedIsFamilySpace && family && (
           <View style={[s.relayRow, { borderColor: theme.border }]}>
             <View>
-              <Text style={[s.relayLabel, { color: theme.text }]}>Share with family</Text>
-              <Text style={[s.relayHint, { color: theme.textMuted }]}>{family.name}</Text>
+              <Text style={[s.relayLabel, { color: theme.text }]}>Family Space selected</Text>
+              <Text style={[s.relayHint, { color: theme.textMuted }]}>
+                This Mark will be placed in {family.name}.
+              </Text>
             </View>
-            <TouchableOpacity
-              style={[
-  s.toggle,
-  { backgroundColor: theme.raised },
-  shareWithFamily && { backgroundColor: theme.gold },
-]}
-              onPress={() => setShareWithFamily(v => !v)}
-            >
-              <View style={[s.toggleThumb, shareWithFamily && s.toggleThumbOn]} />
-            </TouchableOpacity>
+
+            <Text style={[s.relayHint, { color: theme.gold, fontWeight: '800' }]}>
+              Family
+            </Text>
           </View>
         )}
 
