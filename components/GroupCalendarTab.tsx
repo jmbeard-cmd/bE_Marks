@@ -65,6 +65,7 @@ type EventCardProps = {
   onToggleExpand: () => void;
   onRSVP: (status: RSVPStatus) => void;
   onDelete: () => void;
+  onEditEvent: () => void;
   onEditScore: () => void;
   isPast?: boolean;
   s: ReturnType<typeof createStyles>;
@@ -122,6 +123,7 @@ export default function GroupCalendarTab({
   const [showPast, setShowPast]     = useState(false);
   const [showModal, setShowModal]   = useState(false);
   const [saving, setSaving]         = useState(false);
+  const [editingEvent, setEditingEvent] = useState<GroupCalendarEvent | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [rsvpState, setRsvpState]   = useState<Record<string, RSVPEntry>>({});
 
@@ -337,6 +339,30 @@ export default function GroupCalendarTab({
     setEvOpponent('');
     setEvHomeAway('home');
     setEvLegacyEligible(true);
+    setEditingEvent(null);
+  };
+
+    const openEventEditor = (event: GroupCalendarEvent) => {
+    const eventDate = new Date(event.startTime * 1000);
+
+    setEditingEvent(event);
+    setEvTitle(event.title);
+    setEvDesc(event.description ?? '');
+    setEvLocation(event.location ?? '');
+    setEvIsAllDay(event.eventType === 'allday');
+    setEvDate(formatDateInput(eventDate));
+    setPickerMonth(new Date(eventDate.getFullYear(), eventDate.getMonth(), 1));
+    setEvStartTime(event.eventType === 'timed' ? formatTimeFromTimestamp(event.startTime) : '');
+    setEvEndTime(
+      event.eventType === 'timed' && event.endTime
+        ? formatTimeFromTimestamp(event.endTime)
+        : ''
+    );
+    setEvSpaceEventType(event.spaceEventType ?? 'event');
+    setEvOpponent(event.opponent ?? '');
+    setEvHomeAway(event.homeAway ?? 'home');
+    setEvLegacyEligible(event.legacyEligible ?? true);
+    setShowModal(true);
   };
 
   const selectDate = (date: Date) => {
@@ -490,8 +516,7 @@ export default function GroupCalendarTab({
         }
       }
 
-      const createdEvent = await createCalendarEvent({
-        groupId:       group.id,
+      const eventPayload: Partial<GroupCalendarEvent> = {
         title:         evTitle.trim(),
         description:   evDescription.trim() || undefined,
         location:      evLocation.trim() || undefined,
@@ -507,21 +532,59 @@ export default function GroupCalendarTab({
         startTime,
         endTime,
         startDate,
-        authorNpub:    npub,
-        authorName:    displayName,
-        relayUrl:      group.relayUrl,
-      });
+        endDate: undefined,
+      };
 
-      setEvents(current =>
-        [createdEvent, ...current].sort((a, b) => a.startTime - b.startTime)
-      );
+      if (editingEvent) {
+        await updateCalendarEvent(editingEvent.id, eventPayload);
 
-      hydrateRSVPState([createdEvent]);
+        setEvents(current =>
+          current
+            .map(event =>
+              event.id === editingEvent.id
+                ? {
+                    ...event,
+                    ...eventPayload,
+                    updatedAt: Math.floor(Date.now() / 1000),
+                  }
+                : event
+            )
+            .sort((a, b) => a.startTime - b.startTime)
+        );
+      } else {
+        const createdEvent = await createCalendarEvent({
+          groupId:       group.id,
+          title:         evTitle.trim(),
+          description:   evDescription.trim() || undefined,
+          location:      evLocation.trim() || undefined,
+          eventType:     evIsAllDay ? 'allday' : 'timed',
+          spaceEventType: evSpaceEventType,
+          opponent:      evSpaceEventType === 'game' || evSpaceEventType === 'tournament'
+            ? evOpponent.trim() || undefined
+            : undefined,
+          homeAway:      evSpaceEventType === 'game' || evSpaceEventType === 'tournament'
+            ? evHomeAway
+            : undefined,
+          legacyEligible: evLegacyEligible,
+          startTime,
+          endTime,
+          startDate,
+          authorNpub:    npub,
+          authorName:    displayName,
+          relayUrl:      group.relayUrl,
+        });
+
+        setEvents(current =>
+          [createdEvent, ...current].sort((a, b) => a.startTime - b.startTime)
+        );
+
+        hydrateRSVPState([createdEvent]);
+      }
 
       resetForm();
       setShowModal(false);
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Could not create event.';
+      const msg = e instanceof Error ? e.message : 'Could not save event.';
       Alert.alert('Error', msg);
     }
 
@@ -630,6 +693,7 @@ export default function GroupCalendarTab({
   onToggleExpand={() => setExpandedId(id => (id === event.id ? null : event.id))}
   onRSVP={status => handleRSVP(event, status)}
   onDelete={() => handleDelete(event)}
+  onEditEvent={() => openEventEditor(event)}
   onEditScore={() => openScoreEditor(event)}
   s={s}
 />
@@ -658,6 +722,7 @@ export default function GroupCalendarTab({
                     onToggleExpand={() => setExpandedId(id => (id === event.id ? null : event.id))}
                     onRSVP={status => handleRSVP(event, status)}
                     onDelete={() => handleDelete(event)}
+                    onEditEvent={() => openEventEditor(event)}
                     onEditScore={() => openScoreEditor(event)}
                     s={s}
                   />
@@ -686,6 +751,7 @@ export default function GroupCalendarTab({
                     onToggleExpand={() => setExpandedId(id => (id === event.id ? null : event.id))}
                     onRSVP={status => handleRSVP(event, status)}
                     onDelete={() => handleDelete(event)}
+                    onEditEvent={() => openEventEditor(event)}
                     onEditScore={() => openScoreEditor(event)}
                     isPast
                     s={s}
@@ -716,6 +782,7 @@ export default function GroupCalendarTab({
                     onToggleExpand={() => setExpandedId(id => (id === event.id ? null : event.id))}
                     onRSVP={status => handleRSVP(event, status)}
                     onDelete={() => handleDelete(event)}
+                    onEditEvent={() => openEventEditor(event)}
                     onEditScore={() => openScoreEditor(event)}
                     isPast
                     s={s}
@@ -752,7 +819,9 @@ export default function GroupCalendarTab({
             contentContainerStyle={s.modalScrollContent}
           >
             <View style={s.modalCard}>
-              <Text style={s.modalTitle}>New Event</Text>
+              <Text style={s.modalTitle}>
+                {editingEvent ? 'Edit Event' : 'New Event'}
+              </Text>
 
               <Text style={s.inputLabel}>TITLE *</Text>
               <TextInput
@@ -973,7 +1042,7 @@ export default function GroupCalendarTab({
                 >
                   {saving
                     ? <ActivityIndicator size="small" color={theme.bg} />
-                    : <Text style={s.confirmText}>Post event</Text>}
+                    : <Text style={s.confirmText}>{editingEvent ? 'Save event' : 'Post event'}</Text>}
                 </TouchableOpacity>
               </View>
             </View>
@@ -1096,6 +1165,7 @@ function EventCard({
   onToggleExpand,
   onRSVP,
   onDelete,
+  onEditEvent,
   onEditScore,
   isPast = false,
   s,
@@ -1227,6 +1297,18 @@ function EventCard({
           </Text>
         )}
 
+                {expanded && isAdmin && (
+          <View style={s.adminActionRow}>
+            <TouchableOpacity
+              style={s.adminActionBtn}
+              onPress={onEditEvent}
+              activeOpacity={0.82}
+            >
+              <Text style={s.adminActionText}>Edit event</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         {rsvp !== undefined && (rsvp.accepted + rsvp.declined + rsvp.tentative) > 0 && (
           <View style={s.rsvpCountRow}>
             {rsvp.accepted  > 0 && <Text style={s.rsvpCount}>✅ {rsvp.accepted}</Text>}
@@ -1343,6 +1425,18 @@ function buildCalendarDays(monthDate: Date): (Date | null)[] {
   }
 
   return days;
+}
+
+function formatTimeFromTimestamp(timestamp: number): string {
+  const date = new Date(timestamp * 1000);
+  let hours = date.getHours();
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const period: TimePeriod = hours >= 12 ? 'PM' : 'AM';
+
+  hours = hours % 12;
+  if (hours === 0) hours = 12;
+
+  return `${hours}:${minutes} ${period}`;
 }
 
 function parseTimeInput(
@@ -1762,6 +1856,25 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     marginBottom: 6,
   },
   expandHint:  { fontSize: 11, color: theme.textMuted, fontStyle: 'italic', marginTop: 4 },
+    adminActionRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+  },
+  adminActionBtn: {
+    alignSelf: 'flex-start',
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    borderRadius: 999,
+    backgroundColor: theme.bg,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  adminActionText: {
+    color: theme.text,
+    fontSize: 11,
+    fontWeight: '800',
+  },
 
   rsvpCountRow: { flexDirection: 'row', gap: 10, marginTop: 6, marginBottom: 4 },
   rsvpCount:    { fontSize: 12, color: theme.textMuted, fontWeight: '600' },
