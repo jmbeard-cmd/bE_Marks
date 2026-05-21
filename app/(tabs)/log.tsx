@@ -650,9 +650,10 @@ if (audioUri) {
         privacy: privacyHint,
       });
 
-      // ── Step 5: Publish to family relay if sharing ──
-      setSaveStatus('Sharing with family...');
+      // ── Step 5: Finish placement and publish to family relay only when Family Space is selected ──
+      setSaveStatus(shouldSaveAsFamilyMark ? 'Sharing with Family Space...' : 'Finishing Mark...');
       setProgress(95);
+
       if (shouldSaveAsFamilyMark && family && nsec && npub) {
         publishFamilyMilestone(
           {
