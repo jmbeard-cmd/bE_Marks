@@ -10,7 +10,6 @@ import {
   type UnsignedEvent,
 } from 'nostr-tools';
 import { Linking, Platform } from 'react-native';
-import { isAppBusy } from './app-activity';
 import type {
   LivingMarkMetadata,
   LivingMarkPlacement,
@@ -18,6 +17,7 @@ import type {
   SchoolConsentMode,
   SchoolMinorDefaultPolicy,
 } from '../types/living-spaces';
+import { isAppBusy } from './app-activity';
 import type { Milestone } from './storage';
 
 const SECKEY = 'nostr_nsec';
@@ -1482,21 +1482,38 @@ export type NostrGroupMarkPayload = {
   updatedAt: number;
 };
 
-function isRemoteMediaUri(uri?: string): boolean {
-  return !uri || /^https?:\/\//i.test(uri.trim());
+function getRemoteMediaUri(uri?: string): string | undefined {
+  const trimmed = uri?.trim();
+
+  if (!trimmed) return undefined;
+
+  return /^https?:\/\//i.test(trimmed) ? trimmed : undefined;
 }
 
-function milestoneHasOnlyRemoteMedia(milestone: Milestone): boolean {
+function sanitizeMilestoneForGroupMarkSnapshot(milestone: Milestone): Milestone {
   const mediaItems = milestone.media ?? [];
-  return (
-    isRemoteMediaUri(milestone.photoUri) &&
-    isRemoteMediaUri(milestone.videoUri) &&
-    isRemoteMediaUri(milestone.audioUri) &&
-    mediaItems.every(item =>
-      isRemoteMediaUri(item.uri) &&
-      isRemoteMediaUri(item.thumbnailUri)
-    )
-  );
+
+  const remoteMedia = mediaItems
+    .map(item => {
+      const remoteUri = getRemoteMediaUri(item.uri);
+
+      if (!remoteUri) return null;
+
+      return {
+        ...item,
+        uri: remoteUri,
+        thumbnailUri: getRemoteMediaUri(item.thumbnailUri),
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => item !== null);
+
+  return {
+    ...milestone,
+    photoUri: getRemoteMediaUri(milestone.photoUri),
+    videoUri: getRemoteMediaUri(milestone.videoUri),
+    audioUri: getRemoteMediaUri(milestone.audioUri),
+    media: remoteMedia,
+  };
 }
 
 export async function publishGroupMark(input: {
@@ -1519,15 +1536,13 @@ export async function publishGroupMark(input: {
       return { success: false, error: 'Space Mark snapshot missing author identity' };
     }
 
-    if (!milestoneHasOnlyRemoteMedia(input.milestone)) {
-      return { success: false, error: 'Space Mark snapshot has local-only media' };
-    }
+    const snapshotMilestone = sanitizeMilestoneForGroupMarkSnapshot(input.milestone);
 
     const payload: NostrGroupMarkPayload = {
       schemaVersion: 2,
       groupId: input.groupId,
       milestone: {
-        ...input.milestone,
+        ...snapshotMilestone,
         publishedToRelay: input.milestone.publishedToRelay === true,
       },
       metadata: input.metadata,
