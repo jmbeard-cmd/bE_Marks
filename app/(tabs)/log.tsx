@@ -50,10 +50,21 @@ import {
   persistLivingMarkCapture,
 } from '../../src/utils/living-spaces-storage';
 import { compressMediaForUpload } from '../../src/utils/media-compression';
-import { publishFamilyMilestone, signAndPublish } from '../../src/utils/nostr';
+import {
+  DEFAULT_RELAY,
+  publishFamilyMilestone,
+  publishGroupMark,
+  signAndPublish,
+} from '../../src/utils/nostr';
 import { notifyMarkEvent } from '../../src/utils/push-notifications';
 import { uploadMilestoneMedia } from '../../src/utils/r2';
-import { getFamilyMembers, saveMilestone } from '../../src/utils/storage';
+import {
+  getAccountSafetySettings,
+  getFamilyMembers,
+  saveMilestone,
+  updateMilestone,
+  type AccountSafetySettings,
+} from '../../src/utils/storage';
 import { useIdentity } from '../_layout';
 
 const PRESET_TAGS = ['Family', 'Faith', 'Career', 'School', 'Travel', 'Health', 'Achievement', 'Personal'];
@@ -128,6 +139,7 @@ export default function LogScreen() {
       : 'overview';
 
   const routePreselectAppliedRef = useRef(false);
+  const publicPublishWarningShownRef = useRef(false);
   const [title, setTitle] = useState('');
   const [note, setNote] = useState('');
   const [tags, setTags] = useState<string[]>([]);
@@ -136,7 +148,7 @@ export default function LogScreen() {
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState('');
   const [progress, setProgress] = useState(0);
-  const [publishToNostr, setPublishToNostr] = useState(true);
+  const [publishToNostr, setPublishToNostr] = useState(false);
   const [audioUri, setAudioUri] = useState<string | undefined>();
   const [livingSpaces, setLivingSpaces] = useState<LivingSpace[]>([]);
   const [visibleGroupIds, setVisibleGroupIds] = useState<Set<string>>(() => new Set());
@@ -151,11 +163,30 @@ export default function LogScreen() {
   const [selectedCalendarEventId, setSelectedCalendarEventId] = useState<string | null>(null);
   const [loadingCalendarEvents, setLoadingCalendarEvents] = useState(false);
   const [savedToBook, setSavedToBook] = useState(false);
+  const [accountSafety, setAccountSafety] = useState<AccountSafetySettings | null>(null);
 
   const myDisplayName =
   profile?.display_name ||
   profile?.name ||
   (npub ? `${npub.slice(0, 12)}…` : 'Someone');
+
+  useEffect(() => {
+    let mounted = true;
+
+    getAccountSafetySettings()
+      .then(settings => {
+        if (mounted) {
+          setAccountSafety(settings);
+        }
+      })
+      .catch(error => {
+        console.warn('[Account Safety] failed to load in Mark composer:', error);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -260,6 +291,74 @@ export default function LogScreen() {
     selectedSpace?.source === 'group'
       ? selectedSpace.sourceId ?? selectedSpace.id.replace(/^group:/, '')
       : null;
+
+  const selectedGroupRelayUrl =
+    selectedSpace?.source === 'group'
+      ? selectedSpace.relayUrl || DEFAULT_RELAY
+      : undefined;
+
+  const selectedIsSharedSpace = selectedIsFamilySpace || !!selectedGroupSpaceId;
+  const publicPostingLockedForChildGroup =
+    accountSafety?.childUnder13 === true && !!selectedGroupSpaceId;
+
+  const publicPublishLabel = publicPostingLockedForChildGroup
+    ? 'Make your Mark safely in this Space'
+    : selectedIsSharedSpace
+      ? 'Make your Mark beyond this Space'
+      : 'Make your Mark on the world';
+
+  const publicPublishHint = publicPostingLockedForChildGroup
+    ? 'Public posting is turned off for child accounts in group Spaces.'
+    : selectedIsFamilySpace
+      ? 'Family Space still syncs privately when this is off.'
+      : selectedGroupSpaceId
+        ? 'Space members still receive this through the Space relay when this is off.'
+        : 'Optional. Turn this on only when you want this Mark visible on your public relay.';
+
+  useEffect(() => {
+    if (selectedIsSharedSpace || publicPostingLockedForChildGroup) {
+      setPublishToNostr(false);
+      publicPublishWarningShownRef.current = false;
+    }
+  }, [publicPostingLockedForChildGroup, selectedIsSharedSpace, selectedSpaceId]);
+
+  const handlePublicPublishToggle = () => {
+    if (publicPostingLockedForChildGroup) {
+      Alert.alert(
+        'Space-safe posting',
+        'Public posting is turned off for child accounts inside group Spaces. This Mark will still sync with Space members.'
+      );
+      setPublishToNostr(false);
+      return;
+    }
+
+    if (publishToNostr) {
+      setPublishToNostr(false);
+      return;
+    }
+
+    if (!publicPublishWarningShownRef.current) {
+      Alert.alert(
+        'Make this Mark public?',
+        selectedIsSharedSpace
+          ? 'This Mark will also be visible outside this Space to anyone who can read your public relay. Space members will still receive it through the Space relay even if this stays off.'
+          : 'This Mark will be visible to anyone who can read your public relay.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Make public',
+            onPress: () => {
+              publicPublishWarningShownRef.current = true;
+              setPublishToNostr(true);
+            },
+          },
+        ]
+      );
+      return;
+    }
+
+    setPublishToNostr(true);
+  };
 
   const returnGroupId = returnToGroupId?.trim() || undefined;
 
@@ -635,14 +734,14 @@ if (audioUri) {
 
       // Warn user immediately if any media failed — don't silently drop it
       
-
-      // ── Step 2: Publish to Nostr relay with all media URLs ──
+      // ── Step 2: Optionally publish to public/profile relay ──
       let nostrEventId: string | undefined;
       let published = false;
 
-      setSaveStatus('Publishing to relay...');
       setProgress(70);
-      if (publishToNostr && nsec) {
+      if (publishToNostr && nsec && !publicPostingLockedForChildGroup) {
+        setSaveStatus('Making your Mark public...');
+
         const result = await signAndPublish({
           note: fullNote,
           tags,
@@ -650,12 +749,15 @@ if (audioUri) {
           videoUrl: uploadedVideo,
           audioUrl: uploadedAudio,
         }, nsec);
+
         if (result.success) {
           nostrEventId = result.eventId;
           published = true;
         } else {
-          Alert.alert('Relay warning', `Saved locally. Relay: ${result.error}`);
+          Alert.alert('Public relay warning', `Saved locally. Public relay: ${result.error}`);
         }
+      } else {
+        setSaveStatus(selectedIsSharedSpace ? 'Keeping this inside the Space...' : 'Saving privately...');
       }
 
       // ── Step 4: Save to local storage ──
@@ -696,7 +798,7 @@ if (audioUri) {
         manualInput: peopleInput,
       });
 
-      await persistLivingMarkCapture({
+      const livingMarkCapture = await persistLivingMarkCapture({
         milestone: savedMilestone,
         spaces: livingSpaces,
         selectedSpaceId,
@@ -713,9 +815,46 @@ if (audioUri) {
         privacy: privacyHint,
       });
 
-      // ── Step 5: Finish placement and publish to family relay only when Family Space is selected ──
-      setSaveStatus(shouldSaveAsFamilyMark ? 'Sharing with Family Space...' : 'Finishing Mark...');
+      // ── Step 5: Publish Space / Family relay snapshots when selected ──
+      const shouldPublishGroupSpaceMark =
+        !!selectedGroupId &&
+        !!selectedGroupSpaceId &&
+        !!nsec &&
+        visibleGroupIds.has(selectedGroupId);
+
+      setSaveStatus(
+        shouldSaveAsFamilyMark
+          ? 'Sharing with Family Space...'
+          : shouldPublishGroupSpaceMark
+            ? 'Sharing with Space...'
+            : 'Finishing Mark...'
+      );
       setProgress(95);
+
+      let groupSpacePublished = false;
+
+      if (shouldPublishGroupSpaceMark && selectedGroupId && nsec) {
+        const groupMarkResult = await publishGroupMark({
+          groupId: selectedGroupId,
+          milestone: savedMilestone,
+          metadata: livingMarkCapture.metadata,
+          placement: livingMarkCapture.placement,
+          nsec,
+          relayUrl: selectedGroupRelayUrl || DEFAULT_RELAY,
+        });
+
+        if (!groupMarkResult.success) {
+          console.warn('[Space Marks] publish from Log failed:', groupMarkResult.error);
+        } else {
+          groupSpacePublished = true;
+
+          await updateMilestone(savedMilestone.id, {
+            spaceRelayEventId: groupMarkResult.eventId,
+            spaceRelayPublishedAt: Math.floor(Date.now() / 1000),
+            spaceRelayGroupIds: [selectedGroupId],
+          });
+        }
+      }
 
       if (shouldSaveAsFamilyMark && family && nsec && npub) {
         publishFamilyMilestone(
@@ -776,12 +915,28 @@ if (audioUri) {
       setEventInput('');
       setSelectedCalendarEventId(null);
       setSavedToBook(false);
+      setPublishToNostr(false);
+      publicPublishWarningShownRef.current = false;
 
       setProgress(100);
 
+      const savedMessage = selectedGroupSpaceId
+        ? groupSpacePublished
+          ? published
+            ? 'Saved to Space and also published publicly.'
+            : 'Saved to Space.'
+          : 'Saved locally. Space sync did not finish.'
+        : selectedIsFamilySpace
+          ? published
+            ? 'Saved to Family Space and also published publicly.'
+            : 'Saved to Family Space.'
+          : published
+            ? 'Published publicly.'
+            : 'Saved privately.';
+
       Alert.alert(
         '✓ Saved',
-        published ? 'Published to your relay.' : 'Saved locally.',
+        savedMessage,
         [
           {
             text: 'OK',
@@ -805,7 +960,7 @@ setProgress(0);
         <SafeAreaView style={[s.safe, { backgroundColor: theme.bg }]}>
       <ScrollView contentContainerStyle={s.container} keyboardShouldPersistTaps="handled">
 
-        <BEHeader title="Log" />
+        <BEHeader title="Mark" />
 
         {/* Photo */}
         {/* Photos */}
@@ -1212,22 +1367,29 @@ setProgress(0);
           )}
         </View>
 
-        {/* Relay toggle */}
+        {/* Public visibility / safety control */}
         <View style={[s.relayRow, { borderColor: theme.border }]}>
-          <View>
-            <Text style={[s.relayLabel, { color: theme.text }]}>Publish to relay</Text>
-            <Text style={[s.relayHint, { color: theme.textMuted }]}>relay.beginningend.com</Text>
+          <View style={{ flex: 1, paddingRight: 14 }}>
+            <Text style={[s.relayLabel, { color: theme.text }]}>{publicPublishLabel}</Text>
+            <Text style={[s.relayHint, { color: theme.textMuted }]}>{publicPublishHint}</Text>
           </View>
-          <TouchableOpacity
-          style={[
+
+          {publicPostingLockedForChildGroup ? (
+            <Text style={[s.relayHint, { color: theme.gold, fontWeight: '800' }]}>
+              Protected
+            </Text>
+          ) : (
+            <TouchableOpacity
+            style={[
   s.toggle,
   { backgroundColor: theme.raised },
   publishToNostr && { backgroundColor: theme.gold },
 ]}
-            onPress={() => setPublishToNostr(v => !v)}
-          >
-            <View style={[s.toggleThumb, publishToNostr && s.toggleThumbOn]} />
-          </TouchableOpacity>
+              onPress={handlePublicPublishToggle}
+            >
+              <View style={[s.toggleThumb, publishToNostr && s.toggleThumbOn]} />
+            </TouchableOpacity>
+          )}
         </View>
 
         {selectedIsFamilySpace && family && (

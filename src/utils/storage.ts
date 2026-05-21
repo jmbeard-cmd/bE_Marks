@@ -7,6 +7,7 @@ const MILESTONES_BACKUP_INDEX_KEY = 'milestones_v1_emergency_backups_index_v1';
 const MILESTONES_BACKUP_PREFIX = 'milestones_v1_emergency_backup_';
 const FAMILY_KEY = 'family_v1';
 const FAMILY_MEMBERS_KEY = 'family_members_v1';
+const ACCOUNT_SAFETY_KEY = 'account_safety_v1';
 
 export type MilestoneBackupIndexEntry = {
   key: string;
@@ -68,6 +69,14 @@ export interface FamilyMember {
   role: FamilyMemberRole;
   joinedAt: number;
   status: 'active' | 'removed';
+}
+
+export interface AccountSafetySettings {
+  isChildAccount: boolean;
+  childUnder13: boolean;
+  guardianManaged: boolean;
+  publicPostingAllowed: boolean;
+  updatedAt: number;
 }
 
 function hasText(value?: string | null): value is string {
@@ -524,6 +533,69 @@ export function generateFamilyId(): string {
   return result;
 }
 
+function getDefaultAccountSafetySettings(): AccountSafetySettings {
+  return {
+    isChildAccount: false,
+    childUnder13: false,
+    guardianManaged: false,
+    publicPostingAllowed: true,
+    updatedAt: Math.floor(Date.now() / 1000),
+  };
+}
+
+export async function getAccountSafetySettings(): Promise<AccountSafetySettings> {
+  const fallback = getDefaultAccountSafetySettings();
+
+  try {
+    const raw = await AsyncStorage.getItem(ACCOUNT_SAFETY_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+
+    if (!parsed || typeof parsed !== 'object') {
+      return fallback;
+    }
+
+    const childUnder13 = parsed.childUnder13 === true;
+    const isChildAccount = parsed.isChildAccount === true || childUnder13;
+
+    return {
+      isChildAccount,
+      childUnder13,
+      guardianManaged: parsed.guardianManaged === true,
+      publicPostingAllowed: childUnder13
+        ? false
+        : parsed.publicPostingAllowed !== false,
+      updatedAt:
+        typeof parsed.updatedAt === 'number'
+          ? parsed.updatedAt
+          : fallback.updatedAt,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+export async function saveAccountSafetySettings(
+  input: Partial<AccountSafetySettings>
+): Promise<AccountSafetySettings> {
+  const current = await getAccountSafetySettings();
+  const childUnder13 = input.childUnder13 ?? current.childUnder13;
+  const isChildAccount = input.isChildAccount ?? current.isChildAccount ?? childUnder13;
+
+  const next: AccountSafetySettings = {
+    ...current,
+    ...input,
+    isChildAccount: isChildAccount || childUnder13,
+    childUnder13,
+    publicPostingAllowed: childUnder13
+      ? false
+      : input.publicPostingAllowed ?? current.publicPostingAllowed,
+    updatedAt: Math.floor(Date.now() / 1000),
+  };
+
+  await AsyncStorage.setItem(ACCOUNT_SAFETY_KEY, JSON.stringify(next));
+  return next;
+}
+
 const FAMILY_CHECK_KEY = 'family_last_check_';
 
 export async function getLastFamilyCheck(familyId: string): Promise<number> {
@@ -561,6 +633,9 @@ export async function clearNewIdentityLocalData(): Promise<void> {
     // 🔥 Clear family + members (extra safety)
     await AsyncStorage.removeItem(FAMILY_KEY);
     await AsyncStorage.removeItem(FAMILY_MEMBERS_KEY);
+
+    // 🔥 Clear local account safety settings for the new identity
+    await AsyncStorage.removeItem(ACCOUNT_SAFETY_KEY);
 
     console.log('[Identity Reset] Local data cleared successfully');
   } catch (error) {

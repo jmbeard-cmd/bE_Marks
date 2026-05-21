@@ -36,7 +36,10 @@ import {
 import { uploadToR2 } from '../../src/utils/r2';
 import {
   generateFamilyId,
+  getAccountSafetySettings,
+  saveAccountSafetySettings,
   upsertFamilyMember,
+  type AccountSafetySettings,
   type FamilyRelayMode,
 } from '../../src/utils/storage';
 import { useIdentity } from '../_layout';
@@ -102,6 +105,16 @@ useEffect(() => {
 
   const [showNsec, setShowNsec] = useState(false);
   const [nsecValue, setNsecValue] = useState('');
+  const [accountSafety, setAccountSafety] = useState<AccountSafetySettings | null>(null);
+  const [savingAccountSafety, setSavingAccountSafety] = useState(false);
+  useEffect(() => {
+    getAccountSafetySettings()
+      .then(setAccountSafety)
+      .catch(error => {
+        console.warn('[Account Safety] failed to load:', error);
+      });
+  }, []);
+
   useEffect(() => {
   const republishFamilyNameIfNeeded = async () => {
     if (!family) return;
@@ -371,6 +384,42 @@ useEffect(() => {
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Remove', style: 'destructive', onPress: async () => { await clearIdentity(); clearCtx(); } },
+      ]
+    );
+  };
+
+  const toggleChildUnder13 = () => {
+    const nextChildUnder13 = accountSafety?.childUnder13 !== true;
+
+    Alert.alert(
+      nextChildUnder13 ? 'Set as child account?' : 'Turn off child account?',
+      nextChildUnder13
+        ? 'Public posting will be turned off inside group Spaces for this account. Space posting will still work.'
+        : 'This account will be allowed to choose public posting again.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: nextChildUnder13 ? 'Set child account' : 'Turn off',
+          onPress: async () => {
+            setSavingAccountSafety(true);
+
+            try {
+              const saved = await saveAccountSafetySettings({
+                isChildAccount: nextChildUnder13,
+                childUnder13: nextChildUnder13,
+                guardianManaged: nextChildUnder13,
+                publicPostingAllowed: !nextChildUnder13,
+              });
+
+              setAccountSafety(saved);
+            } catch (error) {
+              console.warn('[Account Safety] failed to save:', error);
+              Alert.alert('Could not save', 'Account safety settings were not updated.');
+            } finally {
+              setSavingAccountSafety(false);
+            }
+          },
+        },
       ]
     );
   };
@@ -646,6 +695,44 @@ const handleJoinFamily = async () => {
             <View style={[s.row, { borderBottomColor: theme.border }]}>
               <Text style={[s.rowLabel, { color: theme.textSecondary }]}>Signer</Text>
               <Text style={[s.rowValue, { color: theme.textMuted }]}>{useAmber ? 'Amber (NIP-55)' : 'Built-in'}</Text>
+            </View>
+
+            <View style={[s.row, { borderBottomColor: theme.border }]}>
+              <View style={{ flex: 1, paddingRight: 14 }}>
+                <Text style={[s.rowLabel, { color: theme.textSecondary }]}>Child account</Text>
+                <Text style={[s.rowHint, { color: theme.textMuted }]}>
+                  Turns off public posting inside group Spaces for under-13 accounts.
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                style={[
+                  s.themeToggle,
+                  { borderColor: theme.border, backgroundColor: theme.surface },
+                  accountSafety?.childUnder13 === true && {
+                    borderColor: theme.gold,
+                    backgroundColor: theme.gold,
+                  },
+                  savingAccountSafety && { opacity: 0.55 },
+                ]}
+                onPress={toggleChildUnder13}
+                disabled={savingAccountSafety}
+                activeOpacity={0.85}
+              >
+                {savingAccountSafety ? (
+                  <ActivityIndicator size="small" color={theme.gold} />
+                ) : (
+                  <Text
+                    style={[
+                      s.themeToggleText,
+                      { color: theme.gold },
+                      accountSafety?.childUnder13 === true && { color: theme.bg },
+                    ]}
+                  >
+                    {accountSafety?.childUnder13 === true ? 'On' : 'Off'}
+                  </Text>
+                )}
+              </TouchableOpacity>
             </View>
 
             {!useAmber && (
