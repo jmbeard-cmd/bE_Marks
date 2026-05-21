@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors } from '../../src/constants/theme';
+import type { LivingSpace, LivingSpaceType } from '../../src/types/living-spaces';
 import { BEContact, getContacts, saveContact } from '../../src/utils/contacts-storage';
 import { subscribeToDMEvents } from '../../src/utils/dm-events';
 import {
@@ -29,6 +30,10 @@ import {
   getDMThreads,
   type DMThread,
 } from '../../src/utils/dm-storage';
+import {
+  getCachedDMThreadCards,
+  saveCachedDMThreadCards,
+} from '../../src/utils/dm-thread-list-cache';
 import {
   getGroupMessagePreview,
   getMessagesForGroup,
@@ -50,16 +55,11 @@ import {
   scheduleGroupsMembershipRefresh,
   subscribeToGroupsIndex,
 } from '../../src/utils/groups-index';
-import {
-  getCachedDMThreadCards,
-  saveCachedDMThreadCards,
-} from '../../src/utils/dm-thread-list-cache';
+import { syncLivingSpacesFromGroups } from '../../src/utils/living-spaces-storage';
 import { DEFAULT_RELAY, fetchNostrProfile, npubToHex, publishGroupMessage } from '../../src/utils/nostr';
 import { normalizeNostrIdentity } from '../../src/utils/nostr-identity';
-import { uploadToR2 } from '../../src/utils/r2';
-import { syncLivingSpacesFromGroups } from '../../src/utils/living-spaces-storage';
 import { notifyGroupEvent, registerGroupMemberForPush } from '../../src/utils/push-notifications';
-import type { LivingSpace, LivingSpaceType } from '../../src/types/living-spaces';
+import { uploadToR2 } from '../../src/utils/r2';
 import { useIdentity } from '../_layout';
 
 
@@ -862,7 +862,13 @@ export default function MessagesScreen() {
   };
 
   const openGroup = (group: BEGroup) => {
-    router.push({ pathname: '/group-detail', params: { id: group.id } } as any);
+    router.push({
+      pathname: '/group-detail',
+      params: {
+        id: group.id,
+        tab: 'overview',
+      },
+    } as any);
   };
 
   const openEditGroup = async (group: BEGroup) => {
