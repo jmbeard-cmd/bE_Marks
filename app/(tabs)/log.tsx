@@ -67,8 +67,11 @@ import {
 } from '../../src/utils/storage';
 import { useIdentity } from '../_layout';
 
+const LIFT_UP_TAG = 'Lift Up';
 const PRESET_TAGS = ['Family', 'Faith', 'Career', 'School', 'Travel', 'Health', 'Achievement', 'Personal'];
 const LIFE_STAGE_OPTIONS = ['Childhood', 'Elementary', 'Middle School', 'High School', 'College', 'Season', 'Trip'];
+
+type MarkMode = 'memory' | 'lift-up';
 
 type DraftMedia = {
   id: string;
@@ -142,6 +145,7 @@ export default function LogScreen() {
   const publicPublishWarningShownRef = useRef(false);
   const [title, setTitle] = useState('');
   const [note, setNote] = useState('');
+  const [markMode, setMarkMode] = useState<MarkMode>('memory');
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
   const [media, setMedia] = useState<DraftMedia[]>([]);
@@ -169,6 +173,16 @@ export default function LogScreen() {
   profile?.display_name ||
   profile?.name ||
   (npub ? `${npub.slice(0, 12)}…` : 'Someone');
+
+  const isLiftUpMark = markMode === 'lift-up';
+
+  const titlePlaceholder = isLiftUpMark
+    ? 'Who or what should this Mark lift up?'
+    : 'Name this Mark...';
+
+  const notePlaceholder = isLiftUpMark
+    ? 'What happened that should be remembered?'
+    : 'What happened? How did it feel?';
 
   useEffect(() => {
     let mounted = true;
@@ -733,6 +747,10 @@ if (audioUri) {
 }
 
       // Warn user immediately if any media failed — don't silently drop it
+
+      const finalTags = isLiftUpMark
+        ? Array.from(new Set([...tags, LIFT_UP_TAG]))
+        : tags;
       
       // ── Step 2: Optionally publish to public/profile relay ──
       let nostrEventId: string | undefined;
@@ -744,7 +762,7 @@ if (audioUri) {
 
         const result = await signAndPublish({
           note: fullNote,
-          tags,
+          tags: finalTags,
           imageUrl: uploadedPhoto,
           videoUrl: uploadedVideo,
           audioUrl: uploadedAudio,
@@ -768,7 +786,7 @@ if (audioUri) {
 
       const savedMilestone = await saveMilestone({
         note: fullNote,
-        tags,
+        tags: finalTags,
         photoUri: uploadedPhoto,
         media: uploadedMedia,
         audioUri: uploadedAudio,
@@ -861,7 +879,7 @@ if (audioUri) {
           {
             id: savedMilestone.id,
             note: fullNote,
-            tags,
+            tags: finalTags,
             photoUri: uploadedPhoto,
             videoUri: uploadedVideo,
             audioUri: uploadedAudio,
@@ -903,6 +921,7 @@ if (audioUri) {
       // ── Reset form ──
       setTitle('');
       setNote('');
+      setMarkMode('memory');
       setTags([]);
       setMedia([]);
       setAudioUri(undefined);
@@ -1012,12 +1031,77 @@ setProgress(0);
 </View>
 </View>
 
+        {/* Mark type */}
+        <View style={s.field}>
+          <Text style={[s.label, { color: theme.textMuted }]}>MARK TYPE</Text>
+
+          <View style={s.markTypeRow}>
+            <TouchableOpacity
+              style={[
+                s.markTypeChip,
+                { backgroundColor: theme.surface, borderColor: theme.border },
+                markMode === 'memory' && { backgroundColor: theme.gold, borderColor: theme.gold },
+              ]}
+              onPress={() => setMarkMode('memory')}
+              activeOpacity={0.84}
+            >
+              <Text
+                style={[
+                  s.markTypeTitle,
+                  { color: theme.textSecondary },
+                  markMode === 'memory' && { color: theme.bg },
+                ]}
+              >
+                Memory
+              </Text>
+              <Text
+                style={[
+                  s.markTypeHint,
+                  { color: theme.textMuted },
+                  markMode === 'memory' && { color: theme.bg },
+                ]}
+              >
+                Capture what happened
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                s.markTypeChip,
+                { backgroundColor: theme.surface, borderColor: theme.border },
+                markMode === 'lift-up' && { backgroundColor: theme.gold, borderColor: theme.gold },
+              ]}
+              onPress={() => setMarkMode('lift-up')}
+              activeOpacity={0.84}
+            >
+              <Text
+                style={[
+                  s.markTypeTitle,
+                  { color: theme.textSecondary },
+                  markMode === 'lift-up' && { color: theme.bg },
+                ]}
+              >
+                Lift Up
+              </Text>
+              <Text
+                style={[
+                  s.markTypeHint,
+                  { color: theme.textMuted },
+                  markMode === 'lift-up' && { color: theme.bg },
+                ]}
+              >
+                Encourage someone
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
         {/* Title */}
         <View style={s.field}>
           <Text style={[s.label, { color: theme.textMuted }]}>TITLE</Text>
           <TextInput
   style={[s.titleInput, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]}
-            placeholder="Name this Mark..."
+            placeholder={titlePlaceholder}
             placeholderTextColor={theme.textMuted}
             value={title}
             onChangeText={setTitle}
@@ -1030,7 +1114,7 @@ setProgress(0);
           <Text style={[s.label, { color: theme.textMuted }]}>NOTE</Text>
           <TextInput
   style={[s.textarea, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]}
-            placeholder="What happened? How did it feel?"
+            placeholder={notePlaceholder}
             placeholderTextColor={theme.textMuted}
             value={note}
             onChangeText={setNote}
@@ -1465,6 +1549,10 @@ const s = StyleSheet.create({
   photoActionBtn: { padding: 4 },
   photoActionText: { fontSize: 13, color: '#888' },
   field: { marginBottom: 22 },
+  markTypeRow: { flexDirection: 'row', gap: 10 },
+  markTypeChip: { flex: 1, minHeight: 64, borderRadius: 14, borderWidth: 0.5, paddingHorizontal: 12, paddingVertical: 10, justifyContent: 'center' },
+  markTypeTitle: { fontSize: 14, fontWeight: '900', marginBottom: 3 },
+  markTypeHint: { fontSize: 11, fontWeight: '600', lineHeight: 15 },
   label: { fontSize: 11, fontWeight: '600', letterSpacing: 0.6, marginBottom: 8 },
   titleInput: { borderWidth: 0.5, borderRadius: 8, padding: 12, fontSize: 16, fontWeight: '500' },
   textarea: { borderWidth: 0.5, borderRadius: 8, padding: 12, fontSize: 15, minHeight: 100, lineHeight: 22 },
