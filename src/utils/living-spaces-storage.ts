@@ -252,6 +252,43 @@ function syncBookPlacement(input: {
   };
 }
 
+function sanitizeLegacySuggestedPlacementForView(
+  placement: LivingMarkPlacement
+): LivingMarkPlacement {
+  if (placement.source !== 'derived' && placement.confidence !== 'suggested') {
+    return placement;
+  }
+
+  const blockedSpaceIds = new Set(
+    placement.spaceIds.filter(spaceId =>
+      spaceId.startsWith('group:') ||
+      spaceId === SYSTEM_LIVING_SPACE_IDS.family
+    )
+  );
+
+  if (blockedSpaceIds.size === 0) {
+    return placement;
+  }
+
+  const nextSpaceIds = placement.spaceIds.filter(spaceId => !blockedSpaceIds.has(spaceId));
+  const safeSpaceIds = nextSpaceIds.length > 0 ? nextSpaceIds : [SYSTEM_LIVING_SPACE_IDS.profile];
+
+  return {
+    ...placement,
+    spaceIds: safeSpaceIds,
+    primarySpaceId:
+      placement.primarySpaceId && safeSpaceIds.includes(placement.primarySpaceId)
+        ? placement.primarySpaceId
+        : safeSpaceIds[0],
+    privacy: placement.privacy === 'space' || placement.privacy === 'family'
+      ? 'private'
+      : placement.privacy,
+    reasons: placement.reasons.filter(reason =>
+      !reason.spaceId || !blockedSpaceIds.has(reason.spaceId)
+    ),
+  };
+}
+
 export async function getLivingSpaces(): Promise<LivingSpace[]> {
   return sortSpaces(await readJson<LivingSpace[]>(LIVING_SPACES_KEY, []));
 }
@@ -716,10 +753,14 @@ export async function getLivingMarkViewsForMilestones(input: {
         now: input.now,
       });
 
+    const explicitPlacement = placementByMarkId.get(milestone.id) ?? null;
+
     return createLivingMarkView({
       milestone,
       spaces,
-      explicitPlacement: placementByMarkId.get(milestone.id) ?? null,
+      explicitPlacement: explicitPlacement
+        ? sanitizeLegacySuggestedPlacementForView(explicitPlacement)
+        : null,
       explicitMetadata: metadata,
       currentNpub: input.currentNpub,
       now: input.now,

@@ -1,23 +1,20 @@
-import { DEFAULT_RELAY } from './nostr';
-import { createLivingPerson, normalizeLivingPeople } from './living-people';
-import type { Milestone } from './storage';
 import type {
   LivingMarkCaptureSource,
   LivingMarkMetadata,
   LivingMarkPermissions,
   LivingMarkPerson,
+  LivingMarkPlace,
   LivingMarkPlacement,
   LivingMarkPlacementConfidence,
   LivingMarkPlacementReason,
-  LivingMarkPlace,
   LivingMarkPrompt,
   LivingMarkPromptStatus,
   LivingMarkPromptType,
   LivingMarkResolutionInput,
   LivingMarkView,
+  LivingRelayTarget,
   LivingRouteDestination,
   LivingRoutingDecision,
-  LivingRelayTarget,
   LivingSpace,
   LivingSpaceDefaultsInput,
   LivingSpaceGroupSeed,
@@ -25,6 +22,9 @@ import type {
   LivingSpaceType,
   MarkPrivacy,
 } from '../types/living-spaces';
+import { createLivingPerson, normalizeLivingPeople } from './living-people';
+import { DEFAULT_RELAY } from './nostr';
+import type { Milestone } from './storage';
 
 export const SYSTEM_LIVING_SPACE_IDS = {
   profile: 'space_profile',
@@ -545,7 +545,13 @@ export function deriveLivingMarkPlacement(input: LivingMarkResolutionInput): Liv
     }
   }
 
-  for (const matchedSpace of findSpacesForTags(input.spaces, metadata.normalizedTags)) {
+  const safeTagMatchedSpaces = findSpacesForTags(input.spaces, metadata.normalizedTags)
+    .filter(space =>
+      space.source !== 'group' &&
+      space.type !== 'family'
+    );
+
+  for (const matchedSpace of safeTagMatchedSpaces) {
     addSpaceId(spaceIds, matchedSpace.id);
     reasons.push(
       createPlacementReason({

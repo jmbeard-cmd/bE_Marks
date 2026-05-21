@@ -33,7 +33,7 @@ import {
   getCalendarEventsForGroup,
   type GroupCalendarEvent,
 } from '../../src/utils/group-calendar';
-import { getGroups } from '../../src/utils/group-storage';
+import { getVisibleGroupsForNpub } from '../../src/utils/group-storage';
 import {
   isLivingPersonSelected,
   mergeLivingPersonCandidates,
@@ -139,6 +139,7 @@ export default function LogScreen() {
   const [publishToNostr, setPublishToNostr] = useState(true);
   const [audioUri, setAudioUri] = useState<string | undefined>();
   const [livingSpaces, setLivingSpaces] = useState<LivingSpace[]>([]);
+  const [visibleGroupIds, setVisibleGroupIds] = useState<Set<string>>(() => new Set());
   const [selectedSpaceId, setSelectedSpaceId] = useState<string | null>(null);
   const [showContext, setShowContext] = useState(false);
   const [peopleInput, setPeopleInput] = useState('');
@@ -161,11 +162,15 @@ export default function LogScreen() {
 
     async function loadLivingSpaces() {
       try {
-        const [groups, contacts, familyMembers] = await Promise.all([
-          getGroups(),
+        const [groupSnapshot, contacts, familyMembers] = await Promise.all([
+          npub
+            ? getVisibleGroupsForNpub(npub)
+            : Promise.resolve({ activeGroups: [], archivedGroups: [] }),
           getContacts(),
           family ? getFamilyMembers(family.id) : Promise.resolve([]),
         ]);
+
+        const groups = groupSnapshot.activeGroups;
 
         const spaces = await ensureDefaultLivingSpaces({
           family: family
@@ -193,6 +198,7 @@ export default function LogScreen() {
 
         if (!cancelled) {
           setLivingSpaces(spaces);
+          setVisibleGroupIds(new Set(groups.map(group => group.id)));
           setPersonCandidates(
             mergeLivingPersonCandidates([
               {
@@ -255,12 +261,7 @@ export default function LogScreen() {
       ? selectedSpace.sourceId ?? selectedSpace.id.replace(/^group:/, '')
       : null;
 
-  const routeSelectedGroupId =
-    routeSelectedSpaceId?.startsWith('group:')
-      ? routeSelectedSpaceId.replace(/^group:/, '')
-      : undefined;
-
-  const returnGroupId = returnToGroupId || selectedGroupId || routeSelectedGroupId;
+  const returnGroupId = returnToGroupId?.trim() || undefined;
 
   const navigateAfterLog = useCallback(() => {
     if (returnGroupId) {
@@ -328,11 +329,15 @@ export default function LogScreen() {
 
 const placementChipSpaces = livingSpaces
   .filter(space => !space.archivedAt)
-  .filter(space =>
-    space.id === SYSTEM_LIVING_SPACE_IDS.profile ||
-    (space.id === SYSTEM_LIVING_SPACE_IDS.family && !!family) ||
-    space.source === 'group'
-  );
+  .filter(space => {
+    if (space.id === SYSTEM_LIVING_SPACE_IDS.profile) return true;
+    if (space.id === SYSTEM_LIVING_SPACE_IDS.family && !!family) return true;
+
+    if (space.source !== 'group') return false;
+
+    const groupId = space.sourceId ?? space.id.replace(/^group:/, '');
+    return visibleGroupIds.has(groupId);
+  });
 
   const pickPhoto = async () => {
   const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -508,6 +513,16 @@ const addTag = (t: string) => {
   Alert.alert('Nothing to save', 'Add a title, note, photo, video, or voice note first.');
   return;
 }
+
+if (selectedGroupId && !visibleGroupIds.has(selectedGroupId)) {
+  Alert.alert(
+    'Space unavailable',
+    'You no longer have access to that Space. This Mark was not saved there.'
+  );
+  setSelectedSpaceId(null);
+  return;
+}
+
     setSaving(true);
 setProgress(0);
 setSaveStatus('Preparing your Mark...');

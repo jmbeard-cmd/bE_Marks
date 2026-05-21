@@ -58,6 +58,7 @@ import {
   archiveGroup,
   getGroupById,
   getGroupMembers,
+  getMemberByNpub,
   isGroupAdmin,
   isGroupMember,
   publishGroupMetadataSnapshot,
@@ -492,14 +493,33 @@ const { id, tab: routeTab } = useLocalSearchParams<{
 
   const loadSpaceMarks = useCallback(async (groupId: string, spaces: LivingSpace[]) => {
     const livingSpaceId = getGroupLivingSpaceId(groupId);
+    const activeSelfMember = npub ? await getMemberByNpub(groupId, npub) : null;
+    const activeSelfJoinedAt =
+      activeSelfMember?.status === 'active'
+        ? activeSelfMember.joinedAt ?? 0
+        : 0;
+
     const milestones = await getMilestones();
     const views = await getLivingMarkViewsForMilestones({
       milestones,
       spaces,
       currentNpub: npub,
     });
+
     const filteredViews = views
-      .filter(view => view.placement.spaceIds.includes(livingSpaceId))
+      .filter(view => {
+        if (!view.placement.spaceIds.includes(livingSpaceId)) return false;
+
+        const relayBackedGroupIds = view.milestone.spaceRelayGroupIds ?? [];
+        if (relayBackedGroupIds.includes(groupId)) return true;
+
+        const isCurrentAuthor = !!npub && view.milestone.authorNpub === npub;
+        if (!isCurrentAuthor) return false;
+
+        if (!activeSelfMember || activeSelfMember.status !== 'active') return false;
+
+        return (view.milestone.createdAt ?? 0) >= activeSelfJoinedAt;
+      })
       .sort((a, b) => b.milestone.createdAt - a.milestone.createdAt);
 
     setSpaceMarkViews(filteredViews);
@@ -2978,7 +2998,7 @@ const relaySettingsCard = (
                 <Text style={s.emptyIcon}>📌</Text>
                 <Text style={s.emptyText}>No Marks yet</Text>
                 <Text style={s.emptyHint}>
-                  Admins can add Marks, reminders, or important notes here.
+                  Members can add Marks, memories, media, or important notes here.
                 </Text>
               </View>
             }
@@ -3191,7 +3211,7 @@ const relaySettingsCard = (
             }}
           />
 
-          {group.status === 'active' && isAdmin && isMember && (
+          {group.status === 'active' && isMember && (
             <TouchableOpacity
               style={s.spaceMarkFab}
               onPress={() => openUnifiedMarkComposer('stickies')}
