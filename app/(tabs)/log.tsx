@@ -1,10 +1,11 @@
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as VideoThumbnails from 'expo-video-thumbnails';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -111,7 +112,21 @@ export default function LogScreen() {
 
   const routeSelectedSpaceId = getRouteParam(params.selectedSpaceId);
   const returnToGroupId = getRouteParam(params.returnToGroupId);
-  const returnToGroupTab = getRouteParam(params.returnToGroupTab) || 'stickies';
+  const routeReturnToGroupTab = getRouteParam(params.returnToGroupTab);
+
+  const returnToGroupTab =
+    routeReturnToGroupTab === 'overview' ||
+    routeReturnToGroupTab === 'chat' ||
+    routeReturnToGroupTab === 'stickies' ||
+    routeReturnToGroupTab === 'mantle' ||
+    routeReturnToGroupTab === 'calendar' ||
+    routeReturnToGroupTab === 'gallery' ||
+    routeReturnToGroupTab === 'members' ||
+    routeReturnToGroupTab === 'legacy' ||
+    routeReturnToGroupTab === 'book'
+      ? routeReturnToGroupTab
+      : 'overview';
+
   const routePreselectAppliedRef = useRef(false);
   const [title, setTitle] = useState('');
   const [note, setNote] = useState('');
@@ -239,6 +254,39 @@ export default function LogScreen() {
     selectedSpace?.source === 'group'
       ? selectedSpace.sourceId ?? selectedSpace.id.replace(/^group:/, '')
       : null;
+
+  const routeSelectedGroupId =
+    routeSelectedSpaceId?.startsWith('group:')
+      ? routeSelectedSpaceId.replace(/^group:/, '')
+      : undefined;
+
+  const returnGroupId = returnToGroupId || selectedGroupId || routeSelectedGroupId;
+
+  const navigateAfterLog = useCallback(() => {
+    if (returnGroupId) {
+      router.replace({
+        pathname: '/group-detail',
+        params: {
+          id: returnGroupId,
+          tab: returnToGroupTab,
+        },
+      } as any);
+      return;
+    }
+
+    router.replace('/(tabs)/timeline' as any);
+  }, [returnGroupId, returnToGroupTab, router]);
+
+  useEffect(() => {
+    if (!returnGroupId) return;
+
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      navigateAfterLog();
+      return true;
+    });
+
+    return () => subscription.remove();
+  }, [navigateAfterLog, returnGroupId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -722,20 +770,7 @@ if (audioUri) {
         [
           {
             text: 'OK',
-            onPress: () => {
-              if (returnToGroupId) {
-                router.replace({
-                  pathname: '/group-detail',
-                  params: {
-                    id: returnToGroupId,
-                    tab: returnToGroupTab,
-                  },
-                } as any);
-                return;
-              }
-
-              router.replace('/(tabs)/timeline' as any);
-            },
+            onPress: navigateAfterLog,
           },
         ]
       );
