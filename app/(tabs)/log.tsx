@@ -315,6 +315,24 @@ export default function LogScreen() {
       ? selectedSpace.relayUrl || DEFAULT_RELAY
       : undefined;
 
+  const contextPeopleLabel = isLiftUpMark
+    ? 'Who are you lifting up?'
+    : 'People';
+
+  const contextPeopleHint = isLiftUpMark
+    ? 'Tag the person this Mark is about. Notifications can be handled separately later.'
+    : selectedGroupSpaceId
+      ? 'Tag Space members or add names connected to this Mark.'
+      : 'Add people connected to this Mark.';
+
+  const contextPeoplePlaceholder = isLiftUpMark
+    ? selectedGroupSpaceId
+      ? 'Type @ to tag the person being lifted up'
+      : 'Add the person this Mark is about'
+    : selectedGroupSpaceId
+      ? 'Type @ to tag someone in this Space'
+      : 'Add another person, name, or npub';
+
   useEffect(() => {
     let cancelled = false;
 
@@ -1379,7 +1397,12 @@ setProgress(0);
 
           {showContext && (
             <View style={[s.contextPanel, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-              <Text style={[s.contextMiniHint, { color: theme.textMuted }]}>People</Text>
+              <Text style={[s.contextMiniHint, { color: theme.textMuted }]}>
+                {contextPeopleLabel}
+              </Text>
+              <Text style={[s.contextPeopleHelp, { color: theme.textMuted }]}>
+                {contextPeopleHint}
+              </Text>
 
               {peopleChipCandidates.length > 0 && (
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.contextChipRow}>
@@ -1423,7 +1446,7 @@ setProgress(0);
 
               <TextInput
                 style={[s.contextInput, { color: theme.text, backgroundColor: theme.raised, borderColor: theme.border }]}
-                placeholder={selectedGroupSpaceId ? 'Type @ to tag someone in this Space' : 'Add another person, name, or npub'}
+                placeholder={contextPeoplePlaceholder}
                 placeholderTextColor={theme.textMuted}
                 value={peopleInput}
                 onChangeText={setPeopleInput}
@@ -1811,6 +1834,7 @@ videoBadgeText: {
   contextToggleText: { fontSize: 12, fontWeight: '900' },
   contextPanel: { borderWidth: 0.5, borderRadius: 10, marginTop: 10, padding: 12, gap: 10 },
   contextInput: { borderWidth: 0.5, borderRadius: 8, paddingHorizontal: 11, paddingVertical: 10, fontSize: 13 },
+  contextPeopleHelp: { fontSize: 11, lineHeight: 16, marginTop: -5 },
   mentionPanel: { borderWidth: 0.5, borderRadius: 12, overflow: 'hidden' },
   mentionRow: { minHeight: 46, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 10, paddingVertical: 8, borderBottomWidth: 0.5 },
   mentionAvatar: { width: 26, height: 26, borderRadius: 13, borderWidth: 0.5, textAlign: 'center', lineHeight: 25, fontSize: 11, fontWeight: '900', overflow: 'hidden' },
