@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   Image,
@@ -28,7 +28,13 @@ type Props = {
   onPressMedia?: (index: number) => void;
 };
 
-const CARD_MEDIA_HEIGHT = 260;
+const MIN_CARD_MEDIA_HEIGHT = 220;
+const FALLBACK_CARD_MEDIA_HEIGHT = 300;
+const MULTI_CARD_MEDIA_FLOOR_HEIGHT = 380;
+const MAX_CARD_MEDIA_HEIGHT = 520;
+
+const MEDIA_ASPECT_RATIO_CACHE = new Map<string, number>();
+const MEDIA_PREFETCH_CACHE = new Set<string>();
 
 function getMediaUrl(item: CollageMediaItem): string | null {
   return item.uri || item.mediaUrl || null;
@@ -53,6 +59,65 @@ function getPreviewUri(item: CollageMediaItem): string | null {
   return item.thumbnailUri || item.thumbnailUrl || getMediaUrl(item);
 }
 
+function getMediaIdentity(item: CollageMediaItem, index: number): string {
+  return `${item.id || getMediaUrl(item) || 'media'}_${index}`;
+}
+
+function getAdaptiveMediaHeight(carouselWidth: number, aspectRatio?: number): number {
+  if (carouselWidth <= 0 || !aspectRatio || aspectRatio <= 0) {
+    return FALLBACK_CARD_MEDIA_HEIGHT;
+  }
+
+  const naturalHeight = carouselWidth / aspectRatio;
+
+  return Math.round(
+    Math.min(
+      MAX_CARD_MEDIA_HEIGHT,
+      Math.max(MIN_CARD_MEDIA_HEIGHT, naturalHeight)
+    )
+  );
+}
+
+function getStableCarouselMediaHeight(
+  carouselWidth: number,
+  visualItems: CollageMediaItem[],
+  aspectRatios: Record<string, number>
+): number {
+  if (visualItems.length <= 1) {
+    const mediaKey = visualItems[0]
+      ? getMediaIdentity(visualItems[0], 0)
+      : '';
+
+    return getAdaptiveMediaHeight(
+      carouselWidth,
+      mediaKey ? aspectRatios[mediaKey] : undefined
+    );
+  }
+
+  const fallbackHeight =
+    carouselWidth > 0
+      ? Math.min(
+          MAX_CARD_MEDIA_HEIGHT,
+          Math.max(MULTI_CARD_MEDIA_FLOOR_HEIGHT, Math.round(carouselWidth * 1.05))
+        )
+      : MULTI_CARD_MEDIA_FLOOR_HEIGHT;
+
+  const knownHeights = visualItems
+    .map((item, index) => {
+      const mediaKey = getMediaIdentity(item, index);
+      const ratio = aspectRatios[mediaKey];
+
+      return ratio ? getAdaptiveMediaHeight(carouselWidth, ratio) : 0;
+    })
+    .filter(height => height > 0);
+
+  if (knownHeights.length === 0) {
+    return fallbackHeight;
+  }
+
+  return Math.max(fallbackHeight, ...knownHeights);
+}
+
 function MediaPreviewImage({
   uri,
   type,
@@ -74,12 +139,24 @@ function MediaPreviewImage({
   }
 
   return (
-    <Image
-      source={{ uri }}
-      style={s.image}
-      resizeMode="cover"
-      onError={() => setFailed(true)}
-    />
+    <View style={s.imageStage}>
+      <Image
+        source={{ uri }}
+        style={s.imageBackdrop}
+        resizeMode="cover"
+        blurRadius={28}
+        onError={() => setFailed(true)}
+      />
+
+      <View style={s.imageBackdropWash} />
+
+      <Image
+        source={{ uri }}
+        style={s.image}
+        resizeMode="contain"
+        onError={() => setFailed(true)}
+      />
+    </View>
   );
 }
 
@@ -93,6 +170,20 @@ export default function MediaCollage({
   const listRef = useRef<FlatList<CollageMediaItem>>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [carouselWidth, setCarouselWidth] = useState(0);
+  const [mediaAspectRatios, setMediaAspectRatios] = useState<Record<string, number>>(() => {
+    const initialRatios: Record<string, number> = {};
+
+    media.forEach((item, index) => {
+      const mediaKey = getMediaIdentity(item, index);
+      const cachedRatio = MEDIA_ASPECT_RATIO_CACHE.get(mediaKey);
+
+      if (cachedRatio) {
+        initialRatios[mediaKey] = cachedRatio;
+      }
+    });
+
+    return initialRatios;
+  });
 
   const mediaItems = Array.isArray(media) ? media : [];
 
@@ -118,6 +209,67 @@ export default function MediaCollage({
   const totalMedia = visualItems.length;
   const hasVideo = visualItems.some(item => getMediaType(item) === 'video');
 
+  useEffect(() => {
+    let cancelled = false;
+
+    visualItems.forEach((item, index) => {
+      const previewUri = getPreviewUri(item);
+      if (!previewUri) return;
+
+      const mediaKey = getMediaIdentity(item, index);
+      const cachedRatio = MEDIA_ASPECT_RATIO_CACHE.get(mediaKey);
+
+      if (cachedRatio && !mediaAspectRatios[mediaKey]) {
+        setMediaAspectRatios(current => (
+          current[mediaKey]
+            ? current
+            : { ...current, [mediaKey]: cachedRatio }
+        ));
+      }
+
+      if (previewUri.startsWith('http') && !MEDIA_PREFETCH_CACHE.has(previewUri)) {
+        MEDIA_PREFETCH_CACHE.add(previewUri);
+        Image.prefetch(previewUri).catch(() => {
+          MEDIA_PREFETCH_CACHE.delete(previewUri);
+        });
+      }
+
+      if (cachedRatio || mediaAspectRatios[mediaKey]) return;
+
+      Image.getSize(
+        previewUri,
+        (imageWidth, imageHeight) => {
+          if (cancelled || imageWidth <= 0 || imageHeight <= 0) return;
+
+          const nextRatio = imageWidth / imageHeight;
+          MEDIA_ASPECT_RATIO_CACHE.set(mediaKey, nextRatio);
+
+          setMediaAspectRatios(current => {
+            if (current[mediaKey]) return current;
+
+            return {
+              ...current,
+              [mediaKey]: nextRatio,
+            };
+          });
+        },
+        () => {
+          // Keep fallback height when the preview size cannot be read.
+        }
+      );
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mediaAspectRatios, visualItems]);
+
+  const mediaHeight = getStableCarouselMediaHeight(
+    carouselWidth,
+    visualItems,
+    mediaAspectRatios
+  );
+
   const handleScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     if (carouselWidth <= 0) return;
 
@@ -132,7 +284,7 @@ export default function MediaCollage({
 
   return (
     <View
-      style={s.wrap}
+      style={[s.wrap, { height: mediaHeight }]}
       onLayout={(event) => {
         const nextWidth = event.nativeEvent.layout.width;
         if (nextWidth > 0 && nextWidth !== carouselWidth) {
@@ -147,7 +299,7 @@ export default function MediaCollage({
         horizontal
         pagingEnabled
         showsHorizontalScrollIndicator={false}
-        keyExtractor={(item, index) => `${item.id || getMediaUrl(item) || 'media'}_${index}`}
+        keyExtractor={(item, index) => getMediaIdentity(item, index)}
         getItemLayout={(_, index) => ({
           length: carouselWidth,
           offset: carouselWidth * index,
@@ -156,7 +308,7 @@ export default function MediaCollage({
         initialNumToRender={1}
         maxToRenderPerBatch={2}
         windowSize={3}
-        removeClippedSubviews
+        removeClippedSubviews={false}
         onMomentumScrollEnd={handleScrollEnd}
         renderItem={({ item, index }) => {
           const type = getMediaType(item);
@@ -165,7 +317,7 @@ export default function MediaCollage({
           return (
             <TouchableOpacity
               activeOpacity={0.92}
-              style={[s.slide, { width: carouselWidth }]}
+              style={[s.slide, { width: carouselWidth, height: mediaHeight }]}
               onPress={() => onPressMedia?.(index)}
             >
               <MediaPreviewImage
@@ -208,7 +360,7 @@ export default function MediaCollage({
         <View style={s.dots}>
           {visualItems.map((item, index) => (
             <View
-              key={`${item.id || getMediaUrl(item) || 'media'}_dot_${index}`}
+              key={`${getMediaIdentity(item, index)}_dot`}
               style={[
                 s.dot,
                 index === activeIndex && s.dotActive,
@@ -224,7 +376,7 @@ export default function MediaCollage({
 const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
   wrap: {
     width: '100%',
-    height: CARD_MEDIA_HEIGHT,
+    minHeight: MIN_CARD_MEDIA_HEIGHT,
     backgroundColor: '#0d0d0d',
     borderBottomWidth: 0.5,
     borderBottomColor: '#222',
@@ -232,13 +384,27 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     position: 'relative',
   },
 slide: {
-  height: CARD_MEDIA_HEIGHT,
   backgroundColor: '#0d0d0d',
 },
+  imageStage: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#0d0d0d',
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  imageBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.72,
+    transform: [{ scale: 1.08 }],
+  },
+  imageBackdropWash: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.24)',
+  },
   image: {
     width: '100%',
     height: '100%',
-    backgroundColor: '#000',
   },
   fallback: {
     width: '100%',
