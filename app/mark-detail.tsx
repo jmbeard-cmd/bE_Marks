@@ -61,6 +61,7 @@ import {
 import { useIdentity } from './_layout';
 
 const { width } = Dimensions.get('window');
+const LIFT_UP_TAG = 'Lift Up';
 const PRESET_TAGS = ['Family', 'Faith', 'Career', 'School', 'Travel', 'Health', 'Achievement', 'Personal'];
 const LIFE_STAGE_OPTIONS = ['Childhood', 'Elementary', 'Middle School', 'High School', 'College', 'Season', 'Trip'];
 
@@ -678,6 +679,22 @@ const hasTitle = milestone.note?.includes('\n\n');
 const title = hasTitle ? milestone.note.split('\n\n')[0] : null;
 const body = hasTitle ? milestone.note.split('\n\n').slice(1).join('\n\n') : milestone.note;
 
+const isLiftUpMark = milestone.tags?.some(
+  tag => tag.toLowerCase() === LIFT_UP_TAG.toLowerCase()
+) ?? false;
+
+const contextPeopleEditLabel = isLiftUpMark
+  ? 'Who is this Mark lifting up?'
+  : 'People';
+
+const contextPeopleEditHint = isLiftUpMark
+  ? 'Tag the person this Mark is about. Notifications can be handled separately later.'
+  : 'Tag people connected to this Mark.';
+
+const contextPeopleEditPlaceholder = isLiftUpMark
+  ? 'Type @ to tag the person being lifted up'
+  : 'Type @ to tag someone in this Mark';
+
 const isOwner = !milestone.authorNpub || milestone.authorNpub === npub;
 
 const authorLabel =
@@ -1185,7 +1202,13 @@ const openMediaViewer = (uri: string) => {
                 </>
               ) : (
                 <View style={s.contextEditor}>
-                  <Text style={[s.contextSubLabel, { color: theme.textMuted }]}>People</Text>
+                  <Text style={[s.contextSubLabel, { color: theme.textMuted }]}>
+                    {contextPeopleEditLabel}
+                  </Text>
+                  <Text style={[s.contextPeopleHelp, { color: theme.textMuted }]}>
+                    {contextPeopleEditHint}
+                  </Text>
+
                   {selectedContextPeople.length > 0 && (
                     <View style={s.contextPeopleSelectedRow}>
                       {selectedContextPeople.map(person => {
@@ -1256,7 +1279,7 @@ const openMediaViewer = (uri: string) => {
                     style={[s.editInput, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]}
                     value={contextPeopleInput}
                     onChangeText={setContextPeopleInput}
-                    placeholder="Type @ to tag someone in this Mark"
+                    placeholder={contextPeopleEditPlaceholder}
                     placeholderTextColor={theme.textMuted}
                     returnKeyType="next"
                   />
@@ -1735,6 +1758,7 @@ const s = StyleSheet.create({
   contextHint: { fontSize: 11, lineHeight: 16, marginTop: 10 },
   contextEditor: { gap: 10 },
   contextSubLabel: { fontSize: 10, fontWeight: '900', letterSpacing: 0.6, textTransform: 'uppercase', marginTop: 2 },
+  contextPeopleHelp: { fontSize: 11, lineHeight: 16, marginTop: -5 },
   contextChipScroll: { gap: 8, paddingRight: 20 },
   contextSelectChip: { minHeight: 34, maxWidth: 170, paddingHorizontal: 12, borderRadius: 17, borderWidth: 0.5, alignItems: 'center', justifyContent: 'center' },
   contextSelectChipText: { fontSize: 12, fontWeight: '700' },
