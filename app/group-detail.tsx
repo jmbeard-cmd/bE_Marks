@@ -118,6 +118,7 @@ type Tab = 'overview' | 'chat' | 'stickies' | 'mantle' | 'calendar' | 'gallery' 
 const GROUP_LOCAL_GALLERY_KEY = 'be_group_local_gallery_v1';
 const SPACE_FAVORITES_KEY = 'be_space_favorite_ids_v1';
 const SPACE_MARK_RELAY_SYNC_ENABLED = true;
+const LIFT_UP_TAG = 'Lift Up';
 const SPORTS_SPACE_KEYS = new Set([
   'softball',
   'baseball',
@@ -3073,7 +3074,9 @@ const relaySettingsCard = (
               const markText = getMilestoneText(mark);
               const markMedia = getMilestoneMediaItems(mark);
               const authorProfile = getSpaceMarkAuthorProfile(mark);
+              const isLiftUpMark = mark.tags.some(tag => tag.toLowerCase() === LIFT_UP_TAG.toLowerCase());
               const markPeople = view.metadata.people.filter(person => person.role !== 'author');
+              const markPeopleLabel = markPeople.map(person => getPersonDisplayName(person)).join(', ');
               const placeLabel =
                 view.metadata.place?.name ||
                 (view.metadata.place?.latitude !== undefined && view.metadata.place?.longitude !== undefined
@@ -3122,8 +3125,19 @@ const relaySettingsCard = (
                       <Text style={s.spaceMarkMeta} numberOfLines={1}>{markMeta}</Text>
                     </View>
 
-                    <Text style={s.spaceMarkBadge}>Mark</Text>
+                    <Text style={[s.spaceMarkBadge, isLiftUpMark && s.spaceMarkBadgeLiftUp]}>
+                      {isLiftUpMark ? 'Lift Up' : 'Mark'}
+                    </Text>
                   </View>
+
+                  {isLiftUpMark && (
+                    <View style={s.liftUpCue}>
+                      <Text style={s.liftUpCueLabel}>Lifting up</Text>
+                      <Text style={s.liftUpCueText} numberOfLines={1}>
+                        {markPeopleLabel || 'Someone worth noticing'}
+                      </Text>
+                    </View>
+                  )}
 
                   {markText.body ? (
                     <Text style={s.spaceMarkBody}>{markText.body}</Text>
@@ -3139,8 +3153,13 @@ const relaySettingsCard = (
                   {(markPeople.length > 0 || contextLabels.length > 0) && (
                     <View style={s.markTagRow}>
                       {markPeople.slice(0, 4).map(person => (
-                        <View key={`${mark.id}_${person.id || person.npub || person.displayName}`} style={s.markPersonMiniChip}>
-                          <Text style={s.markPersonMiniText}>{getPersonDisplayName(person)}</Text>
+                        <View
+                          key={`${mark.id}_${person.id || person.npub || person.displayName}`}
+                          style={[s.markPersonMiniChip, isLiftUpMark && s.markPersonMiniChipLiftUp]}
+                        >
+                          <Text style={[s.markPersonMiniText, isLiftUpMark && s.markPersonMiniTextLiftUp]}>
+                            {isLiftUpMark ? `For: ${getPersonDisplayName(person)}` : getPersonDisplayName(person)}
+                          </Text>
                         </View>
                       ))}
 
@@ -4594,6 +4613,32 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     backgroundColor: theme.raised,
     overflow: 'hidden',
   },
+  spaceMarkBadgeLiftUp: {
+    color: theme.bg,
+    backgroundColor: theme.gold,
+  },
+  liftUpCue: {
+    borderWidth: 0.5,
+    borderColor: theme.gold + '55',
+    backgroundColor: theme.goldDim,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    marginBottom: 10,
+  },
+  liftUpCueLabel: {
+    color: theme.gold,
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.7,
+    textTransform: 'uppercase',
+    marginBottom: 2,
+  },
+  liftUpCueText: {
+    color: theme.text,
+    fontSize: 13,
+    fontWeight: '900',
+  },
   markTagRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -4621,10 +4666,16 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     paddingVertical: 6,
     backgroundColor: theme.surface,
   },
+  markPersonMiniChipLiftUp: {
+    backgroundColor: theme.goldDim,
+  },
   markPersonMiniText: {
     color: theme.gold,
     fontSize: 12,
     fontWeight: '900',
+  },
+  markPersonMiniTextLiftUp: {
+    color: theme.text,
   },
   markContextMiniChip: {
     borderWidth: 0.5,

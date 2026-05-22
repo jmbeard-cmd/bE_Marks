@@ -329,9 +329,21 @@ export default function LogScreen() {
 
         if (cancelled) return;
 
+        const seenMemberNpubs = new Set<string>();
+
         setGroupPersonCandidates(
           members
-            .filter(member => member.npub !== npub)
+            .filter(member => {
+              const memberNpub = member.npub?.trim();
+              if (!memberNpub) return false;
+              if (npub && memberNpub.toLowerCase() === npub.toLowerCase()) return false;
+
+              const key = memberNpub.toLowerCase();
+              if (seenMemberNpubs.has(key)) return false;
+
+              seenMemberNpubs.add(key);
+              return true;
+            })
             .map(member => {
               const knownPerson = personCandidates.find(person => person.npub === member.npub);
               const displayName =
@@ -369,12 +381,22 @@ export default function LogScreen() {
     ...groupPersonCandidates,
   ]);
 
+  const peopleChipCandidates =
+    selectedGroupSpaceId && groupPersonCandidates.length > 0
+      ? groupPersonCandidates
+      : displayedPersonCandidates;
+
+  const mentionCandidatePool =
+    selectedGroupSpaceId && groupPersonCandidates.length > 0
+      ? groupPersonCandidates
+      : displayedPersonCandidates;
+
   const mentionMatch = peopleInput.match(/@([^\s,]*)$/);
   const mentionSearch = mentionMatch?.[1]?.trim().toLowerCase() ?? '';
   const mentionActive = peopleInput.includes('@') && mentionMatch !== null;
 
   const mentionSuggestions = mentionActive
-    ? displayedPersonCandidates
+    ? mentionCandidatePool
         .filter(person => !isLivingPersonSelected(selectedPeople, person))
         .filter(person => {
           if (mentionSearch.length === 0) return person.source === 'space-member';
@@ -1359,9 +1381,9 @@ setProgress(0);
             <View style={[s.contextPanel, { backgroundColor: theme.surface, borderColor: theme.border }]}>
               <Text style={[s.contextMiniHint, { color: theme.textMuted }]}>People</Text>
 
-              {displayedPersonCandidates.length > 0 && (
+              {peopleChipCandidates.length > 0 && (
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.contextChipRow}>
-                  {displayedPersonCandidates.slice(0, 14).map(person => {
+                  {peopleChipCandidates.slice(0, 14).map(person => {
                     const active = isLivingPersonSelected(selectedPeople, person);
 
                     return (
