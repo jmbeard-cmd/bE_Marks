@@ -33,7 +33,10 @@ import {
   getCalendarEventsForGroup,
   type GroupCalendarEvent,
 } from '../../src/utils/group-calendar';
-import { getVisibleGroupsForNpub } from '../../src/utils/group-storage';
+import {
+  getGroupMembers,
+  getVisibleGroupsForNpub,
+} from '../../src/utils/group-storage';
 import {
   isLivingPersonSelected,
   mergeLivingPersonCandidates,
@@ -160,6 +163,7 @@ export default function LogScreen() {
   const [showContext, setShowContext] = useState(false);
   const [peopleInput, setPeopleInput] = useState('');
   const [personCandidates, setPersonCandidates] = useState<LivingPersonCandidate[]>([]);
+  const [groupPersonCandidates, setGroupPersonCandidates] = useState<LivingPersonCandidate[]>([]);
   const [selectedPeople, setSelectedPeople] = useState<LivingMarkPerson[]>([]);
   const [lifeStage, setLifeStage] = useState('');
   const [eventInput, setEventInput] = useState('');
@@ -310,6 +314,92 @@ export default function LogScreen() {
     selectedSpace?.source === 'group'
       ? selectedSpace.relayUrl || DEFAULT_RELAY
       : undefined;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadGroupPeople() {
+      if (!selectedGroupId) {
+        setGroupPersonCandidates([]);
+        return;
+      }
+
+      try {
+        const members = await getGroupMembers(selectedGroupId);
+
+        if (cancelled) return;
+
+        setGroupPersonCandidates(
+          members
+            .filter(member => member.npub !== npub)
+            .map(member => {
+              const knownPerson = personCandidates.find(person => person.npub === member.npub);
+              const displayName =
+                member.displayName?.trim() ||
+                knownPerson?.displayName?.trim() ||
+                (member.npub ? `${member.npub.slice(0, 12)}…` : 'Group member');
+
+              return {
+                id: member.npub.toLowerCase(),
+                npub: member.npub,
+                displayName,
+                avatarUrl: member.avatarUrl || knownPerson?.avatarUrl,
+                source: 'space-member' as const,
+              };
+            })
+        );
+      } catch (error) {
+        console.warn('[Log People] failed to load group members:', error);
+
+        if (!cancelled) {
+          setGroupPersonCandidates([]);
+        }
+      }
+    }
+
+    loadGroupPeople();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [npub, personCandidates, selectedGroupId]);
+
+  const displayedPersonCandidates = mergeLivingPersonCandidates([
+    ...personCandidates,
+    ...groupPersonCandidates,
+  ]);
+
+  const mentionMatch = peopleInput.match(/@([^\s,]*)$/);
+  const mentionSearch = mentionMatch?.[1]?.trim().toLowerCase() ?? '';
+  const mentionActive = peopleInput.includes('@') && mentionMatch !== null;
+
+  const mentionSuggestions = mentionActive
+    ? displayedPersonCandidates
+        .filter(person => !isLivingPersonSelected(selectedPeople, person))
+        .filter(person => {
+          if (mentionSearch.length === 0) return person.source === 'space-member';
+
+          const displayName = person.displayName.toLowerCase();
+          const npubValue = person.npub?.toLowerCase() ?? '';
+
+          return (
+            displayName.startsWith(mentionSearch) ||
+            displayName.includes(mentionSearch) ||
+            npubValue.includes(mentionSearch)
+          );
+        })
+        .slice(0, 6)
+    : [];
+
+  const selectMentionCandidate = (person: LivingPersonCandidate) => {
+    setSelectedPeople(prev =>
+      isLivingPersonSelected(prev, person)
+        ? prev
+        : toggleLivingPersonSelection(prev, person)
+    );
+
+    setPeopleInput(current => current.replace(/@([^\s,]*)$/, '').trim());
+  };
 
   const selectedIsSharedSpace = selectedIsFamilySpace || !!selectedGroupSpaceId;
   const publicPostingLockedForChildGroup =
@@ -1269,9 +1359,9 @@ setProgress(0);
             <View style={[s.contextPanel, { backgroundColor: theme.surface, borderColor: theme.border }]}>
               <Text style={[s.contextMiniHint, { color: theme.textMuted }]}>People</Text>
 
-              {personCandidates.length > 0 && (
+              {displayedPersonCandidates.length > 0 && (
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.contextChipRow}>
-                  {personCandidates.slice(0, 14).map(person => {
+                  {displayedPersonCandidates.slice(0, 14).map(person => {
                     const active = isLivingPersonSelected(selectedPeople, person);
 
                     return (
@@ -1311,12 +1401,46 @@ setProgress(0);
 
               <TextInput
                 style={[s.contextInput, { color: theme.text, backgroundColor: theme.raised, borderColor: theme.border }]}
-                placeholder="Add another person, name, or npub"
+                placeholder={selectedGroupSpaceId ? 'Type @ to tag someone in this Space' : 'Add another person, name, or npub'}
                 placeholderTextColor={theme.textMuted}
                 value={peopleInput}
                 onChangeText={setPeopleInput}
                 returnKeyType="done"
               />
+
+              {mentionSuggestions.length > 0 && (
+                <View style={[s.mentionPanel, { backgroundColor: theme.raised, borderColor: theme.border }]}>
+                  {mentionSuggestions.map(person => (
+                    <TouchableOpacity
+                      key={person.id}
+                      style={[s.mentionRow, { borderBottomColor: theme.border }]}
+                      onPress={() => selectMentionCandidate(person)}
+                      activeOpacity={0.82}
+                    >
+                      <Text style={[s.mentionAvatar, { color: theme.gold, borderColor: theme.border }]}>
+                        {person.displayName.slice(0, 1).toUpperCase()}
+                      </Text>
+
+                      <View style={s.mentionTextWrap}>
+                        <Text style={[s.mentionName, { color: theme.text }]} numberOfLines={1}>
+                          {person.displayName}
+                        </Text>
+                        <Text style={[s.mentionMeta, { color: theme.textMuted }]} numberOfLines={1}>
+                          {person.source === 'space-member'
+                            ? 'Space member'
+                            : person.source === 'family-member'
+                              ? 'Family'
+                              : person.source === 'current-user'
+                                ? 'You'
+                                : 'Contact'}
+                        </Text>
+                      </View>
+
+                      <Text style={[s.mentionAction, { color: theme.gold }]}>Add</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
 
               <Text style={[s.contextMiniHint, { color: theme.textMuted }]}>Calendar event</Text>
 
@@ -1665,6 +1789,13 @@ videoBadgeText: {
   contextToggleText: { fontSize: 12, fontWeight: '900' },
   contextPanel: { borderWidth: 0.5, borderRadius: 10, marginTop: 10, padding: 12, gap: 10 },
   contextInput: { borderWidth: 0.5, borderRadius: 8, paddingHorizontal: 11, paddingVertical: 10, fontSize: 13 },
+  mentionPanel: { borderWidth: 0.5, borderRadius: 12, overflow: 'hidden' },
+  mentionRow: { minHeight: 46, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 10, paddingVertical: 8, borderBottomWidth: 0.5 },
+  mentionAvatar: { width: 26, height: 26, borderRadius: 13, borderWidth: 0.5, textAlign: 'center', lineHeight: 25, fontSize: 11, fontWeight: '900', overflow: 'hidden' },
+  mentionTextWrap: { flex: 1, minWidth: 0 },
+  mentionName: { fontSize: 13, fontWeight: '800' },
+  mentionMeta: { fontSize: 10, marginTop: 2, fontWeight: '600' },
+  mentionAction: { fontSize: 11, fontWeight: '900' },
   contextMiniHint: { fontSize: 10, fontWeight: '800', letterSpacing: 0.5, textTransform: 'uppercase' },
   contextChipRow: { gap: 8, paddingRight: 20 },
   contextChip: { minHeight: 32, paddingHorizontal: 12, borderRadius: 16, borderWidth: 0.5, alignItems: 'center', justifyContent: 'center' },

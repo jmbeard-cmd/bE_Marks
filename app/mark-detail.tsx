@@ -288,6 +288,36 @@ export default function MilestoneDetail() {
         profile?.name ||
         (npub ? `${npub.slice(0, 12)}...` : 'You');
 
+      const familyPersonSeeds: {
+        npub?: string;
+        displayName?: string;
+        avatarUrl?: string;
+        source: 'family-member';
+      }[] = familyMembers.map(member => ({
+        npub: member.npub,
+        displayName: member.displayName,
+        avatarUrl: undefined,
+        source: 'family-member',
+      }));
+
+      const contactPersonSeeds: {
+        npub?: string;
+        displayName?: string;
+        avatarUrl?: string;
+        source: 'contact';
+      }[] = contacts.map(contact => ({
+        npub: contact.npub,
+        displayName: contact.nostrName || contact.name,
+        avatarUrl: contact.nostrAvatar,
+        source: 'contact',
+      }));
+
+      const knownPersonByNpub = new Map(
+        [...familyPersonSeeds, ...contactPersonSeeds]
+          .filter(person => person.npub)
+          .map(person => [person.npub as string, person])
+      );
+
       setContextPersonCandidates(
         mergeLivingPersonCandidates([
           {
@@ -296,23 +326,23 @@ export default function MilestoneDetail() {
             avatarUrl: (profile as any)?.picture || (profile as any)?.avatarUrl,
             source: 'current-user',
           },
-          ...groupMembers.map(member => ({
-            npub: member.npub,
-            displayName: member.displayName,
-            avatarUrl: member.avatarUrl,
-            source: 'space-member' as const,
-          })),
-          ...familyMembers.map(member => ({
-            npub: member.npub,
-            displayName: member.displayName,
-            source: 'family-member' as const,
-          })),
-          ...contacts.map(contact => ({
-            npub: contact.npub,
-            displayName: contact.nostrName || contact.name,
-            avatarUrl: contact.nostrAvatar,
-            source: 'contact' as const,
-          })),
+          ...groupMembers
+            .filter(member => member.npub !== npub)
+            .map(member => {
+              const knownPerson = knownPersonByNpub.get(member.npub);
+
+              return {
+                npub: member.npub,
+                displayName:
+                  member.displayName?.trim() ||
+                  knownPerson?.displayName?.trim() ||
+                  (member.npub ? `${member.npub.slice(0, 12)}...` : 'Space member'),
+                avatarUrl: member.avatarUrl || knownPerson?.avatarUrl,
+                source: 'space-member' as const,
+              };
+            }),
+          ...familyPersonSeeds,
+          ...contactPersonSeeds,
         ])
       );
     }
@@ -784,6 +814,45 @@ const openMediaViewer = (uri: string) => {
     },
   ];
 
+  const contextMentionMatch = contextPeopleInput.match(/@([^\s,]*)$/);
+  const contextMentionSearch = contextMentionMatch?.[1]?.trim().toLowerCase() ?? '';
+  const contextMentionActive = contextPeopleInput.includes('@') && contextMentionMatch !== null;
+
+  const contextMentionSuggestions = contextMentionActive
+    ? contextPersonCandidates
+        .filter(person => !isLivingPersonSelected(selectedContextPeople, person))
+        .filter(person => {
+          if (contextMentionSearch.length === 0) return person.source === 'space-member';
+
+          const displayName = person.displayName.toLowerCase();
+          const npubValue = person.npub?.toLowerCase() ?? '';
+
+          return (
+            displayName.startsWith(contextMentionSearch) ||
+            displayName.includes(contextMentionSearch) ||
+            npubValue.includes(contextMentionSearch)
+          );
+        })
+        .slice(0, 6)
+    : [];
+
+  const selectContextMentionCandidate = (person: LivingPersonCandidate) => {
+    setSelectedContextPeople(prev =>
+      isLivingPersonSelected(prev, person)
+        ? prev
+        : toggleLivingPersonSelection(prev, person)
+    );
+
+    setContextPeopleInput(current => current.replace(/@([^\s,]*)$/, '').trim());
+  };
+
+  const getContextPersonSourceLabel = (person: LivingPersonCandidate): string => {
+    if (person.source === 'space-member') return 'Space member';
+    if (person.source === 'family-member') return 'Family';
+    if (person.source === 'current-user') return 'You';
+    return 'Contact';
+  };
+
   return (
     <SafeAreaView style={s.safe}>
 
@@ -1187,10 +1256,38 @@ const openMediaViewer = (uri: string) => {
                     style={[s.editInput, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]}
                     value={contextPeopleInput}
                     onChangeText={setContextPeopleInput}
-                    placeholder="Add another name or npub"
+                    placeholder="Type @ to tag someone in this Mark"
                     placeholderTextColor={theme.textMuted}
                     returnKeyType="next"
                   />
+
+                  {contextMentionSuggestions.length > 0 && (
+                    <View style={[s.mentionPanel, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                      {contextMentionSuggestions.map(person => (
+                        <TouchableOpacity
+                          key={person.id}
+                          style={[s.mentionRow, { borderBottomColor: theme.border }]}
+                          onPress={() => selectContextMentionCandidate(person)}
+                          activeOpacity={0.82}
+                        >
+                          <Text style={[s.mentionAvatar, { color: theme.gold, borderColor: theme.border }]}>
+                            {person.displayName.slice(0, 1).toUpperCase()}
+                          </Text>
+
+                          <View style={s.mentionTextWrap}>
+                            <Text style={[s.mentionName, { color: theme.text }]} numberOfLines={1}>
+                              {person.displayName}
+                            </Text>
+                            <Text style={[s.mentionMeta, { color: theme.textMuted }]} numberOfLines={1}>
+                              {getContextPersonSourceLabel(person)}
+                            </Text>
+                          </View>
+
+                          <Text style={[s.mentionAction, { color: theme.gold }]}>Add</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
 
                   <Text style={[s.contextSubLabel, { color: theme.textMuted }]}>Space</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.contextChipScroll}>
@@ -1645,6 +1742,13 @@ const s = StyleSheet.create({
   contextPersonChip: { minHeight: 34, maxWidth: 190, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 17, borderWidth: 0.5, flexDirection: 'row', alignItems: 'center', gap: 7 },
   contextPersonAvatar: { width: 20, height: 20, borderRadius: 10, borderWidth: 0.5, textAlign: 'center', lineHeight: 19, fontSize: 10, fontWeight: '900', overflow: 'hidden' },
   contextPersonChipText: { maxWidth: 138, fontSize: 12, fontWeight: '800' },
+  mentionPanel: { borderWidth: 0.5, borderRadius: 12, overflow: 'hidden' },
+  mentionRow: { minHeight: 46, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 10, paddingVertical: 8, borderBottomWidth: 0.5 },
+  mentionAvatar: { width: 26, height: 26, borderRadius: 13, borderWidth: 0.5, textAlign: 'center', lineHeight: 25, fontSize: 11, fontWeight: '900', overflow: 'hidden' },
+  mentionTextWrap: { flex: 1, minWidth: 0 },
+  mentionName: { fontSize: 13, fontWeight: '800' },
+  mentionMeta: { fontSize: 10, marginTop: 2, fontWeight: '600' },
+  mentionAction: { fontSize: 11, fontWeight: '900' },
   permissionOption: { minHeight: 58, borderRadius: 14, borderWidth: 0.5, paddingHorizontal: 12, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   permissionOptionDisabled: { opacity: 0.48 },
   permissionOptionText: { flex: 1, gap: 3 },
