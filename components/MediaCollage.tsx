@@ -54,9 +54,13 @@ function getPreviewUri(item: CollageMediaItem): string | null {
 
   if (mediaType === 'audio') return null;
 
-  // Prefer thumbnails for BOTH images and videos in feed/card views.
-  // Full media still opens in ImageViewerModal through onPressMedia.
-  return item.thumbnailUri || item.thumbnailUrl || getMediaUrl(item);
+  const mediaUri = getMediaUrl(item);
+
+  if (mediaType === 'video') {
+    return item.thumbnailUri || item.thumbnailUrl || mediaUri;
+  }
+
+  return mediaUri || item.thumbnailUri || item.thumbnailUrl || null;
 }
 
 function getMediaIdentity(item: CollageMediaItem, index: number): string {
@@ -140,16 +144,6 @@ function MediaPreviewImage({
 
   return (
     <View style={s.imageStage}>
-      <Image
-        source={{ uri }}
-        style={s.imageBackdrop}
-        resizeMode="cover"
-        blurRadius={28}
-        onError={() => setFailed(true)}
-      />
-
-      <View style={s.imageBackdropWash} />
-
       <Image
         source={{ uri }}
         style={s.image}
@@ -377,30 +371,21 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
   wrap: {
     width: '100%',
     minHeight: MIN_CARD_MEDIA_HEIGHT,
-    backgroundColor: '#0d0d0d',
+    backgroundColor: theme.raised,
     borderBottomWidth: 0.5,
-    borderBottomColor: '#222',
+    borderBottomColor: theme.border,
     overflow: 'hidden',
     position: 'relative',
   },
-slide: {
-  backgroundColor: '#0d0d0d',
-},
+  slide: {
+    backgroundColor: theme.raised,
+  },
   imageStage: {
     width: '100%',
     height: '100%',
-    backgroundColor: '#0d0d0d',
+    backgroundColor: theme.raised,
     position: 'relative',
     overflow: 'hidden',
-  },
-  imageBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    opacity: 0.72,
-    transform: [{ scale: 1.08 }],
-  },
-  imageBackdropWash: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.24)',
   },
   image: {
     width: '100%',
@@ -409,7 +394,7 @@ slide: {
   fallback: {
     width: '100%',
     height: '100%',
-    backgroundColor: '#111',
+    backgroundColor: theme.raised,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
@@ -420,7 +405,7 @@ slide: {
     fontWeight: '900',
   },
   fallbackText: {
-    color: '#666',
+    color: theme.textMuted,
     fontSize: 12,
     fontWeight: '700',
   },
@@ -481,19 +466,19 @@ slide: {
   audioThumb: {
     width: '100%',
     height: 56,
-    backgroundColor: '#0d0d0d',
+    backgroundColor: theme.raised,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
     gap: 8,
     borderBottomWidth: 0.5,
-    borderBottomColor: '#222',
+    borderBottomColor: theme.border,
   },
   audioThumbIcon: {
     fontSize: 18,
   },
   audioThumbLabel: {
     fontSize: 12,
-    color: '#555',
+    color: theme.textMuted,
   },
 });
