@@ -122,16 +122,39 @@ function getStableCarouselMediaHeight(
   return Math.max(fallbackHeight, ...knownHeights);
 }
 
+function getSmartResizeMode(
+  mediaAspectRatio?: number,
+  frameAspectRatio?: number
+): 'cover' | 'contain' {
+  if (
+    !mediaAspectRatio ||
+    !frameAspectRatio ||
+    mediaAspectRatio <= 0 ||
+    frameAspectRatio <= 0
+  ) {
+    return 'contain';
+  }
+
+  const ratioDifference = Math.abs(mediaAspectRatio - frameAspectRatio) / frameAspectRatio;
+
+  return ratioDifference <= 0.18 ? 'cover' : 'contain';
+}
+
 function MediaPreviewImage({
   uri,
   type,
+  aspectRatio,
+  frameAspectRatio,
   s,
 }: {
   uri: string | null;
   type: 'image' | 'video';
+  aspectRatio?: number;
+  frameAspectRatio?: number;
   s: ReturnType<typeof createStyles>;
 }) {
   const [failed, setFailed] = useState(false);
+  const resizeMode = getSmartResizeMode(aspectRatio, frameAspectRatio);
 
   if (!uri || failed) {
     return (
@@ -147,7 +170,7 @@ function MediaPreviewImage({
       <Image
         source={{ uri }}
         style={s.image}
-        resizeMode="contain"
+        resizeMode={resizeMode}
         onError={() => setFailed(true)}
       />
     </View>
@@ -307,6 +330,12 @@ export default function MediaCollage({
         renderItem={({ item, index }) => {
           const type = getMediaType(item);
           const previewUri = getPreviewUri(item);
+          const mediaKey = getMediaIdentity(item, index);
+          const aspectRatio = mediaAspectRatios[mediaKey];
+          const frameAspectRatio =
+            carouselWidth > 0 && mediaHeight > 0
+              ? carouselWidth / mediaHeight
+              : undefined;
 
           return (
             <TouchableOpacity
@@ -317,9 +346,10 @@ export default function MediaCollage({
               <MediaPreviewImage
                 uri={previewUri}
                 type={type === 'video' ? 'video' : 'image'}
+                aspectRatio={aspectRatio}
+                frameAspectRatio={frameAspectRatio}
                 s={s}
               />
-
             </TouchableOpacity>
           );
         }}
