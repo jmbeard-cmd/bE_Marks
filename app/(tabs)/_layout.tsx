@@ -45,7 +45,7 @@ export default function TabLayout() {
   const { theme } = useIdentity();
   return (
     <Tabs
-      initialRouteName="timeline"
+      initialRouteName="messages"
       screenOptions={{
         headerShown: false,
         tabBarHideOnKeyboard: true,

@@ -278,7 +278,7 @@ enqueueStartupJob({
   }
 
   if (hasIdentity && inAuth && !allowSignedInAuthScreen) {
-    router.replace('/(tabs)/timeline' as any);
+    router.replace('/(tabs)/messages' as any);
   }
 }, [ready, npub, segments]);
 
@@ -368,7 +368,7 @@ enqueueStartupJob({
   };
 
   return (
-  <GestureHandlerRootView style={{ flex: 1 }}>
+  <GestureHandlerRootView style={{ flex: 1, backgroundColor: theme.bg }}>
     <IdentityContext.Provider value={{
   npub, nsec, setIdentity, clearIdentity: clear,
   useAmber, setUseAmber,
@@ -393,7 +393,6 @@ enqueueStartupJob({
 
   {/* PUSH SCREENS */}
   <Stack.Screen name="mark-detail" options={{ headerShown: false, animation: 'slide_from_right' }} />
-  <Stack.Screen name="river" options={{ headerShown: false, animation: 'fade' }} />
   <Stack.Screen name="group-thread" options={{ headerShown: false, animation: 'slide_from_right' }} />
   <Stack.Screen name="group-detail" options={{ headerShown: false, animation: 'slide_from_right' }} />
     </Stack>

@@ -727,16 +727,31 @@ export async function addGroupMember(input: {
   );
 
 if (existing) {
-  // Reinstate if removed
+  const updatedMember: BEGroupMember = {
+    ...existing,
+    pubkeyHex: input.pubkeyHex || existing.pubkeyHex,
+    displayName: input.displayName ?? existing.displayName,
+    avatarUrl: input.avatarUrl ?? existing.avatarUrl,
+    role: existing.role === 'owner' ? 'owner' : input.role ?? existing.role,
+    status: 'active',
+    removedAt: undefined,
+    removedBy: undefined,
+    joinedAt: existing.status === 'removed' ? now : existing.joinedAt,
+  };
+
   const updated = members.map(m =>
     m.id === existing.id
-      ? { ...m, status: 'active' as MemberStatus, removedAt: undefined, removedBy: undefined, joinedAt: now }
+      ? updatedMember
       : m
   );
 
   await writeMembers(updated);
+  const activeMembers = updated.filter(
+    m => m.groupId === input.groupId && m.status === 'active'
+  );
+  await updateGroup(input.groupId, { memberCount: activeMembers.length });
 
-  return { ...existing, status: 'active', joinedAt: now };
+  return updatedMember;
 }
 
   const member: BEGroupMember = {

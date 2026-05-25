@@ -1,8 +1,8 @@
 import { getPublicKey, nip19 } from 'nostr-tools';
 import { AppState, type AppStateStatus } from 'react-native';
 import { isAppBusy } from './app-activity';
-import { emitDMChanged } from './dm-events';
 import { getContacts } from './contacts-storage';
+import { emitDMChanged } from './dm-events';
 import {
   createThread,
   deleteThread,
@@ -47,6 +47,14 @@ async function resolveDMSenderName(input: {
   } catch (error) {
     console.warn('[DMService] failed to resolve sender profile for notification:', error);
     return input.senderPubkey.slice(0, 8);
+  }
+}
+
+function getShortNpubForPubkey(pubkey: string): string {
+  try {
+    return `${nip19.npubEncode(pubkey).slice(0, 12)}...`;
+  } catch {
+    return pubkey.slice(0, 8);
   }
 }
 
@@ -228,20 +236,19 @@ const unsubscribe = await subscribeToNostrDMs({
       );
 
       let activeThread = thread;
+      let senderName: string | null = null;
 
 if (!activeThread) {
-  const isSavedContact = await isSavedBEContactPubkey(otherPubkey);
+  senderName = await resolveDMSenderName({
+    senderPubkey: otherPubkey,
+  });
 
-  if (!isSavedContact) {
-    console.log('[DMService] skipped external live DM from unsaved contact:', otherPubkey.slice(0, 16));
-    return;
-  }
-
-  console.log('[DMService] Creating thread for saved contact:', otherPubkey.slice(0, 16));
+  console.log('[DMService] Creating thread for incoming DM:', otherPubkey.slice(0, 16));
 
   activeThread = await createThread({
-    title: otherPubkey.slice(0, 8),
+    title: senderName,
     participantPubkey: otherPubkey,
+    participantNpub: nip19.npubEncode(otherPubkey),
   });
 }
 
@@ -268,7 +275,7 @@ const existing = await getMessagesForThread(activeThread.id);
       console.log('[DMService] saved incoming DM:', activeThread.id);
 emitDMChanged(activeThread.id);
 
-const senderName = await resolveDMSenderName({
+senderName = senderName ?? await resolveDMSenderName({
   senderPubkey: otherPubkey,
   fallbackName: activeThread.title,
 });
@@ -450,8 +457,9 @@ if (!threadId) {
   }
 
   const newThread = await createThread({
-    title: otherPubkey.slice(0, 8),
+    title: getShortNpubForPubkey(otherPubkey),
     participantPubkey: otherPubkey,
+    participantNpub: nip19.npubEncode(otherPubkey),
   });
 
   threadId = newThread.id;

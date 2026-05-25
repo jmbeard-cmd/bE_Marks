@@ -44,6 +44,7 @@ import {
   getGroupMembers,
   isGroupMember,
   syncGroupMembersFromRelay,
+  updateGroupMemberProfile,
   type BEGroup,
 } from '../src/utils/group-storage';
 import {
@@ -56,6 +57,7 @@ import {
   fetchGroupMessageReactions,
   fetchGroupMessages,
   fetchGroupPollVotes,
+  fetchNostrProfile,
   publishGroupMessage,
   publishGroupMessageDelete,
   publishGroupMessageEdit,
@@ -72,10 +74,24 @@ import {
   sendLocalGroupNotification,
 } from '../src/utils/push-notifications';
 import { uploadToR2 } from '../src/utils/r2';
+import {
+  clearActiveGroupChatId,
+  setActiveGroupChatId,
+} from '../src/utils/active-group-chat';
+import {
+  getLatestReadableGroupMessageCreatedAt,
+  markGroupChatRead,
+} from '../src/utils/group-read-state';
 import { useIdentity } from './_layout';
 
 function createClientMessageId(groupId: string): string {
   return `client_msg_${groupId}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function getMemberFallbackName(npub?: string): string | undefined {
+  const clean = npub?.trim();
+  if (!clean) return undefined;
+  return `${clean.slice(0, 12)}...`;
 }
 
 type PendingUploadMessage = {
@@ -251,6 +267,7 @@ export function GroupChatPanel({
   const [pendingUploads, setPendingUploads] = useState<PendingUploadMessage[]>([]);
   const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
   const [memberAvatarMap, setMemberAvatarMap] = useState<Record<string, string | undefined>>({});
+  const [memberDisplayNameMap, setMemberDisplayNameMap] = useState<Record<string, string | undefined>>({});
   const [actionMessage, setActionMessage] = useState<GroupMessage | PendingUploadMessage | null>(null);
   const [showReactionPicker, setShowReactionPicker] = useState(false);
   const [replyTarget, setReplyTarget] = useState<GroupMessage | null>(null);
@@ -272,14 +289,42 @@ export function GroupChatPanel({
   const remoteSyncRunIdRef = useRef(0);
   const remoteSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const catchUpInFlightRef = useRef(false);
+  const memberDisplayNameMapRef = useRef<Record<string, string | undefined>>({});
 
   const myDisplayName =
     profile?.display_name ||
     profile?.name ||
     (npub ? `${npub.slice(0, 12)}…` : 'You');
 
-      const memberBlockedMessage =
+  useEffect(() => {
+    memberDisplayNameMapRef.current = memberDisplayNameMap;
+  }, [memberDisplayNameMap]);
+
+  const memberBlockedMessage =
     'You are no longer an active member of this Space. You can view past messages, but posting is disabled.';
+
+  useEffect(() => {
+    if (!groupId) return;
+
+    setActiveGroupChatId(groupId);
+
+    return () => {
+      clearActiveGroupChatId(groupId);
+    };
+  }, [groupId]);
+
+  const markVisibleMessagesRead = useCallback(async (visibleMessages: GroupMessage[]) => {
+    if (!groupId || !npub) return;
+
+    const latestReadAt = getLatestReadableGroupMessageCreatedAt(visibleMessages);
+    if (latestReadAt <= 0) return;
+
+    try {
+      await markGroupChatRead(npub, groupId, latestReadAt);
+    } catch (error) {
+      console.warn('[Groups] failed to mark group chat read:', error);
+    }
+  }, [groupId, npub]);
 
   const guardCanPost = useCallback(() => {
     if (canPostToGroup) return true;
@@ -380,9 +425,26 @@ const dedupedMessages = sortedMessages.reduce<(GroupMessage | PendingUploadMessa
   []
 );
 
+const getDisplaySenderName = (message: GroupMessage | PendingUploadMessage) => {
+  if (message.mine) return message.senderName;
+
+  const senderNpub = (message as any).senderNpub;
+  const storedName = message.senderName?.trim();
+  const memberName = senderNpub ? memberDisplayNameMap[senderNpub] : undefined;
+
+  return storedName && storedName !== 'Member'
+    ? storedName
+    : memberName;
+};
+
 return dedupedMessages.map((message, index) => {
         const previousMessage = index > 0 ? dedupedMessages[index - 1] : null;
         const senderNpub = (message as any).senderNpub;
+        const displaySenderName = getDisplaySenderName(message);
+        const displayMessage =
+          displaySenderName && displaySenderName !== message.senderName
+            ? { ...message, senderName: displaySenderName }
+            : message;
 
         const avatarUrl =
           message.mine
@@ -394,17 +456,17 @@ return dedupedMessages.map((message, index) => {
 const showName =
   !isSystemNoticeMessage(message) &&
   !message.mine &&
-  (!previousMessage || previousMessage.senderName !== message.senderName);
+  (!previousMessage || getDisplaySenderName(previousMessage) !== displaySenderName);
 
         return {
           id: message.id,
-          message,
+          message: displayMessage,
           avatarUrl,
           showName,
         };
       });
     },
-    [messages, pendingUploads, memberAvatarMap, profile]
+    [messages, pendingUploads, memberAvatarMap, memberDisplayNameMap, profile]
   );
 
   const chatMessages = useMemo(
@@ -483,7 +545,20 @@ const showName =
   const getReplyPreviewSenderName = useCallback((message: GroupMessage | PendingUploadMessage): string => {
     if (message.mine) return 'You';
 
-    return message.senderName || 'Member';
+    const senderNpub = (message as any).senderNpub;
+    return message.senderName || (senderNpub ? memberDisplayNameMap[senderNpub] : undefined) || 'Member';
+  }, [memberDisplayNameMap]);
+
+  const getRemoteSenderName = useCallback((message: {
+    senderNpub?: string;
+    senderName?: string;
+  }): string | undefined => {
+    const storedName = message.senderName?.trim();
+    if (storedName) return storedName;
+
+    return message.senderNpub
+      ? memberDisplayNameMapRef.current[message.senderNpub] || getMemberFallbackName(message.senderNpub)
+      : undefined;
   }, []);
 
   const getRemotePushPreviewText = useCallback((message: {
@@ -648,6 +723,63 @@ const showName =
   }, [scrollToBottom]);
 
 
+  const loadMemberIdentityMap = useCallback(async () => {
+    if (!groupId) return;
+
+    try {
+      const groupMembers = await getGroupMembers(groupId);
+      const hydratedMembers = await Promise.all(
+        groupMembers.map(async member => {
+          if (member.displayName?.trim() && member.avatarUrl?.trim()) {
+            return member;
+          }
+
+          try {
+            const profile = await fetchNostrProfile(member.npub);
+
+            if (!profile) return member;
+
+            const displayName =
+              profile.display_name ||
+              profile.name ||
+              member.displayName;
+            const avatarUrl = profile.picture || member.avatarUrl;
+
+            if (displayName !== member.displayName || avatarUrl !== member.avatarUrl) {
+              await updateGroupMemberProfile(groupId, member.npub, {
+                displayName,
+                avatarUrl,
+              });
+            }
+
+            return {
+              ...member,
+              displayName,
+              avatarUrl,
+            };
+          } catch (error) {
+            console.warn('[Groups] failed to hydrate chat member profile:', error);
+            return member;
+          }
+        })
+      );
+      const nextAvatarMap: Record<string, string | undefined> = {};
+      const nextDisplayNameMap: Record<string, string | undefined> = {};
+
+      hydratedMembers.forEach(member => {
+        nextAvatarMap[member.npub] = member.avatarUrl;
+        nextDisplayNameMap[member.npub] =
+          member.displayName?.trim() || getMemberFallbackName(member.npub);
+      });
+
+      setMemberAvatarMap(nextAvatarMap);
+      setMemberDisplayNameMap(nextDisplayNameMap);
+    } catch (error) {
+      console.warn('[Groups] failed to load member identities:', error);
+    }
+  }, [groupId]);
+
+
   const loadGroup = useCallback(async () => {
     if (!groupId) return;
 
@@ -672,20 +804,8 @@ const showName =
     }
 
     setGroupLoaded(true);
-
-    try {
-      const groupMembers = await getGroupMembers(groupId);
-      const nextAvatarMap: Record<string, string | undefined> = {};
-
-      groupMembers.forEach(member => {
-        nextAvatarMap[member.npub] = member.avatarUrl;
-      });
-
-      setMemberAvatarMap(nextAvatarMap);
-    } catch (error) {
-      console.warn('[Groups] failed to load member avatars:', error);
-    }
-  }, [groupId, npub]);
+    loadMemberIdentityMap();
+  }, [groupId, loadMemberIdentityMap, npub]);
 
   const loadMessages = useCallback(async () => {
     if (!groupId || !groupLoaded) return;
@@ -706,6 +826,7 @@ const showName =
       const localMessages = await getMessagesForGroup(groupId);
 
       setMessages(localMessages);
+      await markVisibleMessagesRead(localMessages);
       setLoadingInitialMessages(false);
       setInitialListReady(true);
       didInitialAutoScrollRef.current = true;
@@ -751,7 +872,7 @@ const showName =
             imageUrl: msg.imageUrl,
             mine,
             senderNpub: msg.senderNpub,
-            senderName: msg.senderName,
+            senderName: getRemoteSenderName(msg),
             createdAt: msg.createdAt,
           });
         }
@@ -849,13 +970,14 @@ const showName =
             const refreshedMessages = await getMessagesForGroup(groupId);
 
             setMessages(refreshedMessages);
+            await markVisibleMessagesRead(refreshedMessages);
           })
           .catch(error => {
             console.warn('[Groups] Remote fetch error:', error);
           });
       }, 250);
     });
-  }, [groupId, groupLoaded, relayUrl, npub]);
+  }, [getRemoteSenderName, groupId, groupLoaded, markVisibleMessagesRead, relayUrl, npub]);
 
   const catchUpGroupMessages = useCallback(async () => {
   if (!groupId || !groupLoaded || !relayUrl) return;
@@ -891,19 +1013,20 @@ const showName =
         imageUrl: msg.imageUrl,
         mine,
         senderNpub: msg.senderNpub,
-        senderName: msg.senderName,
+        senderName: getRemoteSenderName(msg),
         createdAt: msg.createdAt,
       });
     }
 
     const refreshedMessages = await getMessagesForGroup(groupId);
     setMessages(refreshedMessages);
+    await markVisibleMessagesRead(refreshedMessages);
   } catch (error) {
     console.warn('[Groups] catch-up message fetch failed:', error);
   } finally {
     catchUpInFlightRef.current = false;
   }
-}, [groupId, groupLoaded, relayUrl, npub]);
+}, [getRemoteSenderName, groupId, groupLoaded, markVisibleMessagesRead, relayUrl, npub]);
 
   useEffect(() => {
     loadGroup();
@@ -922,6 +1045,7 @@ const showName =
           if (cancelled) return;
 
           const activeMember = await isGroupMember(groupId, npub);
+          await loadMemberIdentityMap();
 
           if (!cancelled) {
             setCanPostToGroup(activeMember);
@@ -936,7 +1060,7 @@ const showName =
     return () => {
       cancelled = true;
     };
-  }, [groupId, groupLoaded, relayUrl, npub]);
+  }, [groupId, groupLoaded, loadMemberIdentityMap, relayUrl, npub]);
 
   useEffect(() => {
     loadMessages();
@@ -1004,7 +1128,7 @@ const showName =
             imageUrl: msg.imageUrl,
             mine,
             senderNpub: msg.senderNpub,
-            senderName: msg.senderName,
+            senderName: getRemoteSenderName(msg),
             createdAt: msg.createdAt,
           });
 
@@ -1015,7 +1139,7 @@ const showName =
               await sendLocalGroupNotification({
                 groupId,
                 senderNpub: msg.senderNpub,
-                senderName: msg.senderName,
+                senderName: getRemoteSenderName(msg),
                 preview: getNotificationPreviewText({
                   text: msg.text,
                   media: msg.media,
@@ -1040,6 +1164,7 @@ const showName =
 
           const next = await getMessagesForGroup(groupId);
           setMessages(next);
+          await markVisibleMessagesRead(next);
 
           if (mine || isNearBottomRef.current) {
             forceNextAutoScrollRef.current = true;
@@ -1167,7 +1292,7 @@ const showName =
       if (unsubscribeEdits) unsubscribeEdits();
       if (unsubscribePollVotes) unsubscribePollVotes();
     };
-}, [groupId, relayUrl, npub, scrollToBottomIfAppropriate, getNotificationPreviewText]);
+}, [getRemoteSenderName, groupId, markVisibleMessagesRead, relayUrl, npub, scrollToBottomIfAppropriate, getNotificationPreviewText]);
 
   const handleSend = async () => {
     const text = draft.trim();
@@ -1200,6 +1325,7 @@ const showName =
 
         const next = await getMessagesForGroup(groupId);
         setMessages(next);
+        await markVisibleMessagesRead(next);
         setSending(false);
 
         requestAnimationFrame(() => {
@@ -1273,6 +1399,7 @@ const showName =
       const localMessages = await getMessagesForGroup(groupId);
       forceNextAutoScrollRef.current = true;
       setMessages(localMessages);
+      await markVisibleMessagesRead(localMessages);
       forceScrollToBottom(true);
 
       setSending(false);

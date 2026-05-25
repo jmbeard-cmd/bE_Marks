@@ -18,6 +18,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors } from '../../src/constants/theme';
 import type { LivingSpace, LivingSpaceType } from '../../src/types/living-spaces';
+import { getActiveGroupChatId } from '../../src/utils/active-group-chat';
 import { BEContact, getContacts, saveContact } from '../../src/utils/contacts-storage';
 import { subscribeToDMEvents } from '../../src/utils/dm-events';
 import {
@@ -37,11 +38,19 @@ import {
 import {
   getGroupMessagePreview,
   getMessagesForGroup,
+  saveRemoteGroupMessage,
   saveLocalGroupSystemMessage,
   type GroupMessage,
 } from '../../src/utils/group-messages';
 import {
+  baselineGroupChatReadCursors,
+  getGroupChatUnreadCounts,
+  markGroupChatRead,
+  subscribeToGroupChatReadStateChanges,
+} from '../../src/utils/group-read-state';
+import {
   createGroup,
+  getGroupMembers,
   isGroupAdmin,
   joinGroupByCode,
   publishGroupMetadataSnapshot,
@@ -56,7 +65,14 @@ import {
   subscribeToGroupsIndex,
 } from '../../src/utils/groups-index';
 import { syncLivingSpacesFromGroups } from '../../src/utils/living-spaces-storage';
-import { DEFAULT_RELAY, fetchNostrProfile, npubToHex, publishGroupMessage } from '../../src/utils/nostr';
+import {
+  DEFAULT_RELAY,
+  fetchNostrProfile,
+  npubToHex,
+  publishGroupMessage,
+  subscribeToGroupMessages,
+  type NostrGroupMessage,
+} from '../../src/utils/nostr';
 import { normalizeNostrIdentity } from '../../src/utils/nostr-identity';
 import { notifyGroupEvent, registerGroupMemberForPush } from '../../src/utils/push-notifications';
 import { uploadToR2 } from '../../src/utils/r2';
@@ -117,6 +133,51 @@ function getLatestVisibleGroupMessage(messages: GroupMessage[]) {
   return messages
     .filter(message => !message.isDeleted)
     .sort((a, b) => b.createdAt - a.createdAt)[0];
+}
+
+function getGroupListSignature(groupList: BEGroup[]): string {
+  return groupList
+    .map(group => [
+      group.id,
+      group.updatedAt ?? 0,
+      group.lastPostAt ?? 0,
+      group.memberCount ?? 0,
+      group.status,
+      group.name,
+    ].join(':'))
+    .join('|');
+}
+
+function getLivingSpaceListSignature(spaceList: LivingSpace[]): string {
+  return spaceList
+    .map(space => [
+      space.id,
+      space.updatedAt ?? 0,
+      space.archivedAt ?? 0,
+      space.source,
+      space.sourceId ?? '',
+      space.name,
+    ].join(':'))
+    .join('|');
+}
+
+function getGroupMemberSearchSignature(memberSearchIndex: Record<string, string>): string {
+  return Object.keys(memberSearchIndex)
+    .sort()
+    .map(groupId => `${groupId}:${memberSearchIndex[groupId]}`)
+    .join('|');
+}
+
+function areGroupUnreadCountsEqual(
+  current: Record<string, number>,
+  next: Record<string, number>
+): boolean {
+  const currentKeys = Object.keys(current).filter(groupId => current[groupId] > 0);
+  const nextKeys = Object.keys(next).filter(groupId => next[groupId] > 0);
+
+  if (currentKeys.length !== nextKeys.length) return false;
+
+  return nextKeys.every(groupId => (current[groupId] ?? 0) === (next[groupId] ?? 0));
 }
 
 type DiscoveryProfile = {
@@ -346,6 +407,8 @@ export default function MessagesScreen() {
   const [search, setSearch] = useState('');
   const [editableGroupIds, setEditableGroupIds] = useState<Set<string>>(() => new Set());
   const [groupPreviewOverrides, setGroupPreviewOverrides] = useState<Record<string, GroupPreviewOverride>>({});
+  const [groupUnreadCounts, setGroupUnreadCounts] = useState<Record<string, number>>({});
+  const [groupMemberSearchTextByGroupId, setGroupMemberSearchTextByGroupId] = useState<Record<string, string>>({});
 
   const [newTitle, setNewTitle] = useState('');
   const [newNpub, setNewNpub] = useState('');
@@ -370,6 +433,38 @@ export default function MessagesScreen() {
   const pendingThreadReloadRef = useRef(false);
   const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const profileHydrationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasLoadedGroupsOnceRef = useRef(false);
+  const groupsSignatureRef = useRef('');
+  const livingSpacesSignatureRef = useRef('');
+  const groupMemberSearchSignatureRef = useRef('');
+
+  const setGroupsIfChanged = useCallback((nextGroups: BEGroup[]) => {
+    const nextSignature = getGroupListSignature(nextGroups);
+
+    if (groupsSignatureRef.current === nextSignature) return;
+
+    groupsSignatureRef.current = nextSignature;
+    setGroups(nextGroups);
+  }, []);
+
+  const setLivingSpacesIfChanged = useCallback((nextSpaces: LivingSpace[]) => {
+    const nextSignature = getLivingSpaceListSignature(nextSpaces);
+
+    if (livingSpacesSignatureRef.current === nextSignature) return;
+
+    livingSpacesSignatureRef.current = nextSignature;
+    setLivingSpaces(nextSpaces);
+  }, []);
+
+  const setGroupUnreadCountsIfChanged = useCallback((nextCounts: Record<string, number>) => {
+    const positiveCounts = Object.fromEntries(
+      Object.entries(nextCounts).filter(([, count]) => count > 0)
+    ) as Record<string, number>;
+
+    setGroupUnreadCounts(prev => (
+      areGroupUnreadCountsEqual(prev, positiveCounts) ? prev : positiveCounts
+    ));
+  }, []);
 
     const saveThreadCardSnapshot = useCallback(async (
     threadList: DMThread[],
@@ -501,6 +596,172 @@ export default function MessagesScreen() {
     setGroupPreviewOverrides(Object.fromEntries(entries));
   }, []);
 
+  const refreshGroupCardPreview = useCallback(async (groupId: string) => {
+    try {
+      const messages = await getMessagesForGroup(groupId);
+      const latest = getLatestVisibleGroupMessage(messages);
+      const nextPreview = latest ? getGroupMessagePreview(latest) : undefined;
+      const nextUpdatedAt = latest?.createdAt;
+
+      setGroupPreviewOverrides(prev => {
+        const current = prev[groupId];
+
+        if (
+          current?.preview === nextPreview &&
+          current?.updatedAt === nextUpdatedAt
+        ) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          [groupId]: {
+            preview: nextPreview,
+            updatedAt: nextUpdatedAt,
+          },
+        };
+      });
+    } catch (error) {
+      console.warn('[Spaces] failed to refresh group card preview:', error);
+    }
+  }, []);
+
+  const hydrateGroupUnreadCounts = useCallback(async (groupList: BEGroup[]) => {
+    if (!npub || groupList.length === 0) {
+      setGroupUnreadCountsIfChanged({});
+      return;
+    }
+
+    const groupIds = groupList.map(group => group.id);
+
+    try {
+      await baselineGroupChatReadCursors(npub, groupIds);
+      const counts = await getGroupChatUnreadCounts(npub, groupIds);
+      setGroupUnreadCountsIfChanged(counts);
+    } catch (error) {
+      console.warn('[Spaces] failed to hydrate group unread counts:', error);
+    }
+  }, [npub, setGroupUnreadCountsIfChanged]);
+
+  const setSingleGroupUnreadCount = useCallback((groupId: string, nextCount: number) => {
+    setGroupUnreadCounts(prev => {
+      const currentCount = prev[groupId] ?? 0;
+
+      if (currentCount === nextCount) return prev;
+
+      const next = { ...prev };
+
+      if (nextCount > 0) {
+        next[groupId] = nextCount;
+      } else {
+        delete next[groupId];
+      }
+
+      return next;
+    });
+  }, []);
+
+  const refreshSingleGroupUnreadCount = useCallback(async (groupId: string) => {
+    if (!npub) {
+      setSingleGroupUnreadCount(groupId, 0);
+      return;
+    }
+
+    try {
+      const counts = await getGroupChatUnreadCounts(npub, [groupId]);
+      setSingleGroupUnreadCount(groupId, counts[groupId] ?? 0);
+    } catch (error) {
+      console.warn('[Spaces] failed to refresh group unread count:', error);
+    }
+  }, [npub, setSingleGroupUnreadCount]);
+
+  const saveInboxGroupMessage = useCallback(async (
+    group: BEGroup,
+    message: NostrGroupMessage
+  ) => {
+    const storedId = `nostr_group_${message.id}`;
+    const localMessages = await getMessagesForGroup(group.id);
+    const alreadyStored = localMessages.some(localMessage =>
+      localMessage.id === storedId ||
+      (
+        !!message.clientMessageId &&
+        localMessage.clientMessageId === message.clientMessageId
+      )
+    );
+    const mine = !!npub && message.senderNpub === npub;
+
+    await saveRemoteGroupMessage({
+      id: storedId,
+      clientMessageId: message.clientMessageId,
+      groupId: group.id,
+      text: message.text,
+      kind: (message as any).kind,
+      systemType: (message as any).systemType,
+      replyToMessageId: message.replyToMessageId,
+      replyToClientMessageId: message.replyToClientMessageId,
+      replyPreviewText: message.replyPreviewText,
+      replyPreviewSenderName: message.replyPreviewSenderName,
+      media: message.media,
+      poll: message.poll,
+      mediaUrl: message.mediaUrl || message.imageUrl,
+      mediaType: message.mediaType || (message.imageUrl ? 'image' : undefined),
+      thumbnailUrl: message.thumbnailUrl,
+      imageUrl: message.imageUrl,
+      mine,
+      senderNpub: message.senderNpub,
+      senderName: message.senderName,
+      createdAt: message.createdAt,
+    });
+
+    await refreshGroupCardPreview(group.id);
+
+    if (npub && !mine && getActiveGroupChatId() === group.id) {
+      await markGroupChatRead(npub, group.id, message.createdAt);
+    }
+
+    if (!alreadyStored || !mine) {
+      await refreshSingleGroupUnreadCount(group.id);
+    }
+  }, [npub, refreshGroupCardPreview, refreshSingleGroupUnreadCount]);
+
+  const hydrateGroupMemberSearchText = useCallback(async (groupList: BEGroup[]) => {
+    if (groupList.length === 0) {
+      if (groupMemberSearchSignatureRef.current === '') return;
+      groupMemberSearchSignatureRef.current = '';
+      setGroupMemberSearchTextByGroupId({});
+      return;
+    }
+
+    const entries = await Promise.all(
+      groupList.map(async group => {
+        try {
+          const members = await getGroupMembers(group.id);
+          const searchText = members
+            .map(member => [
+              member.displayName,
+              member.npub,
+              member.pubkeyHex,
+            ].filter(Boolean).join(' '))
+            .join(' ')
+            .toLowerCase();
+
+          return [group.id, searchText] as const;
+        } catch (error) {
+          console.warn('[Spaces] failed to hydrate group member search text:', error);
+          return [group.id, ''] as const;
+        }
+      })
+    );
+
+    const nextIndex = Object.fromEntries(entries);
+    const nextSignature = getGroupMemberSearchSignature(nextIndex);
+
+    if (groupMemberSearchSignatureRef.current === nextSignature) return;
+
+    groupMemberSearchSignatureRef.current = nextSignature;
+    setGroupMemberSearchTextByGroupId(nextIndex);
+  }, []);
+
   const loadData = useCallback(async () => {
     if (loadingThreadsRef.current) {
       pendingThreadReloadRef.current = true;
@@ -622,38 +883,48 @@ export default function MessagesScreen() {
   }, [hydrateProfiles, saveThreadCardSnapshot]);
 
   const loadGroups = useCallback(async () => {
-    setLoadingInitialGroups(true);
+    const showInitialLoading = !hasLoadedGroupsOnceRef.current;
+
+    if (showInitialLoading) {
+      setLoadingInitialGroups(true);
+    }
 
     try {
       const cached = await getCachedGroupsIndex();
 
       if (cached.updatedAt > 0) {
-        setGroups(cached.activeGroups);
+        setGroupsIfChanged(cached.activeGroups);
         hydrateGroupCardPreviews(cached.activeGroups);
+        hydrateGroupUnreadCounts(cached.activeGroups);
+        hasLoadedGroupsOnceRef.current = true;
         setLoadingInitialGroups(false);
       }
 
       syncLivingSpacesFromGroups()
-        .then(setLivingSpaces)
+        .then(setLivingSpacesIfChanged)
         .catch(error => {
           console.warn('[Spaces] failed to sync Living Spaces from cached groups:', error);
         });
 
       if (!npub) {
-        setGroups([]);
+        setGroupsIfChanged([]);
+        setGroupUnreadCountsIfChanged({});
+        hasLoadedGroupsOnceRef.current = true;
         return;
       }
 
       const rebuilt = await rebuildGroupsIndexForNpub(npub);
-      setGroups(rebuilt.activeGroups);
+      setGroupsIfChanged(rebuilt.activeGroups);
       hydrateGroupCardPreviews(rebuilt.activeGroups);
-      setLivingSpaces(await syncLivingSpacesFromGroups());
+      hydrateGroupUnreadCounts(rebuilt.activeGroups);
+      hasLoadedGroupsOnceRef.current = true;
+      setLivingSpacesIfChanged(await syncLivingSpacesFromGroups());
     } catch (error) {
       console.warn('[Spaces] failed to load groups:', error);
     } finally {
       setLoadingInitialGroups(false);
     }
-  }, [hydrateGroupCardPreviews, npub]);
+  }, [hydrateGroupCardPreviews, hydrateGroupUnreadCounts, npub, setGroupUnreadCountsIfChanged, setGroupsIfChanged, setLivingSpacesIfChanged]);
 
   useFocusEffect(
     useCallback(() => {
@@ -668,18 +939,72 @@ export default function MessagesScreen() {
 
   useEffect(() => {
     const unsubscribe = subscribeToGroupsIndex(snapshot => {
-      setGroups(snapshot.activeGroups);
+      setGroupsIfChanged(snapshot.activeGroups);
       hydrateGroupCardPreviews(snapshot.activeGroups);
+      hydrateGroupUnreadCounts(snapshot.activeGroups);
+      hasLoadedGroupsOnceRef.current = true;
       setLoadingInitialGroups(false);
       syncLivingSpacesFromGroups()
-        .then(setLivingSpaces)
+        .then(setLivingSpacesIfChanged)
         .catch(error => {
           console.warn('[Spaces] failed to sync Living Spaces after group index update:', error);
         });
     });
 
     return unsubscribe;
-  }, [hydrateGroupCardPreviews]);
+  }, [hydrateGroupCardPreviews, hydrateGroupUnreadCounts, setGroupsIfChanged, setLivingSpacesIfChanged]);
+
+  useEffect(() => {
+    if (groups.length === 0) return;
+
+    let cancelled = false;
+    const unsubscribeFns: Array<() => void> = [];
+
+    groups.forEach(group => {
+      subscribeToGroupMessages({
+        groupId: group.id,
+        relayUrl: group.relayUrl || DEFAULT_RELAY,
+        onMessage: async message => {
+          if (cancelled) return;
+
+          try {
+            await saveInboxGroupMessage(group, message);
+          } catch (error) {
+            console.warn('[Spaces] failed to save live group message for inbox:', error);
+          }
+        },
+      })
+        .then(unsubscribe => {
+          if (cancelled) {
+            unsubscribe();
+            return;
+          }
+
+          unsubscribeFns.push(unsubscribe);
+        })
+        .catch(error => {
+          console.warn('[Spaces] failed to subscribe to group inbox messages:', error);
+        });
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribeFns.forEach(unsubscribe => {
+        try {
+          unsubscribe();
+        } catch {}
+      });
+    };
+  }, [groups, saveInboxGroupMessage]);
+
+  useEffect(() => {
+    if (!npub) return;
+
+    return subscribeToGroupChatReadStateChanges(change => {
+      if (change.readerNpub !== npub.toLowerCase()) return;
+      hydrateGroupUnreadCounts(groups);
+    });
+  }, [groups, hydrateGroupUnreadCounts, npub]);
 
   useEffect(() => {
     let cancelled = false;
@@ -767,14 +1092,15 @@ export default function MessagesScreen() {
         const title = group.name.toLowerCase();
         const preview = (groupPreviewOverrides[group.id]?.preview || group.lastPostPreview || '').toLowerCase();
         const season = (group.season || '').toLowerCase();
+        const members = groupMemberSearchTextByGroupId[group.id] || '';
 
-        return title.includes(q) || preview.includes(q) || season.includes(q);
+        return title.includes(q) || preview.includes(q) || season.includes(q) || members.includes(q);
       })
       .map(group => ({
         id: `group_${group.id}`,
         type: 'group',
         updatedAt: groupPreviewOverrides[group.id]?.updatedAt ?? group.lastPostAt ?? group.updatedAt,
-        unread: 0,
+        unread: groupUnreadCounts[group.id] ?? 0,
         group,
       }));
 
@@ -788,7 +1114,7 @@ export default function MessagesScreen() {
             : [...dmItems, ...groupItems];
 
     return combined.sort((a, b) => b.updatedAt - a.updatedAt);
-  }, [filteredThreads, groupPreviewOverrides, groups, search, spaceFilter]);
+  }, [filteredThreads, groupMemberSearchTextByGroupId, groupPreviewOverrides, groupUnreadCounts, groups, search, spaceFilter]);
 
   const livingSpaceByGroupId = useMemo(() => {
     const map = new Map<string, LivingSpace>();
@@ -802,7 +1128,9 @@ export default function MessagesScreen() {
     return map;
   }, [livingSpaces]);
 
-  const unreadSpaceCount = threads.filter(thread => thread.unread > 0).length;
+  const unreadSpaceCount =
+    threads.filter(thread => thread.unread > 0).length +
+    Object.values(groupUnreadCounts).filter(count => count > 0).length;
   const loadingInitialSpaces = loadingInitialThreads || loadingInitialGroups;
   const headerLogo =
     themeMode === 'light'
@@ -812,6 +1140,18 @@ export default function MessagesScreen() {
     profile?.display_name ||
     profile?.name ||
     (npub ? `${npub.slice(0, 12)}…` : 'Member');
+
+  useEffect(() => {
+    groupsSignatureRef.current = getGroupListSignature(groups);
+  }, [groups]);
+
+  useEffect(() => {
+    livingSpacesSignatureRef.current = getLivingSpaceListSignature(livingSpaces);
+  }, [livingSpaces]);
+
+  useEffect(() => {
+    hydrateGroupMemberSearchText(groups);
+  }, [groups, hydrateGroupMemberSearchText]);
 
   const discoveryAlreadyContact = useMemo(() => {
     if (!discoveryProfile) return false;
@@ -861,12 +1201,12 @@ export default function MessagesScreen() {
     } as any);
   };
 
-  const openGroup = (group: BEGroup) => {
+  const openGroup = (group: BEGroup, initialTab: 'overview' | 'chat' = 'overview') => {
     router.push({
       pathname: '/group-detail',
       params: {
         id: group.id,
-        tab: 'overview',
+        tab: initialTab,
       },
     } as any);
   };
@@ -1035,7 +1375,7 @@ export default function MessagesScreen() {
 
       closeSheet();
       await loadGroups();
-      setLivingSpaces(await syncLivingSpacesFromGroups());
+      setLivingSpacesIfChanged(await syncLivingSpacesFromGroups());
       setSpaceFilter('groups');
       openGroup(group);
     } catch (error: any) {
@@ -1090,7 +1430,7 @@ export default function MessagesScreen() {
 
       closeSheet();
       await loadGroups();
-      setLivingSpaces(await syncLivingSpacesFromGroups());
+      setLivingSpacesIfChanged(await syncLivingSpacesFromGroups());
     } catch (error: any) {
       Alert.alert('Could not update Space', error?.message || 'Please try again.');
     } finally {
@@ -1196,7 +1536,7 @@ export default function MessagesScreen() {
 
       closeSheet();
       await loadGroups();
-      setLivingSpaces(await syncLivingSpacesFromGroups());
+      setLivingSpacesIfChanged(await syncLivingSpacesFromGroups());
       setSpaceFilter('groups');
       openGroup(joinedGroup);
     } catch (error: any) {
@@ -1342,6 +1682,7 @@ export default function MessagesScreen() {
       const livingSpace = livingSpaceByGroupId.get(group.id);
       const groupTypeIcon = getGroupTypeIcon(group);
       const canEditGroup = editableGroupIds.has(group.id);
+      const hasUnread = item.unread > 0;
       const preview =
         groupPreviewOverrides[group.id]?.preview ||
         group.lastPostPreview ||
@@ -1351,10 +1692,10 @@ export default function MessagesScreen() {
         <TouchableOpacity
           style={s.threadRow}
           activeOpacity={0.82}
-          onPress={() => openGroup(group)}
+          onPress={() => openGroup(group, hasUnread ? 'chat' : 'overview')}
           onLongPress={canEditGroup ? () => { void openEditGroup(group); } : undefined}
         >
-          <View style={s.avatar}>
+          <View style={[s.avatar, hasUnread && s.avatarUnread]}>
             {group.coverImage ? (
               <Image source={{ uri: group.coverImage }} style={s.avatarImage} />
             ) : (
@@ -1364,16 +1705,24 @@ export default function MessagesScreen() {
 
           <View style={s.threadBody}>
             <View style={s.threadTop}>
-              <Text style={s.threadTitle} numberOfLines={1}>
+              <Text style={[s.threadTitle, hasUnread && s.threadTitleUnread]} numberOfLines={1}>
                 {group.name}
               </Text>
 
               <Text style={s.threadTime}>{formatThreadTime(item.updatedAt)}</Text>
             </View>
 
-            <Text style={s.threadPreview} numberOfLines={1}>
-              {preview}
-            </Text>
+            <View style={s.threadBottom}>
+              <Text style={[s.threadPreview, hasUnread && s.threadPreviewUnread]} numberOfLines={1}>
+                {preview}
+              </Text>
+
+              {hasUnread && (
+                <View style={s.unreadBadge}>
+                  <Text style={s.unreadText}>{item.unread}</Text>
+                </View>
+              )}
+            </View>
 
             <View style={s.threadMetaRow}>
               {groupTypeIcon ? (
