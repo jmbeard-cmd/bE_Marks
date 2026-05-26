@@ -395,6 +395,7 @@ export function createLivingMarkMetadata(
     people?: LivingMarkPerson[];
     lifeStage?: string;
     eventId?: string;
+    eventTitle?: string;
     relayTargets?: LivingRelayTarget[];
     savedToBook?: boolean;
     markPermissions?: LivingMarkPermissions;
@@ -440,6 +441,7 @@ export function createLivingMarkMetadata(
     capturedAt: input.capturedAt ?? input.occurredAt ?? milestone.createdAt,
     lifeStage: cleanOptionalText(input.lifeStage),
     eventId: cleanOptionalText(input.eventId),
+    eventTitle: cleanOptionalText(input.eventTitle),
     privacy,
     markPermissions: normalizeLivingMarkPermissions(input.markPermissions),
     relayTargets: input.relayTargets ?? [],

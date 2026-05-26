@@ -1,8 +1,10 @@
 import GroupBookTab from '@/components/GroupBookTab';
 import GroupCalendarTab from '@/components/GroupCalendarTab';
 import {
+  getCalendarEventsForGroup,
   getUpcomingEventsForGroup,
   syncCalendarEventsFromRelay,
+  type GroupCalendarEvent,
 } from '@/src/utils/group-calendar';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -118,6 +120,18 @@ type Tab = 'overview' | 'chat' | 'stickies' | 'mantle' | 'calendar' | 'gallery' 
 const GROUP_LOCAL_GALLERY_KEY = 'be_group_local_gallery_v1';
 const SPACE_FAVORITES_KEY = 'be_space_favorite_ids_v1';
 const SPACE_MARK_RELAY_SYNC_ENABLED = true;
+
+function buildCalendarEventTitleMap(events: GroupCalendarEvent[]): Record<string, string> {
+  return events.reduce<Record<string, string>>((acc, event) => {
+    const title = event.title?.trim();
+
+    if (event.id && title) {
+      acc[event.id] = title;
+    }
+
+    return acc;
+  }, {});
+}
 const LIFT_UP_TAG = 'Lift Up';
 const SPORTS_SPACE_KEYS = new Set([
   'softball',
@@ -378,6 +392,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   const [groupRelayMode, setGroupRelayMode] = useState<GroupRelayMode>('default');
   const [groupRelayUrl, setGroupRelayUrl] = useState('');
   const [upcomingCount, setUpcomingCount] = useState(0);
+  const [calendarEventTitles, setCalendarEventTitles] = useState<Record<string, string>>({});
   const [selectedMemberAction, setSelectedMemberAction] = useState<BEGroupMember | null>(null);
   const [favoriteSpaceIds, setFavoriteSpaceIds] = useState<string[]>([]);
   const groupDetailLoadRunIdRef = useRef(0);
@@ -711,10 +726,11 @@ const { id, tab: routeTab } = useLocalSearchParams<{
 
     // FAST LOCAL LOAD FIRST
     try {
-      const [localMembers, localStickies, upcoming, localMessages, localGalleryItems] = await Promise.all([
+      const [localMembers, localStickies, upcoming, calendarEvents, localMessages, localGalleryItems] = await Promise.all([
         getGroupMembers(id),
         getStickiesForGroup(id),
         getUpcomingEventsForGroup(id),
+        getCalendarEventsForGroup(id),
         getMessagesForGroup(id),
         readLocalGalleryItems(),
       ]);
@@ -722,6 +738,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
       setMembers(localMembers);
       setStickies(localStickies);
       setUpcomingCount(upcoming.length);
+      setCalendarEventTitles(buildCalendarEventTitleMap(calendarEvents));
 
       const localChatMediaItems = buildGalleryItemsFromMessages(localMessages, 'local-chat');
       const savedHighlightItems = localGalleryItems.filter((item: LocalGalleryItem) => item.groupId === id);
@@ -842,8 +859,12 @@ const { id, tab: routeTab } = useLocalSearchParams<{
           await syncCalendarEventsFromRelay(id, g.relayUrl);
         }
 
-        const upcoming = await getUpcomingEventsForGroup(id);
+        const [upcoming, calendarEvents] = await Promise.all([
+          getUpcomingEventsForGroup(id),
+          getCalendarEventsForGroup(id),
+        ]);
         setUpcomingCount(upcoming.length);
+        setCalendarEventTitles(buildCalendarEventTitleMap(calendarEvents));
       } catch (error) {
         console.warn('[Group Detail] background calendar sync failed:', error);
       }
@@ -1335,7 +1356,7 @@ const openMarkDetail = (markId: string, returnToGroupTab: Tab = 'stickies') => {
   } as any);
 };
 
-const openUnifiedMarkComposer = (returnTab: Tab = tab) => {
+const openUnifiedMarkComposer = (returnTab: Tab = tab, calendarEvent?: GroupCalendarEvent) => {
   if (!group) return;
 
   router.push({
@@ -1344,6 +1365,13 @@ const openUnifiedMarkComposer = (returnTab: Tab = tab) => {
       selectedSpaceId: getGroupLivingSpaceId(group.id),
       returnToGroupId: group.id,
       returnToGroupTab: returnTab,
+      ...(calendarEvent
+        ? {
+            calendarEventId: calendarEvent.id,
+            calendarEventTitle: calendarEvent.title,
+            savedToBook: calendarEvent.legacyEligible ? '1' : undefined,
+          }
+        : {}),
     },
   } as any);
 };
@@ -3087,9 +3115,14 @@ const relaySettingsCard = (
                 (view.metadata.place?.latitude !== undefined && view.metadata.place?.longitude !== undefined
                   ? `${view.metadata.place.latitude.toFixed(2)}, ${view.metadata.place.longitude.toFixed(2)}`
                   : undefined);
+              const eventLabel =
+                view.metadata.eventTitle ||
+                (view.metadata.eventId?.startsWith('cal_')
+                  ? calendarEventTitles[view.metadata.eventId]
+                  : view.metadata.eventId);
               const contextLabels = [
                 view.metadata.lifeStage,
-                view.metadata.eventId,
+                eventLabel,
                 placeLabel,
                 view.metadata.savedToBook ? 'Legacy' : null,
               ].filter(Boolean) as string[];
@@ -3258,6 +3291,7 @@ const relaySettingsCard = (
           displayName={npub ? `${npub.slice(0, 12)}…` : undefined}
           refreshing={refreshing}
           onRefresh={onRefresh}
+          onCreateMarkForEvent={event => openUnifiedMarkComposer('calendar', event)}
         />
         </View>
       )}

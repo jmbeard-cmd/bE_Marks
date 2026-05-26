@@ -54,6 +54,7 @@ type LivingMarkContextUpdateInput = {
   people?: LivingMarkPerson[];
   lifeStage?: string;
   eventId?: string;
+  eventTitle?: string;
   placeName?: string;
   selectedSpaceId?: string | null;
   spaceChanged?: boolean;
@@ -1083,6 +1084,7 @@ export async function persistLivingMarkCapture(input: LivingMarkCaptureInput): P
     people: input.people,
     lifeStage: input.lifeStage,
     eventId: input.eventId,
+    eventTitle: input.eventTitle,
     savedToBook: input.savedToBook,
     markPermissions: input.markPermissions,
     relayTargets: input.relayTargets,
@@ -1315,6 +1317,7 @@ export async function updateLivingMarkContext(input: LivingMarkContextUpdateInpu
     }),
     lifeStage: input.lifeStage !== undefined ? cleanOptionalText(input.lifeStage) : currentMetadata.lifeStage,
     eventId: input.eventId !== undefined ? cleanOptionalText(input.eventId) : currentMetadata.eventId,
+    eventTitle: input.eventTitle !== undefined ? cleanOptionalText(input.eventTitle) : currentMetadata.eventTitle,
     place:
       input.placeName !== undefined
         ? cleanOptionalText(input.placeName)

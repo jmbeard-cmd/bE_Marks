@@ -769,8 +769,8 @@ const openMediaViewer = (uri: string) => {
     ...(livingView?.metadata.lifeStage
       ? [{ label: 'Life stage', value: livingView.metadata.lifeStage }]
       : []),
-    ...(livingView?.metadata.eventId
-      ? [{ label: 'Event', value: livingView.metadata.eventId }]
+    ...(livingView?.metadata.eventTitle || (livingView?.metadata.eventId && !livingView.metadata.eventId.startsWith('cal_'))
+      ? [{ label: 'Event', value: livingView.metadata.eventTitle || livingView.metadata.eventId }]
       : []),
     ...(placeLabel ? [{ label: 'Place', value: placeLabel }] : []),
     ...(livingView?.metadata.savedToBook || livingView?.placement.spaceIds.includes(SYSTEM_LIVING_SPACE_IDS.livingBook)

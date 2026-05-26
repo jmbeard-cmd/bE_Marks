@@ -52,6 +52,7 @@ type Props = {
   displayName?: string;
   refreshing: boolean;
   onRefresh: () => Promise<void>;
+  onCreateMarkForEvent?: (event: GroupCalendarEvent) => void;
 };
 
 type RSVPEntry = {
@@ -93,6 +94,7 @@ type EventCardProps = {
   onDelete: () => void;
   onEditEvent: () => void;
   onEditScore: () => void;
+  onCreateMark?: () => void;
   isPast?: boolean;
   s: ReturnType<typeof createStyles>;
 };
@@ -255,6 +257,7 @@ export default function GroupCalendarTab({
   displayName,
   refreshing,
   onRefresh,
+  onCreateMarkForEvent,
 }: Props) {
   const { theme } = useIdentity();
   const s = useMemo(() => createStyles(theme), [theme]);
@@ -288,6 +291,7 @@ export default function GroupCalendarTab({
   const [evLocation, setEvLocation]           = useState('');
   const [evIsAllDay, setEvIsAllDay]           = useState(false);
   const [evDate, setEvDate]                   = useState('');
+  const [evEndDate, setEvEndDate]             = useState('');
   const [evStartTime, setEvStartTime]         = useState('');
   const [evEndTime, setEvEndTime]             = useState('');
   const [evSpaceEventType, setEvSpaceEventType] = useState<SpaceEventType>('event');
@@ -604,6 +608,7 @@ export default function GroupCalendarTab({
     setEvDesc('');
     setEvLocation('');
     setEvDate('');
+    setEvEndDate('');
     setPickerMonth(new Date());
     setEvStartTime('');
     setEvEndTime('');
@@ -615,8 +620,16 @@ export default function GroupCalendarTab({
     setEditingEvent(null);
   };
 
-    const openEventEditor = (event: GroupCalendarEvent) => {
+  const openEventEditor = (event: GroupCalendarEvent) => {
     const eventDate = new Date(event.startTime * 1000);
+    const explicitEndDate = event.endDate ? dateFromDateKey(event.endDate) : null;
+    const timedEndDate =
+      event.eventType === 'timed' && event.endTime
+        ? new Date(event.endTime * 1000)
+        : null;
+    const eventEndDate = explicitEndDate ?? timedEndDate;
+    const hasSeparateEndDate =
+      !!eventEndDate && eventEndDate.toDateString() !== eventDate.toDateString();
 
     setEditingEvent(event);
     setEvTitle(event.title);
@@ -624,6 +637,7 @@ export default function GroupCalendarTab({
     setEvLocation(event.location ?? '');
     setEvIsAllDay(event.eventType === 'allday');
     setEvDate(formatDateInput(eventDate));
+    setEvEndDate(eventEndDate && hasSeparateEndDate ? formatDateInput(eventEndDate) : '');
     setPickerMonth(new Date(eventDate.getFullYear(), eventDate.getMonth(), 1));
     setEvStartTime(event.eventType === 'timed' ? formatTimeFromTimestamp(event.startTime) : '');
     setEvEndTime(
@@ -764,29 +778,46 @@ export default function GroupCalendarTab({
     setSaving(true);
 
     try {
-      const dateParts = evDate.split('/').map(Number);
-      const month = dateParts[0];
-      const day   = dateParts[1];
-      const year  = dateParts[2];
+      const startParts = parseDateInput(evDate, 'Start date');
+      const endParts = evEndDate.trim() ? parseDateInput(evEndDate, 'End date') : null;
 
-      if (!month || !day || !year) {
-        throw new Error('Invalid date format. Use MM/DD/YYYY');
+      if (endParts && endParts.date.getTime() < startParts.date.getTime()) {
+        throw new Error('End date cannot be before the start date.');
       }
 
       let startTime = 0;
       let endTime: number | undefined;
       let startDate: string | undefined;
+      let endDate: string | undefined;
 
       if (evIsAllDay) {
-        startDate = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-        startTime = Math.floor(new Date(year, month - 1, day).getTime() / 1000);
+        startDate = startParts.key;
+        endDate = endParts && endParts.key !== startParts.key ? endParts.key : undefined;
+        startTime = Math.floor(startParts.date.getTime() / 1000);
       } else {
         if (!evStartTime.trim()) throw new Error('Start time required for timed events.');
-        startTime = parseTimeInput(evStartTime, year, month, day);
+        startTime = parseTimeInput(evStartTime, startParts.year, startParts.month, startParts.day);
+
         if (evEndTime.trim()) {
-          endTime = parseTimeInput(evEndTime, year, month, day);
-          if (endTime <= startTime) endTime = startTime + 3600;
+          const endTimeDateParts = endParts ?? startParts;
+          endTime = parseTimeInput(
+            evEndTime,
+            endTimeDateParts.year,
+            endTimeDateParts.month,
+            endTimeDateParts.day
+          );
+          if (endTime <= startTime) {
+            if (endParts) throw new Error('End date/time must be after the start.');
+            endTime = startTime + 3600;
+          }
+        } else if (endParts) {
+          endTime = Math.floor(
+            new Date(endParts.year, endParts.month - 1, endParts.day, 23, 59, 0).getTime() / 1000
+          );
+          if (endTime <= startTime) throw new Error('End date/time must be after the start.');
         }
+
+        endDate = endParts && endParts.key !== startParts.key ? endParts.key : undefined;
       }
 
       const eventPayload: Partial<GroupCalendarEvent> = {
@@ -805,7 +836,7 @@ export default function GroupCalendarTab({
         startTime,
         endTime,
         startDate,
-        endDate: undefined,
+        endDate,
       };
 
       if (editingEvent) {
@@ -842,6 +873,7 @@ export default function GroupCalendarTab({
           startTime,
           endTime,
           startDate,
+          endDate,
           authorNpub:    npub,
           authorName:    displayName,
           relayUrl:      group.relayUrl,
@@ -969,6 +1001,7 @@ export default function GroupCalendarTab({
   onDelete={() => handleDelete(event)}
   onEditEvent={() => openEventEditor(event)}
   onEditScore={() => openScoreEditor(event)}
+  onCreateMark={onCreateMarkForEvent ? () => onCreateMarkForEvent(event) : undefined}
   s={s}
 />
                 ))}
@@ -999,6 +1032,7 @@ export default function GroupCalendarTab({
                     onDelete={() => handleDelete(event)}
                     onEditEvent={() => openEventEditor(event)}
                     onEditScore={() => openScoreEditor(event)}
+                    onCreateMark={onCreateMarkForEvent ? () => onCreateMarkForEvent(event) : undefined}
                     s={s}
                   />
                 ))}
@@ -1029,6 +1063,7 @@ export default function GroupCalendarTab({
                     onDelete={() => handleDelete(event)}
                     onEditEvent={() => openEventEditor(event)}
                     onEditScore={() => openScoreEditor(event)}
+                    onCreateMark={onCreateMarkForEvent ? () => onCreateMarkForEvent(event) : undefined}
                     isPast
                     s={s}
                   />
@@ -1061,6 +1096,7 @@ export default function GroupCalendarTab({
                     onDelete={() => handleDelete(event)}
                     onEditEvent={() => openEventEditor(event)}
                     onEditScore={() => openScoreEditor(event)}
+                    onCreateMark={onCreateMarkForEvent ? () => onCreateMarkForEvent(event) : undefined}
                     isPast
                     s={s}
                   />
@@ -1189,7 +1225,7 @@ export default function GroupCalendarTab({
                 />
               </View>
 
-              <Text style={s.inputLabel}>DATE *  (MM/DD/YYYY)</Text>
+              <Text style={s.inputLabel}>START DATE *  (MM/DD/YYYY)</Text>
               <View style={s.datePickerBox}>
                 <View style={s.datePickerHeader}>
                   <TouchableOpacity style={s.monthNavBtn} onPress={() => shiftPickerMonth(-1)}>
@@ -1257,6 +1293,20 @@ export default function GroupCalendarTab({
                   maxLength={10}
                 />
               </View>
+
+              <Text style={s.inputLabel}>END DATE  (optional)</Text>
+              <TextInput
+                style={s.input}
+                value={evEndDate}
+                onChangeText={setEvEndDate}
+                placeholder="MM/DD/YYYY"
+                placeholderTextColor={theme.textMuted}
+                keyboardType="numbers-and-punctuation"
+                maxLength={10}
+              />
+              <Text style={s.timePickerHint}>
+                Use for tournaments, trips, camps, or multi-day school events.
+              </Text>
 
               <View style={s.toggleRow}>
                 <View style={{ flex: 1 }}>
@@ -1445,6 +1495,7 @@ function EventCard({
   onDelete,
   onEditEvent,
   onEditScore,
+  onCreateMark,
   isPast = false,
   s,
 }: EventCardProps) {
@@ -1564,8 +1615,20 @@ function EventCard({
           </Text>
         )}
 
-        {expanded && isAdmin && (
+        {expanded && (isMember || isAdmin) && (
           <View style={s.adminActionRow}>
+            {isMember && onCreateMark && (
+              <TouchableOpacity
+                style={[s.adminActionBtn, s.eventMarkActionBtn]}
+                onPress={onCreateMark}
+                activeOpacity={0.82}
+              >
+                <Text style={[s.adminActionText, s.eventMarkActionText]}>Add Mark</Text>
+              </TouchableOpacity>
+            )}
+
+            {isAdmin && (
+              <>
             <TouchableOpacity
               style={s.adminActionBtn}
               onPress={onEditEvent}
@@ -1593,6 +1656,8 @@ function EventCard({
             >
               <Text style={[s.adminActionText, s.adminDeleteText]}>Delete</Text>
             </TouchableOpacity>
+              </>
+            )}
           </View>
         )}
 
@@ -1738,6 +1803,61 @@ function formatDateInput(date: Date): string {
   return `${month}/${day}/${date.getFullYear()}`;
 }
 
+type ParsedDateInput = {
+  year: number;
+  month: number;
+  day: number;
+  date: Date;
+  key: string;
+};
+
+function parseDateInput(input: string, label = 'Date'): ParsedDateInput {
+  const parts = input.trim().split('/').map(Number);
+  const month = parts[0];
+  const day = parts[1];
+  const year = parts[2];
+
+  if (parts.length !== 3 || !month || !day || !year) {
+    throw new Error(`${label} must use MM/DD/YYYY.`);
+  }
+
+  const date = new Date(year, month - 1, day);
+
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    throw new Error(`${label} is not a valid calendar date.`);
+  }
+
+  return {
+    year,
+    month,
+    day,
+    date,
+    key: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+  };
+}
+
+function dateFromDateKey(dateKey: string): Date | null {
+  const [year, month, day] = dateKey.split('-').map(Number);
+
+  if (!year || !month || !day) return null;
+
+  const date = new Date(year, month - 1, day);
+
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return date;
+}
+
 function isEventThisWeek(event: GroupCalendarEvent): boolean {
   const now = new Date();
   const eventDate = new Date(event.startTime * 1000);
@@ -1746,7 +1866,19 @@ function isEventThisWeek(event: GroupCalendarEvent): boolean {
   const endOfWeek = new Date(startOfToday);
   endOfWeek.setDate(startOfToday.getDate() + 7);
 
-  return eventDate >= startOfToday && eventDate < endOfWeek;
+  const eventEndDate =
+    event.eventType === 'allday' && event.endDate
+      ? dateFromDateKey(event.endDate)
+      : event.endTime
+        ? new Date(event.endTime * 1000)
+        : eventDate;
+  const eventEnd = new Date((eventEndDate ?? eventDate).getTime());
+
+  if (event.eventType === 'allday') {
+    eventEnd.setDate(eventEnd.getDate() + 1);
+  }
+
+  return eventDate < endOfWeek && eventEnd >= startOfToday;
 }
 
 function buildCalendarDays(monthDate: Date): (Date | null)[] {
@@ -2232,6 +2364,13 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     color: theme.text,
     fontSize: 11,
     fontWeight: '800',
+  },
+  eventMarkActionBtn: {
+    borderColor: theme.gold,
+    backgroundColor: theme.gold,
+  },
+  eventMarkActionText: {
+    color: theme.bg,
   },
   adminDeleteBtn: {
     borderColor: theme.danger,

@@ -125,11 +125,17 @@ export default function LogScreen() {
     selectedSpaceId?: string;
     returnToGroupId?: string;
     returnToGroupTab?: string;
+    calendarEventId?: string;
+    calendarEventTitle?: string;
+    savedToBook?: string;
   }>();
 
   const routeSelectedSpaceId = getRouteParam(params.selectedSpaceId);
   const returnToGroupId = getRouteParam(params.returnToGroupId);
   const routeReturnToGroupTab = getRouteParam(params.returnToGroupTab);
+  const routeCalendarEventId = getRouteParam(params.calendarEventId);
+  const routeCalendarEventTitle = getRouteParam(params.calendarEventTitle);
+  const routeSavedToBook = getRouteParam(params.savedToBook);
 
   const returnToGroupTab =
     routeReturnToGroupTab === 'overview' ||
@@ -145,6 +151,7 @@ export default function LogScreen() {
       : 'overview';
 
   const routePreselectAppliedRef = useRef(false);
+  const routeCalendarEventAppliedRef = useRef(false);
   const publicPublishWarningShownRef = useRef(false);
   const [title, setTitle] = useState('');
   const [note, setNote] = useState('');
@@ -297,6 +304,13 @@ export default function LogScreen() {
     routePreselectAppliedRef.current = true;
     setSelectedSpaceId(routeSelectedSpaceId);
   }, [livingSpaces, routeSelectedSpaceId]);
+
+  useEffect(() => {
+    if (routeCalendarEventAppliedRef.current) return;
+    if (routeSavedToBook === '1' || routeSavedToBook === 'true') {
+      setSavedToBook(true);
+    }
+  }, [routeSavedToBook]);
 
   const selectedIsFamilySpace =
     selectedSpace?.id === SYSTEM_LIVING_SPACE_IDS.family ||
@@ -549,6 +563,16 @@ export default function LogScreen() {
 
         if (!cancelled) {
           setCalendarEvents(loaded.slice(0, 12));
+
+          if (routeCalendarEventId && !routeCalendarEventAppliedRef.current) {
+            const routeEvent = loaded.find(event => event.id === routeCalendarEventId);
+
+            if (routeEvent || routeCalendarEventTitle) {
+              routeCalendarEventAppliedRef.current = true;
+              setSelectedCalendarEventId(routeCalendarEventId);
+              setEventInput(routeEvent?.title ?? routeCalendarEventTitle ?? '');
+            }
+          }
         }
       } catch (error) {
         console.warn('[Log Calendar Events] failed to load:', error);
@@ -568,7 +592,7 @@ export default function LogScreen() {
     return () => {
       cancelled = true;
     };
-  }, [selectedGroupId]);
+  }, [routeCalendarEventId, routeCalendarEventTitle, selectedGroupId]);
 
 const placementChipSpaces = livingSpaces
   .filter(space => !space.archivedAt)
@@ -945,6 +969,14 @@ if (audioUri) {
         selectedPeople,
         manualInput: peopleInput,
       });
+      const selectedCalendarEvent = selectedCalendarEventId
+        ? calendarEvents.find(event => event.id === selectedCalendarEventId)
+        : null;
+      const eventText = eventInput.trim();
+      const eventIdForMark = selectedCalendarEventId || eventText || undefined;
+      const eventTitleForMark = selectedCalendarEventId
+        ? selectedCalendarEvent?.title || eventText || undefined
+        : eventText || undefined;
 
       const livingMarkCapture = await persistLivingMarkCapture({
         milestone: savedMilestone,
@@ -954,7 +986,8 @@ if (audioUri) {
         peopleIds: resolvedPeople.peopleIds,
         people: resolvedPeople.people,
         lifeStage: lifeStage || undefined,
-        eventId: selectedCalendarEventId || eventInput.trim() || undefined,
+        eventId: eventIdForMark,
+        eventTitle: eventTitleForMark,
         savedToBook,
         captureSource: captureMetadata.captureSource,
         place: captureMetadata.place,

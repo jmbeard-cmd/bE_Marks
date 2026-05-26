@@ -649,9 +649,18 @@ export async function syncCalendarEventsFromRelay(
 
 export function formatEventDate(event: GroupCalendarEvent): string {
   if (event.eventType === 'allday' && event.startDate) {
-    const [year, month, day] = event.startDate.split('-').map(Number);
-    const date = new Date(year, month - 1, day);
-    return date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+    const start = parseDateKey(event.startDate);
+    const end =
+      event.endDate && event.endDate !== event.startDate
+        ? parseDateKey(event.endDate)
+        : null;
+
+    if (!start) return event.startDate;
+    if (end) {
+      return `${formatShortCalendarDate(start)} - ${formatShortCalendarDate(end)}`;
+    }
+
+    return formatShortCalendarDate(start);
   }
 
   const date = new Date(event.startTime * 1000);
@@ -668,7 +677,16 @@ export function formatEventDate(event: GroupCalendarEvent): string {
 }
 
 export function formatEventTime(event: GroupCalendarEvent): string {
-  if (event.eventType === 'allday') return 'All day';
+  if (event.eventType === 'allday') {
+    if (event.startDate && event.endDate && event.endDate !== event.startDate) {
+      const end = parseDateKey(event.endDate);
+      if (end) {
+        return `All day through ${end.toLocaleDateString([], { month: 'short', day: 'numeric' })}`;
+      }
+    }
+
+    return 'All day';
+  }
 
   const start = new Date(event.startTime * 1000);
   const startStr = start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -676,7 +694,11 @@ export function formatEventTime(event: GroupCalendarEvent): string {
   if (!event.endTime) return startStr;
 
   const end = new Date(event.endTime * 1000);
-  const endStr = end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const endTimeStr = end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const endStr =
+    start.toDateString() === end.toDateString()
+      ? endTimeStr
+      : `${end.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${endTimeStr}`;
 
   return `${startStr} – ${endStr}`;
 }
@@ -690,9 +712,7 @@ export function isEventPast(event: GroupCalendarEvent): boolean {
 
     if (!year || !month || !day) return false;
 
-    const endBoundary = event.endDate
-      ? new Date(year, month - 1, day).getTime() / 1000
-      : new Date(year, month - 1, day + 1).getTime() / 1000;
+    const endBoundary = new Date(year, month - 1, day + 1).getTime() / 1000;
 
     return endBoundary <= now;
   }
@@ -705,6 +725,28 @@ export function getEventDayKey(event: GroupCalendarEvent): string {
   if (event.eventType === 'allday' && event.startDate) return event.startDate;
   const d = new Date(event.startTime * 1000);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function parseDateKey(dateKey: string): Date | null {
+  const [year, month, day] = dateKey.split('-').map(Number);
+
+  if (!year || !month || !day) return null;
+
+  const date = new Date(year, month - 1, day);
+
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return date;
+}
+
+function formatShortCalendarDate(date: Date): string {
+  return date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
 }
 export function getSpaceEventTypeLabel(type?: SpaceEventType): string {
   switch (type) {
