@@ -5,22 +5,24 @@ import {
   formatEventTime,
   formatGameScore,
   getCalendarEventsForGroup,
-  getMyRSVP,
-  getRSVPCounts,
+  getRSVPsForEvent,
   getSpaceEventTypeIcon,
   getSpaceEventTypeLabel,
   isEventPast,
   submitRSVP,
+  syncRSVPsFromRelay,
   updateCalendarEvent,
   type GameHomeAway,
   type GroupCalendarEvent,
+  type GroupRSVP,
   type RSVPStatus,
   type SpaceEventType,
 } from '@/src/utils/group-calendar';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -35,7 +37,7 @@ import {
 } from 'react-native';
 import { useIdentity } from '../app/_layout';
 import { Colors } from '../src/constants/theme';
-import type { BEGroup } from '../src/utils/group-storage';
+import { getGroupMembers, type BEGroup } from '../src/utils/group-storage';
 import { getLivingMarkCountsForCalendarEvents } from '../src/utils/living-spaces-storage';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -55,6 +57,26 @@ type RSVPEntry = {
   declined: number;
   tentative: number;
   mine: RSVPStatus | null;
+  names: RSVPNameBuckets;
+};
+
+type RSVPNameBuckets = {
+  accepted: RSVPAttendee[];
+  tentative: RSVPAttendee[];
+  declined: RSVPAttendee[];
+  none: RSVPAttendee[];
+};
+
+type RSVPAttendee = {
+  id: string;
+  name: string;
+  avatarUrl?: string;
+};
+
+type MemberRosterSnapshot = {
+  npubs: string[];
+  namesByNpub: Record<string, string>;
+  avatarsByNpub: Record<string, string | undefined>;
 };
 
 type EventCardProps = {
@@ -106,6 +128,121 @@ const HOME_AWAY_OPTIONS: { value: GameHomeAway; label: string }[] = [
   { value: 'neutral', label: 'Neutral' },
 ];
 
+function normalizeRosterNpub(npub?: string): string {
+  return (npub || '').trim().toLowerCase();
+}
+
+function getMemberFallbackName(npub?: string): string {
+  return 'Member';
+}
+
+function isNpubLikeDisplayName(value?: string): boolean {
+  return /^npub1/i.test((value || '').trim());
+}
+
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 1).toUpperCase();
+
+  return `${parts[0][0] || ''}${parts[1][0] || ''}`.toUpperCase();
+}
+
+function createEmptyRSVPEntry(): RSVPEntry {
+  return {
+    accepted: 0,
+    declined: 0,
+    tentative: 0,
+    mine: null,
+    names: {
+      accepted: [],
+      tentative: [],
+      declined: [],
+      none: [],
+    },
+  };
+}
+
+function getRSVPFreshness(rsvp: GroupRSVP): number {
+  return rsvp.updatedAt ?? rsvp.createdAt ?? 0;
+}
+
+function buildRSVPEntry(
+  eventId: string,
+  rsvps: GroupRSVP[],
+  roster: MemberRosterSnapshot,
+  viewerNpub?: string
+): RSVPEntry {
+  const viewerKey = normalizeRosterNpub(viewerNpub);
+  const latestByNpub = new Map<string, GroupRSVP>();
+
+  rsvps
+    .filter(rsvp => rsvp.eventId === eventId)
+    .forEach(rsvp => {
+      const key = normalizeRosterNpub(rsvp.npub);
+      if (!key) return;
+
+      const current = latestByNpub.get(key);
+      if (!current || getRSVPFreshness(rsvp) >= getRSVPFreshness(current)) {
+        latestByNpub.set(key, {
+          ...rsvp,
+          npub: key,
+        });
+      }
+    });
+
+  const names: RSVPNameBuckets = {
+    accepted: [],
+    tentative: [],
+    declined: [],
+    none: [],
+  };
+  const responded = new Set<string>();
+  let mine: RSVPStatus | null = null;
+
+  latestByNpub.forEach(rsvp => {
+    const key = normalizeRosterNpub(rsvp.npub);
+    const rsvpDisplayName = rsvp.displayName?.trim();
+    const displayName =
+      roster.namesByNpub[key] ||
+      (!isNpubLikeDisplayName(rsvpDisplayName) ? rsvpDisplayName : undefined) ||
+      getMemberFallbackName(key);
+
+    names[rsvp.status].push({
+      id: key,
+      name: displayName,
+      avatarUrl: roster.avatarsByNpub[key],
+    });
+    responded.add(key);
+
+    if (viewerKey && key === viewerKey) {
+      mine = rsvp.status;
+    }
+  });
+
+  roster.npubs.forEach(memberNpub => {
+    const key = normalizeRosterNpub(memberNpub);
+    if (!key || responded.has(key)) return;
+
+    names.none.push({
+      id: key,
+      name: roster.namesByNpub[key] || getMemberFallbackName(key),
+      avatarUrl: roster.avatarsByNpub[key],
+    });
+  });
+
+  Object.values(names).forEach(list => list.sort((a, b) => a.name.localeCompare(b.name)));
+
+  return {
+    accepted: names.accepted.length,
+    declined: names.declined.length,
+    tentative: names.tentative.length,
+    mine,
+    names,
+  };
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function GroupCalendarTab({
@@ -129,6 +266,11 @@ export default function GroupCalendarTab({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [rsvpState, setRsvpState]   = useState<Record<string, RSVPEntry>>({});
   const [linkedMarkCounts, setLinkedMarkCounts] = useState<Record<string, number>>({});
+  const memberRosterRef = useRef<MemberRosterSnapshot>({
+    npubs: [],
+    namesByNpub: {},
+    avatarsByNpub: {},
+  });
 
   const [scoreEvent, setScoreEvent] = useState<GroupCalendarEvent | null>(null);
   const [scoreOur, setScoreOur] = useState('');
@@ -164,21 +306,58 @@ export default function GroupCalendarTab({
       } catch (error) {
         console.warn('[Group Calendar] linked Mark count hydrate failed:', error);
       }
-    });
-  }, []);
+     });
+   }, []);
  
-  const hydrateRSVPState = useCallback((loadedEvents: GroupCalendarEvent[]) => {
+  const loadMemberRoster = useCallback(async (): Promise<MemberRosterSnapshot> => {
+    if (!group?.id) {
+      const emptyRoster = { npubs: [], namesByNpub: {}, avatarsByNpub: {} };
+      memberRosterRef.current = emptyRoster;
+      return emptyRoster;
+    }
+
+    try {
+      const members = await getGroupMembers(group.id);
+      const npubs: string[] = [];
+      const namesByNpub: Record<string, string> = {};
+      const avatarsByNpub: Record<string, string | undefined> = {};
+
+      members
+        .filter(member => !member.removedAt)
+        .forEach(member => {
+          const key = normalizeRosterNpub(member.npub);
+          if (!key) return;
+
+          npubs.push(key);
+          namesByNpub[key] = member.displayName?.trim() || getMemberFallbackName(member.npub);
+          avatarsByNpub[key] = member.avatarUrl;
+        });
+
+      const nextRoster = {
+        npubs: Array.from(new Set(npubs)),
+        namesByNpub,
+        avatarsByNpub,
+      };
+
+      memberRosterRef.current = nextRoster;
+      return nextRoster;
+    } catch (error) {
+      console.warn('[Group Calendar] member roster hydrate failed:', error);
+      return { npubs: [], namesByNpub: {}, avatarsByNpub: {} };
+    }
+  }, [group?.id]);
+
+  const hydrateRSVPState = useCallback((
+    loadedEvents: GroupCalendarEvent[],
+    rosterSnapshot: MemberRosterSnapshot = memberRosterRef.current
+  ) => {
     Promise.resolve().then(async () => {
       const stateMap: Record<string, RSVPEntry> = {};
 
       for (const ev of loadedEvents) {
         try {
-          const [counts, myRsvp] = await Promise.all([
-            getRSVPCounts(ev.id),
-            npub ? getMyRSVP(ev.id, npub) : Promise.resolve(null),
-          ]);
-
-          stateMap[ev.id] = { ...counts, mine: myRsvp?.status ?? null };
+          const rsvps = await getRSVPsForEvent(ev.id);
+          stateMap[ev.id] = buildRSVPEntry(ev.id, rsvps, rosterSnapshot, npub);
 
           setRsvpState(current => ({
             ...current,
@@ -197,13 +376,28 @@ export default function GroupCalendarTab({
     if (!group?.id) return;
 
     const loaded = await getCalendarEventsForGroup(group.id);
+    const roster = await loadMemberRoster();
 
     setEvents(loaded);
     setLoading(false);
 
     hydrateLinkedMarkCounts(loaded);
-    hydrateRSVPState(loaded);
-  }, [group?.id, hydrateLinkedMarkCounts, hydrateRSVPState]);
+    hydrateRSVPState(loaded, roster);
+
+    if (group.relayUrl && loaded.length > 0) {
+      syncRSVPsFromRelay(
+        group.id,
+        loaded.map(event => event.id),
+        group.relayUrl
+      )
+        .then(() => {
+          hydrateRSVPState(loaded, roster);
+        })
+        .catch(error => {
+          console.warn('[Group Calendar] RSVP background sync failed:', error);
+        });
+    }
+  }, [group?.id, group?.relayUrl, hydrateLinkedMarkCounts, hydrateRSVPState, loadMemberRoster]);
 
   useEffect(() => { loadEvents(); }, [loadEvents]);
 
@@ -213,9 +407,7 @@ export default function GroupCalendarTab({
     if (!npub || !isMember) return;
 
     setRsvpState(prev => {
-      const current: RSVPEntry = prev[event.id] ?? {
-        accepted: 0, declined: 0, tentative: 0, mine: null,
-      };
+      const current: RSVPEntry = prev[event.id] ?? createEmptyRSVPEntry();
 
       const counts: Record<RSVPStatus, number> = {
         accepted:  current.accepted,
@@ -228,7 +420,14 @@ export default function GroupCalendarTab({
       }
       counts[status] = counts[status] + 1;
 
-      return { ...prev, [event.id]: { ...counts, mine: status } };
+      return {
+        ...prev,
+        [event.id]: {
+          ...current,
+          ...counts,
+          mine: status,
+        },
+      };
     });
 
     await submitRSVP({
@@ -239,6 +438,8 @@ export default function GroupCalendarTab({
       status,
       relayUrl:  group.relayUrl,
     });
+
+    hydrateRSVPState([event]);
   };
 
   // ── Delete handler ────────────────────────────────────────────────────────
@@ -1349,6 +1550,17 @@ function EventCard({
           </View>
         )}
 
+        {expanded && rsvp !== undefined && (
+          <View style={s.attendanceBox}>
+            <Text style={s.attendanceTitle}>Attendance</Text>
+
+            <AttendanceBucket label="Going" names={rsvp.names.accepted} s={s} />
+            <AttendanceBucket label="Maybe" names={rsvp.names.tentative} s={s} />
+            <AttendanceBucket label="Can't go" names={rsvp.names.declined} s={s} />
+            <AttendanceBucket label="No reply" names={rsvp.names.none} s={s} />
+          </View>
+        )}
+
         {expanded && isMember && !past && (
           <View style={s.rsvpRow}>
             {RSVP_OPTIONS.map(opt => (
@@ -1378,6 +1590,48 @@ function EventCard({
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function AttendanceBucket({
+  label,
+  names,
+  s,
+}: {
+  label: string;
+  names: RSVPAttendee[];
+  s: ReturnType<typeof createStyles>;
+}) {
+  return (
+    <View style={s.attendanceBucket}>
+      <Text style={s.attendanceBucketTitle}>
+        {label} ({names.length})
+      </Text>
+
+      {names.length > 0 ? (
+        <View style={s.attendanceChipList}>
+          {names.map((member, index) => (
+            <View
+              key={member.id}
+              style={[
+                s.attendanceChip,
+                index > 0 && s.attendanceChipOverlap,
+              ]}
+            >
+              <View style={s.attendanceAvatar}>
+                {member.avatarUrl ? (
+                  <Image source={{ uri: member.avatarUrl }} style={s.attendanceAvatarImage} />
+                ) : (
+                  <Text style={s.attendanceAvatarText}>{getInitials(member.name)}</Text>
+                )}
+              </View>
+            </View>
+          ))}
+        </View>
+      ) : (
+        <Text style={s.attendanceEmpty}>None yet</Text>
+      )}
+    </View>
+  );
+}
 
 function getShortDay(event: GroupCalendarEvent): string {
   if (event.eventType === 'allday' && event.startDate) {
@@ -1934,6 +2188,68 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
 
   rsvpCountRow: { flexDirection: 'row', gap: 10, marginTop: 6, marginBottom: 4 },
   rsvpCount:    { fontSize: 12, color: theme.textMuted, fontWeight: '600' },
+  attendanceBox: {
+    borderTopWidth: 0.5,
+    borderTopColor: theme.border,
+    marginTop: 10,
+    paddingTop: 10,
+    gap: 8,
+  },
+  attendanceTitle: {
+    color: theme.text,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  attendanceBucket: {
+    gap: 2,
+  },
+  attendanceBucketTitle: {
+    color: theme.textSecondary,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  attendanceChipList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    paddingLeft: 1,
+    paddingTop: 2,
+  },
+  attendanceChip: {
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    borderRadius: 18,
+    backgroundColor: theme.bg,
+    padding: 3,
+  },
+  attendanceChipOverlap: {
+    marginLeft: -9,
+  },
+  attendanceAvatar: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+  },
+  attendanceAvatarImage: {
+    width: '100%',
+    height: '100%',
+  },
+  attendanceAvatarText: {
+    color: theme.gold,
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  attendanceEmpty: {
+    color: theme.textMuted,
+    fontSize: 12,
+    fontStyle: 'italic',
+  },
 
   rsvpRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
   rsvpBtn: {

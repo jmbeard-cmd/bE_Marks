@@ -16,10 +16,12 @@ import { getGroupById } from './group-storage';
 import {
   fetchGroupCalendarDeletes,
   fetchGroupCalendarEvents,
+  fetchGroupRSVPsForEvents,
   getStoredIdentity,
   publishGroupCalendarDelete,
   publishGroupCalendarEvent,
   publishGroupRSVP,
+  type GroupRSVPRaw,
 } from './nostr';
 import { notifyGroupEvent } from './push-notifications';
 const GROUP_CALENDAR_KEY = 'be_group_calendar_v1';
@@ -97,6 +99,7 @@ export type GroupRSVP = {
   status: RSVPStatus;
   note?: string;
   createdAt: number;
+  updatedAt?: number;
 };
 
 // ─── Storage Helpers ──────────────────────────────────────────────────────────
@@ -339,6 +342,15 @@ export async function getRSVPsForEvent(eventId: string): Promise<GroupRSVP[]> {
   return all.filter(r => r.eventId === eventId);
 }
 
+export async function getRSVPsForEvents(eventIds: string[]): Promise<GroupRSVP[]> {
+  const idSet = new Set(eventIds.filter(Boolean));
+
+  if (idSet.size === 0) return [];
+
+  const all = await readJson<GroupRSVP[]>(GROUP_RSVP_KEY, []);
+  return all.filter(r => idSet.has(r.eventId));
+}
+
 export async function getMyRSVP(
   eventId: string,
   npub: string
@@ -373,8 +385,9 @@ export async function submitRSVP(input: {
     npub: input.npub,
     displayName: input.displayName,
     status: input.status,
-    note: input.note,
+    note: input.note?.trim(),
     createdAt: existingIndex >= 0 ? all[existingIndex].createdAt : now,
+    updatedAt: now,
   };
 
   if (existingIndex >= 0) {
@@ -382,8 +395,6 @@ export async function submitRSVP(input: {
   } else {
     all.push(rsvp);
   }
-
-  await writeJson(GROUP_RSVP_KEY, all);
 
   await writeJson(GROUP_RSVP_KEY, all);
 
@@ -395,8 +406,9 @@ export async function submitRSVP(input: {
         eventId:    input.eventId,
         groupId:    input.groupId,
         status:     input.status,
-        note:       input.note,
+        note:       input.note?.trim(),
         authorNpub: input.npub,
+        displayName: input.displayName,
         nsec:       identity.nsec,
         relayUrl:   input.relayUrl,
       }).catch(e => console.warn('[Group Calendar] RSVP relay publish failed:', e));
@@ -405,6 +417,98 @@ export async function submitRSVP(input: {
 
   return rsvp;
 
+}
+
+function normalizeRSVPNpub(npub?: string): string {
+  return (npub || '').trim().toLowerCase();
+}
+
+function getRSVPFreshness(rsvp: Pick<GroupRSVP, 'createdAt' | 'updatedAt'>): number {
+  return rsvp.updatedAt ?? rsvp.createdAt ?? 0;
+}
+
+function rsvpRawToLocal(raw: GroupRSVPRaw): GroupRSVP | null {
+  const npub = normalizeRSVPNpub(raw.authorNpub);
+
+  if (!npub) return null;
+
+  return {
+    id: raw.id,
+    eventId: raw.eventId,
+    groupId: raw.groupId,
+    npub,
+    displayName: raw.displayName,
+    status: raw.status,
+    note: raw.note?.trim(),
+    createdAt: raw.createdAt,
+    updatedAt: raw.updatedAt ?? raw.createdAt,
+  };
+}
+
+export async function syncRSVPsFromRelay(
+  groupId: string,
+  eventIds: string[],
+  relayUrl: string
+): Promise<GroupRSVP[]> {
+  const uniqueEventIds = Array.from(new Set(eventIds.filter(Boolean)));
+
+  if (!groupId || uniqueEventIds.length === 0 || !relayUrl) return [];
+
+  try {
+    const remoteRsvps = (await fetchGroupRSVPsForEvents({
+      groupId,
+      eventIds: uniqueEventIds,
+      relayUrl,
+    }))
+      .map(rsvpRawToLocal)
+      .filter((rsvp): rsvp is GroupRSVP => !!rsvp);
+
+    if (remoteRsvps.length === 0) {
+      return getRSVPsForEvents(uniqueEventIds);
+    }
+
+    const eventIdSet = new Set(uniqueEventIds);
+    const all = await readJson<GroupRSVP[]>(GROUP_RSVP_KEY, []);
+    const rsvpMap = new Map<string, GroupRSVP>();
+
+    all.forEach(rsvp => {
+      const key = `${rsvp.eventId}:${normalizeRSVPNpub(rsvp.npub)}`;
+      if (!eventIdSet.has(rsvp.eventId) || rsvp.groupId !== groupId) {
+        rsvpMap.set(key, rsvp);
+        return;
+      }
+
+      const existing = rsvpMap.get(key);
+      if (!existing || getRSVPFreshness(rsvp) >= getRSVPFreshness(existing)) {
+        rsvpMap.set(key, {
+          ...rsvp,
+          npub: normalizeRSVPNpub(rsvp.npub),
+        });
+      }
+    });
+
+    remoteRsvps.forEach(remoteRsvp => {
+      const key = `${remoteRsvp.eventId}:${remoteRsvp.npub}`;
+      const existing = rsvpMap.get(key);
+
+      if (!existing || getRSVPFreshness(remoteRsvp) >= getRSVPFreshness(existing)) {
+        rsvpMap.set(key, {
+          ...existing,
+          ...remoteRsvp,
+          displayName: remoteRsvp.displayName || existing?.displayName,
+          note: remoteRsvp.note || existing?.note,
+        });
+      }
+    });
+
+    const merged = Array.from(rsvpMap.values());
+    await writeJson(GROUP_RSVP_KEY, merged);
+
+    return merged.filter(rsvp => eventIdSet.has(rsvp.eventId) && rsvp.groupId === groupId);
+  } catch (error) {
+    console.warn('[Group Calendar] RSVP relay sync failed:', error);
+    return getRSVPsForEvents(uniqueEventIds);
+  }
 }
 
 export async function getRSVPCounts(
@@ -531,6 +635,20 @@ export function formatEventTime(event: GroupCalendarEvent): string {
 
 export function isEventPast(event: GroupCalendarEvent): boolean {
   const now = Math.floor(Date.now() / 1000);
+
+  if (event.eventType === 'allday' && event.startDate) {
+    const boundaryDate = event.endDate || event.startDate;
+    const [year, month, day] = boundaryDate.split('-').map(Number);
+
+    if (!year || !month || !day) return false;
+
+    const endBoundary = event.endDate
+      ? new Date(year, month - 1, day).getTime() / 1000
+      : new Date(year, month - 1, day + 1).getTime() / 1000;
+
+    return endBoundary <= now;
+  }
+
   const end = event.endTime ?? event.startTime;
   return end < now - 1800; // 30min grace period
 }

@@ -3218,6 +3218,18 @@ export interface GroupCalendarEventRaw {
   updatedAt:    number;
 }
 
+export interface GroupRSVPRaw {
+  id: string;
+  eventId: string;
+  groupId: string;
+  status: 'accepted' | 'declined' | 'tentative';
+  note?: string;
+  authorNpub?: string;
+  displayName?: string;
+  createdAt: number;
+  updatedAt?: number;
+}
+
 export async function publishGroupCalendarEvent(input: {
   eventId:      string;
   groupId:      string;
@@ -3362,6 +3374,7 @@ export async function publishGroupRSVP(input: {
   status:      'accepted' | 'declined' | 'tentative';
   note?:       string;
   authorNpub?: string;
+  displayName?: string;
   nsec:        string;
   relayUrl:    string;
 }): Promise<{ success: boolean; eventId?: string; error?: string }> {
@@ -3391,7 +3404,9 @@ export async function publishGroupRSVP(input: {
         status:     input.status,
         note:       input.note,
         authorNpub: input.authorNpub,
+        displayName: input.displayName,
         createdAt:  now,
+        updatedAt:  now,
       }),
       pubkey: pk,
     };
@@ -3402,6 +3417,91 @@ export async function publishGroupRSVP(input: {
     const msg = e instanceof Error ? e.message : 'Unknown error';
     return { success: false, error: msg };
   }
+}
+
+export function fetchGroupRSVPsForEvents(input: {
+  groupId: string;
+  eventIds: string[];
+  relayUrl?: string;
+}): Promise<GroupRSVPRaw[]> {
+  const eventIds = Array.from(new Set(input.eventIds.filter(Boolean)));
+
+  if (!input.groupId || eventIds.length === 0) return Promise.resolve([]);
+
+  return new Promise(resolve => {
+    try {
+      const relayUrl = input.relayUrl ?? DEFAULT_RELAY;
+      const ws = new WebSocket(relayUrl);
+      const rsvps: GroupRSVPRaw[] = [];
+      const seen = new Set<string>();
+
+      const timeout = setTimeout(() => {
+        ws.close();
+        resolve(rsvps);
+      }, 6000);
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify([
+          'REQ',
+          `group-rsvp-fetch-${input.groupId}-${Date.now()}`,
+          {
+            kinds: [GROUP_RSVP_KIND],
+            '#t': eventIds.map(eventId => `group-rsvp:${eventId}`),
+            limit: 500,
+          },
+        ]));
+      };
+
+      ws.onmessage = (msg) => {
+        try {
+          const data = JSON.parse(msg.data);
+
+          if (data[0] === 'EVENT' && data[2]?.kind === GROUP_RSVP_KIND) {
+            const evt = data[2];
+            if (seen.has(evt.id)) return;
+            seen.add(evt.id);
+
+            try {
+              const parsed = JSON.parse(evt.content || '{}') as Partial<GroupRSVPRaw>;
+              const eventId = parsed.eventId || evt.tags?.find((tag: string[]) => tag[0] === 'event')?.[1];
+              const groupId = parsed.groupId || evt.tags?.find((tag: string[]) => tag[0] === 'group')?.[1];
+              const status = parsed.status || evt.tags?.find((tag: string[]) => tag[0] === 'status')?.[1];
+
+              if (
+                eventId &&
+                eventIds.includes(eventId) &&
+                groupId === input.groupId &&
+                (status === 'accepted' || status === 'declined' || status === 'tentative')
+              ) {
+                rsvps.push({
+                  id: parsed.id || evt.tags?.find((tag: string[]) => tag[0] === 'd')?.[1] || evt.id,
+                  eventId,
+                  groupId,
+                  status,
+                  note: parsed.note,
+                  authorNpub: parsed.authorNpub || nip19.npubEncode(evt.pubkey),
+                  displayName: parsed.displayName,
+                  createdAt: parsed.createdAt || evt.created_at,
+                  updatedAt: parsed.updatedAt || parsed.createdAt || evt.created_at,
+                });
+              }
+            } catch {}
+          } else if (data[0] === 'EOSE') {
+            clearTimeout(timeout);
+            ws.close();
+            resolve(rsvps);
+          }
+        } catch {}
+      };
+
+      ws.onerror = () => {
+        clearTimeout(timeout);
+        resolve(rsvps);
+      };
+    } catch {
+      resolve([]);
+    }
+  });
 }
 
 export async function publishGroupCalendarDelete(input: {
