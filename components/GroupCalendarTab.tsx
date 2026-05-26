@@ -19,6 +19,7 @@ import {
   type RSVPStatus,
   type SpaceEventType,
 } from '@/src/utils/group-calendar';
+import { exportCalendarEventToIcs } from '@/src/utils/calendar-export';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -87,6 +88,7 @@ type EventCardProps = {
   isAdmin: boolean;
   isMember: boolean;
   linkedMarkCount: number;
+  memberRoster: MemberRosterSnapshot;
   rsvp?: RSVPEntry;
   expanded: boolean;
   onToggleExpand: () => void;
@@ -95,8 +97,18 @@ type EventCardProps = {
   onEditEvent: () => void;
   onEditScore: () => void;
   onCreateMark?: () => void;
+  onExportEvent: () => void;
   isPast?: boolean;
   s: ReturnType<typeof createStyles>;
+};
+
+type DateTimePickerField = 'start' | 'end';
+
+type DateTimePickerState = {
+  field: DateTimePickerField;
+  date: string;
+  time: string;
+  month: Date;
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -114,6 +126,9 @@ const TIME_MINUTES = ['00', '15', '30', '45'];
 const TIME_PERIODS = ['AM', 'PM'] as const;
 
 type TimePeriod = typeof TIME_PERIODS[number];
+
+const DEFAULT_EVENT_START_TIME = '7:00 PM';
+const DEFAULT_EVENT_END_TIME = '8:00 PM';
 
 const SPACE_EVENT_TYPE_OPTIONS: SpaceEventType[] = [
   'game',
@@ -151,6 +166,37 @@ function getInitials(name: string): string {
   if (parts.length === 1) return parts[0].slice(0, 1).toUpperCase();
 
   return `${parts[0][0] || ''}${parts[1][0] || ''}`.toUpperCase();
+}
+
+function createEmptyMemberRoster(): MemberRosterSnapshot {
+  return {
+    npubs: [],
+    namesByNpub: {},
+    avatarsByNpub: {},
+  };
+}
+
+function getRosterAttendee(npub: string, roster: MemberRosterSnapshot): RSVPAttendee {
+  const key = normalizeRosterNpub(npub);
+
+  return {
+    id: key,
+    name: roster.namesByNpub[key] || getMemberFallbackName(key),
+    avatarUrl: roster.avatarsByNpub[key],
+  };
+}
+
+function getRosterAttendees(npubs: string[] | undefined, roster: MemberRosterSnapshot): RSVPAttendee[] {
+  const seen = new Set<string>();
+
+  return (npubs ?? [])
+    .map(normalizeRosterNpub)
+    .filter(key => {
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .map(key => getRosterAttendee(key, roster));
 }
 
 function createEmptyRSVPEntry(): RSVPEntry {
@@ -271,11 +317,8 @@ export default function GroupCalendarTab({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [rsvpState, setRsvpState]   = useState<Record<string, RSVPEntry>>({});
   const [linkedMarkCounts, setLinkedMarkCounts] = useState<Record<string, number>>({});
-  const memberRosterRef = useRef<MemberRosterSnapshot>({
-    npubs: [],
-    namesByNpub: {},
-    avatarsByNpub: {},
-  });
+  const [memberRoster, setMemberRoster] = useState<MemberRosterSnapshot>(() => createEmptyMemberRoster());
+  const memberRosterRef = useRef<MemberRosterSnapshot>(createEmptyMemberRoster());
   const calendarLiveRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [scoreEvent, setScoreEvent] = useState<GroupCalendarEvent | null>(null);
@@ -298,7 +341,8 @@ export default function GroupCalendarTab({
   const [evOpponent, setEvOpponent]           = useState('');
   const [evHomeAway, setEvHomeAway]           = useState<GameHomeAway>('home');
   const [evLegacyEligible, setEvLegacyEligible] = useState(true);
-  const [pickerMonth, setPickerMonth]         = useState(() => new Date());
+  const [evInvitedNpubs, setEvInvitedNpubs]   = useState<string[]>([]);
+  const [dateTimePicker, setDateTimePicker]   = useState<DateTimePickerState | null>(null);
 
   // ── Load ──────────────────────────────────────────────────────────────────
 
@@ -318,8 +362,9 @@ export default function GroupCalendarTab({
  
   const loadMemberRoster = useCallback(async (): Promise<MemberRosterSnapshot> => {
     if (!group?.id) {
-      const emptyRoster = { npubs: [], namesByNpub: {}, avatarsByNpub: {} };
+      const emptyRoster = createEmptyMemberRoster();
       memberRosterRef.current = emptyRoster;
+      setMemberRoster(emptyRoster);
       return emptyRoster;
     }
 
@@ -347,10 +392,14 @@ export default function GroupCalendarTab({
       };
 
       memberRosterRef.current = nextRoster;
+      setMemberRoster(nextRoster);
       return nextRoster;
     } catch (error) {
       console.warn('[Group Calendar] member roster hydrate failed:', error);
-      return { npubs: [], namesByNpub: {}, avatarsByNpub: {} };
+      const emptyRoster = createEmptyMemberRoster();
+      memberRosterRef.current = emptyRoster;
+      setMemberRoster(emptyRoster);
+      return emptyRoster;
     }
   }, [group?.id]);
 
@@ -604,20 +653,28 @@ export default function GroupCalendarTab({
   // ── Create event ──────────────────────────────────────────────────────────
 
   const resetForm = () => {
+    const today = formatDateInput(new Date());
+
     setEvTitle('');
     setEvDesc('');
     setEvLocation('');
-    setEvDate('');
-    setEvEndDate('');
-    setPickerMonth(new Date());
-    setEvStartTime('');
-    setEvEndTime('');
+    setEvDate(today);
+    setEvEndDate(today);
+    setEvStartTime(DEFAULT_EVENT_START_TIME);
+    setEvEndTime(DEFAULT_EVENT_END_TIME);
     setEvIsAllDay(false);
     setEvSpaceEventType('event');
     setEvOpponent('');
     setEvHomeAway('home');
     setEvLegacyEligible(true);
+    setEvInvitedNpubs([]);
     setEditingEvent(null);
+    setDateTimePicker(null);
+  };
+
+  const openNewEventEditor = () => {
+    resetForm();
+    setShowModal(true);
   };
 
   const openEventEditor = (event: GroupCalendarEvent) => {
@@ -628,8 +685,6 @@ export default function GroupCalendarTab({
         ? new Date(event.endTime * 1000)
         : null;
     const eventEndDate = explicitEndDate ?? timedEndDate;
-    const hasSeparateEndDate =
-      !!eventEndDate && eventEndDate.toDateString() !== eventDate.toDateString();
 
     setEditingEvent(event);
     setEvTitle(event.title);
@@ -637,28 +692,144 @@ export default function GroupCalendarTab({
     setEvLocation(event.location ?? '');
     setEvIsAllDay(event.eventType === 'allday');
     setEvDate(formatDateInput(eventDate));
-    setEvEndDate(eventEndDate && hasSeparateEndDate ? formatDateInput(eventEndDate) : '');
-    setPickerMonth(new Date(eventDate.getFullYear(), eventDate.getMonth(), 1));
-    setEvStartTime(event.eventType === 'timed' ? formatTimeFromTimestamp(event.startTime) : '');
+    setEvEndDate(eventEndDate ? formatDateInput(eventEndDate) : formatDateInput(eventDate));
+    setEvStartTime(event.eventType === 'timed' ? formatTimeFromTimestamp(event.startTime) : DEFAULT_EVENT_START_TIME);
     setEvEndTime(
       event.eventType === 'timed' && event.endTime
         ? formatTimeFromTimestamp(event.endTime)
-        : ''
+        : event.eventType === 'timed'
+          ? formatTimeFromTimestamp(event.startTime + 3600)
+          : DEFAULT_EVENT_END_TIME
     );
     setEvSpaceEventType(event.spaceEventType ?? 'event');
     setEvOpponent(event.opponent ?? '');
     setEvHomeAway(event.homeAway ?? 'home');
     setEvLegacyEligible(event.legacyEligible ?? true);
+    setEvInvitedNpubs(getRosterAttendees(event.invitedNpubs, memberRosterRef.current).map(member => member.id));
+    setDateTimePicker(null);
     setShowModal(true);
   };
 
-  const selectDate = (date: Date) => {
-    setEvDate(formatDateInput(date));
-    setPickerMonth(new Date(date.getFullYear(), date.getMonth(), 1));
+  const toggleInvitedMember = (memberNpub: string) => {
+    const key = normalizeRosterNpub(memberNpub);
+    if (!key) return;
+
+    setEvInvitedNpubs(current =>
+      current.includes(key)
+        ? current.filter(npubValue => npubValue !== key)
+        : [...current, key]
+    );
+  };
+
+  const openDateTimePicker = (field: DateTimePickerField) => {
+    const date = field === 'start' ? evDate : evEndDate || evDate;
+    const time = field === 'start' ? evStartTime : evEndTime;
+    const parsedDate = date ? safeParseDateInput(date) : null;
+    const monthDate = parsedDate?.date ?? new Date();
+
+    setDateTimePicker({
+      field,
+      date: date || todayKey,
+      time: time || (field === 'start' ? DEFAULT_EVENT_START_TIME : DEFAULT_EVENT_END_TIME),
+      month: new Date(monthDate.getFullYear(), monthDate.getMonth(), 1),
+    });
+  };
+
+  const closeDateTimePicker = () => {
+    setDateTimePicker(null);
+  };
+
+  const updateDateTimePickerDate = (date: Date) => {
+    const nextDate = formatDateInput(date);
+
+    setDateTimePicker(current =>
+      current
+        ? {
+            ...current,
+            date: nextDate,
+            month: new Date(date.getFullYear(), date.getMonth(), 1),
+          }
+        : current
+    );
+  };
+
+  const updateDateTimePickerTime = (time: string) => {
+    setDateTimePicker(current => (current ? { ...current, time } : current));
   };
 
   const shiftPickerMonth = (delta: number) => {
-    setPickerMonth(current => new Date(current.getFullYear(), current.getMonth() + delta, 1));
+    setDateTimePicker(current =>
+      current
+        ? {
+            ...current,
+            month: new Date(current.month.getFullYear(), current.month.getMonth() + delta, 1),
+          }
+        : current
+    );
+  };
+
+  const applyDateTimePicker = () => {
+    if (!dateTimePicker) return;
+
+    const normalizedTime = normalizeTimeInput(dateTimePicker.time);
+    const nextDate = dateTimePicker.date;
+    const nextTime = normalizedTime || dateTimePicker.time;
+
+    if (dateTimePicker.field === 'start') {
+      setEvDate(nextDate);
+      setEvStartTime(nextTime);
+
+      if (evIsAllDay) {
+        const currentEnd = safeParseDateInput(evEndDate);
+        const nextStart = safeParseDateInput(nextDate);
+
+        if (!currentEnd || (nextStart && currentEnd.date.getTime() < nextStart.date.getTime())) {
+          setEvEndDate(nextDate);
+        }
+      } else {
+        const nextStartTime = timestampFromDateTimeInput(nextDate, nextTime);
+        const currentEndTime = timestampFromDateTimeInput(evEndDate || nextDate, evEndTime);
+
+        if (nextStartTime && (!currentEndTime || currentEndTime <= nextStartTime)) {
+          const bumpedEnd = dateTimeInputFromTimestamp(nextStartTime + 3600);
+          setEvEndDate(bumpedEnd.date);
+          setEvEndTime(bumpedEnd.time);
+        }
+      }
+    } else {
+      setEvEndDate(nextDate);
+      setEvEndTime(nextTime);
+    }
+
+    setDateTimePicker(null);
+  };
+
+  const handleAllDayChange = (enabled: boolean) => {
+    setEvIsAllDay(enabled);
+
+    if (!evDate) {
+      const today = formatDateInput(new Date());
+      setEvDate(today);
+      setEvEndDate(today);
+    } else if (!evEndDate) {
+      setEvEndDate(evDate);
+    }
+
+    if (!enabled) {
+      const startTime = normalizeTimeInput(evStartTime) || DEFAULT_EVENT_START_TIME;
+      const endTime = normalizeTimeInput(evEndTime) || DEFAULT_EVENT_END_TIME;
+      setEvStartTime(startTime);
+      setEvEndTime(endTime);
+    }
+  };
+
+  const handleExportEvent = async (event: GroupCalendarEvent) => {
+    try {
+      await exportCalendarEventToIcs(event, group);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not export this event.';
+      Alert.alert('Calendar export failed', message);
+    }
   };
 
   const renderTimePicker = (
@@ -833,6 +1004,7 @@ export default function GroupCalendarTab({
           ? evHomeAway
           : undefined,
         legacyEligible: evLegacyEligible,
+        invitedNpubs: evInvitedNpubs.length > 0 ? evInvitedNpubs : undefined,
         startTime,
         endTime,
         startDate,
@@ -870,6 +1042,7 @@ export default function GroupCalendarTab({
             ? evHomeAway
             : undefined,
           legacyEligible: evLegacyEligible,
+          invitedNpubs: evInvitedNpubs.length > 0 ? evInvitedNpubs : undefined,
           startTime,
           endTime,
           startDate,
@@ -910,6 +1083,11 @@ export default function GroupCalendarTab({
 
   const otherPastEvents = pastEvents.filter(
     e => e.spaceEventType !== 'game' && e.spaceEventType !== 'tournament'
+  );
+
+  const inviteCandidates = useMemo(
+    () => memberRoster.npubs.map(memberNpub => getRosterAttendee(memberNpub, memberRoster)),
+    [memberRoster]
   );
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -994,6 +1172,7 @@ export default function GroupCalendarTab({
   isAdmin={isAdmin}
   isMember={isMember}
   linkedMarkCount={linkedMarkCounts[event.id] ?? 0}
+  memberRoster={memberRoster}
   rsvp={rsvpState[event.id]}
   expanded={expandedId === event.id}
   onToggleExpand={() => setExpandedId(id => (id === event.id ? null : event.id))}
@@ -1002,6 +1181,7 @@ export default function GroupCalendarTab({
   onEditEvent={() => openEventEditor(event)}
   onEditScore={() => openScoreEditor(event)}
   onCreateMark={onCreateMarkForEvent ? () => onCreateMarkForEvent(event) : undefined}
+  onExportEvent={() => handleExportEvent(event)}
   s={s}
 />
                 ))}
@@ -1025,6 +1205,7 @@ export default function GroupCalendarTab({
                     isAdmin={isAdmin}
                     isMember={isMember}
                     linkedMarkCount={linkedMarkCounts[event.id] ?? 0}
+                    memberRoster={memberRoster}
                     rsvp={rsvpState[event.id]}
                     expanded={expandedId === event.id}
                     onToggleExpand={() => setExpandedId(id => (id === event.id ? null : event.id))}
@@ -1033,6 +1214,7 @@ export default function GroupCalendarTab({
                     onEditEvent={() => openEventEditor(event)}
                     onEditScore={() => openScoreEditor(event)}
                     onCreateMark={onCreateMarkForEvent ? () => onCreateMarkForEvent(event) : undefined}
+                    onExportEvent={() => handleExportEvent(event)}
                     s={s}
                   />
                 ))}
@@ -1056,6 +1238,7 @@ export default function GroupCalendarTab({
                     isAdmin={isAdmin}
                     isMember={isMember}
                     linkedMarkCount={linkedMarkCounts[event.id] ?? 0}
+                    memberRoster={memberRoster}
                     rsvp={rsvpState[event.id]}
                     expanded={expandedId === event.id}
                     onToggleExpand={() => setExpandedId(id => (id === event.id ? null : event.id))}
@@ -1064,6 +1247,7 @@ export default function GroupCalendarTab({
                     onEditEvent={() => openEventEditor(event)}
                     onEditScore={() => openScoreEditor(event)}
                     onCreateMark={onCreateMarkForEvent ? () => onCreateMarkForEvent(event) : undefined}
+                    onExportEvent={() => handleExportEvent(event)}
                     isPast
                     s={s}
                   />
@@ -1089,6 +1273,7 @@ export default function GroupCalendarTab({
                     isAdmin={isAdmin}
                     isMember={isMember}
                     linkedMarkCount={linkedMarkCounts[event.id] ?? 0}
+                    memberRoster={memberRoster}
                     rsvp={rsvpState[event.id]}
                     expanded={expandedId === event.id}
                     onToggleExpand={() => setExpandedId(id => (id === event.id ? null : event.id))}
@@ -1097,6 +1282,7 @@ export default function GroupCalendarTab({
                     onEditEvent={() => openEventEditor(event)}
                     onEditScore={() => openScoreEditor(event)}
                     onCreateMark={onCreateMarkForEvent ? () => onCreateMarkForEvent(event) : undefined}
+                    onExportEvent={() => handleExportEvent(event)}
                     isPast
                     s={s}
                   />
@@ -1110,7 +1296,7 @@ export default function GroupCalendarTab({
       {isAdmin && group.status === 'active' && (
         <TouchableOpacity
           style={s.fab}
-          onPress={() => setShowModal(true)}
+          onPress={openNewEventEditor}
           activeOpacity={0.85}
         >
           <Text style={s.fabIcon}>+</Text>
@@ -1225,89 +1411,6 @@ export default function GroupCalendarTab({
                 />
               </View>
 
-              <Text style={s.inputLabel}>START DATE *  (MM/DD/YYYY)</Text>
-              <View style={s.datePickerBox}>
-                <View style={s.datePickerHeader}>
-                  <TouchableOpacity style={s.monthNavBtn} onPress={() => shiftPickerMonth(-1)}>
-                    <Text style={s.monthNavText}>‹</Text>
-                  </TouchableOpacity>
-
-                  <Text style={s.monthTitle}>
-                    {pickerMonth.toLocaleDateString([], { month: 'long', year: 'numeric' })}
-                  </Text>
-
-                  <TouchableOpacity style={s.monthNavBtn} onPress={() => shiftPickerMonth(1)}>
-                    <Text style={s.monthNavText}>›</Text>
-                  </TouchableOpacity>
-                </View>
-
-                <View style={s.weekdayRow}>
-                  {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, index) => (
-                    <Text key={`${day}_${index}`} style={s.weekdayText}>{day}</Text>
-                  ))}
-                </View>
-
-                <View style={s.dateGrid}>
-                  {buildCalendarDays(pickerMonth).map((day, index) => {
-                    const dayKey = day ? formatDateInput(day) : '';
-                    const isToday = !!day && dayKey === todayKey;
-                    const selected = !!day && evDate === dayKey;
-
-                    return (
-                      <TouchableOpacity
-                        key={`${day?.toISOString() ?? 'empty'}_${index}`}
-                        style={s.dateCell}
-                        onPress={() => day && selectDate(day)}
-                        disabled={!day}
-                        activeOpacity={0.82}
-                      >
-                        <View
-                          style={[
-                            s.dateCellMarker,
-                            isToday && s.dateCellToday,
-                            selected && s.dateCellSelected,
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              s.dateCellText,
-                              isToday && s.dateCellTextToday,
-                              selected && s.dateCellTextSelected,
-                            ]}
-                          >
-                            {day ? day.getDate() : ''}
-                          </Text>
-                        </View>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-
-                <TextInput
-                  style={[s.input, s.dateManualInput]}
-                  value={evDate}
-                  onChangeText={setEvDate}
-                  placeholder="MM/DD/YYYY"
-                  placeholderTextColor={theme.textMuted}
-                  keyboardType="numbers-and-punctuation"
-                  maxLength={10}
-                />
-              </View>
-
-              <Text style={s.inputLabel}>END DATE  (optional)</Text>
-              <TextInput
-                style={s.input}
-                value={evEndDate}
-                onChangeText={setEvEndDate}
-                placeholder="MM/DD/YYYY"
-                placeholderTextColor={theme.textMuted}
-                keyboardType="numbers-and-punctuation"
-                maxLength={10}
-              />
-              <Text style={s.timePickerHint}>
-                Use for tournaments, trips, camps, or multi-day school events.
-              </Text>
-
               <View style={s.toggleRow}>
                 <View style={{ flex: 1 }}>
                   <Text style={s.toggleLabel}>All-day event</Text>
@@ -1315,19 +1418,66 @@ export default function GroupCalendarTab({
                 </View>
                 <Switch
                   value={evIsAllDay}
-                  onValueChange={setEvIsAllDay}
+                  onValueChange={handleAllDayChange}
                   trackColor={{ false: theme.raised, true: theme.gold }}
                   thumbColor="#fff"
                 />
               </View>
 
-              {!evIsAllDay && (
-                <>
-                  <Text style={s.inputLabel}>START TIME  (e.g. 7:00 PM)</Text>
-                  {renderTimePicker(evStartTime, setEvStartTime, '7:00 PM')}
-                  <Text style={s.inputLabel}>END TIME  (optional)</Text>
-                  {renderTimePicker(evEndTime, setEvEndTime, '9:00 PM')}
-                </>
+              <TouchableOpacity
+                style={s.dateTimeRow}
+                onPress={() => openDateTimePicker('start')}
+                activeOpacity={0.84}
+              >
+                <Text style={s.dateTimeLabel}>Starts</Text>
+                <Text style={s.dateTimeValue} numberOfLines={1}>
+                  {formatDateTimeSummary(evDate || todayKey, evStartTime || DEFAULT_EVENT_START_TIME, evIsAllDay)}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={s.dateTimeRow}
+                onPress={() => openDateTimePicker('end')}
+                activeOpacity={0.84}
+              >
+                <Text style={s.dateTimeLabel}>Ends</Text>
+                <Text style={s.dateTimeValue} numberOfLines={1}>
+                  {formatDateTimeSummary(evEndDate || evDate || todayKey, evEndTime || DEFAULT_EVENT_END_TIME, evIsAllDay)}
+                </Text>
+              </TouchableOpacity>
+
+              <Text style={s.inputLabel}>INVITE MEMBERS  (optional)</Text>
+              {inviteCandidates.length > 0 ? (
+                <View style={s.invitePickerGrid}>
+                  {inviteCandidates.map(member => {
+                    const selected = evInvitedNpubs.includes(member.id);
+
+                    return (
+                      <TouchableOpacity
+                        key={member.id}
+                        style={[s.inviteMemberChip, selected && s.inviteMemberChipSelected]}
+                        onPress={() => toggleInvitedMember(member.id)}
+                        activeOpacity={0.82}
+                      >
+                        <View style={[s.inviteMemberAvatar, selected && s.inviteMemberAvatarSelected]}>
+                          {member.avatarUrl ? (
+                            <Image source={{ uri: member.avatarUrl }} style={s.inviteMemberAvatarImage} />
+                          ) : (
+                            <Text style={s.inviteMemberAvatarText}>{getInitials(member.name)}</Text>
+                          )}
+                        </View>
+                        <Text
+                          style={[s.inviteMemberName, selected && s.inviteMemberNameSelected]}
+                          numberOfLines={1}
+                        >
+                          {member.name}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              ) : (
+                <Text style={s.modalMeta}>No active members yet.</Text>
               )}
 
               <Text style={s.inputLabel}>LOCATION  (optional)</Text>
@@ -1375,6 +1525,105 @@ export default function GroupCalendarTab({
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
+      </Modal>
+
+      <Modal
+        visible={!!dateTimePicker}
+        transparent
+        animationType="fade"
+        onRequestClose={closeDateTimePicker}
+      >
+        <View style={s.modalOverlay}>
+          {dateTimePicker && (
+            <View style={s.dateTimeSheet}>
+              <Text style={s.dateTimeSheetEyebrow}>
+                {dateTimePicker.field === 'start' ? 'Starts' : 'Ends'}
+              </Text>
+              <Text style={s.dateTimeSheetTitle}>
+                {formatDatePickerTitle(dateTimePicker.date)}
+              </Text>
+
+              <View style={s.datePickerBox}>
+                <View style={s.datePickerHeader}>
+                  <TouchableOpacity style={s.monthNavBtn} onPress={() => shiftPickerMonth(-1)}>
+                    <Text style={s.monthNavText}>‹</Text>
+                  </TouchableOpacity>
+
+                  <Text style={s.monthTitle}>
+                    {dateTimePicker.month.toLocaleDateString([], { month: 'long', year: 'numeric' })}
+                  </Text>
+
+                  <TouchableOpacity style={s.monthNavBtn} onPress={() => shiftPickerMonth(1)}>
+                    <Text style={s.monthNavText}>›</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={s.weekdayRow}>
+                  {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, index) => (
+                    <Text key={`${day}_${index}`} style={s.weekdayText}>{day}</Text>
+                  ))}
+                </View>
+
+                <View style={s.dateGrid}>
+                  {buildCalendarDays(dateTimePicker.month).map((day, index) => {
+                    const dayKey = day ? formatDateInput(day) : '';
+                    const isToday = !!day && dayKey === todayKey;
+                    const selected = !!day && dateTimePicker.date === dayKey;
+
+                    return (
+                      <TouchableOpacity
+                        key={`${day?.toISOString() ?? 'empty'}_${index}`}
+                        style={s.dateCell}
+                        onPress={() => day && updateDateTimePickerDate(day)}
+                        disabled={!day}
+                        activeOpacity={0.82}
+                      >
+                        <View
+                          style={[
+                            s.dateCellMarker,
+                            isToday && s.dateCellToday,
+                            selected && s.dateCellSelected,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              s.dateCellText,
+                              isToday && s.dateCellTextToday,
+                              selected && s.dateCellTextSelected,
+                            ]}
+                          >
+                            {day ? day.getDate() : ''}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {!evIsAllDay && (
+                <>
+                  <Text style={s.inputLabel}>TIME</Text>
+                  {renderTimePicker(
+                    dateTimePicker.time,
+                    updateDateTimePickerTime,
+                    dateTimePicker.field === 'start' ? DEFAULT_EVENT_START_TIME : DEFAULT_EVENT_END_TIME
+                  )}
+                </>
+              )}
+
+              <View style={s.modalActions}>
+                <TouchableOpacity style={s.cancelBtn} onPress={closeDateTimePicker}>
+                  <Text style={s.cancelText}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={s.confirmBtn} onPress={applyDateTimePicker}>
+                  <Text style={s.confirmText}>Done</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+        </View>
       </Modal>
 
       <Modal
@@ -1488,6 +1737,7 @@ function EventCard({
   isAdmin,
   isMember,
   linkedMarkCount,
+  memberRoster,
   rsvp,
   expanded,
   onToggleExpand,
@@ -1496,10 +1746,12 @@ function EventCard({
   onEditEvent,
   onEditScore,
   onCreateMark,
+  onExportEvent,
   isPast = false,
   s,
 }: EventCardProps) {
   const past = isPast || isEventPast(event);
+  const invitedMembers = getRosterAttendees(event.invitedNpubs, memberRoster);
 
   return (
     <TouchableOpacity
@@ -1607,6 +1859,13 @@ function EventCard({
           <Text style={s.description}>{event.description}</Text>
         )}
 
+        {invitedMembers.length > 0 && (
+          <View style={s.invitedSummaryRow}>
+            <Text style={s.invitedSummaryText}>Invited ({invitedMembers.length})</Text>
+            <AvatarStack members={invitedMembers} s={s} />
+          </View>
+        )}
+
         {expanded && !!event.legacyEligible && (
           <Text style={s.legacyHint}>
             {linkedMarkCount > 0
@@ -1626,6 +1885,14 @@ function EventCard({
                 <Text style={[s.adminActionText, s.eventMarkActionText]}>Add Mark</Text>
               </TouchableOpacity>
             )}
+
+            <TouchableOpacity
+              style={s.adminActionBtn}
+              onPress={onExportEvent}
+              activeOpacity={0.82}
+            >
+              <Text style={s.adminActionText}>Export</Text>
+            </TouchableOpacity>
 
             {isAdmin && (
               <>
@@ -1726,28 +1993,40 @@ function AttendanceBucket({
       </Text>
 
       {names.length > 0 ? (
-        <View style={s.attendanceChipList}>
-          {names.map((member, index) => (
-            <View
-              key={member.id}
-              style={[
-                s.attendanceChip,
-                index > 0 && s.attendanceChipOverlap,
-              ]}
-            >
-              <View style={s.attendanceAvatar}>
-                {member.avatarUrl ? (
-                  <Image source={{ uri: member.avatarUrl }} style={s.attendanceAvatarImage} />
-                ) : (
-                  <Text style={s.attendanceAvatarText}>{getInitials(member.name)}</Text>
-                )}
-              </View>
-            </View>
-          ))}
-        </View>
+        <AvatarStack members={names} s={s} />
       ) : (
         <Text style={s.attendanceEmpty}>None yet</Text>
       )}
+    </View>
+  );
+}
+
+function AvatarStack({
+  members,
+  s,
+}: {
+  members: RSVPAttendee[];
+  s: ReturnType<typeof createStyles>;
+}) {
+  return (
+    <View style={s.attendanceChipList}>
+      {members.map((member, index) => (
+        <View
+          key={member.id}
+          style={[
+            s.attendanceChip,
+            index > 0 && s.attendanceChipOverlap,
+          ]}
+        >
+          <View style={s.attendanceAvatar}>
+            {member.avatarUrl ? (
+              <Image source={{ uri: member.avatarUrl }} style={s.attendanceAvatarImage} />
+            ) : (
+              <Text style={s.attendanceAvatarText}>{getInitials(member.name)}</Text>
+            )}
+          </View>
+        </View>
+      ))}
     </View>
   );
 }
@@ -1838,6 +2117,55 @@ function parseDateInput(input: string, label = 'Date'): ParsedDateInput {
     date,
     key: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
   };
+}
+
+function safeParseDateInput(input: string): ParsedDateInput | null {
+  try {
+    return parseDateInput(input);
+  } catch {
+    return null;
+  }
+}
+
+function timestampFromDateTimeInput(dateInput: string, timeInput: string): number | null {
+  const date = safeParseDateInput(dateInput);
+  const normalizedTime = normalizeTimeInput(timeInput);
+
+  if (!date || !normalizedTime) return null;
+
+  return parseTimeInput(normalizedTime, date.year, date.month, date.day);
+}
+
+function dateTimeInputFromTimestamp(timestamp: number): { date: string; time: string } {
+  const date = new Date(timestamp * 1000);
+
+  return {
+    date: formatDateInput(date),
+    time: formatTimeFromTimestamp(timestamp),
+  };
+}
+
+function formatDatePickerTitle(dateInput: string): string {
+  const parsed = safeParseDateInput(dateInput);
+
+  if (!parsed) return dateInput || 'Select date';
+
+  return parsed.date.toLocaleDateString([], {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+function formatDateTimeSummary(dateInput: string, timeInput: string, isAllDay: boolean): string {
+  const parsed = safeParseDateInput(dateInput);
+  const dateLabel = parsed
+    ? parsed.date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+    : dateInput || 'Select date';
+
+  if (isAllDay) return dateLabel;
+
+  return `${dateLabel} - ${normalizeTimeInput(timeInput) || timeInput || DEFAULT_EVENT_START_TIME}`;
 }
 
 function dateFromDateKey(dateKey: string): Date | null {
@@ -2334,6 +2662,18 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     lineHeight: 17,
   },
   description: { color: theme.textMuted, fontSize: 13, lineHeight: 19, marginTop: 6, marginBottom: 8 },
+  invitedSummaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 7,
+    marginBottom: 4,
+  },
+  invitedSummaryText: {
+    color: theme.textMuted,
+    fontSize: 11,
+    fontWeight: '800',
+  },
   legacyHint: {
     color: theme.textMuted,
     fontSize: 12,
@@ -2577,6 +2917,105 @@ fabText: {
     fontSize: 15,
     color: theme.text,
     backgroundColor: theme.surface,
+  },
+  dateTimeRow: {
+    minHeight: 54,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderBottomWidth: 0.5,
+    borderBottomColor: theme.border,
+    paddingVertical: 13,
+    gap: 14,
+  },
+  dateTimeLabel: {
+    color: theme.textMuted,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  dateTimeValue: {
+    flex: 1,
+    color: theme.text,
+    fontSize: 15,
+    fontWeight: '800',
+    textAlign: 'right',
+  },
+  invitePickerGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 8,
+  },
+  inviteMemberChip: {
+    maxWidth: '48%',
+    minHeight: 40,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    borderRadius: 20,
+    backgroundColor: theme.surface,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  inviteMemberChipSelected: {
+    borderColor: theme.gold,
+    backgroundColor: theme.raised,
+  },
+  inviteMemberAvatar: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+  },
+  inviteMemberAvatarSelected: {
+    borderColor: theme.gold,
+  },
+  inviteMemberAvatarImage: {
+    width: '100%',
+    height: '100%',
+  },
+  inviteMemberAvatarText: {
+    color: theme.gold,
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  inviteMemberName: {
+    flex: 1,
+    color: theme.text,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  inviteMemberNameSelected: {
+    color: theme.gold,
+  },
+  dateTimeSheet: {
+    backgroundColor: theme.bg,
+    borderTopWidth: 0.5,
+    borderTopColor: theme.border,
+    padding: 20,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+  },
+  dateTimeSheetEyebrow: {
+    color: theme.textMuted,
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  },
+  dateTimeSheetTitle: {
+    color: theme.text,
+    fontSize: 28,
+    fontWeight: '900',
+    marginBottom: 14,
   },
   datePickerBox: {
     borderWidth: 0.5,

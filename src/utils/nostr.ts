@@ -3217,6 +3217,7 @@ export interface GroupCalendarEventRaw {
   scoreFinal?: boolean;
   eventNotes?: string;
   legacyEligible?: boolean;
+  invitedNpubs?: string[];
   startTime:    number;
   endTime?:     number;
   startDate?:   string;
@@ -3276,6 +3277,7 @@ export async function publishGroupCalendarEvent(input: {
   scoreFinal?: boolean;
   eventNotes?: string;
   legacyEligible?: boolean;
+  invitedNpubs?: string[];
   startTime:    number;
   endTime?:     number;
   startDate?:   string;
@@ -3308,6 +3310,9 @@ export async function publishGroupCalendarEvent(input: {
     if (input.spaceEventType) tags.push(['space_event_type', input.spaceEventType]);
     if (input.opponent) tags.push(['opponent', input.opponent]);
     if (input.result) tags.push(['result', input.result]);
+    input.invitedNpubs?.forEach(invitedNpub => {
+      tags.push(['invitee', invitedNpub]);
+    });
 
     if (input.eventType === 'allday' && input.startDate) {
       tags.push(['start', input.startDate]);
@@ -3339,6 +3344,7 @@ export async function publishGroupCalendarEvent(input: {
         scoreFinal: input.scoreFinal,
         eventNotes: input.eventNotes,
         legacyEligible: input.legacyEligible,
+        invitedNpubs: input.invitedNpubs,
         startTime:   input.startTime,
         endTime:     input.endTime,
         startDate:   input.startDate,

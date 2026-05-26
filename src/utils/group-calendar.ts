@@ -70,6 +70,7 @@ export type GroupCalendarEvent = {
   scoreFinal?: boolean;
   eventNotes?: string;
   legacyEligible?: boolean;
+  invitedNpubs?: string[];
 
   // Unix timestamps (seconds)
   startTime: number;
@@ -120,6 +121,18 @@ async function writeJson<T>(key: string, value: T): Promise<void> {
   } catch (error) {
     console.warn('[Group Calendar] write failed:', error);
   }
+}
+
+function normalizeCalendarNpubs(npubs?: string[]): string[] | undefined {
+  const unique = Array.from(
+    new Set(
+      (npubs ?? [])
+        .map(npub => npub?.trim().toLowerCase())
+        .filter((npub): npub is string => !!npub)
+    )
+  );
+
+  return unique.length > 0 ? unique : undefined;
 }
 
 async function notifyCalendarEventChange(
@@ -212,6 +225,7 @@ export async function createCalendarEvent(input: {
   scoreFinal?: boolean;
   eventNotes?: string;
   legacyEligible?: boolean;
+  invitedNpubs?: string[];
 
   startTime: number;
   endTime?: number;
@@ -241,6 +255,7 @@ export async function createCalendarEvent(input: {
     scoreFinal: input.scoreFinal,
     eventNotes: input.eventNotes?.trim(),
     legacyEligible: input.legacyEligible,
+    invitedNpubs: normalizeCalendarNpubs(input.invitedNpubs),
 
     startTime: input.startTime,
     endTime: input.endTime,
@@ -574,6 +589,7 @@ async function publishCalendarEventToRelay(
     scoreFinal: event.scoreFinal,
     eventNotes: event.eventNotes,
     legacyEligible: event.legacyEligible,
+    invitedNpubs: event.invitedNpubs,
     startTime:   event.startTime,
     endTime:     event.endTime,
     startDate:   event.startDate,
