@@ -10,6 +10,7 @@ import {
   getSpaceEventTypeLabel,
   isEventPast,
   submitRSVP,
+  syncCalendarEventsFromRelay,
   syncRSVPsFromRelay,
   updateCalendarEvent,
   type GameHomeAway,
@@ -39,6 +40,7 @@ import { useIdentity } from '../app/_layout';
 import { Colors } from '../src/constants/theme';
 import { getGroupMembers, type BEGroup } from '../src/utils/group-storage';
 import { getLivingMarkCountsForCalendarEvents } from '../src/utils/living-spaces-storage';
+import { subscribeToGroupCalendarEvents } from '../src/utils/nostr';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -271,6 +273,7 @@ export default function GroupCalendarTab({
     namesByNpub: {},
     avatarsByNpub: {},
   });
+  const calendarLiveRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [scoreEvent, setScoreEvent] = useState<GroupCalendarEvent | null>(null);
   const [scoreOur, setScoreOur] = useState('');
@@ -375,7 +378,7 @@ export default function GroupCalendarTab({
   const loadEvents = useCallback(async () => {
     if (!group?.id) return;
 
-    const loaded = await getCalendarEventsForGroup(group.id);
+    let loaded = await getCalendarEventsForGroup(group.id);
     const roster = await loadMemberRoster();
 
     setEvents(loaded);
@@ -383,6 +386,17 @@ export default function GroupCalendarTab({
 
     hydrateLinkedMarkCounts(loaded);
     hydrateRSVPState(loaded, roster);
+
+    if (group.relayUrl) {
+      try {
+        loaded = await syncCalendarEventsFromRelay(group.id, group.relayUrl);
+        setEvents(loaded);
+        hydrateLinkedMarkCounts(loaded);
+        hydrateRSVPState(loaded, roster);
+      } catch (error) {
+        console.warn('[Group Calendar] event relay sync failed:', error);
+      }
+    }
 
     if (group.relayUrl && loaded.length > 0) {
       syncRSVPsFromRelay(
@@ -400,6 +414,46 @@ export default function GroupCalendarTab({
   }, [group?.id, group?.relayUrl, hydrateLinkedMarkCounts, hydrateRSVPState, loadMemberRoster]);
 
   useEffect(() => { loadEvents(); }, [loadEvents]);
+
+  useEffect(() => {
+    if (!group?.id || !group.relayUrl) return;
+
+    let disposed = false;
+    let unsubscribe: (() => void) | null = null;
+
+    const scheduleRelayRefresh = () => {
+      if (calendarLiveRefreshTimerRef.current) return;
+
+      calendarLiveRefreshTimerRef.current = setTimeout(() => {
+        calendarLiveRefreshTimerRef.current = null;
+        loadEvents().catch(error => {
+          console.warn('[Group Calendar] live event refresh failed:', error);
+        });
+      }, 400);
+    };
+
+    subscribeToGroupCalendarEvents({
+      groupId: group.id,
+      relayUrl: group.relayUrl,
+      onEvent: scheduleRelayRefresh,
+    }).then(cleanup => {
+      if (disposed) {
+        cleanup();
+        return;
+      }
+
+      unsubscribe = cleanup;
+    });
+
+    return () => {
+      disposed = true;
+      if (calendarLiveRefreshTimerRef.current) {
+        clearTimeout(calendarLiveRefreshTimerRef.current);
+        calendarLiveRefreshTimerRef.current = null;
+      }
+      if (unsubscribe) unsubscribe();
+    };
+  }, [group?.id, group?.relayUrl, loadEvents]);
 
   // ── RSVP handler ─────────────────────────────────────────────────────────
 

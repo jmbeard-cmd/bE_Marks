@@ -85,6 +85,7 @@ export type GroupCalendarEvent = {
 
   // NIP-52 nostr event id once published
   nostrEventId?: string;
+  relayPublishedAt?: number;
 
   createdAt: number;
   updatedAt: number;
@@ -314,23 +315,37 @@ export async function updateCalendarEvent(
   updates: Partial<GroupCalendarEvent>
 ): Promise<void> {
   const all = await readJson<GroupCalendarEvent[]>(GROUP_CALENDAR_KEY, []);
-  let updatedEvent: GroupCalendarEvent | null = null;
+  const existingEvent = all.find(event => event.id === eventId);
+  const group = existingEvent?.relayUrl || !existingEvent?.groupId
+    ? null
+    : await getGroupById(existingEvent.groupId);
+  const recoveredRelayUrl = updates.relayUrl ?? existingEvent?.relayUrl ?? group?.relayUrl;
 
   const updated = all.map(e => {
     if (e.id !== eventId) return e;
 
-    updatedEvent = {
+    return {
       ...e,
       ...updates,
+      relayUrl: recoveredRelayUrl,
       updatedAt: Math.floor(Date.now() / 1000),
     };
-
-    return updatedEvent;
   });
+  const updatedEvent = updated.find(event => event.id === eventId);
 
   await writeJson(GROUP_CALENDAR_KEY, updated);
 
   if (updatedEvent) {
+    if (updatedEvent.relayUrl) {
+      const identity = await getStoredIdentity();
+
+      if (identity?.nsec) {
+        publishCalendarEventToRelay(updatedEvent, identity.nsec, updatedEvent.relayUrl).catch(e =>
+          console.warn('[Group Calendar] relay update publish failed:', e)
+        );
+      }
+    }
+
     await notifyCalendarEventChange(updatedEvent, 'calendar_updated');
   }
 }
@@ -425,6 +440,12 @@ function normalizeRSVPNpub(npub?: string): string {
 
 function getRSVPFreshness(rsvp: Pick<GroupRSVP, 'createdAt' | 'updatedAt'>): number {
   return rsvp.updatedAt ?? rsvp.createdAt ?? 0;
+}
+
+function getCalendarEventFreshness(
+  event: Pick<GroupCalendarEvent, 'updatedAt' | 'relayPublishedAt'>
+): number {
+  return Math.max(event.updatedAt ?? 0, event.relayPublishedAt ?? 0);
 }
 
 function rsvpRawToLocal(raw: GroupRSVPRaw): GroupRSVP | null {
@@ -537,22 +558,37 @@ async function publishCalendarEventToRelay(
   nsec: string,
   relayUrl: string
 ): Promise<void> {
-  await publishGroupCalendarEvent({
+  const result = await publishGroupCalendarEvent({
     eventId:     event.id,
     groupId:     event.groupId,
     title:       event.title,
     description: event.description,
     location:    event.location,
     eventType:   event.eventType,
+    spaceEventType: event.spaceEventType,
+    opponent: event.opponent,
+    homeAway: event.homeAway,
+    ourScore: event.ourScore,
+    opponentScore: event.opponentScore,
+    result: event.result,
+    scoreFinal: event.scoreFinal,
+    eventNotes: event.eventNotes,
+    legacyEligible: event.legacyEligible,
     startTime:   event.startTime,
     endTime:     event.endTime,
     startDate:   event.startDate,
     endDate:     event.endDate,
     authorNpub:  event.authorNpub,
     authorName:  event.authorName,
+    createdAt:   event.createdAt,
+    updatedAt:   event.updatedAt,
     nsec,
     relayUrl,
   });
+
+  if (!result.success) {
+    throw new Error(result.error || 'Calendar relay publish failed');
+  }
 }
 
 /**
@@ -584,8 +620,20 @@ export async function syncCalendarEventsFromRelay(
       if (deletedSet.has(raw.id)) continue;
 
       const existing = eventMap.get(raw.id);
-      if (!existing || raw.updatedAt >= existing.updatedAt) {
-        eventMap.set(raw.id, raw as GroupCalendarEvent);
+      const incomingFreshness = getCalendarEventFreshness(raw);
+      const existingFreshness = existing ? getCalendarEventFreshness(existing) : 0;
+      const accepted = !existing || incomingFreshness >= existingFreshness;
+
+      if (accepted) {
+        eventMap.set(raw.id, {
+          ...raw,
+          relayUrl: raw.relayUrl ?? existing?.relayUrl ?? relayUrl,
+        } as GroupCalendarEvent);
+      } else if (existing && !existing.relayUrl) {
+        eventMap.set(raw.id, {
+          ...existing,
+          relayUrl,
+        });
       }
     }
 

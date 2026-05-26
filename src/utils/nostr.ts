@@ -3208,12 +3208,23 @@ export interface GroupCalendarEventRaw {
   description?: string;
   location?:    string;
   eventType:    'timed' | 'allday';
+  spaceEventType?: 'game' | 'practice' | 'meeting' | 'fundraiser' | 'banquet' | 'tournament' | 'deadline' | 'event' | 'other';
+  opponent?: string;
+  homeAway?: 'home' | 'away' | 'neutral';
+  ourScore?: number;
+  opponentScore?: number;
+  result?: 'win' | 'loss' | 'tie';
+  scoreFinal?: boolean;
+  eventNotes?: string;
+  legacyEligible?: boolean;
   startTime:    number;
   endTime?:     number;
   startDate?:   string;
   endDate?:     string;
   authorNpub?:  string;
   authorName?:  string;
+  relayUrl?:     string;
+  relayPublishedAt?: number;
   createdAt:    number;
   updatedAt:    number;
 }
@@ -3230,6 +3241,25 @@ export interface GroupRSVPRaw {
   updatedAt?: number;
 }
 
+function parseGroupCalendarEventRaw(
+  evt: Event,
+  groupId: string,
+  relayUrl?: string
+): GroupCalendarEventRaw | null {
+  try {
+    const parsed = JSON.parse(evt.content || '{}') as GroupCalendarEventRaw;
+    if (!parsed.id || parsed.groupId !== groupId) return null;
+
+    return {
+      ...parsed,
+      relayUrl,
+      relayPublishedAt: typeof evt.created_at === 'number' ? evt.created_at : parsed.updatedAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function publishGroupCalendarEvent(input: {
   eventId:      string;
   groupId:      string;
@@ -3237,12 +3267,23 @@ export async function publishGroupCalendarEvent(input: {
   description?: string;
   location?:    string;
   eventType:    'timed' | 'allday';
+  spaceEventType?: 'game' | 'practice' | 'meeting' | 'fundraiser' | 'banquet' | 'tournament' | 'deadline' | 'event' | 'other';
+  opponent?: string;
+  homeAway?: 'home' | 'away' | 'neutral';
+  ourScore?: number;
+  opponentScore?: number;
+  result?: 'win' | 'loss' | 'tie';
+  scoreFinal?: boolean;
+  eventNotes?: string;
+  legacyEligible?: boolean;
   startTime:    number;
   endTime?:     number;
   startDate?:   string;
   endDate?:     string;
   authorNpub?:  string;
   authorName?:  string;
+  createdAt?:   number;
+  updatedAt?:   number;
   nsec:         string;
   relayUrl:     string;
 }): Promise<{ success: boolean; eventId?: string; error?: string }> {
@@ -3264,6 +3305,9 @@ export async function publishGroupCalendarEvent(input: {
 
     if (input.description) tags.push(['description', input.description]);
     if (input.location)    tags.push(['location',    input.location]);
+    if (input.spaceEventType) tags.push(['space_event_type', input.spaceEventType]);
+    if (input.opponent) tags.push(['opponent', input.opponent]);
+    if (input.result) tags.push(['result', input.result]);
 
     if (input.eventType === 'allday' && input.startDate) {
       tags.push(['start', input.startDate]);
@@ -3286,14 +3330,23 @@ export async function publishGroupCalendarEvent(input: {
         description: input.description,
         location:    input.location,
         eventType:   input.eventType,
+        spaceEventType: input.spaceEventType,
+        opponent: input.opponent,
+        homeAway: input.homeAway,
+        ourScore: input.ourScore,
+        opponentScore: input.opponentScore,
+        result: input.result,
+        scoreFinal: input.scoreFinal,
+        eventNotes: input.eventNotes,
+        legacyEligible: input.legacyEligible,
         startTime:   input.startTime,
         endTime:     input.endTime,
         startDate:   input.startDate,
         endDate:     input.endDate,
         authorNpub:  input.authorNpub,
         authorName:  input.authorName,
-        createdAt:   now,
-        updatedAt:   now,
+        createdAt:   input.createdAt ?? now,
+        updatedAt:   input.updatedAt ?? now,
       }),
       pubkey: pk,
     };
@@ -3342,12 +3395,8 @@ export function fetchGroupCalendarEvents(
             if (seen.has(evt.id)) return;
             seen.add(evt.id);
 
-            try {
-              const parsed = JSON.parse(evt.content || '{}') as GroupCalendarEventRaw;
-              if (parsed.id && parsed.groupId === groupId) {
-                events.push(parsed);
-              }
-            } catch {}
+            const parsed = parseGroupCalendarEventRaw(evt, groupId, relayUrl);
+            if (parsed) events.push(parsed);
 
           } else if (data[0] === 'EOSE') {
             clearTimeout(timeout);
@@ -3365,6 +3414,42 @@ export function fetchGroupCalendarEvents(
       resolve([]);
     }
   });
+}
+
+export async function subscribeToGroupCalendarEvents(input: {
+  groupId: string;
+  relayUrl?: string;
+  onEvent: (event: GroupCalendarEventRaw) => void;
+}): Promise<() => void> {
+  try {
+    const relayUrl = input.relayUrl ?? DEFAULT_RELAY;
+    const pool = new SimplePool();
+    const seen = new Set<string>();
+
+    const sub = pool.subscribe(
+      [relayUrl],
+      {
+        kinds: [GROUP_CALENDAR_KIND],
+        '#t': [`group-cal:${input.groupId}`],
+        since: Math.floor(Date.now() / 1000),
+      },
+      {
+        onevent(evt) {
+          if (seen.has(evt.id)) return;
+          seen.add(evt.id);
+
+          const parsed = parseGroupCalendarEventRaw(evt, input.groupId, relayUrl);
+          if (parsed) input.onEvent(parsed);
+        },
+      }
+    );
+
+    return () => {
+      try { sub.close(); } catch {}
+    };
+  } catch {
+    return () => {};
+  }
 }
 
 export async function publishGroupRSVP(input: {
