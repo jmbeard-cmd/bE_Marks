@@ -230,13 +230,34 @@ type GroupChatPanelProps = {
   groupId?: string;
   variant?: 'full' | 'inline';
   onBack?: () => void;
+  onMediaMessagesChanged?: () => void;
   style?: StyleProp<ViewStyle>;
 };
+
+function hasGalleryMediaPayload(message: {
+  media?: GroupMessageMedia[];
+  mediaUrl?: string;
+  imageUrl?: string;
+  mediaType?: GroupMediaType;
+}): boolean {
+  const mediaItems = Array.isArray(message.media) ? message.media : [];
+
+  if (mediaItems.some(item => item.type === 'image' || item.type === 'video')) {
+    return true;
+  }
+
+  return (
+    message.mediaType === 'image' ||
+    message.mediaType === 'video' ||
+    !!message.imageUrl
+  ) && !!(message.mediaUrl || message.imageUrl);
+}
 
 export function GroupChatPanel({
   groupId: groupIdProp,
   variant = 'full',
   onBack,
+  onMediaMessagesChanged,
   style,
 }: GroupChatPanelProps = {}) {
   const router = useRouter();
@@ -971,13 +992,21 @@ const showName =
 
             setMessages(refreshedMessages);
             await markVisibleMessagesRead(refreshedMessages);
+            if (remoteMessages.some(msg => hasGalleryMediaPayload({
+              media: msg.media,
+              mediaUrl: msg.mediaUrl,
+              imageUrl: msg.imageUrl,
+              mediaType: msg.mediaType || (msg.imageUrl ? 'image' : undefined),
+            })) || deleteEvents.length > 0) {
+              onMediaMessagesChanged?.();
+            }
           })
           .catch(error => {
             console.warn('[Groups] Remote fetch error:', error);
           });
       }, 250);
     });
-  }, [getRemoteSenderName, groupId, groupLoaded, markVisibleMessagesRead, relayUrl, npub]);
+  }, [getRemoteSenderName, groupId, groupLoaded, markVisibleMessagesRead, relayUrl, npub, onMediaMessagesChanged]);
 
   const catchUpGroupMessages = useCallback(async () => {
   if (!groupId || !groupLoaded || !relayUrl) return;
@@ -1021,12 +1050,20 @@ const showName =
     const refreshedMessages = await getMessagesForGroup(groupId);
     setMessages(refreshedMessages);
     await markVisibleMessagesRead(refreshedMessages);
+    if (remoteMessages.some(msg => hasGalleryMediaPayload({
+      media: msg.media,
+      mediaUrl: msg.mediaUrl,
+      imageUrl: msg.imageUrl,
+      mediaType: msg.mediaType || (msg.imageUrl ? 'image' : undefined),
+    }))) {
+      onMediaMessagesChanged?.();
+    }
   } catch (error) {
     console.warn('[Groups] catch-up message fetch failed:', error);
   } finally {
     catchUpInFlightRef.current = false;
   }
-}, [getRemoteSenderName, groupId, groupLoaded, markVisibleMessagesRead, relayUrl, npub]);
+}, [getRemoteSenderName, groupId, groupLoaded, markVisibleMessagesRead, relayUrl, npub, onMediaMessagesChanged]);
 
   useEffect(() => {
     loadGroup();
@@ -1165,6 +1202,14 @@ const showName =
           const next = await getMessagesForGroup(groupId);
           setMessages(next);
           await markVisibleMessagesRead(next);
+          if (hasGalleryMediaPayload({
+            media: msg.media,
+            mediaUrl: msg.mediaUrl,
+            imageUrl: msg.imageUrl,
+            mediaType: msg.mediaType || (msg.imageUrl ? 'image' : undefined),
+          })) {
+            onMediaMessagesChanged?.();
+          }
 
           if (mine || isNearBottomRef.current) {
             forceNextAutoScrollRef.current = true;
@@ -1196,6 +1241,7 @@ const showName =
 
           const next = await getMessagesForGroup(groupId);
           setMessages(next);
+          onMediaMessagesChanged?.();
         },
       });
 
@@ -1292,7 +1338,7 @@ const showName =
       if (unsubscribeEdits) unsubscribeEdits();
       if (unsubscribePollVotes) unsubscribePollVotes();
     };
-}, [getRemoteSenderName, groupId, markVisibleMessagesRead, relayUrl, npub, scrollToBottomIfAppropriate, getNotificationPreviewText]);
+}, [getRemoteSenderName, groupId, markVisibleMessagesRead, relayUrl, npub, scrollToBottomIfAppropriate, getNotificationPreviewText, onMediaMessagesChanged]);
 
   const handleSend = async () => {
     const text = draft.trim();
@@ -1638,6 +1684,14 @@ const showName =
       const localMessages = await getMessagesForGroup(groupId);
       forceNextAutoScrollRef.current = true;
       setMessages(localMessages);
+      if (hasGalleryMediaPayload({
+        media: uploadedMedia,
+        mediaUrl: primaryMedia.uri,
+        mediaType: primaryMedia.type,
+        imageUrl: primaryMedia.type === 'image' ? primaryMedia.uri : undefined,
+      })) {
+        onMediaMessagesChanged?.();
+      }
       setUploadStatus(null);
       setUploadingImage(false);
       forceScrollToBottom(true);
@@ -2098,6 +2152,9 @@ const showName =
 
               const next = await getMessagesForGroup(groupId);
               setMessages(next);
+              if (hasGalleryMediaPayload(message as GroupMessage)) {
+                onMediaMessagesChanged?.();
+              }
 
               if (nsec) {
                 const relayMessageId = message.id.startsWith('nostr_group_')

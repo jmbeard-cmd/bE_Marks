@@ -1996,7 +1996,7 @@ export default function MessagesScreen() {
                   </ScrollView>
 
                   <Text style={s.inputHelp}>
-                    Space type controls how this Space can organize Marks, Mantles, River views, and Legacy later.
+                    Space type controls how this Space can organize Marks, Mantle highlights, Legacy, and Books later.
                   </Text>
 
                   <Text style={s.inputHelp}>Category badge</Text>

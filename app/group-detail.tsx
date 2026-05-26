@@ -159,6 +159,18 @@ type LocalGalleryItem = {
   source: 'highlight';
 };
 
+type SpaceGalleryItem = {
+  id: string;
+  mediaUrl: string;
+  mediaType: 'image' | 'video';
+  thumbnailUrl?: string;
+  thumbnailUri?: string;
+  videoThumbnailUrl?: string;
+  previewUrl?: string;
+  createdAt?: number;
+  source?: 'local-chat' | 'chat' | 'highlight';
+};
+
 const GROUP_TYPE_ICONS: Record<string, string> = {
   softball: '🥎',
   baseball: '⚾',
@@ -292,6 +304,94 @@ async function saveHighlightMediaToLocalGallery(groupId: string, sticky: GroupSt
   return validItems;
 }
 
+function buildGalleryItemsFromMessages(messages: any[], source: 'local-chat' | 'chat'): SpaceGalleryItem[] {
+  return messages.flatMap(message => {
+    if (message.isDeleted) return [];
+
+    const mediaItems = Array.isArray(message.media)
+      ? message.media
+      : [];
+
+    if (mediaItems.length > 0) {
+      return mediaItems
+        .filter((item: any) => {
+          const mediaType = item.type || item.mediaType;
+          return !!item.uri && (mediaType === 'image' || mediaType === 'video');
+        })
+        .map((item: any, index: number) => {
+          const mediaType: 'image' | 'video' =
+            item.type === 'video' || item.mediaType === 'video' ? 'video' : 'image';
+
+          const stableId =
+            message.clientMessageId ||
+            message.id ||
+            `${source}_${index}_${item.uri}`;
+
+          return {
+            id: `chat_gallery_${stableId}_${item.id || index}_${item.uri}`,
+            mediaUrl: item.uri,
+            mediaType,
+            thumbnailUrl: item.thumbnailUrl || item.thumbnailUri || message.thumbnailUrl,
+            thumbnailUri: item.thumbnailUri,
+            createdAt: message.createdAt,
+            source,
+          };
+        });
+    }
+
+    const legacyUrl = message.mediaUrl || message.imageUrl;
+
+    if (!legacyUrl) return [];
+
+    const legacyType: 'image' | 'video' =
+      message.mediaType === 'video' ? 'video' : 'image';
+
+    const stableId =
+      message.clientMessageId ||
+      message.id ||
+      `${source}_${legacyUrl}`;
+
+    return [
+      {
+        id: `chat_gallery_${stableId}_${legacyUrl}`,
+        mediaUrl: legacyUrl,
+        mediaType: legacyType,
+        thumbnailUrl: message.thumbnailUrl,
+        createdAt: message.createdAt,
+        source,
+      },
+    ];
+  });
+}
+
+function mergeGalleryItems(items: SpaceGalleryItem[]): SpaceGalleryItem[] {
+  const galleryMap = new Map<string, SpaceGalleryItem>();
+
+  items.forEach(item => {
+    const key = item.mediaUrl || item.id;
+    const existing = galleryMap.get(key);
+
+    if (!existing) {
+      galleryMap.set(key, item);
+      return;
+    }
+
+    galleryMap.set(key, {
+      ...existing,
+      ...item,
+      thumbnailUrl: item.thumbnailUrl || existing.thumbnailUrl,
+      thumbnailUri: item.thumbnailUri || existing.thumbnailUri,
+      videoThumbnailUrl: item.videoThumbnailUrl || existing.videoThumbnailUrl,
+      previewUrl: item.previewUrl || existing.previewUrl,
+      createdAt: Math.max(existing.createdAt || 0, item.createdAt || 0),
+    });
+  });
+
+  return Array.from(galleryMap.values()).sort(
+    (a, b) => (b.createdAt || 0) - (a.createdAt || 0)
+  );
+}
+
 function getMilestoneMediaItems(mark: Milestone): MarkMedia[] {
   const mediaItems = Array.isArray(mark.media) ? [...mark.media] : [];
 
@@ -354,7 +454,8 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   const [stickies, setStickies] = useState<GroupSticky[]>([]);
   const [spaceMarkViews, setSpaceMarkViews] = useState<LivingMarkView[]>([]);
   const [livingSpaces, setLivingSpaces] = useState<LivingSpace[]>([]);
-  const [galleryItems, setGalleryItems] = useState<any[]>([]);
+  const [galleryItems, setGalleryItems] = useState<SpaceGalleryItem[]>([]);
+  const [chatMessageCount, setChatMessageCount] = useState(0);
   const [selectedGalleryImage, setSelectedGalleryImage] = useState<string | null>(null);
   const [activeViewerImages, setActiveViewerImages] = useState<ViewerImage[]>([]);
   const [tab, setTab] = useState<Tab>(
@@ -370,6 +471,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
     ? routeTab
     : 'overview'
 );
+  const tabRef = useRef<Tab>(tab);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isMember, setIsMember] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
@@ -640,90 +742,6 @@ const { id, tab: routeTab } = useLocalSearchParams<{
       console.warn('[Space Detail] failed to sync Living Space mirror:', error);
     }
 
-    const buildGalleryItemsFromMessages = (messages: any[], source: 'local-chat' | 'chat') => {
-      return messages.flatMap(message => {
-        if (message.isDeleted) return [];
-
-        const mediaItems = Array.isArray(message.media)
-          ? message.media
-          : [];
-
-        if (mediaItems.length > 0) {
-          return mediaItems
-            .filter((item: any) => {
-              const mediaType = item.type || item.mediaType;
-              return !!item.uri && (mediaType === 'image' || mediaType === 'video');
-            })
-            .map((item: any, index: number) => {
-              const mediaType: 'image' | 'video' =
-                item.type === 'video' || item.mediaType === 'video' ? 'video' : 'image';
-
-              const stableId =
-                message.clientMessageId ||
-                message.id ||
-                `${source}_${index}_${item.uri}`;
-
-              return {
-                id: `chat_gallery_${stableId}_${item.id || index}_${item.uri}`,
-                mediaUrl: item.uri,
-                mediaType,
-                thumbnailUrl: item.thumbnailUrl || item.thumbnailUri || message.thumbnailUrl,
-                createdAt: message.createdAt,
-                source,
-              };
-            });
-        }
-
-        const legacyUrl = message.mediaUrl || message.imageUrl;
-
-        if (!legacyUrl) return [];
-
-        const legacyType: 'image' | 'video' =
-          message.mediaType === 'video' ? 'video' : 'image';
-
-        const stableId =
-          message.clientMessageId ||
-          message.id ||
-          `${source}_${legacyUrl}`;
-
-        return [
-          {
-            id: `chat_gallery_${stableId}_${legacyUrl}`,
-            mediaUrl: legacyUrl,
-            mediaType: legacyType,
-            thumbnailUrl: message.thumbnailUrl,
-            createdAt: message.createdAt,
-            source,
-          },
-        ];
-      });
-    };
-
-    const mergeGalleryItems = (items: any[]) => {
-      const galleryMap = new Map<string, any>();
-
-      items.forEach(item => {
-        const key = item.mediaUrl || item.id;
-        const existing = galleryMap.get(key);
-
-        if (!existing) {
-          galleryMap.set(key, item);
-          return;
-        }
-
-        galleryMap.set(key, {
-          ...existing,
-          ...item,
-          thumbnailUrl: item.thumbnailUrl || existing.thumbnailUrl,
-          createdAt: Math.max(existing.createdAt || 0, item.createdAt || 0),
-        });
-      });
-
-      return Array.from(galleryMap.values()).sort(
-        (a, b) => b.createdAt - a.createdAt
-      );
-    };
-
     // FAST LOCAL LOAD FIRST
     try {
       const [localMembers, localStickies, upcoming, calendarEvents, localMessages, localGalleryItems] = await Promise.all([
@@ -737,6 +755,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
 
       setMembers(localMembers);
       setStickies(localStickies);
+      setChatMessageCount(localMessages.filter(message => !message.isDeleted).length);
       setUpcomingCount(upcoming.length);
       setCalendarEventTitles(buildCalendarEventTitleMap(calendarEvents));
 
@@ -873,11 +892,13 @@ const { id, tab: routeTab } = useLocalSearchParams<{
 
       try {
         const localMessages = await getMessagesForGroup(id);
+        setChatMessageCount(localMessages.filter(message => !message.isDeleted).length);
         const localChatMediaItems = buildGalleryItemsFromMessages(localMessages, 'local-chat');
 
         let relayChatMediaItems: any[] = [];
+        const shouldFetchRelayGallery = tabRef.current === 'gallery';
 
-        if (g.relayUrl) {
+        if (g.relayUrl && shouldFetchRelayGallery) {
           const [events, deleteEvents] = await Promise.all([
             fetchGroupMessages(id, g.relayUrl),
             fetchGroupMessageDeletes(id, g.relayUrl),
@@ -932,6 +953,27 @@ const { id, tab: routeTab } = useLocalSearchParams<{
     loadSpaceMarks,
     syncSpaceMarksFromRelay,
   ]);
+
+  const refreshLocalGalleryFromCache = useCallback(async () => {
+    if (!id) return;
+
+    try {
+      const [localMessages, localGalleryItems] = await Promise.all([
+        getMessagesForGroup(id),
+        readLocalGalleryItems(),
+      ]);
+      const localChatMediaItems = buildGalleryItemsFromMessages(localMessages, 'local-chat');
+      const savedHighlightItems = localGalleryItems.filter(item => item.groupId === id);
+
+      setChatMessageCount(localMessages.filter(message => !message.isDeleted).length);
+      setGalleryItems(mergeGalleryItems([
+        ...localChatMediaItems,
+        ...savedHighlightItems,
+      ]));
+    } catch (error) {
+      console.warn('[Gallery] local refresh failed:', error);
+    }
+  }, [id]);
 
   useEffect(() => {
     load();
@@ -989,6 +1031,16 @@ const { id, tab: routeTab } = useLocalSearchParams<{
     setTab(routeTab);
   }
 }, [routeTab]);
+
+  useEffect(() => {
+    tabRef.current = tab;
+  }, [tab]);
+
+  useEffect(() => {
+    if (tab === 'gallery') {
+      refreshLocalGalleryFromCache();
+    }
+  }, [tab, refreshLocalGalleryFromCache]);
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -2749,13 +2801,27 @@ const relaySettingsCard = (
               </Text>
             </View>
 
-            <View style={s.overviewFlowCard}>
-              <View style={s.overviewFlowHeader}>
+              <View style={s.overviewFlowCard}>
+                <View style={s.overviewFlowHeader}>
                 <Text style={s.overviewFlowKicker}>Space tools</Text>
-                <Text style={s.overviewFlowTitle}>Add Marks. Plan events. Feature. Preserve.</Text>
+                <Text style={s.overviewFlowTitle}>Talk now. Capture memories. Build the story.</Text>
               </View>
 
               <View style={s.overviewFlowGrid}>
+                <TouchableOpacity
+                  style={s.overviewFlowItem}
+                  onPress={() => selectSpaceTab('chat')}
+                  activeOpacity={0.86}
+                >
+                  <View style={s.overviewFlowIcon}>
+                    <Ionicons name="chatbubble-ellipses-outline" size={18} color={theme.textSecondary} />
+                  </View>
+                  <Text style={s.overviewFlowAction}>Talk</Text>
+                  <Text style={s.overviewFlowName}>Chat</Text>
+                  <Text style={s.overviewFlowHint}>Share updates, quick plans, and daily conversation inside this Space.</Text>
+                  <Text style={s.overviewFlowCount}>{chatMessageCount}</Text>
+                </TouchableOpacity>
+
                 <TouchableOpacity
                   style={s.overviewFlowItem}
                   onPress={() => openUnifiedMarkComposer('overview')}
@@ -2811,6 +2877,20 @@ const relaySettingsCard = (
                   <Text style={s.overviewFlowName}>Legacy</Text>
                   <Text style={s.overviewFlowHint}>Keep the important Marks for the season, year, or long-term story.</Text>
                   <Text style={s.overviewFlowCount}>{legacyMarkViews.length}</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={s.overviewFlowItem}
+                  onPress={() => selectSpaceTab('book')}
+                  activeOpacity={0.86}
+                >
+                  <View style={s.overviewFlowIcon}>
+                    <Ionicons name="book-outline" size={18} color={theme.textSecondary} />
+                  </View>
+                  <Text style={s.overviewFlowAction}>Print</Text>
+                  <Text style={s.overviewFlowName}>Book</Text>
+                  <Text style={s.overviewFlowHint}>Turn the best season, class, family, or group memories into a lasting book.</Text>
+                  <Text style={s.overviewFlowCount}>{group.bookEnabled === true ? 'On' : legacyMarkViews.length}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -2899,7 +2979,11 @@ const relaySettingsCard = (
 
       {tab === 'chat' && (
         <View style={s.spaceTabPanel}>
-          <GroupChatPanel groupId={group.id} variant="inline" />
+          <GroupChatPanel
+            groupId={group.id}
+            variant="inline"
+            onMediaMessagesChanged={refreshLocalGalleryFromCache}
+          />
         </View>
       )}
 
@@ -3303,6 +3387,10 @@ const relaySettingsCard = (
           keyExtractor={(item) => item.id}
           numColumns={3}
           contentContainerStyle={s.galleryGrid}
+          initialNumToRender={12}
+          maxToRenderPerBatch={9}
+          windowSize={5}
+          removeClippedSubviews={Platform.OS === 'android'}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -3316,6 +3404,7 @@ const relaySettingsCard = (
               item.thumbnailUri ||
               item.videoThumbnailUrl ||
               item.previewUrl;
+            const tileImageUrl = tileThumbnailUrl || item.mediaUrl;
 
             return (
               <View style={s.galleryTileWrap}>
@@ -3347,7 +3436,7 @@ const relaySettingsCard = (
                   </View>
                 ) : (
                   <Image
-                    source={{ uri: item.mediaUrl }}
+                    source={{ uri: tileImageUrl }}
                     style={s.galleryTileImage}
                     resizeMode="cover"
                   />

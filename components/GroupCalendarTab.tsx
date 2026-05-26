@@ -1122,7 +1122,7 @@ export default function GroupCalendarTab({
           </View>
 
           <Text style={s.calendarHeroText}>
-            Games, meetings, fundraisers, banquets, and key dates become the structure for Marks, Mantle, River, and Legacy.
+            Games, meetings, fundraisers, banquets, and key dates become the structure for Marks, Mantle, Legacy, and Books.
           </Text>
 
           <View style={s.calendarStatsRow}>
@@ -1869,7 +1869,7 @@ function EventCard({
         {expanded && !!event.legacyEligible && (
           <Text style={s.legacyHint}>
             {linkedMarkCount > 0
-              ? `${linkedMarkCount} ${linkedMarkCount === 1 ? 'Mark is' : 'Marks are'} linked to this event for future River and Legacy collections.`
+              ? `${linkedMarkCount} ${linkedMarkCount === 1 ? 'Mark is' : 'Marks are'} linked to this event for future Legacy and Book collections.`
               : 'This event can help organize Marks into a future Legacy collection.'}
           </Text>
         )}

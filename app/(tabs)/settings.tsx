@@ -1,6 +1,7 @@
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import * as SecureStore from 'expo-secure-store';
+import { router } from 'expo-router';
 import { nip19 } from 'nostr-tools';
 import { useEffect, useState } from 'react';
 import {
@@ -351,7 +352,7 @@ useEffect(() => {
     });
 
     setEditingFamilyRelay(false);
-    Alert.alert('Saved', 'Family Timeline Relay settings updated.');
+    Alert.alert('Saved', 'Family Space Relay settings updated.');
   };
 
   const handleBackupKey = () => {
@@ -558,7 +559,7 @@ const handleJoinFamily = async () => {
 };
 
   const handleLeaveFamily = () => {
-    Alert.alert('Leave family', 'You will no longer see shared family milestones.', [
+    Alert.alert('Leave family', 'You will no longer see this family Space.', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Leave', style: 'destructive', onPress: () => setFamily(null) },
     ]);
@@ -580,14 +581,40 @@ const handleJoinFamily = async () => {
               resizeMode="contain"
             />
             <View>
-              <Text style={[s.appName, { color: theme.text }]}>Marks</Text>
-              <Text style={[s.tagline, { color: theme.gold }]}>by beginning End</Text>
+              <Text style={[s.appName, { color: theme.text }]}>bE Marks</Text>
+              <Text style={[s.tagline, { color: theme.gold }]}>Spaces, Marks, Books</Text>
             </View>
           </View>
 
           {/* ── IDENTITY ── */}
           <View style={s.section}>
-            <Text style={[s.sectionLabel, { color: theme.textMuted }]}>IDENTITY</Text>
+            <Text style={[s.sectionLabel, { color: theme.textMuted }]}>SPACES</Text>
+
+            <View style={[s.spaceCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <Text style={[s.spaceCardTitle, { color: theme.text }]}>Spaces first</Text>
+              <Text style={[s.spaceCardHint, { color: theme.textMuted }]}>
+                The app opens to Spaces for family, teams, classes, and groups.
+              </Text>
+
+              <View style={[s.spaceCardRow, { borderBottomColor: theme.border }]}>
+                <Text style={[s.rowLabel, { color: theme.textSecondary }]}>Default landing</Text>
+                <Text style={[s.rowValue, { color: theme.gold }]}>Spaces</Text>
+              </View>
+
+              <TouchableOpacity
+                style={[s.spaceCardRow, { borderBottomColor: theme.border }]}
+                onPress={() => router.push('/(tabs)/timeline')}
+                activeOpacity={0.85}
+              >
+                <View style={{ flex: 1, paddingRight: 14 }}>
+                  <Text style={[s.rowLabel, { color: theme.textSecondary }]}>Personal timeline</Text>
+                  <Text style={[s.rowHint, { color: theme.textMuted }]}>Your individual Marks view.</Text>
+                </View>
+                <Text style={[s.rowValue, { color: theme.gold }]}>Open</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={[s.sectionLabel, { color: theme.textMuted, marginTop: 24 }]}>IDENTITY</Text>
 
             <View style={[s.profileCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
               {avatarUri ? (
@@ -870,7 +897,7 @@ const handleJoinFamily = async () => {
 
                     {/* ── FAMILY ── */}
           <View style={s.section}>
-            <Text style={[s.sectionLabel, { color: theme.textMuted }]}>FAMILY</Text>
+            <Text style={[s.sectionLabel, { color: theme.textMuted }]}>FAMILY SPACE</Text>
 
             {family ? (
               <>
@@ -893,7 +920,7 @@ const handleJoinFamily = async () => {
 >
                   <View style={s.familyRelayHeader}>
                     <View style={{ flex: 1 }}>
-                      <Text style={[s.familyRelayTitle, { color: theme.text }]}>Family Timeline Relay</Text>
+                      <Text style={[s.familyRelayTitle, { color: theme.text }]}>Family Space Relay</Text>
                       <Text style={[s.familyRelayHint, { color: theme.textMuted }]}>
                         Choose where family-only Marks are saved and synced.
                       </Text>
@@ -933,11 +960,11 @@ const handleJoinFamily = async () => {
   style={[
     s.familyRelayOption,
     { backgroundColor: theme.surface, borderColor: theme.border },
-    familyRelayMode === 'custom' && {
+    familyRelayMode === 'default' && {
       borderColor: theme.gold,
     },
   ]}
-  onPress={() => setFamilyRelayMode('custom')}
+  onPress={() => setFamilyRelayMode('default')}
                         activeOpacity={0.85}
                       >
                         <Text style={[s.familyRelayOptionTitle, { color: theme.text }]}>bE Relay</Text>
@@ -950,7 +977,7 @@ const handleJoinFamily = async () => {
   style={[
     s.familyRelayOption,
     { backgroundColor: theme.surface, borderColor: theme.border },
-    familyRelayMode === 'default' && {
+    familyRelayMode === 'custom' && {
       borderColor: theme.gold,
     },
   ]}
@@ -1050,7 +1077,7 @@ borderColor: '#7a1a1a',
     Create a family
   </Text>
   <Text style={[s.familyBtnHint, { color: theme.textMuted }]}>
-    Start a shared timeline
+    Start a family Space
   </Text>
 </View>
   </TouchableOpacity>
@@ -1261,6 +1288,29 @@ sectionLabel: {
   fontWeight: '600',
   letterSpacing: 1,
   marginBottom: 10,
+},
+spaceCard: {
+  borderWidth: 0.5,
+  borderRadius: 14,
+  padding: 14,
+  marginBottom: 10,
+},
+spaceCardTitle: {
+  fontSize: 18,
+  fontWeight: '800',
+  marginBottom: 4,
+},
+spaceCardHint: {
+  fontSize: 12,
+  lineHeight: 17,
+  marginBottom: 8,
+},
+spaceCardRow: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  paddingVertical: 12,
+  borderBottomWidth: 0.5,
 },
 rowLabel: {
   fontSize: 14,
