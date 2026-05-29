@@ -22,9 +22,13 @@ export type CollageMediaItem = {
   mediaType?: 'image' | 'video' | 'audio' | string;
 };
 
+type MediaFitMode = 'smart' | 'cover';
+
 type Props = {
   media: CollageMediaItem[];
   audioUri?: string;
+  fitMode?: MediaFitMode;
+  fixedHeight?: number;
   onPressMedia?: (index: number) => void;
 };
 
@@ -145,16 +149,20 @@ function MediaPreviewImage({
   type,
   aspectRatio,
   frameAspectRatio,
+  fitMode,
   s,
 }: {
   uri: string | null;
   type: 'image' | 'video';
   aspectRatio?: number;
   frameAspectRatio?: number;
+  fitMode: MediaFitMode;
   s: ReturnType<typeof createStyles>;
 }) {
   const [failed, setFailed] = useState(false);
-  const resizeMode = getSmartResizeMode(aspectRatio, frameAspectRatio);
+  const resizeMode = fitMode === 'cover'
+    ? 'cover'
+    : getSmartResizeMode(aspectRatio, frameAspectRatio);
 
   if (!uri || failed) {
     return (
@@ -180,6 +188,8 @@ function MediaPreviewImage({
 export default function MediaCollage({
   media,
   audioUri,
+  fitMode = 'smart',
+  fixedHeight,
   onPressMedia,
 }: Props) {
   const { theme } = useIdentity();
@@ -281,7 +291,7 @@ export default function MediaCollage({
     };
   }, [mediaAspectRatios, visualItems]);
 
-  const mediaHeight = getStableCarouselMediaHeight(
+  const mediaHeight = fixedHeight ?? getStableCarouselMediaHeight(
     carouselWidth,
     visualItems,
     mediaAspectRatios
@@ -348,6 +358,7 @@ export default function MediaCollage({
                 type={type === 'video' ? 'video' : 'image'}
                 aspectRatio={aspectRatio}
                 frameAspectRatio={frameAspectRatio}
+                fitMode={fitMode}
                 s={s}
               />
             </TouchableOpacity>

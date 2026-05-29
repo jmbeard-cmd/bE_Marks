@@ -3265,6 +3265,8 @@ const relaySettingsCard = (
                     <View style={s.spaceMarkMediaFrame}>
                       <MediaCollage
                         media={markMedia}
+                        fitMode="cover"
+                        fixedHeight={460}
                         onPressMedia={(index) => openViewerForMilestone(mark, index)}
                       />
                     </View>
