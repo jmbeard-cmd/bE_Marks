@@ -3262,7 +3262,12 @@ const relaySettingsCard = (
                   )}
 
                   {markText.body ? (
-                    <Text style={s.spaceMarkBody}>{markText.body}</Text>
+                    <Text
+                      style={s.spaceMarkBody}
+                      numberOfLines={markMedia.length > 0 ? 2 : 4}
+                    >
+                      {markText.body}
+                    </Text>
                   ) : null}
 
                   {markMedia.length > 0 && (
@@ -3272,81 +3277,39 @@ const relaySettingsCard = (
                     />
                   )}
 
-                  {(markPeople.length > 0 || contextLabels.length > 0) && (
-                    <View style={s.markTagRow}>
-                      {markPeople.slice(0, 4).map(person => (
-                        <View
-                          key={`${mark.id}_${person.id || person.npub || person.displayName}`}
-                          style={[s.markPersonMiniChip, isLiftUpMark && s.markPersonMiniChipLiftUp]}
-                        >
-                          <Text style={[s.markPersonMiniText, isLiftUpMark && s.markPersonMiniTextLiftUp]}>
-                            {isLiftUpMark ? `For: ${getPersonDisplayName(person)}` : getPersonDisplayName(person)}
-                          </Text>
-                        </View>
-                      ))}
+                  {(() => {
+                    const allTagLabels = Array.from(new Set([
+                      ...markPeople.map(person =>
+                        isLiftUpMark
+                          ? `For: ${getPersonDisplayName(person)}`
+                          : getPersonDisplayName(person)
+                      ),
+                      ...contextLabels,
+                      ...permissionLabels.map(permission => permission.label),
+                      ...mark.tags,
+                    ]
+                      .map(label => label?.trim())
+                      .filter(Boolean)));
 
-                      {contextLabels.map(label => (
-                        <View key={`${mark.id}_${label}`} style={s.markContextMiniChip}>
-                          <Text style={s.markContextMiniText}>{label}</Text>
-                        </View>
-                      ))}
-                    </View>
-                  )}
+                    if (allTagLabels.length === 0) return null;
 
-                  {permissionLabels.length > 0 && (
-                    <View style={s.markTagRow}>
-                      {permissionLabels.map(permission => (
-                        <View
-                          key={`${mark.id}_${permission.label}`}
-                          style={[
-                            s.markPermissionMiniChip,
-                            {
-                              borderColor:
-                                permission.tone === 'danger'
-                                  ? theme.danger
-                                  : permission.tone === 'gold'
-                                    ? theme.gold
-                                    : theme.border,
-                              backgroundColor:
-                                permission.tone === 'danger'
-                                  ? theme.danger
-                                  : permission.tone === 'gold'
-                                    ? theme.goldLight
-                                    : theme.raised,
-                            },
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              s.markPermissionMiniText,
-                              {
-                                color:
-                                  permission.tone === 'danger'
-                                    ? theme.bg
-                                    : permission.tone === 'gold'
-                                      ? theme.gold
-                                      : theme.textSecondary,
-                              },
-                            ]}
-                          >
-                            {permission.label}
-                          </Text>
-                        </View>
-                      ))}
-                    </View>
-                  )}
+                    const visibleLabels = allTagLabels.slice(0, 2);
+                    const hiddenCount = Math.max(0, allTagLabels.length - visibleLabels.length);
 
-                  {mark.tags.length > 0 && (
-                    <View style={s.markTagRow}>
-                      {mark.tags.map(tag => (
-                        <View key={`${mark.id}_${tag}`} style={s.markTag}>
-                          <Text style={s.markTagText}>{tag}</Text>
-                        </View>
-                      ))}
-                    </View>
-                  )}
+                    return (
+                      <View style={s.spaceMarkTagSummaryRow}>
+                        <Text style={s.spaceMarkTagSummaryText} numberOfLines={1}>
+                          {visibleLabels.join(' · ')}
+                        </Text>
 
-                  <Text style={s.spaceMarkOpenHint}>Open Mark Detail</Text>
+                        {hiddenCount > 0 && (
+                          <View style={s.spaceMarkTagSummaryBadge}>
+                            <Text style={s.spaceMarkTagSummaryBadgeText}>+{hiddenCount}</Text>
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })()}
                 </TouchableOpacity>
               );
             }}
@@ -4765,6 +4728,32 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
   liftUpCueText: {
     color: theme.text,
     fontSize: 13,
+    fontWeight: '900',
+  },
+    spaceMarkTagSummaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 10,
+    minHeight: 28,
+  },
+  spaceMarkTagSummaryText: {
+    flex: 1,
+    color: theme.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  spaceMarkTagSummaryBadge: {
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    backgroundColor: theme.raised,
+  },
+  spaceMarkTagSummaryBadgeText: {
+    color: theme.gold,
+    fontSize: 12,
     fontWeight: '900',
   },
   markTagRow: {
