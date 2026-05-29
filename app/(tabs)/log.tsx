@@ -532,7 +532,7 @@ export default function LogScreen() {
       return;
     }
 
-    router.replace('/(tabs)/timeline' as any);
+    router.replace('/(tabs)/messages' as any);
   }, [returnGroupId, returnToGroupTab, router]);
 
   useEffect(() => {

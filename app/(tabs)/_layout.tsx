@@ -80,7 +80,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="timeline"
         options={{
-          title: 'Timeline',
+          title: 'Profile',
           tabBarIcon: ({ color }) => <TimelineIcon color={color} />,
           href: null,
         }}

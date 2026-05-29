@@ -65,7 +65,7 @@ return (
               authorNpub: npub || undefined,
             });
 
-            router.replace('/(tabs)/timeline');
+            router.replace('/(tabs)/messages');
           }}
           style={({ pressed }) => [
             s.primaryBtn,
@@ -78,7 +78,7 @@ return (
         </Pressable>
 
         <Pressable
-          onPress={() => router.replace('/(tabs)/timeline')}
+          onPress={() => router.replace('/(tabs)/messages')}
           style={({ pressed }) => [s.skip, pressed && s.pressed]}
         >
           <Text style={s.skipText}>Skip for now</Text>

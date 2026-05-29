@@ -607,8 +607,8 @@ const handleJoinFamily = async () => {
                 activeOpacity={0.85}
               >
                 <View style={{ flex: 1, paddingRight: 14 }}>
-                  <Text style={[s.rowLabel, { color: theme.textSecondary }]}>Personal timeline</Text>
-                  <Text style={[s.rowHint, { color: theme.textMuted }]}>Your individual Marks view.</Text>
+                  <Text style={[s.rowLabel, { color: theme.textSecondary }]}>Personal profile</Text>
+                  <Text style={[s.rowHint, { color: theme.textMuted }]}>Your individual Marks and profile view.</Text>
                 </View>
                 <Text style={[s.rowValue, { color: theme.gold }]}>Open</Text>
               </TouchableOpacity>
