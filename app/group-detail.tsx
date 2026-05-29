@@ -3221,102 +3221,160 @@ const relaySettingsCard = (
                   : null,
                 view.metadata.markPermissions.privateSpaceOnly ? { label: 'Private Space', tone: 'neutral' as const } : null,
               ].filter(Boolean) as { label: string; tone: 'danger' | 'gold' | 'neutral' }[];
+              const markDateLabel = formatStickyDate(mark.createdAt);
+              const markScopeLabel = view.metadata.privacy === 'space'
+                ? 'Space'
+                : view.metadata.privacy;
+
               const markMeta = [
                 `Logged by ${authorProfile.displayName}`,
-                formatStickyDate(mark.createdAt),
-                view.metadata.privacy === 'space' ? 'Space' : view.metadata.privacy,
+                markDateLabel,
+                markScopeLabel,
               ].filter(Boolean).join(' - ');
+
+              const allTagLabels = Array.from(new Set(
+                [
+                  ...markPeople.map(person =>
+                    isLiftUpMark
+                      ? `For: ${getPersonDisplayName(person)}`
+                      : getPersonDisplayName(person)
+                  ),
+                  ...contextLabels,
+                  ...permissionLabels.map(permission => permission.label),
+                  ...mark.tags,
+                ]
+                  .map(label => label?.trim())
+                  .filter((label): label is string => !!label)
+              ));
+
+              const visibleTagLabels = allTagLabels.slice(0, 2);
+              const hiddenTagCount = Math.max(0, allTagLabels.length - visibleTagLabels.length);
 
               return (
                 <TouchableOpacity
-                  style={s.spaceMarkCard}
-                  onPress={() => openMarkDetail(mark.id)}
+                  style={[
+                    s.spaceMarkCard,
+                    markMedia.length > 0 && s.spaceMarkCardImmersive,
+                  ]}
+                  onPress={markMedia.length > 0 ? undefined : () => openMarkDetail(mark.id)}
                   activeOpacity={0.86}
                 >
-                  <View style={s.spaceMarkCardTop}>
-                    <View style={s.spaceMarkAvatar}>
-                      {authorProfile.avatarUrl ? (
-                        <Image source={{ uri: authorProfile.avatarUrl }} style={s.spaceMarkAvatarImage} />
-                      ) : (
-                        <Text style={s.spaceMarkAvatarText}>{authorProfile.initials}</Text>
-                      )}
-                    </View>
-
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <Text style={s.spaceMarkTitle} numberOfLines={2}>{markText.title}</Text>
-                      <Text style={s.spaceMarkMeta} numberOfLines={1}>{markMeta}</Text>
-                    </View>
-
-                    <Text style={[s.spaceMarkBadge, isLiftUpMark && s.spaceMarkBadgeLiftUp]}>
-                      {isLiftUpMark ? 'Lift Up' : 'Mark'}
-                    </Text>
-                  </View>
-
-                  {isLiftUpMark && (
-                    <View style={s.liftUpCue}>
-                      <Text style={s.liftUpCueLabel}>Lifting up</Text>
-                      <Text style={s.liftUpCueText} numberOfLines={1}>
-                        {markPeopleLabel || 'Someone worth noticing'}
-                      </Text>
-                    </View>
-                  )}
-
-                  {markMedia.length > 0 && (
-                    <View style={s.spaceMarkMediaFrame}>
+                  {markMedia.length > 0 ? (
+                    <View style={s.spaceMarkImmersiveMediaFrame}>
                       <MediaCollage
                         media={markMedia}
                         fitMode="cover"
                         fixedHeight={460}
                         onPressMedia={(index) => openViewerForMilestone(mark, index)}
                       />
-                    </View>
-                  )}
 
-                  {markText.body ? (
-                    <Text
-                      style={[
-                        s.spaceMarkBody,
-                        markMedia.length > 0 && s.spaceMarkBodyAfterMedia,
-                      ]}
-                      numberOfLines={markMedia.length > 0 ? 2 : 4}
-                    >
-                      {markText.body}
-                    </Text>
-                  ) : null}
+                      <View pointerEvents="none" style={s.spaceMarkOverlayTop}>
+                        <View style={s.spaceMarkOverlayAuthor}>
+                          <View style={s.spaceMarkOverlayAvatar}>
+                            {authorProfile.avatarUrl ? (
+                              <Image source={{ uri: authorProfile.avatarUrl }} style={s.spaceMarkOverlayAvatarImage} />
+                            ) : (
+                              <Text style={s.spaceMarkOverlayAvatarText}>{authorProfile.initials}</Text>
+                            )}
+                          </View>
 
-                  {(() => {
-                    const allTagLabels = Array.from(new Set([
-                      ...markPeople.map(person =>
-                        isLiftUpMark
-                          ? `For: ${getPersonDisplayName(person)}`
-                          : getPersonDisplayName(person)
-                      ),
-                      ...contextLabels,
-                      ...permissionLabels.map(permission => permission.label),
-                      ...mark.tags,
-                    ]
-                      .map(label => label?.trim())
-                      .filter(Boolean)));
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            <Text style={s.spaceMarkOverlayAuthorName} numberOfLines={1}>
+                              {authorProfile.displayName}
+                            </Text>
+                            <Text style={s.spaceMarkOverlayMeta} numberOfLines={1}>
+                              {markDateLabel}
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
 
-                    if (allTagLabels.length === 0) return null;
-
-                    const visibleLabels = allTagLabels.slice(0, 2);
-                    const hiddenCount = Math.max(0, allTagLabels.length - visibleLabels.length);
-
-                    return (
-                      <View style={s.spaceMarkTagSummaryRow}>
-                        <Text style={s.spaceMarkTagSummaryText} numberOfLines={1}>
-                          {visibleLabels.join(' · ')}
+                      <TouchableOpacity
+                        style={s.spaceMarkOverlayBottom}
+                        onPress={() => openMarkDetail(mark.id)}
+                        activeOpacity={0.9}
+                      >
+                        <Text style={s.spaceMarkOverlayTitle} numberOfLines={2}>
+                          {markText.title}
                         </Text>
 
-                        {hiddenCount > 0 && (
-                          <View style={s.spaceMarkTagSummaryBadge}>
-                            <Text style={s.spaceMarkTagSummaryBadgeText}>+{hiddenCount}</Text>
+                        {markText.body ? (
+                          <Text style={s.spaceMarkOverlayBody} numberOfLines={1}>
+                            {markText.body}
+                          </Text>
+                        ) : null}
+
+                        {(allTagLabels.length > 0 || isLiftUpMark) && (
+                          <View style={s.spaceMarkOverlayTagRow}>
+                            <Text style={s.spaceMarkOverlayTagText} numberOfLines={1}>
+                              {isLiftUpMark
+                                ? `Lift Up ${markPeopleLabel || 'someone'}`
+                                : visibleTagLabels.join(' · ')}
+                            </Text>
+
+                            {!isLiftUpMark && hiddenTagCount > 0 && (
+                              <View style={s.spaceMarkOverlayTagBadge}>
+                                <Text style={s.spaceMarkOverlayTagBadgeText}>+{hiddenTagCount}</Text>
+                              </View>
+                            )}
                           </View>
                         )}
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <>
+                      <View style={s.spaceMarkCardTop}>
+                        <View style={s.spaceMarkAvatar}>
+                          {authorProfile.avatarUrl ? (
+                            <Image source={{ uri: authorProfile.avatarUrl }} style={s.spaceMarkAvatarImage} />
+                          ) : (
+                            <Text style={s.spaceMarkAvatarText}>{authorProfile.initials}</Text>
+                          )}
+                        </View>
+
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          <Text style={s.spaceMarkTitle} numberOfLines={2}>{markText.title}</Text>
+                          <Text style={s.spaceMarkMeta} numberOfLines={1}>{markMeta}</Text>
+                        </View>
+
+                        <Text style={[s.spaceMarkBadge, isLiftUpMark && s.spaceMarkBadgeLiftUp]}>
+                          {isLiftUpMark ? 'Lift Up' : 'Mark'}
+                        </Text>
                       </View>
-                    );
-                  })()}
+
+                      {isLiftUpMark && (
+                        <View style={s.liftUpCue}>
+                          <Text style={s.liftUpCueLabel}>Lifting up</Text>
+                          <Text style={s.liftUpCueText} numberOfLines={1}>
+                            {markPeopleLabel || 'Someone worth noticing'}
+                          </Text>
+                        </View>
+                      )}
+
+                      {markText.body ? (
+                        <Text
+                          style={s.spaceMarkBody}
+                          numberOfLines={4}
+                        >
+                          {markText.body}
+                        </Text>
+                      ) : null}
+
+                      {allTagLabels.length > 0 && (
+                        <View style={s.spaceMarkTagSummaryRow}>
+                          <Text style={s.spaceMarkTagSummaryText} numberOfLines={1}>
+                            {visibleTagLabels.join(' · ')}
+                          </Text>
+
+                          {hiddenTagCount > 0 && (
+                            <View style={s.spaceMarkTagSummaryBadge}>
+                              <Text style={s.spaceMarkTagSummaryBadgeText}>+{hiddenTagCount}</Text>
+                            </View>
+                          )}
+                        </View>
+                      )}
+                    </>
+                  )}
                 </TouchableOpacity>
               );
             }}
@@ -4517,6 +4575,142 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     borderRadius: 16,
     padding: 14,
     marginBottom: 12,
+  },
+    spaceMarkCardImmersive: {
+    padding: 0,
+    overflow: 'hidden',
+    backgroundColor: '#000',
+  },
+  spaceMarkImmersiveMediaFrame: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: '#000',
+    position: 'relative',
+  },
+  spaceMarkOverlayTop: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    zIndex: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  spaceMarkOverlayAuthor: {
+    maxWidth: 156,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    borderRadius: 999,
+    paddingHorizontal: 7,
+    paddingVertical: 5,
+    backgroundColor: 'rgba(0,0,0,0.30)',
+  },
+  spaceMarkOverlayAvatar: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(255,255,255,0.28)',
+    overflow: 'hidden',
+  },
+  spaceMarkOverlayAvatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 13,
+  },
+  spaceMarkOverlayAvatarText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  spaceMarkOverlayAuthorName: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  spaceMarkOverlayMeta: {
+    color: 'rgba(255,255,255,0.68)',
+    fontSize: 9,
+    fontWeight: '700',
+    marginTop: 1,
+  },
+  spaceMarkOverlayBadge: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '900',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.58)',
+    overflow: 'hidden',
+  },
+  spaceMarkOverlayBadgeLiftUp: {
+    color: theme.bg,
+    backgroundColor: theme.gold,
+  },
+  spaceMarkOverlayBottom: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 5,
+    paddingHorizontal: 13,
+    paddingTop: 10,
+    paddingBottom: 10,
+    backgroundColor: 'rgba(0,0,0,0.30)',
+  },
+    spaceMarkOverlayLiftUpBadge: {
+    alignSelf: 'flex-start',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    marginBottom: 7,
+    backgroundColor: theme.gold,
+  },
+  spaceMarkOverlayLiftUpText: {
+    color: theme.bg,
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  spaceMarkOverlayTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '900',
+    lineHeight: 21,
+    letterSpacing: -0.2,
+  },
+  spaceMarkOverlayBody: {
+    color: 'rgba(255,255,255,0.78)',
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 16,
+    marginTop: 2,
+  },
+  spaceMarkOverlayTagRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 5,
+  },
+  spaceMarkOverlayTagText: {
+    flex: 1,
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  spaceMarkOverlayTagBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  spaceMarkOverlayTagBadgeText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '900',
   },
   spaceMarkCardTop: {
     flexDirection: 'row',
@@ -6308,24 +6502,24 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
   },
   spaceMarkFab: {
     position: 'absolute',
-    right: 18,
-    bottom: 18,
-    width: 58,
-    height: 58,
-    borderRadius: 29,
+    right: 20,
+    bottom: 78,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     backgroundColor: theme.gold,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: theme.gold,
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.28,
+    shadowRadius: 8,
+    elevation: 7,
   },
   spaceMarkFabText: {
     color: theme.bg,
-    fontSize: 34,
+    fontSize: 30,
     fontWeight: '300',
-    lineHeight: 36,
+    lineHeight: 32,
   },
 });
