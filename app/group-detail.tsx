@@ -3261,21 +3261,26 @@ const relaySettingsCard = (
                     </View>
                   )}
 
+                  {markMedia.length > 0 && (
+                    <View style={s.spaceMarkMediaFrame}>
+                      <MediaCollage
+                        media={markMedia}
+                        onPressMedia={(index) => openViewerForMilestone(mark, index)}
+                      />
+                    </View>
+                  )}
+
                   {markText.body ? (
                     <Text
-                      style={s.spaceMarkBody}
+                      style={[
+                        s.spaceMarkBody,
+                        markMedia.length > 0 && s.spaceMarkBodyAfterMedia,
+                      ]}
                       numberOfLines={markMedia.length > 0 ? 2 : 4}
                     >
                       {markText.body}
                     </Text>
                   ) : null}
-
-                  {markMedia.length > 0 && (
-                    <MediaCollage
-                      media={markMedia}
-                      onPressMedia={(index) => openViewerForMilestone(mark, index)}
-                    />
-                  )}
 
                   {(() => {
                     const allTagLabels = Array.from(new Set([
@@ -4554,6 +4559,16 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     color: theme.text,
     fontSize: 14,
     lineHeight: 21,
+  },
+    spaceMarkBodyAfterMedia: {
+    marginTop: 10,
+  },
+  spaceMarkMediaFrame: {
+    borderRadius: 14,
+    overflow: 'hidden',
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.border,
   },
   spaceMarkOpenHint: {
     color: theme.gold,
