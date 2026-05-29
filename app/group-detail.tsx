@@ -535,7 +535,26 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   const [calendarEventTitles, setCalendarEventTitles] = useState<Record<string, string>>({});
   const [selectedMemberAction, setSelectedMemberAction] = useState<BEGroupMember | null>(null);
   const [favoriteSpaceIds, setFavoriteSpaceIds] = useState<string[]>([]);
+  const [activeSpaceVideoMarkId, setActiveSpaceVideoMarkId] = useState<string | null>(null);
   const groupDetailLoadRunIdRef = useRef(0);
+
+  const spaceMarksViewabilityConfigRef = useRef({
+    itemVisiblePercentThreshold: 70,
+    minimumViewTime: 250,
+  });
+
+  const spaceMarksViewabilityRef = useRef((info: { viewableItems: Array<{ item: any }> }) => {
+    const firstVisibleVideoMark = info.viewableItems.find(viewable => {
+      if (viewable.item?.itemType !== 'mark') return false;
+
+      const mark = viewable.item.view?.milestone as Milestone | undefined;
+      if (!mark) return false;
+
+      return getMilestoneMediaItems(mark).some(media => media.type === 'video');
+    });
+
+    setActiveSpaceVideoMarkId(firstVisibleVideoMark?.item?.id ?? null);
+  });
 
   const myDisplayName = useMemo(() => {
     return (
@@ -3127,6 +3146,8 @@ const relaySettingsCard = (
             maxToRenderPerBatch={4}
             windowSize={5}
             removeClippedSubviews={Platform.OS === 'android'}
+            viewabilityConfig={spaceMarksViewabilityConfigRef.current}
+            onViewableItemsChanged={spaceMarksViewabilityRef.current}
             ListHeaderComponent={
               group.status === 'archived' ? (
                 <View style={s.archivedBanner}>
@@ -3290,6 +3311,14 @@ const relaySettingsCard = (
                         media={markMedia}
                         fitMode="cover"
                         fixedHeight={460}
+                        autoPlayVideos
+                        playVideos={
+                          tab === 'stickies' &&
+                          !selectedGalleryImage &&
+                          activeSpaceVideoMarkId === mark.id
+                        }
+                        videoMuted
+                        videoLoop
                         onPressMedia={(index) => openViewerForMilestone(mark, index)}
                       />
 

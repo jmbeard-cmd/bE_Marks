@@ -1,3 +1,4 @@
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
@@ -29,6 +30,10 @@ type Props = {
   audioUri?: string;
   fitMode?: MediaFitMode;
   fixedHeight?: number;
+  autoPlayVideos?: boolean;
+  playVideos?: boolean;
+  videoMuted?: boolean;
+  videoLoop?: boolean;
   onPressMedia?: (index: number) => void;
 };
 
@@ -185,11 +190,81 @@ function MediaPreviewImage({
   );
 }
 
+function MediaPreviewVideo({
+  uri,
+  thumbnailUri,
+  fitMode,
+  shouldPlay,
+  muted,
+  loop,
+  s,
+}: {
+  uri: string;
+  thumbnailUri: string | null;
+  fitMode: MediaFitMode;
+  shouldPlay: boolean;
+  muted: boolean;
+  loop: boolean;
+  s: ReturnType<typeof createStyles>;
+}) {
+  const [ready, setReady] = useState(false);
+  const contentFit: 'cover' | 'contain' = fitMode === 'cover' ? 'cover' : 'contain';
+
+  useEffect(() => {
+    setReady(false);
+  }, [uri]);
+
+  const player = useVideoPlayer({ uri }, p => {
+    p.loop = loop;
+    (p as any).muted = muted;
+  });
+
+  useEffect(() => {
+    player.loop = loop;
+    (player as any).muted = muted;
+
+    if (shouldPlay) {
+      player.play();
+    }
+  }, [player, shouldPlay, muted, loop]);
+
+  return (
+    <View style={s.imageStage}>
+      {!!thumbnailUri && !ready && (
+        <Image
+          source={{ uri: thumbnailUri }}
+          style={s.image}
+          resizeMode={contentFit}
+        />
+      )}
+
+      {!thumbnailUri && !ready && (
+        <View style={s.fallback}>
+          <Text style={s.fallbackIcon}>▶</Text>
+          <Text style={s.fallbackText}>Loading video</Text>
+        </View>
+      )}
+
+      <VideoView
+        player={player}
+        style={[s.image, !ready && { opacity: 0 }]}
+        contentFit={contentFit}
+        nativeControls={false}
+        onFirstFrameRender={() => setReady(true)}
+      />
+    </View>
+  );
+}
+
 export default function MediaCollage({
   media,
   audioUri,
   fitMode = 'smart',
   fixedHeight,
+  autoPlayVideos = false,
+  playVideos = true,
+  videoMuted = true,
+  videoLoop = true,
   onPressMedia,
 }: Props) {
   const { theme } = useIdentity();
@@ -347,20 +422,40 @@ export default function MediaCollage({
               ? carouselWidth / mediaHeight
               : undefined;
 
+          const mediaUri = getMediaUrl(item);
+          const shouldAutoPlayVideo =
+            autoPlayVideos &&
+            playVideos &&
+            type === 'video' &&
+            index === activeIndex &&
+            !!mediaUri;
+
           return (
             <TouchableOpacity
               activeOpacity={0.92}
               style={[s.slide, { width: carouselWidth, height: mediaHeight }]}
               onPress={() => onPressMedia?.(index)}
             >
-              <MediaPreviewImage
-                uri={previewUri}
-                type={type === 'video' ? 'video' : 'image'}
-                aspectRatio={aspectRatio}
-                frameAspectRatio={frameAspectRatio}
-                fitMode={fitMode}
-                s={s}
-              />
+              {shouldAutoPlayVideo ? (
+                <MediaPreviewVideo
+                  uri={mediaUri}
+                  thumbnailUri={previewUri}
+                  fitMode={fitMode}
+                  shouldPlay={shouldAutoPlayVideo}
+                  muted={videoMuted}
+                  loop={videoLoop}
+                  s={s}
+                />
+              ) : (
+                <MediaPreviewImage
+                  uri={previewUri}
+                  type={type === 'video' ? 'video' : 'image'}
+                  aspectRatio={aspectRatio}
+                  frameAspectRatio={frameAspectRatio}
+                  fitMode={fitMode}
+                  s={s}
+                />
+              )}
             </TouchableOpacity>
           );
         }}
