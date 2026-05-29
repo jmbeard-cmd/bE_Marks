@@ -118,6 +118,7 @@ import { GroupChatPanel } from './group-thread';
 
 type Tab = 'overview' | 'chat' | 'stickies' | 'mantle' | 'calendar' | 'gallery' | 'members' | 'legacy' | 'book';
 const GROUP_LOCAL_GALLERY_KEY = 'be_group_local_gallery_v1';
+const SPACE_GALLERY_CACHE_KEY_PREFIX = 'be_space_gallery_cache_v1:';
 const SPACE_FAVORITES_KEY = 'be_space_favorite_ids_v1';
 const SPACE_MARK_RELAY_SYNC_ENABLED = true;
 
@@ -390,6 +391,41 @@ function mergeGalleryItems(items: SpaceGalleryItem[]): SpaceGalleryItem[] {
   return Array.from(galleryMap.values()).sort(
     (a, b) => (b.createdAt || 0) - (a.createdAt || 0)
   );
+}
+
+function getSpaceGalleryCacheKey(groupId: string): string {
+  return `${SPACE_GALLERY_CACHE_KEY_PREFIX}${groupId}`;
+}
+
+async function readCachedSpaceGalleryItems(groupId: string): Promise<SpaceGalleryItem[]> {
+  try {
+    const raw = await AsyncStorage.getItem(getSpaceGalleryCacheKey(groupId));
+    const parsed = raw ? JSON.parse(raw) : [];
+
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed.filter(item =>
+      item &&
+      typeof item.id === 'string' &&
+      typeof item.mediaUrl === 'string'
+    );
+  } catch {
+    return [];
+  }
+}
+
+async function writeCachedSpaceGalleryItems(
+  groupId: string,
+  items: SpaceGalleryItem[]
+): Promise<void> {
+  try {
+    await AsyncStorage.setItem(
+      getSpaceGalleryCacheKey(groupId),
+      JSON.stringify(items.slice(0, 500))
+    );
+  } catch (error) {
+    console.warn('[Gallery] cache write failed:', error);
+  }
 }
 
 function getMilestoneMediaItems(mark: Milestone): MarkMedia[] {
@@ -960,18 +996,26 @@ const { id, tab: routeTab } = useLocalSearchParams<{
     if (!id) return;
 
     try {
+      const cachedGalleryItems = await readCachedSpaceGalleryItems(id);
+
+      if (cachedGalleryItems.length > 0) {
+        setGalleryItems(cachedGalleryItems);
+      }
+
       const [localMessages, localGalleryItems] = await Promise.all([
         getMessagesForGroup(id),
         readLocalGalleryItems(),
       ]);
       const localChatMediaItems = buildGalleryItemsFromMessages(localMessages, 'local-chat');
       const savedHighlightItems = localGalleryItems.filter(item => item.groupId === id);
-
-      setChatMessageCount(localMessages.filter(message => !message.isDeleted).length);
-      setGalleryItems(mergeGalleryItems([
+      const mergedGalleryItems = mergeGalleryItems([
         ...localChatMediaItems,
         ...savedHighlightItems,
-      ]));
+      ]);
+
+      setChatMessageCount(localMessages.filter(message => !message.isDeleted).length);
+      setGalleryItems(mergedGalleryItems);
+      await writeCachedSpaceGalleryItems(id, mergedGalleryItems);
     } catch (error) {
       console.warn('[Gallery] local refresh failed:', error);
     }
