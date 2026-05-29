@@ -477,7 +477,6 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   const [isAdmin, setIsAdmin] = useState(false);
   const [isMember, setIsMember] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
-  const [showSpaceInfoPanel, setShowSpaceInfoPanel] = useState(false);
   const [showSpaceSettingsMenu, setShowSpaceSettingsMenu] = useState(false);
   const [spaceSettingsRelayOpen, setSpaceSettingsRelayOpen] = useState(false);
   const [spaceSettingsConsentOpen, setSpaceSettingsConsentOpen] = useState(false);
@@ -1157,7 +1156,6 @@ const { id, tab: routeTab } = useLocalSearchParams<{
 
   const closeSpacePanels = () => {
     setShowInvite(false);
-    setShowSpaceInfoPanel(false);
     setShowSpaceSettingsMenu(false);
     setSpaceSettingsRelayOpen(false);
     setSpaceSettingsConsentOpen(false);
@@ -1176,14 +1174,8 @@ const { id, tab: routeTab } = useLocalSearchParams<{
     setTab(nextTab);
   };
 
-  const toggleSpaceSettingsMenu = () => {
-    if (showSpaceSettingsMenu) {
-      closeSpaceSettingsMenu();
-      return;
-    }
-
+  const openSpaceControlCenter = () => {
     setShowInvite(false);
-    setShowSpaceInfoPanel(false);
     setSpaceSettingsRelayOpen(false);
     setSpaceSettingsConsentOpen(false);
     setEditingGroupRelay(false);
@@ -2150,11 +2142,6 @@ const handleSpaceDetailBack = () => {
     return;
   }
 
-  if (showSpaceInfoPanel) {
-    setShowSpaceInfoPanel(false);
-    return;
-  }
-
   if (showSpaceSettingsMenu) {
     closeSpacePanels();
     return;
@@ -2346,18 +2333,6 @@ const relaySettingsCard = (
                 color={isFavoriteSpace ? theme.bg : '#fff'}
               />
             </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={toggleSpaceSettingsMenu}
-              style={[s.spaceChromeIconBtn, showSpaceSettingsMenu && s.spaceChromeIconBtnActive]}
-              activeOpacity={0.82}
-            >
-              <Ionicons
-                name="ellipsis-horizontal"
-                size={23}
-                color={showSpaceSettingsMenu ? theme.bg : '#fff'}
-              />
-            </TouchableOpacity>
           </View>
         </View>
 
@@ -2367,14 +2342,7 @@ const relaySettingsCard = (
         <View style={s.spaceTrayHeader}>
           <TouchableOpacity
             style={s.spaceProfileIdentityTap}
-            onPress={() => {
-              setShowInvite(false);
-              setShowSpaceSettingsMenu(false);
-              setSpaceSettingsRelayOpen(false);
-              setSpaceSettingsConsentOpen(false);
-              setEditingGroupRelay(false);
-              setShowSpaceInfoPanel(true);
-            }}
+            onPress={openSpaceControlCenter}
             activeOpacity={0.86}
           >
             <Text style={s.spaceProfileTitle} numberOfLines={2}>{group.name}</Text>
@@ -2437,143 +2405,6 @@ const relaySettingsCard = (
         </View>
 
       {/* Header settings and invite panels */}
-            {showSpaceInfoPanel && (
-        <ScrollView
-          style={s.spaceSettingsPanelScroll}
-          contentContainerStyle={s.spaceSettingsPanelContent}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          <View style={s.spaceSettingsDropdown}>
-            <View style={s.spaceSettingsTop}>
-              <View style={s.spaceSettingsAvatar}>
-                {group.coverImage ? (
-                  <Image source={{ uri: group.coverImage }} style={s.spaceSettingsAvatarImage} />
-                ) : (
-                  <Text style={s.spaceSettingsAvatarText}>{getGroupAvatarText(group)}</Text>
-                )}
-              </View>
-
-              <View style={{ flex: 1 }}>
-                <Text style={s.spaceSettingsTitle}>{group.name}</Text>
-                <Text style={s.spaceSettingsHint} numberOfLines={3}>
-                  {group.description || 'This Space brings together Marks, chat, calendar, and Legacy for the people connected here.'}
-                </Text>
-              </View>
-
-              <TouchableOpacity
-                style={s.spaceSettingsDoneBtn}
-                onPress={() => setShowSpaceInfoPanel(false)}
-                activeOpacity={0.85}
-              >
-                <Text style={s.spaceSettingsDoneText}>Close</Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={s.spaceSettingsChips}>
-              <Text style={s.spaceSettingsChip}>{members.length} members</Text>
-              <Text style={s.spaceSettingsChip}>{spaceMarkViews.length} Marks</Text>
-              <Text style={s.spaceSettingsChip}>
-                {spaceCategoryIcon ? `${spaceCategoryIcon} ${spaceCategoryLabel}` : spaceCategoryLabel}
-              </Text>
-              <Text style={s.spaceSettingsChip}>{upcomingCount} events</Text>
-              <Text style={s.spaceSettingsChip}>{spaceRelayLabel}</Text>
-            </View>
-
-            <TouchableOpacity
-              style={s.spaceSettingsRow}
-              onPress={() => {
-                setShowSpaceInfoPanel(false);
-                selectSpaceTab('members');
-              }}
-              activeOpacity={0.85}
-            >
-              <View style={{ flex: 1 }}>
-                <Text style={s.spaceSettingsRowTitle}>Members</Text>
-                <Text style={s.spaceSettingsRowHint}>See who belongs to this Space.</Text>
-              </View>
-              <Text style={s.spaceSettingsRowAction}>Open</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={s.spaceSettingsRow}
-              onPress={() => {
-                setShowSpaceInfoPanel(false);
-                selectSpaceTab('chat');
-              }}
-              activeOpacity={0.85}
-            >
-              <View style={{ flex: 1 }}>
-                <Text style={s.spaceSettingsRowTitle}>Chat</Text>
-                <Text style={s.spaceSettingsRowHint}>Talk with this Space.</Text>
-              </View>
-              <Text style={s.spaceSettingsRowAction}>Open</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={s.spaceSettingsRow}
-              onPress={() => {
-                setShowSpaceInfoPanel(false);
-                selectSpaceTab('calendar');
-              }}
-              activeOpacity={0.85}
-            >
-              <View style={{ flex: 1 }}>
-                <Text style={s.spaceSettingsRowTitle}>Calendar</Text>
-                <Text style={s.spaceSettingsRowHint}>See events, games, meetings, and dates.</Text>
-              </View>
-              <Text style={s.spaceSettingsRowAction}>Open</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={s.spaceSettingsRow}
-              onPress={() => {
-                setShowSpaceInfoPanel(false);
-                selectSpaceTab('legacy');
-              }}
-              activeOpacity={0.85}
-            >
-              <View style={{ flex: 1 }}>
-                <Text style={s.spaceSettingsRowTitle}>Legacy</Text>
-                <Text style={s.spaceSettingsRowHint}>View Marks saved toward the long-term story.</Text>
-              </View>
-              <Text style={s.spaceSettingsRowAction}>Open</Text>
-            </TouchableOpacity>
-
-            {group.bookEnabled === true && (
-              <TouchableOpacity
-                style={s.spaceSettingsRow}
-                onPress={() => {
-                  setShowSpaceInfoPanel(false);
-                  selectSpaceTab('book');
-                }}
-                activeOpacity={0.85}
-              >
-                <View style={{ flex: 1 }}>
-                  <Text style={s.spaceSettingsRowTitle}>Book</Text>
-                  <Text style={s.spaceSettingsRowHint}>Build a printed or digital collection from this Space.</Text>
-                </View>
-                <Text style={s.spaceSettingsRowAction}>Open</Text>
-              </TouchableOpacity>
-            )}
-
-            <TouchableOpacity
-              style={s.spaceSettingsRow}
-              onPress={() => {
-                setShowSpaceInfoPanel(false);
-                setShowSpaceSettingsMenu(true);
-              }}
-              activeOpacity={0.85}
-            >
-              <View style={{ flex: 1 }}>
-                <Text style={s.spaceSettingsRowTitle}>Space Settings</Text>
-                <Text style={s.spaceSettingsRowHint}>Manage invite, relay, access, consent, and admin settings.</Text>
-              </View>
-              <Text style={s.spaceSettingsRowAction}>Settings</Text>
-            </TouchableOpacity>
-          </View>
-        </ScrollView>
-      )}
       {showSpaceSettingsMenu && (
         <ScrollView
           style={s.spaceSettingsPanelScroll}
@@ -2625,7 +2456,7 @@ const relaySettingsCard = (
             activeOpacity={0.85}
           >
             <View style={{ flex: 1 }}>
-              <Text style={s.spaceSettingsRowTitle}>People and Access</Text>
+              <Text style={s.spaceSettingsRowTitle}>Members</Text>
               <Text style={s.spaceSettingsRowHint}>View members, roles, and member actions.</Text>
             </View>
             <Text style={s.spaceSettingsRowAction}>Open</Text>
@@ -2928,7 +2759,10 @@ const relaySettingsCard = (
         </ScrollView>
       )}
 
-      <View style={[s.spaceTrayBody, (showSpaceInfoPanel || showSpaceSettingsMenu || showInvite) && s.spaceTrayBodyHidden]}>
+      <View style={[
+        s.spaceTrayBody,
+        (showSpaceSettingsMenu || showInvite || editingGroupRelay) && s.spaceTrayBodyHidden,
+      ]}>
 
       {tab === 'overview' && (
         <View style={s.spaceTabPanel}>
