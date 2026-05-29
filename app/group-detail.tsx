@@ -2346,7 +2346,9 @@ const relaySettingsCard = (
             activeOpacity={0.86}
           >
             <Text style={s.spaceProfileTitle} numberOfLines={2}>{group.name}</Text>
-            <Text style={s.spaceProfileMeta} numberOfLines={1}>{spaceHomeMeta}</Text>
+            <Text style={s.spaceProfileMeta} numberOfLines={1}>
+              Tap for controls • {spaceHomeMeta}
+            </Text>
           </TouchableOpacity>
 
           <View style={s.spaceProfilePills}>
@@ -2404,7 +2406,7 @@ const relaySettingsCard = (
           </View>
         </View>
 
-      {/* Header settings and invite panels */}
+      {/* Header control center and invite panels */}
       {showSpaceSettingsMenu && (
         <ScrollView
           style={s.spaceSettingsPanelScroll}
@@ -2412,287 +2414,287 @@ const relaySettingsCard = (
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-        <View style={s.spaceSettingsDropdown}>
-          <View style={s.spaceSettingsTop}>
-            <View style={s.spaceSettingsAvatar}>
-              {group.coverImage ? (
-                <Image source={{ uri: group.coverImage }} style={s.spaceSettingsAvatarImage} />
-              ) : (
-                <Text style={s.spaceSettingsAvatarText}>{getGroupAvatarText(group)}</Text>
-              )}
-            </View>
+          <View style={s.spaceSettingsDropdown}>
+            <View style={s.spaceSettingsTop}>
+              <View style={s.spaceSettingsAvatar}>
+                {group.coverImage ? (
+                  <Image source={{ uri: group.coverImage }} style={s.spaceSettingsAvatarImage} />
+                ) : (
+                  <Text style={s.spaceSettingsAvatarText}>{getGroupAvatarText(group)}</Text>
+                )}
+              </View>
 
-            <View style={{ flex: 1 }}>
-              <Text style={s.spaceSettingsTitle}>{group.name}</Text>
-              <Text style={s.spaceSettingsHint} numberOfLines={2}>
-{group.description || 'Marks, chat, calendar, Legacy, and Book work for this Space.'}
-              </Text>
-            </View>
+              <View style={{ flex: 1 }}>
+                <Text style={s.spaceSettingsTitle}>Space Control Center</Text>
+                <Text style={s.spaceSettingsHint} numberOfLines={2}>
+                  {group.name} - manage people, safety, sharing, files, and relay routing.
+                </Text>
+              </View>
 
-            <TouchableOpacity
-              style={s.spaceSettingsDoneBtn}
-              onPress={closeSpacePanels}
-              activeOpacity={0.85}
-            >
-              <Text style={s.spaceSettingsDoneText}>Done</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={s.spaceSettingsChips}>
-            <Text style={s.spaceSettingsChip}>{members.length} members</Text>
-            <Text style={s.spaceSettingsChip}>{spaceMarkViews.length} Marks</Text>
-            <Text style={s.spaceSettingsChip}>
-              {spaceCategoryIcon ? `${spaceCategoryIcon} ${spaceCategoryLabel}` : spaceCategoryLabel}
-            </Text>
-            <Text style={s.spaceSettingsChip}>{upcomingCount} events</Text>
-            <Text style={s.spaceSettingsChip}>{spaceRelayLabel}</Text>
-          </View>
-
-          <TouchableOpacity
-            style={s.spaceSettingsRow}
-            onPress={() => {
-              selectSpaceTab('members');
-            }}
-            activeOpacity={0.85}
-          >
-            <View style={{ flex: 1 }}>
-              <Text style={s.spaceSettingsRowTitle}>Members</Text>
-              <Text style={s.spaceSettingsRowHint}>View members, roles, and member actions.</Text>
-            </View>
-            <Text style={s.spaceSettingsRowAction}>Open</Text>
-          </TouchableOpacity>
-
-          {canShowSchoolConsentSettings && (
-            <>
               <TouchableOpacity
-                style={s.spaceSettingsRow}
-                onPress={() => setSpaceSettingsConsentOpen(prev => !prev)}
+                style={s.spaceSettingsDoneBtn}
+                onPress={closeSpacePanels}
                 activeOpacity={0.85}
               >
-                <View style={{ flex: 1 }}>
-                  <Text style={s.spaceSettingsRowTitle}>Safety & Consent</Text>
-                  <Text style={s.spaceSettingsRowHint}>
-                    Parent settings for minors, Mantle, Legacy, and restricted use.
-                  </Text>
-                </View>
-                <Text style={s.spaceSettingsRowAction}>
-                  {spaceSettingsConsentOpen ? 'Hide' : schoolConsentStatusLabel}
-                </Text>
+                <Text style={s.spaceSettingsDoneText}>Close</Text>
               </TouchableOpacity>
-
-              {spaceSettingsConsentOpen && (
-                <View style={s.schoolConsentPanel}>
-                  <View style={s.schoolConsentHeader}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={s.schoolConsentTitle}>School-safe settings</Text>
-                      <Text style={s.schoolConsentHint}>
-                        Hybrid mode lets the school authorize the Space while guardians control child-specific media use.
-                      </Text>
-                    </View>
-                    <Text style={s.schoolConsentBadge}>{schoolConsentEnabled ? 'Hybrid' : 'Off'}</Text>
-                  </View>
-
-                  {!schoolConsentEnabled ? (
-                    <TouchableOpacity
-                      style={[s.schoolConsentPrimaryBtn, !isAdmin && s.schoolConsentDisabled]}
-                      onPress={enableSchoolConsentDefaults}
-                      disabled={!isAdmin}
-                      activeOpacity={0.85}
-                    >
-                      <Text style={s.schoolConsentPrimaryText}>
-                        {isAdmin ? 'Enable school safeguards' : 'Admin setup required'}
-                      </Text>
-                    </TouchableOpacity>
-                  ) : (
-                    <>
-                      <View style={s.schoolConsentPolicyGrid}>
-                        <TouchableOpacity
-                          style={s.schoolConsentPolicyCard}
-                          onPress={toggleSchoolMinorPolicy}
-                          disabled={!isAdmin}
-                          activeOpacity={0.85}
-                        >
-                          <Text style={s.schoolConsentPolicyLabel}>Minor default</Text>
-                          <Text style={s.schoolConsentPolicyValue}>
-                            {group.defaultMinorMarkPolicy === 'privateSpaceOnly' ? 'Private Space' : 'Restricted'}
-                          </Text>
-                        </TouchableOpacity>
-
-                        <TouchableOpacity
-                          style={s.schoolConsentPolicyCard}
-                          onPress={toggleDirectoryInfoAllowed}
-                          disabled={!isAdmin}
-                          activeOpacity={0.85}
-                        >
-                          <Text style={s.schoolConsentPolicyLabel}>Directory info</Text>
-                          <Text style={s.schoolConsentPolicyValue}>
-                            {group.directoryInfoAllowed ? 'Allowed' : 'Off'}
-                          </Text>
-                        </TouchableOpacity>
-                      </View>
-
-                      <Text style={s.schoolConsentSectionLabel}>My Children</Text>
-                      {(schoolConsentSummary?.students ?? []).length === 0 ? (
-                        <Text style={s.schoolConsentEmpty}>No child profiles linked yet.</Text>
-                      ) : (
-                        <View style={s.schoolConsentChildList}>
-                          {(schoolConsentSummary?.students ?? []).map(student => (
-                            <View key={student.id} style={s.schoolConsentChildCard}>
-                              <View style={{ flex: 1 }}>
-                                <Text style={s.schoolConsentChildName}>{student.displayName}</Text>
-                                <Text style={s.schoolConsentChildMeta}>
-                                  {student.under13 ? 'Under 13' : '13+'}
-                                  {student.grade ? ` - ${student.grade}` : ''}
-                                  {student.consentStatus === 'granted' ? ' - consent on file' : ' - consent needed'}
-                                </Text>
-                              </View>
-                              <TouchableOpacity
-                                style={s.schoolConsentRevokeBtn}
-                                onPress={() => revokeStudentConsent(student.id)}
-                                activeOpacity={0.85}
-                              >
-                                <Text style={s.schoolConsentRevokeText}>Restrict</Text>
-                              </TouchableOpacity>
-                            </View>
-                          ))}
-                        </View>
-                      )}
-
-                      <Text style={s.schoolConsentSectionLabel}>Add or Update Child</Text>
-                      <TextInput
-                        style={s.schoolConsentInput}
-                        value={childNameInput}
-                        onChangeText={setChildNameInput}
-                        placeholder="Child / student name"
-                        placeholderTextColor={theme.textMuted}
-                      />
-                      <TextInput
-                        style={s.schoolConsentInput}
-                        value={childGradeInput}
-                        onChangeText={setChildGradeInput}
-                        placeholder="Grade, class, or team"
-                        placeholderTextColor={theme.textMuted}
-                      />
-
-                      <View style={s.schoolConsentToggleGrid}>
-                        {[
-                          { label: 'Under 13', active: childUnder13, onPress: () => setChildUnder13(prev => !prev) },
-                          { label: 'Media', active: childConsentMedia, onPress: () => setChildConsentMedia(prev => !prev) },
-                          { label: 'Name', active: childConsentName, onPress: () => setChildConsentName(prev => !prev) },
-                          { label: 'Mantle', active: childConsentMantle, onPress: () => setChildConsentMantle(prev => !prev) },
-                          { label: 'Legacy', active: childConsentLegacy, onPress: () => setChildConsentLegacy(prev => !prev) },
-                        ].map(option => (
-                          <TouchableOpacity
-                            key={option.label}
-                            style={[s.schoolConsentToggle, option.active && s.schoolConsentToggleActive]}
-                            onPress={option.onPress}
-                            activeOpacity={0.85}
-                          >
-                            <Text style={[s.schoolConsentToggleText, option.active && s.schoolConsentToggleTextActive]}>
-                              {option.label}
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-
-                      <TouchableOpacity
-                        style={[s.schoolConsentPrimaryBtn, savingSchoolConsent && s.schoolConsentDisabled]}
-                        onPress={saveChildConsentProfile}
-                        disabled={savingSchoolConsent}
-                        activeOpacity={0.85}
-                      >
-                        <Text style={s.schoolConsentPrimaryText}>
-                          {savingSchoolConsent ? 'Saving...' : 'Save consent settings'}
-                        </Text>
-                      </TouchableOpacity>
-
-                      <Text style={s.schoolConsentNotice}>
-                        Notice version: {group.consentNoticeVersion ?? SCHOOL_CONSENT_NOTICE_VERSION}
-                      </Text>
-                    </>
-                  )}
-                </View>
-              )}
-            </>
-          )}
-
-          <TouchableOpacity
-            style={s.spaceSettingsRow}
-            onPress={() => {
-              selectSpaceTab('gallery');
-            }}
-            activeOpacity={0.85}
-          >
-            <View style={{ flex: 1 }}>
-              <Text style={s.spaceSettingsRowTitle}>Files and Gallery</Text>
-              <Text style={s.spaceSettingsRowHint}>View shared photos, videos, and Space media.</Text>
             </View>
-            <Text style={s.spaceSettingsRowAction}>Open</Text>
-          </TouchableOpacity>
 
-          {isAdmin && (
+            <View style={s.spaceSettingsChips}>
+              <Text style={s.spaceSettingsChip}>{members.length} members</Text>
+              <Text style={s.spaceSettingsChip}>{spaceMarkViews.length} Marks</Text>
+              <Text style={s.spaceSettingsChip}>
+                {spaceCategoryIcon ? `${spaceCategoryIcon} ${spaceCategoryLabel}` : spaceCategoryLabel}
+              </Text>
+              <Text style={s.spaceSettingsChip}>{upcomingCount} events</Text>
+              <Text style={s.spaceSettingsChip}>{spaceRelayLabel}</Text>
+            </View>
+
             <TouchableOpacity
               style={s.spaceSettingsRow}
               onPress={() => {
-                setShowSpaceSettingsMenu(false);
-                setSpaceSettingsRelayOpen(false);
-                setEditingGroupRelay(false);
-                setShowInvite(true);
+                selectSpaceTab('members');
               }}
               activeOpacity={0.85}
             >
               <View style={{ flex: 1 }}>
-                <Text style={s.spaceSettingsRowTitle}>Invite and Share</Text>
-                <Text style={s.spaceSettingsRowHint}>Show invite code, QR, copy, or share.</Text>
+                <Text style={s.spaceSettingsRowTitle}>Members</Text>
+                <Text style={s.spaceSettingsRowHint}>View members, roles, contacts, and member actions.</Text>
               </View>
               <Text style={s.spaceSettingsRowAction}>Open</Text>
             </TouchableOpacity>
-          )}
 
-          <TouchableOpacity
-            style={s.spaceSettingsRow}
-            onPress={() => setSpaceSettingsRelayOpen(prev => !prev)}
-            activeOpacity={0.85}
-          >
-            <View style={{ flex: 1 }}>
-              <Text style={s.spaceSettingsRowTitle}>Relay Routing</Text>
-              <Text style={s.spaceSettingsRowHint}>Current route: {spaceRelayLabel}</Text>
-            </View>
-            <Text style={s.spaceSettingsRowAction}>{spaceSettingsRelayOpen ? 'Hide' : 'Open'}</Text>
-          </TouchableOpacity>
-
-          {spaceSettingsRelayOpen && relaySettingsCard}
-
-          {(isAdmin || canLeaveGroup) && (
-            <View style={s.spaceSettingsDangerGroup}>
-              {isAdmin && (
+            {canShowSchoolConsentSettings && (
+              <>
                 <TouchableOpacity
-                  style={s.spaceSettingsDangerRow}
-                  onPress={() => {
-                    closeSpaceSettingsMenu();
-                    handleArchive();
-                  }}
+                  style={s.spaceSettingsRow}
+                  onPress={() => setSpaceSettingsConsentOpen(prev => !prev)}
                   activeOpacity={0.85}
                 >
-                  <Text style={s.spaceSettingsDangerText}>Archive Space</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.spaceSettingsRowTitle}>Safety & Consent</Text>
+                    <Text style={s.spaceSettingsRowHint}>
+                      Manage child profiles, guardian consent, and school-safe defaults.
+                    </Text>
+                  </View>
+                  <Text style={s.spaceSettingsRowAction}>
+                    {spaceSettingsConsentOpen ? 'Hide' : schoolConsentStatusLabel}
+                  </Text>
                 </TouchableOpacity>
-              )}
 
-              {canLeaveGroup && (
-                <TouchableOpacity
-                  style={s.spaceSettingsDangerRow}
-                  onPress={() => {
-                    closeSpaceSettingsMenu();
-                    handleLeaveGroup();
-                  }}
-                  activeOpacity={0.85}
-                >
-                  <Text style={s.spaceSettingsDangerText}>Leave Space</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          )}
-        </View>
+                {spaceSettingsConsentOpen && (
+                  <View style={s.schoolConsentPanel}>
+                    <View style={s.schoolConsentHeader}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.schoolConsentTitle}>School-safe settings</Text>
+                        <Text style={s.schoolConsentHint}>
+                          Hybrid mode lets the school authorize the Space while guardians control child-specific media use.
+                        </Text>
+                      </View>
+                      <Text style={s.schoolConsentBadge}>{schoolConsentEnabled ? 'Hybrid' : 'Off'}</Text>
+                    </View>
+
+                    {!schoolConsentEnabled ? (
+                      <TouchableOpacity
+                        style={[s.schoolConsentPrimaryBtn, !isAdmin && s.schoolConsentDisabled]}
+                        onPress={enableSchoolConsentDefaults}
+                        disabled={!isAdmin}
+                        activeOpacity={0.85}
+                      >
+                        <Text style={s.schoolConsentPrimaryText}>
+                          {isAdmin ? 'Enable school safeguards' : 'Admin setup required'}
+                        </Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <>
+                        <View style={s.schoolConsentPolicyGrid}>
+                          <TouchableOpacity
+                            style={s.schoolConsentPolicyCard}
+                            onPress={toggleSchoolMinorPolicy}
+                            disabled={!isAdmin}
+                            activeOpacity={0.85}
+                          >
+                            <Text style={s.schoolConsentPolicyLabel}>Minor default</Text>
+                            <Text style={s.schoolConsentPolicyValue}>
+                              {group.defaultMinorMarkPolicy === 'privateSpaceOnly' ? 'Private Space' : 'Restricted'}
+                            </Text>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            style={s.schoolConsentPolicyCard}
+                            onPress={toggleDirectoryInfoAllowed}
+                            disabled={!isAdmin}
+                            activeOpacity={0.85}
+                          >
+                            <Text style={s.schoolConsentPolicyLabel}>Directory info</Text>
+                            <Text style={s.schoolConsentPolicyValue}>
+                              {group.directoryInfoAllowed ? 'Allowed' : 'Off'}
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+
+                        <Text style={s.schoolConsentSectionLabel}>My Children</Text>
+                        {(schoolConsentSummary?.students ?? []).length === 0 ? (
+                          <Text style={s.schoolConsentEmpty}>No child profiles linked yet.</Text>
+                        ) : (
+                          <View style={s.schoolConsentChildList}>
+                            {(schoolConsentSummary?.students ?? []).map(student => (
+                              <View key={student.id} style={s.schoolConsentChildCard}>
+                                <View style={{ flex: 1 }}>
+                                  <Text style={s.schoolConsentChildName}>{student.displayName}</Text>
+                                  <Text style={s.schoolConsentChildMeta}>
+                                    {student.under13 ? 'Under 13' : '13+'}
+                                    {student.grade ? ` - ${student.grade}` : ''}
+                                    {student.consentStatus === 'granted' ? ' - consent on file' : ' - consent needed'}
+                                  </Text>
+                                </View>
+                                <TouchableOpacity
+                                  style={s.schoolConsentRevokeBtn}
+                                  onPress={() => revokeStudentConsent(student.id)}
+                                  activeOpacity={0.85}
+                                >
+                                  <Text style={s.schoolConsentRevokeText}>Restrict</Text>
+                                </TouchableOpacity>
+                              </View>
+                            ))}
+                          </View>
+                        )}
+
+                        <Text style={s.schoolConsentSectionLabel}>Add or Update Child</Text>
+                        <TextInput
+                          style={s.schoolConsentInput}
+                          value={childNameInput}
+                          onChangeText={setChildNameInput}
+                          placeholder="Child / student name"
+                          placeholderTextColor={theme.textMuted}
+                        />
+                        <TextInput
+                          style={s.schoolConsentInput}
+                          value={childGradeInput}
+                          onChangeText={setChildGradeInput}
+                          placeholder="Grade, class, or team"
+                          placeholderTextColor={theme.textMuted}
+                        />
+
+                        <View style={s.schoolConsentToggleGrid}>
+                          {[
+                            { label: 'Under 13', active: childUnder13, onPress: () => setChildUnder13(prev => !prev) },
+                            { label: 'Media', active: childConsentMedia, onPress: () => setChildConsentMedia(prev => !prev) },
+                            { label: 'Name', active: childConsentName, onPress: () => setChildConsentName(prev => !prev) },
+                            { label: 'Mantle', active: childConsentMantle, onPress: () => setChildConsentMantle(prev => !prev) },
+                            { label: 'Legacy', active: childConsentLegacy, onPress: () => setChildConsentLegacy(prev => !prev) },
+                          ].map(option => (
+                            <TouchableOpacity
+                              key={option.label}
+                              style={[s.schoolConsentToggle, option.active && s.schoolConsentToggleActive]}
+                              onPress={option.onPress}
+                              activeOpacity={0.85}
+                            >
+                              <Text style={[s.schoolConsentToggleText, option.active && s.schoolConsentToggleTextActive]}>
+                                {option.label}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+
+                        <TouchableOpacity
+                          style={[s.schoolConsentPrimaryBtn, savingSchoolConsent && s.schoolConsentDisabled]}
+                          onPress={saveChildConsentProfile}
+                          disabled={savingSchoolConsent}
+                          activeOpacity={0.85}
+                        >
+                          <Text style={s.schoolConsentPrimaryText}>
+                            {savingSchoolConsent ? 'Saving...' : 'Save consent settings'}
+                          </Text>
+                        </TouchableOpacity>
+
+                        <Text style={s.schoolConsentNotice}>
+                          Notice version: {group.consentNoticeVersion ?? SCHOOL_CONSENT_NOTICE_VERSION}
+                        </Text>
+                      </>
+                    )}
+                  </View>
+                )}
+              </>
+            )}
+
+            <TouchableOpacity
+              style={s.spaceSettingsRow}
+              onPress={() => {
+                selectSpaceTab('gallery');
+              }}
+              activeOpacity={0.85}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={s.spaceSettingsRowTitle}>Files and Gallery</Text>
+                <Text style={s.spaceSettingsRowHint}>Open shared photos, videos, highlights, and Space media.</Text>
+              </View>
+              <Text style={s.spaceSettingsRowAction}>Open</Text>
+            </TouchableOpacity>
+
+            {isAdmin && (
+              <TouchableOpacity
+                style={s.spaceSettingsRow}
+                onPress={() => {
+                  setShowSpaceSettingsMenu(false);
+                  setSpaceSettingsRelayOpen(false);
+                  setEditingGroupRelay(false);
+                  setShowInvite(true);
+                }}
+                activeOpacity={0.85}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={s.spaceSettingsRowTitle}>Invite and Share</Text>
+                  <Text style={s.spaceSettingsRowHint}>Show the invite code, QR code, copy link, or share this Space.</Text>
+                </View>
+                <Text style={s.spaceSettingsRowAction}>Open</Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity
+              style={s.spaceSettingsRow}
+              onPress={() => setSpaceSettingsRelayOpen(prev => !prev)}
+              activeOpacity={0.85}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={s.spaceSettingsRowTitle}>Relay Routing</Text>
+                <Text style={s.spaceSettingsRowHint}>Choose where this Space saves messages, media, and Marks.</Text>
+              </View>
+              <Text style={s.spaceSettingsRowAction}>{spaceSettingsRelayOpen ? 'Hide' : spaceRelayLabel}</Text>
+            </TouchableOpacity>
+
+            {spaceSettingsRelayOpen && relaySettingsCard}
+
+            {(isAdmin || canLeaveGroup) && (
+              <View style={s.spaceSettingsDangerGroup}>
+                {isAdmin && (
+                  <TouchableOpacity
+                    style={s.spaceSettingsDangerRow}
+                    onPress={() => {
+                      closeSpaceSettingsMenu();
+                      handleArchive();
+                    }}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={s.spaceSettingsDangerText}>Archive Space</Text>
+                  </TouchableOpacity>
+                )}
+
+                {canLeaveGroup && (
+                  <TouchableOpacity
+                    style={s.spaceSettingsDangerRow}
+                    onPress={() => {
+                      closeSpaceSettingsMenu();
+                      handleLeaveGroup();
+                    }}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={s.spaceSettingsDangerText}>Leave Space</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+          </View>
         </ScrollView>
       )}
 
