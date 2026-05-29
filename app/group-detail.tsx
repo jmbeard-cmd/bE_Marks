@@ -458,19 +458,21 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   const [chatMessageCount, setChatMessageCount] = useState(0);
   const [selectedGalleryImage, setSelectedGalleryImage] = useState<string | null>(null);
   const [activeViewerImages, setActiveViewerImages] = useState<ViewerImage[]>([]);
-  const [tab, setTab] = useState<Tab>(
-  routeTab === 'overview' ||
-  routeTab === 'chat' ||
-  routeTab === 'stickies' ||
-  routeTab === 'mantle' ||
-  routeTab === 'calendar' ||
-  routeTab === 'gallery' ||
-  routeTab === 'members' ||
-  routeTab === 'legacy' ||
-  routeTab === 'book'
-    ? routeTab
-    : 'overview'
-);
+  const [tab, setTab] = useState<Tab>(() => {
+    if (
+      routeTab === 'chat' ||
+      routeTab === 'stickies' ||
+      routeTab === 'calendar' ||
+      routeTab === 'gallery' ||
+      routeTab === 'members' ||
+      routeTab === 'legacy' ||
+      routeTab === 'book'
+    ) {
+      return routeTab;
+    }
+
+    return 'stickies';
+  });
   const tabRef = useRef<Tab>(tab);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isMember, setIsMember] = useState(false);
@@ -1017,20 +1019,25 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   }, []);
 
   useEffect(() => {
-  if (
-    routeTab === 'overview' ||
-    routeTab === 'chat' ||
-    routeTab === 'stickies' ||
-    routeTab === 'mantle' ||
-    routeTab === 'calendar' ||
-    routeTab === 'gallery' ||
-    routeTab === 'members' ||
-    routeTab === 'legacy' ||
-    routeTab === 'book'
-  ) {
-    setTab(routeTab);
-  }
-}, [routeTab]);
+    if (!routeTab) return;
+
+    if (routeTab === 'overview' || routeTab === 'mantle') {
+      setTab('stickies');
+      return;
+    }
+
+    if (
+      routeTab === 'chat' ||
+      routeTab === 'stickies' ||
+      routeTab === 'calendar' ||
+      routeTab === 'gallery' ||
+      routeTab === 'members' ||
+      routeTab === 'legacy' ||
+      routeTab === 'book'
+    ) {
+      setTab(routeTab);
+    }
+  }, [routeTab]);
 
   useEffect(() => {
     tabRef.current = tab;
@@ -2355,26 +2362,6 @@ const relaySettingsCard = (
 
           <View style={s.spaceProfilePills}>
             <TouchableOpacity
-              style={[s.spaceProfilePill, tab === 'overview' && s.spaceProfilePillActive]}
-              onPress={() => selectSpaceTab('overview')}
-              activeOpacity={0.86}
-            >
-              <Text style={[s.spaceProfilePillText, tab === 'overview' && s.spaceProfilePillTextActive]}>
-                Overview
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[s.spaceProfilePill, tab === 'chat' && s.spaceProfilePillActive]}
-              onPress={openSpaceChat}
-              activeOpacity={0.86}
-            >
-              <Text style={[s.spaceProfilePillText, tab === 'chat' && s.spaceProfilePillTextActive]}>
-                Chat
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
               style={[s.spaceProfilePill, tab === 'stickies' && s.spaceProfilePillActive]}
               onPress={() => selectSpaceTab('stickies')}
               activeOpacity={0.86}
@@ -2385,12 +2372,12 @@ const relaySettingsCard = (
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[s.spaceProfilePill, tab === 'mantle' && s.spaceProfilePillActive]}
-              onPress={() => selectSpaceTab('mantle')}
+              style={[s.spaceProfilePill, tab === 'chat' && s.spaceProfilePillActive]}
+              onPress={() => selectSpaceTab('chat')}
               activeOpacity={0.86}
             >
-              <Text style={[s.spaceProfilePillText, tab === 'mantle' && s.spaceProfilePillTextActive]}>
-                Mantle
+              <Text style={[s.spaceProfilePillText, tab === 'chat' && s.spaceProfilePillTextActive]}>
+                Chat
               </Text>
             </TouchableOpacity>
 
@@ -2449,7 +2436,7 @@ const relaySettingsCard = (
             <View style={{ flex: 1 }}>
               <Text style={s.spaceSettingsTitle}>{group.name}</Text>
               <Text style={s.spaceSettingsHint} numberOfLines={2}>
-                {group.description || 'Chat, Marks, calendar, gallery, and the Book work for this Space.'}
+{group.description || 'Marks, chat, calendar, Legacy, and Book work for this Space.'}
               </Text>
             </View>
 
