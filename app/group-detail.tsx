@@ -539,8 +539,8 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   const groupDetailLoadRunIdRef = useRef(0);
 
   const spaceMarksViewabilityConfigRef = useRef({
-    itemVisiblePercentThreshold: 70,
-    minimumViewTime: 250,
+    itemVisiblePercentThreshold: 35,
+    minimumViewTime: 0,
   });
 
   const spaceMarksViewabilityRef = useRef((info: { viewableItems: Array<{ item: any }> }) => {
