@@ -38,8 +38,8 @@ import {
 import {
   getGroupMessagePreview,
   getMessagesForGroup,
-  saveRemoteGroupMessage,
   saveLocalGroupSystemMessage,
+  saveRemoteGroupMessage,
   type GroupMessage,
 } from '../../src/utils/group-messages';
 import {
@@ -123,6 +123,12 @@ function getGroupInitials(name: string): string {
 function getGroupAvatarText(group: BEGroup): string {
   const customIcon = group.icon?.trim();
   return customIcon || getGroupInitials(group.name);
+}
+
+function getCustomGroupIcon(group: BEGroup): string | null {
+  const customIcon = group.icon?.trim();
+
+  return customIcon || null;
 }
 
 function isRemoteImageUri(uri?: string | null): uri is string {
@@ -394,7 +400,7 @@ export default function MessagesScreen() {
   const s = useMemo(() => createStyles(theme), [theme]);
   const router = useRouter();
 
-  const [spaceFilter, setSpaceFilter] = useState<SpaceFilter>('all');
+  const [spaceFilter, setSpaceFilter] = useState<SpaceFilter>('groups');
   const [threads, setThreads] = useState<DMThread[]>([]);
   const [groups, setGroups] = useState<BEGroup[]>([]);
   const [livingSpaces, setLivingSpaces] = useState<LivingSpace[]>([]);
@@ -1107,11 +1113,9 @@ export default function MessagesScreen() {
     const combined =
       spaceFilter === 'dms'
         ? dmItems
-        : spaceFilter === 'groups'
-          ? groupItems
-          : spaceFilter === 'unread'
-            ? [...dmItems, ...groupItems].filter(item => item.unread > 0)
-            : [...dmItems, ...groupItems];
+        : spaceFilter === 'unread'
+          ? groupItems.filter(item => item.unread > 0)
+          : groupItems;
 
     return combined.sort((a, b) => b.updatedAt - a.updatedAt);
   }, [filteredThreads, groupMemberSearchTextByGroupId, groupPreviewOverrides, groupUnreadCounts, groups, search, spaceFilter]);
@@ -1129,7 +1133,6 @@ export default function MessagesScreen() {
   }, [livingSpaces]);
 
   const unreadSpaceCount =
-    threads.filter(thread => thread.unread > 0).length +
     Object.values(groupUnreadCounts).filter(count => count > 0).length;
   const loadingInitialSpaces = loadingInitialThreads || loadingInitialGroups;
   const headerLogo =
@@ -1683,67 +1686,82 @@ export default function MessagesScreen() {
       const groupTypeIcon = getGroupTypeIcon(group);
       const canEditGroup = editableGroupIds.has(group.id);
       const hasUnread = item.unread > 0;
+      const memberCount = group.memberCount ?? 0;
       const preview =
         groupPreviewOverrides[group.id]?.preview ||
         group.lastPostPreview ||
-        `${group.memberCount ?? 0} member${(group.memberCount ?? 0) !== 1 ? 's' : ''}`;
+        `${memberCount} member${memberCount !== 1 ? 's' : ''}`;
+      const spaceTypeLabel = formatLivingSpaceType(livingSpace);
+      const updatedLabel = formatThreadTime(item.updatedAt);
+      const customIcon = getCustomGroupIcon(group);
+      const topRightLabel = customIcon || '⋯';
 
       return (
         <TouchableOpacity
-          style={s.threadRow}
-          activeOpacity={0.82}
-          onPress={() => openGroup(group, hasUnread ? 'chat' : 'overview')}
+          style={[s.spaceLiveCard, hasUnread && s.spaceLiveCardUnread]}
+          activeOpacity={0.88}
+          onPress={() => openGroup(group, 'overview')}
           onLongPress={canEditGroup ? () => { void openEditGroup(group); } : undefined}
         >
-          <View style={[s.avatar, hasUnread && s.avatarUnread]}>
-            {group.coverImage ? (
-              <Image source={{ uri: group.coverImage }} style={s.avatarImage} />
-            ) : (
-              <Text style={s.avatarText}>{getGroupAvatarText(group)}</Text>
-            )}
-          </View>
+          {group.coverImage ? (
+            <Image source={{ uri: group.coverImage }} style={s.spaceLiveCardImage} />
+          ) : (
+            <View style={s.spaceLiveCardFallback}>
+              <Text style={s.spaceLiveCardFallbackText}>{getGroupAvatarText(group)}</Text>
+            </View>
+          )}
 
-          <View style={s.threadBody}>
-            <View style={s.threadTop}>
-              <Text style={[s.threadTitle, hasUnread && s.threadTitleUnread]} numberOfLines={1}>
-                {group.name}
-              </Text>
+          <View style={s.spaceLiveCardShade} />
 
-              <Text style={s.threadTime}>{formatThreadTime(item.updatedAt)}</Text>
+          <View style={s.spaceLiveCardContent}>
+            <View style={s.spaceLiveCardTopRow}>
+              <View style={s.spaceLiveCardIdentity}>
+                <Text style={s.spaceLiveCardKicker} numberOfLines={1}>
+                  {groupTypeIcon ? `${groupTypeIcon} ` : ''}{spaceTypeLabel} Space
+                </Text>
+                <Text style={s.spaceLiveCardTitle} numberOfLines={2}>
+                  {group.name}
+                </Text>
+              </View>
+
+              <View style={s.spaceLiveCardActions}>
+                {hasUnread && (
+                  <View style={s.spaceLiveUnreadBadge}>
+                    <Text style={s.spaceLiveUnreadText}>{item.unread}</Text>
+                  </View>
+                )}
+
+                <TouchableOpacity
+                  style={[s.spaceLiveMoreBtn, !canEditGroup && !customIcon && s.moreBtnHidden]}
+                  onPress={canEditGroup ? () => { void openEditGroup(group); } : undefined}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  activeOpacity={0.84}
+                >
+                  <Text style={customIcon ? s.spaceLiveMoreIconText : s.spaceLiveMoreText}>
+                    {topRightLabel}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
 
-            <View style={s.threadBottom}>
-              <Text style={[s.threadPreview, hasUnread && s.threadPreviewUnread]} numberOfLines={1}>
-                {preview}
+            <Text style={s.spaceLiveCardPreview} numberOfLines={2}>
+              {preview}
+            </Text>
+
+            <View style={s.spaceLiveCardFooter}>
+              <Text style={s.spaceLiveChip}>
+                {memberCount} member{memberCount !== 1 ? 's' : ''}
               </Text>
 
-              {hasUnread && (
-                <View style={s.unreadBadge}>
-                  <Text style={s.unreadText}>{item.unread}</Text>
-                </View>
-              )}
-            </View>
-
-            <View style={s.threadMetaRow}>
-              {groupTypeIcon ? (
-                <View style={s.spaceCategoryBadge}>
-                  <Text style={s.spaceCategoryBadgeText}>{groupTypeIcon}</Text>
-                </View>
+              {group.season ? (
+                <Text style={s.spaceLiveChip}>{group.season}</Text>
               ) : null}
 
-              <Text style={s.threadMetaSecure} numberOfLines={1}>
-                {formatLivingSpaceType(livingSpace)} space - {formatRelayLabel(group)}
-              </Text>
+              {!!updatedLabel && (
+                <Text style={s.spaceLiveTime}>{updatedLabel}</Text>
+              )}
             </View>
           </View>
-
-          <TouchableOpacity
-            style={[s.moreBtn, !canEditGroup && s.moreBtnHidden]}
-            onPress={canEditGroup ? () => { void openEditGroup(group); } : undefined}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            <Text style={s.moreText}>⋯</Text>
-          </TouchableOpacity>
         </TouchableOpacity>
       );
     }
@@ -1752,7 +1770,7 @@ export default function MessagesScreen() {
   };
 
   const handleCompose = () => {
-    setSheet(spaceFilter === 'groups' ? 'new-group' : 'new');
+    setSheet(spaceFilter === 'dms' ? 'new' : 'new-group');
   };
 
   const submitSheet = () => {
@@ -1779,7 +1797,7 @@ export default function MessagesScreen() {
       <View style={s.header}>
         <View style={s.headerBrand}>
           <Image source={headerLogo} style={s.headerLogo} resizeMode="contain" />
-          <Text style={s.headerTitle}>Spaces</Text>
+          <Text style={s.headerTitle}>Marks</Text>
         </View>
 
       </View>
@@ -1787,8 +1805,7 @@ export default function MessagesScreen() {
       <View style={s.filterPills}>
         {([
           ['unread', 'Unread', unreadSpaceCount],
-          ['dms', 'DMs', threads.length],
-          ['groups', 'Groups', groups.length],
+          ['groups', 'Spaces', groups.length],
         ] as const).map(([value, label, count]) => {
           const active = spaceFilter === value;
 
@@ -1796,7 +1813,7 @@ export default function MessagesScreen() {
             <TouchableOpacity
               key={value}
               style={[s.filterPill, active && s.filterPillActive]}
-              onPress={() => setSpaceFilter(active ? 'all' : value)}
+              onPress={() => setSpaceFilter(value)}
               activeOpacity={0.85}
             >
               <Text style={[s.filterPillText, active && s.filterPillTextActive]}>
@@ -1821,7 +1838,7 @@ export default function MessagesScreen() {
           style={s.searchInput}
           value={search}
           onChangeText={setSearch}
-          placeholder="Search conversations"
+          placeholder="Search Spaces"
           placeholderTextColor={theme.textMuted}
           autoCorrect={false}
         />
@@ -2565,7 +2582,143 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     fontSize: 22,
     fontWeight: '900',
   },
-
+  spaceLiveCard: {
+    minHeight: 152,
+    borderRadius: 24,
+    marginBottom: 10,
+    overflow: 'hidden',
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    backgroundColor: theme.raised,
+    position: 'relative',
+  },
+  spaceLiveCardUnread: {
+    borderColor: theme.gold + '88',
+  },
+  spaceLiveCardImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
+  },
+  spaceLiveCardFallback: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.raised,
+  },
+  spaceLiveCardFallbackText: {
+    color: theme.gold,
+    fontSize: 54,
+    fontWeight: '900',
+  },
+  spaceLiveCardShade: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: theme.bg === Colors.light.bg
+      ? 'rgba(17,24,28,0.46)'
+      : 'rgba(0,0,0,0.46)',
+  },
+  spaceLiveCardContent: {
+    minHeight: 168,
+    padding: 16,
+    justifyContent: 'space-between',
+  },
+  spaceLiveCardTopRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  spaceLiveCardIdentity: {
+    flex: 1,
+    minWidth: 0,
+  },
+  spaceLiveCardKicker: {
+    color: 'rgba(255,255,255,0.78)',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    marginBottom: 2,
+  },
+  spaceLiveCardTitle: {
+    color: '#fff',
+    fontSize: 22,
+    lineHeight: 26,
+    fontWeight: '900',
+    letterSpacing: -0.4,
+  },
+  spaceLiveCardActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  spaceLiveUnreadBadge: {
+    minWidth: 26,
+    height: 26,
+    borderRadius: 13,
+    paddingHorizontal: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.gold,
+  },
+  spaceLiveUnreadText: {
+    color: theme.bg,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  spaceLiveMoreBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.38)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(255,255,255,0.18)',
+  },
+  spaceLiveMoreText: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: '900',
+    marginTop: -2,
+  },
+    spaceLiveMoreIconText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  spaceLiveCardPreview: {
+    color: 'rgba(255,255,255,0.88)',
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '700',
+    marginTop: 18,
+  },
+  spaceLiveCardFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 7,
+    marginTop: 14,
+  },
+  spaceLiveChip: {
+    color: 'rgba(255,255,255,0.88)',
+    fontSize: 11,
+    fontWeight: '800',
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.36)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(255,255,255,0.14)',
+    overflow: 'hidden',
+  },
+  spaceLiveTime: {
+    color: 'rgba(255,255,255,0.68)',
+    fontSize: 11,
+    fontWeight: '800',
+    marginLeft: 'auto',
+  },
   empty: {
     flex: 1,
     alignItems: 'center',
