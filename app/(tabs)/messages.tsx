@@ -1301,12 +1301,12 @@ export default function MessagesScreen() {
       return;
     }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.85,
-    });
+const result = await ImagePicker.launchImageLibraryAsync({
+  mediaTypes: ImagePicker.MediaTypeOptions.Images,
+  allowsEditing: true,
+  aspect: [16, 9],
+  quality: 0.85,
+});
 
     if (!result.canceled && result.assets[0]?.uri) {
       setGroupImageUri(result.assets[0].uri);
@@ -1687,14 +1687,13 @@ export default function MessagesScreen() {
       const canEditGroup = editableGroupIds.has(group.id);
       const hasUnread = item.unread > 0;
       const memberCount = group.memberCount ?? 0;
-      const preview =
-        groupPreviewOverrides[group.id]?.preview ||
-        group.lastPostPreview ||
-        `${memberCount} member${memberCount !== 1 ? 's' : ''}`;
+const preview =
+  group.description?.trim() ||
+  groupPreviewOverrides[group.id]?.preview ||
+  group.lastPostPreview ||
+  `${memberCount} member${memberCount !== 1 ? 's' : ''}`;
       const spaceTypeLabel = formatLivingSpaceType(livingSpace);
       const updatedLabel = formatThreadTime(item.updatedAt);
-      const customIcon = getCustomGroupIcon(group);
-      const topRightLabel = customIcon || '⋯';
 
       return (
         <TouchableOpacity
@@ -1724,24 +1723,13 @@ export default function MessagesScreen() {
                 </Text>
               </View>
 
-              <View style={s.spaceLiveCardActions}>
-                {hasUnread && (
-                  <View style={s.spaceLiveUnreadBadge}>
-                    <Text style={s.spaceLiveUnreadText}>{item.unread}</Text>
-                  </View>
-                )}
-
-                <TouchableOpacity
-                  style={[s.spaceLiveMoreBtn, !canEditGroup && !customIcon && s.moreBtnHidden]}
-                  onPress={canEditGroup ? () => { void openEditGroup(group); } : undefined}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  activeOpacity={0.84}
-                >
-                  <Text style={customIcon ? s.spaceLiveMoreIconText : s.spaceLiveMoreText}>
-                    {topRightLabel}
-                  </Text>
-                </TouchableOpacity>
-              </View>
+<View style={s.spaceLiveCardActions}>
+  {hasUnread && (
+    <View style={s.spaceLiveUnreadBadge}>
+      <Text style={s.spaceLiveUnreadText}>{item.unread}</Text>
+    </View>
+  )}
+</View>
             </View>
 
             <Text style={s.spaceLiveCardPreview} numberOfLines={2}>
@@ -1875,11 +1863,11 @@ export default function MessagesScreen() {
                   {search.trim()
                     ? 'Try searching by name, message, Space, or npub.'
                     : spaceFilter === 'all'
-                      ? 'DMs and Spaces will appear together here as conversations start.'
+                      ? 'Spaces will appear together here as conversations start.'
                     : spaceFilter === 'groups'
                     ? 'Create or join a Space for teams, schools, churches, or family.'
                     : spaceFilter === 'unread'
-                      ? 'New DMs and Space activity will appear here when something needs attention.'
+                      ? 'New Space activity will appear here when something needs attention.'
                       : 'Start a private conversation with a saved contact or npub.'}
               </Text>
 
@@ -1916,13 +1904,13 @@ export default function MessagesScreen() {
                         : 'New message'}
                 </Text>
                 <Text style={s.sheetHint}>
-                  {sheet === 'edit-group'
-                    ? 'Update this Space identity, image, and category badge.'
-                    : sheet === 'new-group'
-                      ? 'Create a Space with its own identity, image, and relay route.'
-                      : sheet === 'join-space'
-                        ? 'Enter a Space invite code from your family, school, church, or team.'
-                        : 'Find someone by npub or NIP-05, then start a private DM.'}
+{sheet === 'edit-group'
+  ? 'Update this Space identity, image, and category badge.'
+  : sheet === 'new-group'
+    ? 'Create a shared place for Marks, memories, chat, calendar, and Legacy.'
+    : sheet === 'join-space'
+      ? 'Enter a Space invite code from your family, school, church, or team.'
+      : 'Find someone by npub or NIP-05, then start a private DM.'}
                 </Text>
               </View>
 
@@ -3018,15 +3006,15 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     marginBottom: 14,
   },
   groupImagePreview: {
-    width: 62,
-    height: 62,
-    borderRadius: 31,
+    width: 116,
+    height: 66,
+    borderRadius: 18,
     backgroundColor: theme.surface,
   },
   groupImageFallback: {
-    width: 62,
-    height: 62,
-    borderRadius: 31,
+    width: 116,
+    height: 66,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: theme.surface,
@@ -3035,7 +3023,7 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
   },
   groupImageInitials: {
     color: theme.gold,
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '900',
   },
   groupImageCopy: {
