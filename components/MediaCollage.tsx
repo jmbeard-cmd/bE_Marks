@@ -241,7 +241,7 @@ function MediaPreviewVideo({
       {!thumbnailUri && !ready && (
         <View style={s.fallback}>
           <Text style={s.fallbackIcon}>▶</Text>
-          <Text style={s.fallbackText}>Loading video</Text>
+          <Text style={s.fallbackText}>Video</Text>
         </View>
       )}
 
