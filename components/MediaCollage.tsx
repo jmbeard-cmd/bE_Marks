@@ -252,6 +252,12 @@ function MediaPreviewVideo({
         nativeControls={false}
         onFirstFrameRender={() => setReady(true)}
       />
+
+      {muted && (
+        <View style={s.mutedVideoBadge}>
+          <Text style={s.mutedVideoBadgeIcon}>🔇</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -470,19 +476,11 @@ export default function MediaCollage({
         </View>
       )}
 
-      {(totalMedia > 1 || hasVideo || hasAudio) && (
+      {hasAudio && (
         <View style={s.badgeRow}>
-          {hasVideo && (
-            <View style={s.badge}>
-              <Text style={s.badgeText}>🎥</Text>
-            </View>
-          )}
-
-          {hasAudio && (
-            <View style={s.badge}>
-              <Text style={s.badgeText}>🎙</Text>
-            </View>
-          )}
+          <View style={s.badge}>
+            <Text style={s.badgeText}>🎙</Text>
+          </View>
         </View>
       )}
 
@@ -600,6 +598,22 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
   },
   badgeText: {
     fontSize: 13,
+  },
+  mutedVideoBadge: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.58)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(255,255,255,0.18)',
+  },
+  mutedVideoBadgeIcon: {
+    fontSize: 15,
   },
   audioThumb: {
     width: '100%',
