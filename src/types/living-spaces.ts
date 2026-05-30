@@ -10,6 +10,7 @@ export type LivingSpaceType =
   | 'team'
   | 'club'
   | 'church'
+  | 'community'
   | 'organization'
   | 'pto'
   | 'booster'

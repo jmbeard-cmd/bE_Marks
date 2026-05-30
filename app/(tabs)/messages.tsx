@@ -216,6 +216,7 @@ const GROUP_TYPE_ICONS: Record<string, string> = {
   faculty: '🧑‍🏫',
   booster: '⭐',
   church: '⛪',
+  community: '🏛️',
   youth: '🌱',
   parents: '👪',
   travel: '🚌',
@@ -235,6 +236,7 @@ const GROUP_TYPE_OPTIONS = [
   'faculty',
   'booster',
   'church',
+  'community',
   'youth',
   'parents',
   'travel',
@@ -256,14 +258,15 @@ const GROUP_TYPE_OPTIONS = [
 
 const SPACE_TYPE_OPTIONS: SpaceTypeOption[] = [
   { value: 'family', label: 'Family' },
-  { value: 'classroom', label: 'Classroom' },
   { value: 'team', label: 'Team' },
-  { value: 'club', label: 'Club' },
   { value: 'church', label: 'Church' },
+  { value: 'community', label: 'Community' },
+  { value: 'school', label: 'School' },
+  { value: 'classroom', label: 'Classroom' },
+  { value: 'club', label: 'Club' },
   { value: 'organization', label: 'Organization' },
   { value: 'pto', label: 'PTO' },
   { value: 'booster', label: 'Booster' },
-  { value: 'school', label: 'School' },
   { value: 'district', label: 'District' },
   { value: 'custom', label: 'Custom' },
 ];
@@ -276,6 +279,7 @@ const SPACE_TYPE_LABELS: Partial<Record<LivingSpaceType, string>> = {
   team: 'Team',
   club: 'Club',
   church: 'Church',
+  community: 'Community',
   organization: 'Organization',
   pto: 'PTO',
   booster: 'Booster',
@@ -1095,12 +1099,20 @@ export default function MessagesScreen() {
       .filter(group => {
         if (!q) return true;
 
-        const title = group.name.toLowerCase();
-        const preview = (groupPreviewOverrides[group.id]?.preview || group.lastPostPreview || '').toLowerCase();
-        const season = (group.season || '').toLowerCase();
-        const members = groupMemberSearchTextByGroupId[group.id] || '';
+const title = group.name.toLowerCase();
+const description = (group.description || '').toLowerCase();
+const preview = (groupPreviewOverrides[group.id]?.preview || group.lastPostPreview || '').toLowerCase();
+const season = (group.season || '').toLowerCase();
+const members = groupMemberSearchTextByGroupId[group.id] || '';
 
-        return title.includes(q) || preview.includes(q) || season.includes(q) || members.includes(q);
+return (
+  title.includes(q) ||
+  description.includes(q) ||
+  preview.includes(q) ||
+  season.includes(q) ||
+  members.includes(q)
+);
+
       })
       .map(group => ({
         id: `group_${group.id}`,
@@ -1715,9 +1727,9 @@ const preview =
           <View style={s.spaceLiveCardContent}>
             <View style={s.spaceLiveCardTopRow}>
               <View style={s.spaceLiveCardIdentity}>
-                <Text style={s.spaceLiveCardKicker} numberOfLines={1}>
-                  {groupTypeIcon ? `${groupTypeIcon} ` : ''}{spaceTypeLabel} Space
-                </Text>
+<Text style={s.spaceLiveCardKicker} numberOfLines={1}>
+  {groupTypeIcon ? `${groupTypeIcon} ` : ''}{spaceTypeLabel}
+</Text>
                 <Text style={s.spaceLiveCardTitle} numberOfLines={2}>
                   {group.name}
                 </Text>
@@ -1732,9 +1744,9 @@ const preview =
 </View>
             </View>
 
-            <Text style={s.spaceLiveCardPreview} numberOfLines={2}>
-              {preview}
-            </Text>
+<Text style={s.spaceLiveCardPreview} numberOfLines={1}>
+  {preview}
+</Text>
 
             <View style={s.spaceLiveCardFooter}>
               <Text style={s.spaceLiveChip}>
@@ -1790,35 +1802,49 @@ const preview =
 
       </View>
 
-      <View style={s.filterPills}>
-        {([
-          ['unread', 'Unread', unreadSpaceCount],
-          ['groups', 'Spaces', groups.length],
-        ] as const).map(([value, label, count]) => {
-          const active = spaceFilter === value;
+<View style={s.filterPills}>
+  {([
+    ['unread', 'Unread', unreadSpaceCount],
+    ['groups', 'Spaces', groups.length],
+  ] as const).map(([value, label, count]) => {
+    const active = spaceFilter === value;
 
-          return (
-            <TouchableOpacity
-              key={value}
-              style={[s.filterPill, active && s.filterPillActive]}
-              onPress={() => setSpaceFilter(value)}
-              activeOpacity={0.85}
-            >
-              <Text style={[s.filterPillText, active && s.filterPillTextActive]}>
-                {label}
-              </Text>
+    return (
+      <TouchableOpacity
+        key={value}
+        style={[s.filterPill, active && s.filterPillActive]}
+        onPress={() => setSpaceFilter(value)}
+        activeOpacity={0.85}
+      >
+        <Text style={[s.filterPillText, active && s.filterPillTextActive]}>
+          {label}
+        </Text>
 
-              {count > 0 && (
-                <View style={[s.filterCount, active && s.filterCountActive]}>
-                  <Text style={[s.filterCountText, active && s.filterCountTextActive]}>
-                    {count > 99 ? '99+' : count}
-                  </Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          );
-        })}
+        {count > 0 && (
+          <View style={[s.filterCount, active && s.filterCountActive]}>
+            <Text style={[s.filterCountText, active && s.filterCountTextActive]}>
+              {count > 99 ? '99+' : count}
+            </Text>
+          </View>
+        )}
+      </TouchableOpacity>
+    );
+  })}
+
+  <TouchableOpacity
+    style={s.profilePill}
+    onPress={() => router.push('/settings' as any)}
+    activeOpacity={0.86}
+  >
+    {profile?.picture ? (
+      <Image source={{ uri: profile.picture }} style={s.profilePillImage} />
+    ) : (
+      <View style={s.profilePillFallback}>
+        <Text style={s.profilePillText}>{getInitials(myDisplayName)}</Text>
       </View>
+    )}
+  </TouchableOpacity>
+</View>
 
       <View style={s.searchWrap}>
         <Text style={s.searchIcon}>⌕</Text>
@@ -1843,7 +1869,7 @@ const preview =
         ListEmptyComponent={
           loadingInitialSpaces ? (
             <View style={s.empty}>
-              <Text style={s.emptyHint}>Loading messages…</Text>
+             <Text style={s.emptyHint}>Loading Spaces…</Text>
             </View>
           ) : (
             <View style={s.empty}>
@@ -1856,12 +1882,12 @@ const preview =
                       : spaceFilter === 'unread'
                     ? 'No unread spaces'
                     : spaceFilter === 'groups'
-                      ? 'No groups yet'
+                      ? 'No Spaces yet'
                       : 'No messages yet'}
               </Text>
               <Text style={s.emptyHint}>
                   {search.trim()
-                    ? 'Try searching by name, message, Space, or npub.'
+                    ? 'Try searching by Space name, description, season, or member.'
                     : spaceFilter === 'all'
                       ? 'Spaces will appear together here as conversations start.'
                     : spaceFilter === 'groups'
@@ -1905,7 +1931,7 @@ const preview =
                 </Text>
                 <Text style={s.sheetHint}>
 {sheet === 'edit-group'
-  ? 'Update this Space identity, image, and category badge.'
+  ? 'Update the name, cover image, card icon, and description for this Space.'
   : sheet === 'new-group'
     ? 'Create a shared place for Marks, memories, chat, calendar, and Legacy.'
     : sheet === 'join-space'
@@ -2000,11 +2026,11 @@ const preview =
                     })}
                   </ScrollView>
 
-                  <Text style={s.inputHelp}>
-                    Space type controls how this Space can organize Marks, Mantle highlights, Legacy, and Books later.
-                  </Text>
+<Text style={s.inputHelp}>
+  Choose what kind of place this is. Marks can shape the card, tools, calendar, people, and Legacy around this Space.
+</Text>
 
-                  <Text style={s.inputHelp}>Category badge</Text>
+<Text style={s.inputHelp}>Card icon</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.groupTypeStrip}>
                     <TouchableOpacity
                       style={[s.groupTypePill, !groupType && s.groupTypePillActive]}
@@ -2035,9 +2061,9 @@ const preview =
                     })}
                   </ScrollView>
 
-                  <Text style={s.inputHelp}>
-                    Category icons show as a small badge on Space cards. The Space image stays as the main card icon.
-                  </Text>
+<Text style={s.inputHelp}>
+  Pick a small icon for the card label. The Space image stays as the main cover.
+</Text>
                 </View>
               ) : sheet === 'join-space' ? (
                 <View style={s.primaryPanel}>
@@ -2323,18 +2349,18 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
   },
   filterPills: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 9,
     paddingHorizontal: 18,
-    paddingTop: 10,
+    paddingTop: 12,
     paddingBottom: 0,
   },
   filterPill: {
-    minHeight: 34,
+    minHeight: 38,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
-    borderRadius: 17,
+    gap: 7,
+    paddingHorizontal: 16,
+    borderRadius: 19,
     backgroundColor: theme.raised,
     borderWidth: 0.5,
     borderColor: theme.border,
@@ -2345,31 +2371,66 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
   },
   filterPillText: {
     color: theme.text,
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '900',
+    letterSpacing: -0.1,
   },
   filterPillTextActive: {
     color: theme.bg,
   },
   filterCount: {
-    minWidth: 20,
-    height: 20,
-    borderRadius: 10,
+    minWidth: 21,
+    height: 21,
+    borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 5,
+    paddingHorizontal: 6,
     backgroundColor: theme.gold,
   },
   filterCountActive: {
     backgroundColor: theme.bg,
   },
+    filterCountTextActive: {
+    color: theme.gold,
+  },
+    profilePill: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    marginLeft: 'auto',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    shadowColor: '#000',
+    shadowOpacity: 0.28,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 7,
+  },
+  profilePillImage: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+  },
+  profilePillFallback: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.surface,
+  },
+  profilePillText: {
+    color: theme.gold,
+    fontSize: 12,
+    fontWeight: '900',
+  },
   filterCountText: {
     color: theme.bg,
     fontSize: 10,
     fontWeight: '900',
-  },
-  filterCountTextActive: {
-    color: theme.gold,
   },
   headerButton: {
     width: 42,
@@ -2388,28 +2449,28 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
 
   searchWrap: {
     marginHorizontal: 18,
-    marginTop: 10,
-    marginBottom: 6,
-    height: 38,
-    borderRadius: 13,
+    marginTop: 12,
+    marginBottom: 8,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: theme.raised,
     borderWidth: 0.5,
     borderColor: theme.border,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 13,
+    paddingHorizontal: 15,
   },
   searchIcon: {
     color: theme.textMuted,
-    fontSize: 16,
-    marginRight: 7,
+    fontSize: 17,
+    marginRight: 8,
   },
   searchInput: {
     flex: 1,
     color: theme.text,
-    fontSize: 14,
+    fontSize: 15,
+    fontWeight: '700',
   },
-
   list: {
     paddingHorizontal: 12,
     paddingTop: 6,
@@ -2571,9 +2632,9 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     fontWeight: '900',
   },
   spaceLiveCard: {
-    minHeight: 152,
-    borderRadius: 24,
-    marginBottom: 10,
+    minHeight: 176,
+    borderRadius: 26,
+    marginBottom: 12,
     overflow: 'hidden',
     borderWidth: 0.5,
     borderColor: theme.border,
@@ -2606,8 +2667,8 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
       : 'rgba(0,0,0,0.46)',
   },
   spaceLiveCardContent: {
-    minHeight: 168,
-    padding: 16,
+    minHeight: 184,
+    padding: 17,
     justifyContent: 'space-between',
   },
   spaceLiveCardTopRow: {
@@ -2686,26 +2747,27 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
-    gap: 7,
-    marginTop: 14,
+    gap: 8,
+    marginTop: 16,
   },
   spaceLiveChip: {
-    color: 'rgba(255,255,255,0.88)',
+    color: 'rgba(255,255,255,0.9)',
     fontSize: 11,
-    fontWeight: '800',
-    paddingHorizontal: 9,
+    fontWeight: '900',
+    paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 999,
-    backgroundColor: 'rgba(0,0,0,0.36)',
+    backgroundColor: 'rgba(0,0,0,0.28)',
     borderWidth: 0.5,
-    borderColor: 'rgba(255,255,255,0.14)',
+    borderColor: 'rgba(255,255,255,0.18)',
     overflow: 'hidden',
   },
   spaceLiveTime: {
-    color: 'rgba(255,255,255,0.68)',
+    color: 'rgba(255,255,255,0.78)',
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: '900',
     marginLeft: 'auto',
+    paddingHorizontal: 2,
   },
   empty: {
     flex: 1,
