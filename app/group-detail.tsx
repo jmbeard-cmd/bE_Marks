@@ -3315,6 +3315,9 @@ const relaySettingsCard = (
                         playVideos={
                           tab === 'stickies' &&
                           !selectedGalleryImage &&
+                          !showSpaceSettingsMenu &&
+                          !showInvite &&
+                          !editingGroupRelay &&
                           activeSpaceVideoMarkId === mark.id
                         }
                         videoMuted
