@@ -5,6 +5,7 @@ import { nip19 } from 'nostr-tools';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  DeviceEventEmitter,
   FlatList,
   Image,
   Modal,
@@ -443,6 +444,8 @@ export default function MessagesScreen() {
   const pendingThreadReloadRef = useRef(false);
   const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const profileHydrationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const floatingDockHiddenRef = useRef(false);
+  const lastSpacesScrollYRef = useRef(0);
   const hasLoadedGroupsOnceRef = useRef(false);
   const groupsSignatureRef = useRef('');
   const livingSpacesSignatureRef = useRef('');
@@ -1792,6 +1795,34 @@ const preview =
     createConversation();
   };
 
+    const setFloatingDockHidden = useCallback((hidden: boolean) => {
+    if (floatingDockHiddenRef.current === hidden) return;
+
+    floatingDockHiddenRef.current = hidden;
+    DeviceEventEmitter.emit('be:floatingDock:setHidden', hidden);
+  }, []);
+
+  const handleSpacesScroll = useCallback((event: any) => {
+    const y = event.nativeEvent.contentOffset.y;
+    const previousY = lastSpacesScrollYRef.current;
+    const delta = y - previousY;
+
+    lastSpacesScrollYRef.current = y;
+
+    if (y < 12) {
+      setFloatingDockHidden(false);
+      return;
+    }
+
+    if (Math.abs(delta) < 8) return;
+
+    if (delta > 0) {
+      setFloatingDockHidden(true);
+    } else {
+      setFloatingDockHidden(false);
+    }
+  }, [setFloatingDockHidden]);
+
   return (
     <SafeAreaView style={s.safe}>
       <View style={s.header}>
@@ -1862,6 +1893,8 @@ const preview =
         data={inboxItems}
         keyExtractor={item => item.id}
         renderItem={renderSpaceItem}
+        onScroll={handleSpacesScroll}
+        scrollEventThrottle={16}
         contentContainerStyle={[
           s.list,
           inboxItems.length === 0 && s.listEmpty,
