@@ -796,9 +796,6 @@ const openMediaViewer = (uri: string) => {
     ...(markPermissions.restricted
       ? [{ label: 'Restricted', value: 'Do not feature, print, or promote', tone: 'danger' as const }]
       : []),
-    ...(markPermissions.highlightApproved && !markPermissions.restricted
-      ? [{ label: 'Highlight', value: 'Approved for Mantle', tone: 'gold' as const }]
-      : []),
     ...(markPermissions.bookApproved && !markPermissions.restricted
       ? [{ label: 'Legacy', value: 'Approved for Legacy', tone: 'gold' as const }]
       : []),
@@ -1398,7 +1395,7 @@ const openMediaViewer = (uri: string) => {
                     </Text>
                   )}
                   <Text style={[s.contextHint, { color: theme.textMuted }]}>
-                    Mantle uses these approvals now. Legacy approval prepares future album drafts. Restricted overrides both.
+                    Legacy approval prepares future album drafts. Restricted overrides Legacy use.
                   </Text>
                 </>
               ) : (
