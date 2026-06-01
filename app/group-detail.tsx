@@ -2210,11 +2210,6 @@ const handleSpaceDetailBack = () => {
     return;
   }
 
-  if (router.canGoBack()) {
-    router.back();
-    return;
-  }
-
   router.replace('/(tabs)/messages' as any);
 };
 

@@ -155,6 +155,11 @@ export default function MilestoneDetail() {
   );
 
   const handleBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+
     if (returnToGroupId) {
       router.replace({
         pathname: '/group-detail',
@@ -163,8 +168,7 @@ export default function MilestoneDetail() {
       return;
     }
 
-    if (router.canGoBack()) router.back();
-    else router.replace('/(tabs)/timeline' as any);
+    router.replace('/(tabs)/messages' as any);
   };
 
   useEffect(() => {

@@ -47,10 +47,19 @@ export default function TabLayout() {
   return (
 <Tabs
   initialRouteName="messages"
-  tabBar={(props) => <FloatingTabDock {...props} theme={theme} />}
+  tabBar={(props) => {
+    const activeRouteName = props.state.routes[props.state.index]?.name;
+
+    if (activeRouteName === 'log') {
+      return null;
+    }
+
+    return <FloatingTabDock {...props} theme={theme} />;
+  }}
   screenOptions={{
     headerShown: false,
     tabBarHideOnKeyboard: true,
+    sceneStyle: { backgroundColor: theme.bg },
   }}
 >
       <Tabs.Screen
