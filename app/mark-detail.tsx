@@ -27,6 +27,13 @@ import type {
 } from '../src/types/living-spaces';
 import { setAppActivity } from '../src/utils/app-activity';
 import { getContacts } from '../src/utils/contacts-storage';
+import {
+  formatEventDate,
+  formatEventTime,
+  getCalendarEventsForGroup,
+  getSpaceEventTypeLabel,
+  type GroupCalendarEvent,
+} from '../src/utils/group-calendar';
 import { getGroupMembers, isGroupAdmin } from '../src/utils/group-storage';
 import {
   getPersonDisplayName,
@@ -69,6 +76,23 @@ function getRouteLabel(kind: string): string {
   if (kind === 'space-relay') return 'Space relay';
   if (kind === 'public-relay') return 'Public relay';
   return kind;
+}
+
+function getCalendarEventMarkLabel(event: GroupCalendarEvent): string {
+  const title = event.title.trim();
+  const eventTypeLabel = getSpaceEventTypeLabel(event.spaceEventType);
+  const opponent = event.opponent?.trim();
+
+  const detailParts = [
+    opponent
+      ? `${eventTypeLabel} vs ${opponent}`
+      : event.spaceEventType && event.spaceEventType !== 'event'
+        ? eventTypeLabel
+        : '',
+    `${formatEventDate(event)} • ${formatEventTime(event)}`,
+  ].filter(Boolean);
+
+  return [title, ...detailParts].join(' • ');
 }
 
 // Photo with loading state and broken-URI fallback
@@ -134,6 +158,10 @@ export default function MilestoneDetail() {
   const [selectedContextPeople, setSelectedContextPeople] = useState<LivingMarkPerson[]>([]);
   const [contextLifeStage, setContextLifeStage] = useState('');
   const [contextEventInput, setContextEventInput] = useState('');
+  const [contextCalendarEvents, setContextCalendarEvents] = useState<GroupCalendarEvent[]>([]);
+  const [contextSelectedCalendarEventId, setContextSelectedCalendarEventId] = useState<string | null>(null);
+  const [loadingContextCalendarEvents, setLoadingContextCalendarEvents] = useState(false);
+  const [showContextCalendarPicker, setShowContextCalendarPicker] = useState(false);
   const [contextPlaceInput, setContextPlaceInput] = useState('');
   const [contextSpaceId, setContextSpaceId] = useState<string | null>(null);
   const [contextInitialSpaceId, setContextInitialSpaceId] = useState<string | null>(null);
@@ -403,6 +431,49 @@ export default function MilestoneDetail() {
     };
   }, [milestone, npub, livingView?.spaces]);
 
+    useEffect(() => {
+    let cancelled = false;
+
+    async function loadContextCalendarEvents() {
+      const selectedGroupId = contextSpaceId?.startsWith('group:')
+        ? contextSpaceId.replace(/^group:/, '')
+        : null;
+
+      if (!selectedGroupId) {
+        setContextCalendarEvents([]);
+        setContextSelectedCalendarEventId(null);
+        setShowContextCalendarPicker(false);
+        return;
+      }
+
+      setLoadingContextCalendarEvents(true);
+
+      try {
+        const loadedEvents = await getCalendarEventsForGroup(selectedGroupId);
+
+        if (!cancelled) {
+          setContextCalendarEvents(loadedEvents.slice(0, 12));
+        }
+      } catch (error) {
+        console.warn('[Mark Detail Calendar Events] failed to load:', error);
+
+        if (!cancelled) {
+          setContextCalendarEvents([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingContextCalendarEvents(false);
+        }
+      }
+    }
+
+    loadContextCalendarEvents();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [contextSpaceId]);
+  
   useEffect(() => {
   if (!milestone?.reflections?.length) return;
 
@@ -486,7 +557,9 @@ export default function MilestoneDetail() {
       existingPeople.length > 0 ? '' : livingPeopleToInput([], livingView.metadata.peopleIds ?? [])
     );
     setContextLifeStage(livingView.metadata.lifeStage ?? '');
-    setContextEventInput(livingView.metadata.eventId ?? '');
+    setContextEventInput(livingView.metadata.eventTitle || livingView.metadata.eventId || '');
+    setContextSelectedCalendarEventId(livingView.metadata.eventId ?? null);
+    setShowContextCalendarPicker(false);
     setContextPlaceInput(livingView.metadata.place?.name ?? '');
     setContextSpaceId(primarySpaceId);
     setContextInitialSpaceId(primarySpaceId);
@@ -504,6 +577,8 @@ export default function MilestoneDetail() {
     setSelectedContextPeople([]);
     setContextLifeStage('');
     setContextEventInput('');
+    setContextSelectedCalendarEventId(null);
+    setShowContextCalendarPicker(false);
     setContextPlaceInput('');
     setContextSpaceId(null);
     setContextInitialSpaceId(null);
@@ -521,13 +596,26 @@ export default function MilestoneDetail() {
         manualInput: contextPeopleInput,
       });
 
+      const selectedContextCalendarEvent = contextSelectedCalendarEventId
+        ? contextCalendarEvents.find(event => event.id === contextSelectedCalendarEventId)
+        : null;
+
+      const eventText = contextEventInput.trim();
+      const eventIdForMark = contextSelectedCalendarEventId || eventText || undefined;
+      const eventTitleForMark = contextSelectedCalendarEventId
+        ? selectedContextCalendarEvent
+          ? getCalendarEventMarkLabel(selectedContextCalendarEvent)
+          : eventText || undefined
+        : eventText || undefined;
+
       const updatedView = await updateLivingMarkContext({
         milestone,
         currentNpub: npub,
         peopleIds: resolvedPeople.peopleIds,
         people: resolvedPeople.people,
         lifeStage: contextLifeStage,
-        eventId: contextEventInput,
+        eventId: eventIdForMark,
+        eventTitle: eventTitleForMark,
         placeName: contextPlaceInput,
         selectedSpaceId: contextSpaceId,
         spaceChanged: contextSpaceId !== contextInitialSpaceId,
@@ -854,6 +942,19 @@ const openMediaViewer = (uri: string) => {
     if (person.source === 'family-member') return 'Family';
     if (person.source === 'current-user') return 'You';
     return 'Contact';
+  };
+
+  const toggleContextCalendarEvent = (event: GroupCalendarEvent) => {
+    const active = contextSelectedCalendarEventId === event.id;
+
+    if (active) {
+      setContextSelectedCalendarEventId(null);
+      setContextEventInput('');
+      return;
+    }
+
+    setContextSelectedCalendarEventId(event.id);
+    setContextEventInput(getCalendarEventMarkLabel(event));
   };
 
   return (
@@ -1283,14 +1384,107 @@ const openMediaViewer = (uri: string) => {
                     })}
                   </ScrollView>
 
-                  <TextInput
-                    style={[s.editInput, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]}
-                    value={contextEventInput}
-                    onChangeText={setContextEventInput}
-                    placeholder="Event name, season, trip, or ceremony"
-                    placeholderTextColor={theme.textMuted}
-                    returnKeyType="next"
-                  />
+                  <Text style={[s.contextSubLabel, { color: theme.textMuted }]}>Calendar event</Text>
+
+                  <TouchableOpacity
+                    style={[
+                      s.contextSelectChip,
+                      {
+                        alignSelf: 'flex-start',
+                        maxWidth: '100%',
+                        backgroundColor: theme.surface,
+                        borderColor: contextEventInput ? theme.gold : theme.border,
+                      },
+                    ]}
+                    onPress={() => setShowContextCalendarPicker(value => !value)}
+                    activeOpacity={0.8}
+                  >
+                    <Text
+                      style={[
+                        s.contextSelectChipText,
+                        { color: contextEventInput ? theme.gold : theme.textSecondary },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {contextEventInput || 'Select saved event'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  {showContextCalendarPicker && (
+                    <View style={[s.mentionPanel, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                      {contextSpaceId?.startsWith('group:') ? (
+                        loadingContextCalendarEvents ? (
+                          <View style={{ padding: 12, flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                            <ActivityIndicator size="small" color={theme.gold} />
+                            <Text style={[s.contextPeopleHelp, { color: theme.textMuted, marginTop: 0 }]}>
+                              Loading events...
+                            </Text>
+                          </View>
+                        ) : contextCalendarEvents.length > 0 ? (
+                          contextCalendarEvents.map(event => {
+                            const active = contextSelectedCalendarEventId === event.id;
+
+                            return (
+                              <TouchableOpacity
+                                key={event.id}
+                                style={[
+                                  s.mentionRow,
+                                  { borderBottomColor: theme.border },
+                                  active && { backgroundColor: theme.gold + '1F' },
+                                ]}
+                                onPress={() => toggleContextCalendarEvent(event)}
+                                activeOpacity={0.82}
+                              >
+                                <View style={s.mentionTextWrap}>
+                                  <Text
+                                    style={[s.mentionName, { color: active ? theme.gold : theme.text }]}
+                                    numberOfLines={1}
+                                  >
+                                    {getCalendarEventMarkLabel(event)}
+                                  </Text>
+                                  <Text style={[s.mentionMeta, { color: theme.textMuted }]} numberOfLines={1}>
+                                    {formatEventDate(event)} • {formatEventTime(event)}
+                                  </Text>
+                                </View>
+
+                                <Text style={[s.mentionAction, { color: active ? theme.gold : theme.textMuted }]}>
+                                  {active ? 'Selected' : 'Add'}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })
+                        ) : (
+                          <Text style={[s.contextPeopleHelp, { color: theme.textMuted, padding: 12, marginTop: 0 }]}>
+                            No events found for this Space yet.
+                          </Text>
+                        )
+                      ) : (
+                        <Text style={[s.contextPeopleHelp, { color: theme.textMuted, padding: 12, marginTop: 0 }]}>
+                          Calendar events are available for group Spaces.
+                        </Text>
+                      )}
+
+                      <TextInput
+                        style={[
+                          s.editInput,
+                          {
+                            margin: 10,
+                            color: theme.text,
+                            backgroundColor: theme.raised,
+                            borderColor: theme.border,
+                          },
+                        ]}
+                        value={contextEventInput}
+                        onChangeText={text => {
+                          setContextEventInput(text);
+                          setContextSelectedCalendarEventId(null);
+                        }}
+                        placeholder="Or type event name..."
+                        placeholderTextColor={theme.textMuted}
+                        returnKeyType="next"
+                      />
+                    </View>
+                  )}
 
                   <TextInput
                     style={[s.editInput, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]}
