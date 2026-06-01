@@ -1924,6 +1924,7 @@ export async function publishGroupMessage(input: {
   senderName?: string;
   nsec: string;
   relayUrl: string;
+  relayUrls?: string[];
 }): Promise<{ success: boolean; eventId?: string; error?: string }> {
   try {
     const trimmedText = input.text?.trim() || '';
@@ -2028,7 +2029,22 @@ export async function publishGroupMessage(input: {
     };
 
     const signed = finalizeEvent(unsigned, sk);
-    return await publishToSpecificRelay(signed, input.relayUrl);
+    const relayResult = await publishToSpecificRelays(
+      signed,
+      input.relayUrls && input.relayUrls.length > 0
+        ? input.relayUrls
+        : [input.relayUrl]
+    );
+
+    return {
+      success: relayResult.success,
+      eventId: relayResult.eventId,
+      error: relayResult.success
+        ? relayResult.failedRelays.length > 0
+          ? `Published with ${relayResult.failedRelays.length} relay warning(s)`
+          : undefined
+        : relayResult.error,
+    };
   } catch (e: any) {
     return { success: false, error: e.message };
   }
@@ -2041,6 +2057,7 @@ export async function publishGroupMessageDelete(input: {
   deletedByNpub?: string;
   nsec: string;
   relayUrl: string;
+  relayUrls?: string[];
 }): Promise<{ success: boolean; eventId?: string; error?: string }> {
   try {
     const decoded = nip19.decode(input.nsec);
@@ -2075,7 +2092,22 @@ export async function publishGroupMessageDelete(input: {
     };
 
     const signed = finalizeEvent(unsigned, sk);
-    return await publishToSpecificRelay(signed, input.relayUrl);
+    const relayResult = await publishToSpecificRelays(
+      signed,
+      input.relayUrls && input.relayUrls.length > 0
+        ? input.relayUrls
+        : [input.relayUrl]
+    );
+
+    return {
+      success: relayResult.success,
+      eventId: relayResult.eventId,
+      error: relayResult.success
+        ? relayResult.failedRelays.length > 0
+          ? `Published with ${relayResult.failedRelays.length} relay warning(s)`
+          : undefined
+        : relayResult.error,
+    };
   } catch (e: any) {
     return { success: false, error: e.message };
   }
@@ -2090,6 +2122,7 @@ export async function publishGroupMessageReaction(input: {
   reactorName?: string;
   nsec: string;
   relayUrl: string;
+  relayUrls?: string[];
 }): Promise<{ success: boolean; eventId?: string; error?: string }> {
   try {
     const reaction = input.reaction.trim();
@@ -2134,7 +2167,22 @@ export async function publishGroupMessageReaction(input: {
     };
 
     const signed = finalizeEvent(unsigned, sk);
-    return await publishToSpecificRelay(signed, input.relayUrl);
+    const relayResult = await publishToSpecificRelays(
+      signed,
+      input.relayUrls && input.relayUrls.length > 0
+        ? input.relayUrls
+        : [input.relayUrl]
+    );
+
+    return {
+      success: relayResult.success,
+      eventId: relayResult.eventId,
+      error: relayResult.success
+        ? relayResult.failedRelays.length > 0
+          ? `Published with ${relayResult.failedRelays.length} relay warning(s)`
+          : undefined
+        : relayResult.error,
+    };
   } catch (e: any) {
     return { success: false, error: e.message };
   }
@@ -2148,6 +2196,7 @@ export async function publishGroupMessageEdit(input: {
   editedByNpub?: string;
   nsec: string;
   relayUrl: string;
+  relayUrls?: string[];
 }): Promise<{ success: boolean; eventId?: string; error?: string }> {
   try {
     const trimmedText = input.text.trim();
@@ -2190,7 +2239,22 @@ export async function publishGroupMessageEdit(input: {
     };
 
     const signed = finalizeEvent(unsigned, sk);
-    return await publishToSpecificRelay(signed, input.relayUrl);
+    const relayResult = await publishToSpecificRelays(
+      signed,
+      input.relayUrls && input.relayUrls.length > 0
+        ? input.relayUrls
+        : [input.relayUrl]
+    );
+
+    return {
+      success: relayResult.success,
+      eventId: relayResult.eventId,
+      error: relayResult.success
+        ? relayResult.failedRelays.length > 0
+          ? `Published with ${relayResult.failedRelays.length} relay warning(s)`
+          : undefined
+        : relayResult.error,
+    };
   } catch (e: any) {
     return { success: false, error: e.message };
   }
@@ -2205,6 +2269,7 @@ export async function publishGroupPollVote(input: {
   voterName?: string;
   nsec: string;
   relayUrl: string;
+  relayUrls?: string[];
 }): Promise<{ success: boolean; eventId?: string; error?: string }> {
   try {
     const optionId = input.optionId.trim();
@@ -2249,7 +2314,22 @@ export async function publishGroupPollVote(input: {
     };
 
     const signed = finalizeEvent(unsigned, sk);
-    return await publishToSpecificRelay(signed, input.relayUrl);
+    const relayResult = await publishToSpecificRelays(
+      signed,
+      input.relayUrls && input.relayUrls.length > 0
+        ? input.relayUrls
+        : [input.relayUrl]
+    );
+
+    return {
+      success: relayResult.success,
+      eventId: relayResult.eventId,
+      error: relayResult.success
+        ? relayResult.failedRelays.length > 0
+          ? `Published with ${relayResult.failedRelays.length} relay warning(s)`
+          : undefined
+        : relayResult.error,
+    };
   } catch (e: any) {
     return { success: false, error: e.message };
   }

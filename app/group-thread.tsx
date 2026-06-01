@@ -27,6 +27,10 @@ import ImageViewerModal, { ViewerImage } from '../components/ImageViewerModal';
 import MessageBubble from '../components/MessageBubble';
 import { Colors } from '../src/constants/theme';
 import {
+  clearActiveGroupChatId,
+  setActiveGroupChatId,
+} from '../src/utils/active-group-chat';
+import {
   addGroupMessageReaction,
   addGroupPollVote,
   editGroupMessage,
@@ -40,8 +44,13 @@ import {
   type GroupMessageMedia
 } from '../src/utils/group-messages';
 import {
+  getLatestReadableGroupMessageCreatedAt,
+  markGroupChatRead,
+} from '../src/utils/group-read-state';
+import {
   getGroupById,
   getGroupMembers,
+  getGroupRelayUrls,
   isGroupMember,
   syncGroupMembersFromRelay,
   updateGroupMemberProfile,
@@ -74,14 +83,6 @@ import {
   sendLocalGroupNotification,
 } from '../src/utils/push-notifications';
 import { uploadToR2 } from '../src/utils/r2';
-import {
-  clearActiveGroupChatId,
-  setActiveGroupChatId,
-} from '../src/utils/active-group-chat';
-import {
-  getLatestReadableGroupMessageCreatedAt,
-  markGroupChatRead,
-} from '../src/utils/group-read-state';
 import { useIdentity } from './_layout';
 
 function createClientMessageId(groupId: string): string {
@@ -273,6 +274,7 @@ export function GroupChatPanel({
   const [groupIcon, setGroupIcon] = useState('👥');
   const [groupImageUri, setGroupImageUri] = useState<string | null>(null);
   const [relayUrl, setRelayUrl] = useState('wss://relay.beginningend.com');
+  const [relayUrls, setRelayUrls] = useState<string[]>(['wss://relay.beginningend.com']);
   const [groupLoaded, setGroupLoaded] = useState(false);
   const [canPostToGroup, setCanPostToGroup] = useState(true);
   const [membershipChecked, setMembershipChecked] = useState(false);
@@ -813,6 +815,7 @@ const showName =
       setGroupIcon(getGroupIcon(group));
       setGroupImageUri(group.coverImage ?? null);
       setRelayUrl(group.relayUrl);
+      setRelayUrls(getGroupRelayUrls(group));
     }
 
     if (npub) {
@@ -1391,6 +1394,7 @@ const showName =
             editedByNpub: npub ?? undefined,
             nsec,
             relayUrl,
+            relayUrls,
           }).then(result => {
             if (!result.success) {
               console.warn('[Groups] publishGroupMessageEdit failed:', result.error);
@@ -1464,6 +1468,7 @@ const showName =
           senderName: myDisplayName,
           nsec,
           relayUrl,
+          relayUrls,
         }).then(result => {
           if (!result.success) {
             console.warn('[Groups] publishGroupMessage failed:', result.error);
@@ -1710,6 +1715,7 @@ const showName =
           senderName: myDisplayName,
           nsec,
           relayUrl,
+          relayUrls,
         }).then(result => {
           if (!result.success) {
             console.warn('[Groups] publishGroupMessage attachments failed:', result.error);
@@ -1964,6 +1970,7 @@ const showName =
           senderName: myDisplayName,
           nsec,
           relayUrl,
+          relayUrls,
         }).then(result => {
           if (!result.success) {
             console.warn('[Groups] publishGroupMessage poll failed:', result.error);
@@ -2069,6 +2076,7 @@ const showName =
           reactorName: myDisplayName,
           nsec,
           relayUrl,
+          relayUrls,
         }).then(result => {
           if (!result.success) {
             console.warn('[Groups] publishGroupMessageReaction failed:', result.error);
@@ -2168,6 +2176,7 @@ const showName =
                   deletedByNpub: npub ?? undefined,
                   nsec,
                   relayUrl,
+                  relayUrls,
                 }).then(result => {
                   if (!result.success) {
                     console.warn('[Groups] publishGroupMessageDelete failed:', result.error);
@@ -2261,6 +2270,7 @@ const showName =
           voterName: myDisplayName,
           nsec,
           relayUrl,
+          relayUrls,
         }).then(result => {
           if (!result.success) {
             console.warn('[Groups] publishGroupPollVote failed:', result.error);
@@ -2273,7 +2283,7 @@ const showName =
       console.warn('[Groups] poll vote failed:', error);
       Alert.alert('Vote failed', 'Could not save your vote.');
     }
-  }, [groupId, myDisplayName, npub, nsec, relayUrl]);
+  }, [groupId, myDisplayName, npub, nsec, relayUrl, relayUrls]);
 
   const handlePollDetails = useCallback((message: GroupMessage | PendingUploadMessage) => {
     if ((message as any).pending || (message as any).isDeleted || !(message as any).poll) return;
