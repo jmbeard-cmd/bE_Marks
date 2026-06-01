@@ -1,6 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
+import type {
+  LivingSpaceType,
+  SchoolConsentMode,
+  SchoolMinorDefaultPolicy,
+} from '../types/living-spaces';
 import {
+  DEFAULT_RELAY,
   fetchGroupById,
   fetchGroupByInviteCode,
   fetchGroupMemberships,
@@ -10,11 +16,6 @@ import {
   publishGroupMembership,
   type NostrGroupPayload,
 } from './nostr';
-import type {
-  LivingSpaceType,
-  SchoolConsentMode,
-  SchoolMinorDefaultPolicy,
-} from '../types/living-spaces';
 const GROUPS_KEY = 'be_groups_v1';
 const MEMBERS_KEY = 'be_group_members_v1';
 
@@ -54,8 +55,10 @@ export type BEGroup = {
   lastPostPreview?: string;
 
   // Nostr relay routing
+  // relayUrl remains the primary relay for backward compatibility.
   relayUrl: string;
   relayMode?: GroupRelayMode;
+  backupRelayUrls?: string[];
 
   // Nostr
   nostrEventId?: string;
@@ -136,6 +139,7 @@ function groupFromNostrPayload(
     lastPostPreview: existing?.lastPostPreview,
     relayUrl: groupEvent.relayUrl,
     relayMode: groupEvent.relayMode,
+    backupRelayUrls: normalizeRelayUrls(groupEvent.backupRelayUrls ?? existing?.backupRelayUrls ?? []),
     nostrEventId: existing?.nostrEventId,
     ownerNpub: groupEvent.ownerNpub,
     memberCount: existing?.memberCount ?? (groupEvent.ownerNpub ? 1 : 0),
@@ -222,6 +226,30 @@ function generateInviteCode(): string {
     code += chars[Math.floor(Math.random() * chars.length)];
   }
   return code;
+}
+
+export function normalizeRelayUrls(relayUrls: Array<string | undefined | null>): string[] {
+  return Array.from(
+    new Set(
+      relayUrls
+        .map(relayUrl => relayUrl?.trim())
+        .filter((relayUrl): relayUrl is string => !!relayUrl)
+        .filter(relayUrl => relayUrl.startsWith('wss://') || relayUrl.startsWith('ws://'))
+    )
+  );
+}
+
+export function getGroupPrimaryRelayUrl(group?: Pick<BEGroup, 'relayUrl'> | null): string {
+  return group?.relayUrl?.trim() || DEFAULT_RELAY;
+}
+
+export function getGroupRelayUrls(
+  group?: Pick<BEGroup, 'relayUrl' | 'backupRelayUrls'> | null
+): string[] {
+  return normalizeRelayUrls([
+    group?.relayUrl || DEFAULT_RELAY,
+    ...(group?.backupRelayUrls ?? []),
+  ]);
 }
 
 // ─── Group CRUD ───────────────────────────────────────────────────
@@ -464,6 +492,7 @@ export function groupToNostrPayload(group: BEGroup): NostrGroupPayload {
     status: group.status,
     relayUrl: group.relayUrl,
     relayMode: group.relayMode,
+    backupRelayUrls: getGroupRelayUrls(group).filter(relayUrl => relayUrl !== getGroupPrimaryRelayUrl(group)),
     createdAt: group.createdAt,
     ownerNpub: group.ownerNpub ?? '',
     bookEnabled: group.bookEnabled === true,

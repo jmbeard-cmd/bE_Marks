@@ -1155,6 +1155,64 @@ export function publishToSpecificRelay(
   });
 }
 
+export async function publishToSpecificRelays(
+  event: Event,
+  relayUrls: string[]
+): Promise<{
+  success: boolean;
+  eventId?: string;
+  successfulRelays: string[];
+  failedRelays: { relayUrl: string; error?: string }[];
+  error?: string;
+}> {
+  const uniqueRelayUrls = Array.from(
+    new Set(
+      relayUrls
+        .map(relayUrl => relayUrl.trim())
+        .filter(relayUrl => relayUrl.startsWith('wss://') || relayUrl.startsWith('ws://'))
+    )
+  );
+
+  if (uniqueRelayUrls.length === 0) {
+    return {
+      success: false,
+      successfulRelays: [],
+      failedRelays: [],
+      error: 'No valid relay URLs provided',
+    };
+  }
+
+  const results = await Promise.all(
+    uniqueRelayUrls.map(async relayUrl => {
+      const result = await publishToSpecificRelay(event, relayUrl);
+
+      return {
+        relayUrl,
+        ...result,
+      };
+    })
+  );
+
+  const successfulRelays = results
+    .filter(result => result.success)
+    .map(result => result.relayUrl);
+
+  const failedRelays = results
+    .filter(result => !result.success)
+    .map(result => ({
+      relayUrl: result.relayUrl,
+      error: result.error,
+    }));
+
+  return {
+    success: successfulRelays.length > 0,
+    eventId: event.id,
+    successfulRelays,
+    failedRelays,
+    error: successfulRelays.length > 0 ? undefined : 'All relays failed',
+  };
+}
+
 // ─── Groups (kind 30080 / 30081) ─────────────────────────────────
 
 export const GROUP_KIND = 30080;
@@ -1184,6 +1242,7 @@ export interface NostrGroupPayload {
   status: 'active' | 'archived';
   relayUrl: string;
   relayMode?: 'default' | 'custom' | 'both';
+  backupRelayUrls?: string[];
   createdAt: number;
   ownerNpub: string;
   bookEnabled?: boolean;
@@ -1232,6 +1291,9 @@ export async function publishGroup(
     if (coverImage) tags.push(['cover-image', coverImage]);
     if (group.schoolId) tags.push(['school', group.schoolId]);
     if (group.bookEnabled) tags.push(['book', 'enabled']);
+    (group.backupRelayUrls ?? []).forEach(relayUrl => {
+      tags.push(['backup-relay', relayUrl]);
+    });
 
     const content = JSON.stringify({
       id: group.id,
@@ -1257,6 +1319,7 @@ export async function publishGroup(
       status: group.status,
       relayUrl: group.relayUrl,
       relayMode: group.relayMode,
+      backupRelayUrls: group.backupRelayUrls ?? [],
       createdAt: group.createdAt,
       ownerNpub: group.ownerNpub,
       bookEnabled: group.bookEnabled === true,
@@ -1273,7 +1336,24 @@ export async function publishGroup(
 
     const signed = finalizeEvent(unsigned, sk);
 
-    return await publishToSpecificRelay(signed, group.relayUrl);
+    const relayUrls = Array.from(
+      new Set([
+        group.relayUrl,
+        ...(group.backupRelayUrls ?? []),
+      ].filter(Boolean))
+    );
+
+    const relayResult = await publishToSpecificRelays(signed, relayUrls);
+
+    return {
+      success: relayResult.success,
+      eventId: relayResult.eventId,
+      error: relayResult.success
+        ? relayResult.failedRelays.length > 0
+          ? `Published with ${relayResult.failedRelays.length} relay warning(s)`
+          : undefined
+        : relayResult.error,
+    };
   } catch (e: any) {
     return { success: false, error: e.message };
   }

@@ -63,6 +63,7 @@ import {
   getMemberByNpub,
   isGroupAdmin,
   isGroupMember,
+  normalizeRelayUrls,
   publishGroupMetadataSnapshot,
   refreshGroupMetadataFromRelay,
   regenerateInviteCode,
@@ -531,6 +532,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   const [editingGroupRelay, setEditingGroupRelay] = useState(false);
   const [groupRelayMode, setGroupRelayMode] = useState<GroupRelayMode>('default');
   const [groupRelayUrl, setGroupRelayUrl] = useState('');
+  const [groupBackupRelayInput, setGroupBackupRelayInput] = useState('');
   const [upcomingCount, setUpcomingCount] = useState(0);
   const [calendarEventTitles, setCalendarEventTitles] = useState<Record<string, string>>({});
   const [selectedMemberAction, setSelectedMemberAction] = useState<BEGroupMember | null>(null);
@@ -1165,6 +1167,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
     setSpaceSettingsRelayOpen(true);
     setGroupRelayMode(group.relayMode ?? 'default');
     setGroupRelayUrl(group.relayMode === 'default' ? '' : group.relayUrl ?? '');
+    setGroupBackupRelayInput((group.backupRelayUrls ?? []).join('\n'));
     setEditingGroupRelay(true);
   };
 
@@ -1176,6 +1179,10 @@ const { id, tab: routeTab } = useLocalSearchParams<{
     }
 
     const trimmedUrl = groupRelayUrl.trim();
+    const rawBackupRelayUrls = groupBackupRelayInput
+      .split(/[\s,]+/)
+      .map(relayUrl => relayUrl.trim())
+      .filter(Boolean);
 
     if ((groupRelayMode === 'custom' || groupRelayMode === 'both') && !trimmedUrl) {
       Alert.alert('Relay required', 'Enter the Space or school relay URL.');
@@ -1187,9 +1194,25 @@ const { id, tab: routeTab } = useLocalSearchParams<{
       return;
     }
 
+    const invalidBackupRelayUrl = rawBackupRelayUrls.find(
+      relayUrl => !relayUrl.startsWith('wss://') && !relayUrl.startsWith('ws://')
+    );
+
+    if (invalidBackupRelayUrl) {
+      Alert.alert('Invalid backup relay', 'Each backup relay URL must start with wss:// or ws://');
+      return;
+    }
+
+    const primaryRelayUrl = groupRelayMode === 'default' ? DEFAULT_RELAY : trimmedUrl;
+    const backupRelayUrls = normalizeRelayUrls([
+      ...(groupRelayMode === 'both' ? [DEFAULT_RELAY] : []),
+      ...rawBackupRelayUrls,
+    ]).filter(relayUrl => relayUrl !== primaryRelayUrl);
+
     await updateGroup(group.id, {
       relayMode: groupRelayMode,
-      relayUrl: groupRelayMode === 'default' ? DEFAULT_RELAY : trimmedUrl,
+      relayUrl: primaryRelayUrl,
+      backupRelayUrls,
     });
     await syncLivingSpacesFromGroups();
     await publishCurrentGroupMetadata(group.id);
@@ -1223,6 +1246,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
     setSpaceSettingsRelayOpen(false);
     setSpaceSettingsConsentOpen(false);
     setEditingGroupRelay(false);
+    setGroupBackupRelayInput('');
   };
 
   const closeSpaceSettingsMenu = () => {
@@ -1230,6 +1254,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
     setSpaceSettingsRelayOpen(false);
     setSpaceSettingsConsentOpen(false);
     setEditingGroupRelay(false);
+    setGroupBackupRelayInput('');
   };
 
   const selectSpaceTab = (nextTab: Tab) => {
@@ -2336,6 +2361,21 @@ const relaySettingsCard = (
             />
           </>
         )}
+
+        <Text style={s.inputLabel}>BACKUP RELAYS</Text>
+        <TextInput
+          style={[s.input, { minHeight: 86, textAlignVertical: 'top' }]}
+          value={groupBackupRelayInput}
+          onChangeText={setGroupBackupRelayInput}
+          placeholder={`wss://relay.beginningend.com\nwss://relay.family.example`}
+          placeholderTextColor={theme.textMuted}
+          autoCapitalize="none"
+          keyboardType="url"
+          multiline
+        />
+        <Text style={s.groupRelayHint}>
+          Add one relay per line. Space metadata will be mirrored to these relays for redundancy.
+        </Text>
 
         <View style={s.modalActions}>
           <TouchableOpacity style={s.cancelBtn} onPress={() => setEditingGroupRelay(false)}>
