@@ -1492,7 +1492,8 @@ export async function publishGroupMembership(input: {
   avatarUrl?: string;
   nsec: string;
   relayUrl: string;
-}): Promise<{ success: boolean; error?: string }> {
+  relayUrls?: string[];
+}): Promise<{ success: boolean; eventId?: string; error?: string }> {
   try {
     const decoded = nip19.decode(input.nsec);
     if (decoded.type !== 'nsec') throw new Error('Invalid nsec');
@@ -1535,7 +1536,22 @@ export async function publishGroupMembership(input: {
     };
 
     const signed = finalizeEvent(unsigned, sk);
-    return await publishToSpecificRelay(signed, input.relayUrl);
+    const relayResult = await publishToSpecificRelays(
+      signed,
+      input.relayUrls && input.relayUrls.length > 0
+        ? input.relayUrls
+        : [input.relayUrl]
+    );
+
+    return {
+      success: relayResult.success,
+      eventId: relayResult.eventId,
+      error: relayResult.success
+        ? relayResult.failedRelays.length > 0
+          ? `Published with ${relayResult.failedRelays.length} relay warning(s)`
+          : undefined
+        : relayResult.error,
+    };
   } catch (e: any) {
     return { success: false, error: e.message };
   }

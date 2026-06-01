@@ -474,6 +474,13 @@ function getGroupLivingSpaceId(groupId: string): string {
   return `group:${groupId}`;
 }
 
+function getGroupPublishRelayUrls(group: BEGroup): string[] {
+  return normalizeRelayUrls([
+    group.relayUrl || DEFAULT_RELAY,
+    ...(group.backupRelayUrls ?? []),
+  ]);
+}
+
 export default function GroupDetailScreen() {
 const { id, tab: routeTab } = useLocalSearchParams<{
   id: string;
@@ -1723,6 +1730,7 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
                 role: member.role,
                 nsec,
                 relayUrl: group.relayUrl,
+                relayUrls: getGroupPublishRelayUrls(group),
               }).then(result => {
                 if (!result.success) {
                   console.warn('[Group Members] publish member removal failed:', result.error);
@@ -1762,6 +1770,7 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
                 senderName: myDisplayName,
                 nsec,
                 relayUrl: group.relayUrl,
+                relayUrls: getGroupPublishRelayUrls(group),
               }).then(result => {
                 if (!result.success) {
                   console.warn('[Group Members] publish remove system message failed:', result.error);
@@ -1835,6 +1844,7 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
                 role: currentMember.role,
                 nsec,
                 relayUrl: group.relayUrl,
+                relayUrls: getGroupPublishRelayUrls(group),
               }).then(result => {
                 if (!result.success) {
                   console.warn('[Group Members] publish leave membership failed:', result.error);
@@ -1863,6 +1873,7 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
                 senderName: leftName,
                 nsec,
                 relayUrl: group.relayUrl,
+                relayUrls: getGroupPublishRelayUrls(group),
               }).then(result => {
                 if (!result.success) {
                   console.warn('[Group Members] publish leave system message failed:', result.error);
@@ -1921,6 +1932,7 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
         role: nextRole,
         nsec,
         relayUrl: group.relayUrl,
+        relayUrls: getGroupPublishRelayUrls(group),
       }).then(result => {
         if (!result.success) {
           console.warn('[Group Members] publish role change failed:', result.error);
