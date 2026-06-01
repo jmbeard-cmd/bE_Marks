@@ -62,7 +62,6 @@ import { useIdentity } from './_layout';
 
 const { width } = Dimensions.get('window');
 const LIFT_UP_TAG = 'Lift Up';
-const PRESET_TAGS = ['Family', 'Faith', 'Career', 'School', 'Travel', 'Health', 'Achievement', 'Personal'];
 const LIFE_STAGE_OPTIONS = ['Childhood', 'Elementary', 'Middle School', 'High School', 'College', 'Season', 'Trip'];
 
 function getRouteLabel(kind: string): string {
@@ -442,34 +441,37 @@ export default function MilestoneDetail() {
   const stopAudio = () => { if (!audioPlayer) return; audioPlayer.pause(); setIsAudioPlaying(false); };
 
   const startEditing = () => {
-  if (!milestone) return;
-  if (milestone.authorNpub && milestone.authorNpub !== npub) return;
+    if (!milestone) return;
+    if (milestone.authorNpub && milestone.authorNpub !== npub) return;
 
-  const hasTitle = milestone.note?.includes('\n\n');
-    setEditTitle(hasTitle ? milestone.note.split('\n\n')[0] : '');
-    setEditNote(hasTitle ? milestone.note.split('\n\n').slice(1).join('\n\n') : milestone.note);
-    setEditTags(milestone.tags ?? []);
+    const currentTags = milestone.tags ?? [];
+
+    setEditTitle('');
+    setEditNote(milestone.note ?? '');
+    setEditTags(currentTags);
+    setEditTagInput(currentTags.map(tag => `#${tag.replace(/^#/, '')}`).join(' '));
     setIsEditingContext(false);
     setIsEditingPermissions(false);
     setIsEditing(true);
   };
 
-  const addEditTag = (tag: string) => {
-    const clean = tag.trim();
-    if (!clean || editTags.includes(clean)) { setEditTagInput(''); return; }
-    setEditTags(prev => [...prev, clean]);
-    setEditTagInput('');
-  };
-
-  const removeEditTag = (tag: string) => setEditTags(prev => prev.filter(t => t !== tag));
-
   const saveEdit = async () => {
     if (!milestone) return;
-    const newNote = editTitle.trim()
-      ? `${editTitle.trim()}\n\n${editNote.trim()}`
-      : editNote.trim();
-    await updateMilestone(milestone.id, { note: newNote, tags: editTags });
-    setMilestone(prev => prev ? { ...prev, note: newNote, tags: editTags } : prev);
+
+    const parsedTags = Array.from(
+      new Set(
+        editTagInput
+          .split(/[\s,]+/)
+          .map(tag => tag.trim().replace(/^#/, ''))
+          .filter(Boolean)
+      )
+    );
+
+    const newNote = editNote.trim();
+
+    await updateMilestone(milestone.id, { note: newNote, tags: parsedTags });
+    setMilestone(prev => prev ? { ...prev, note: newNote, tags: parsedTags } : prev);
+    setEditTags(parsedTags);
     setIsEditing(false);
   };
 
@@ -984,74 +986,28 @@ const openMediaViewer = (uri: string) => {
           {/* ── Edit mode ── */}
           {isEditing ? (
             <View style={s.editBlock}>
-              <Text style={[s.sectionLabel, { color: theme.textMuted }]}>TITLE</Text>
-  <TextInput
-  style={[s.editInput, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]}
-  value={editTitle}
-  onChangeText={setEditTitle}
-  placeholder="Title..."
-  placeholderTextColor={theme.textMuted}
-/>
-
-              <Text style={[s.sectionLabel, { marginTop: 16 }]}>NOTE</Text>
+              <Text style={[s.sectionLabel, { color: theme.textMuted }]}>MARK</Text>
               <TextInput
-  style={[s.editInput, s.editTextarea, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]}
-  value={editNote}
-  onChangeText={setEditNote}
-  placeholder="Note..."
-  placeholderTextColor={theme.textMuted}
-  multiline
-  textAlignVertical="top"
-/>
+                style={[s.editInput, s.editTextarea, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]}
+                value={editNote}
+                onChangeText={setEditNote}
+                placeholder="What do you want to remember?"
+                placeholderTextColor={theme.textMuted}
+                multiline
+                textAlignVertical="top"
+              />
 
-              <Text style={[s.sectionLabel, { marginTop: 16 }]}>TAGS</Text>
-              <View style={s.presetTagsRow}>
-                {PRESET_TAGS.map(t => (
-                  <TouchableOpacity
-  key={t}
-  style={[s.selectedTag, { backgroundColor: theme.surface, borderColor: theme.gold }]}
-  onPress={() => removeEditTag(t)}
->
-                    <Text style={[s.presetTagText, editTags.includes(t) && s.presetTagTextActive]}>{t}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-              <View style={s.tagInputRow}>
-               <TextInput
-  style={[s.editInput, { flex: 1, color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]}
-  value={editTagInput}
-  onChangeText={setEditTagInput}
-  placeholder="Custom tag..."
-  placeholderTextColor={theme.textMuted}
-  returnKeyType="done"
-  autoCapitalize="words"
-  onSubmitEditing={() => addEditTag(editTagInput)}
-/>
-<TouchableOpacity
-  style={[
-    s.tagAddBtn,
-    { backgroundColor: theme.gold },
-    !editTagInput.trim() && s.tagAddBtnDim,
-  ]}
-                  onPress={() => addEditTag(editTagInput)}
-                  disabled={!editTagInput.trim()}
-                >
-                  <Text style={[s.tagAddBtnText, { color: theme.bg }]}>+ Add</Text>
-                </TouchableOpacity>
-              </View>
-              {editTags.length > 0 && (
-                <View style={s.selectedTagsRow}>
-                  {editTags.map(t => (
-                    <TouchableOpacity
-  key={t}
-  style={[s.selectedTag, { backgroundColor: theme.surface, borderColor: theme.gold }]}
-  onPress={() => removeEditTag(t)}
->
-                      <Text style={[s.selectedTagText, { color: theme.gold }]}>{t} ✕</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
+              <Text style={[s.sectionLabel, { marginTop: 16, color: theme.textMuted }]}>TAGS</Text>
+              <TextInput
+                style={[s.editInput, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]}
+                value={editTagInput}
+                onChangeText={setEditTagInput}
+                placeholder="#family #game #memory"
+                placeholderTextColor={theme.textMuted}
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="done"
+              />
 
               <View style={s.editActions}>
                 <TouchableOpacity style={[s.cancelEditBtn, { borderColor: theme.border }]} onPress={() => setIsEditing(false)}>
