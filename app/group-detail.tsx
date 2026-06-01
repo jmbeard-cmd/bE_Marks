@@ -9,7 +9,10 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
+import * as DocumentPicker from 'expo-document-picker';
+import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import * as VideoThumbnails from 'expo-video-thumbnails';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -51,10 +54,13 @@ import {
   saveLocalGroupSystemMessage,
 } from '../src/utils/group-messages';
 import {
+  createGroupSticky,
   getStickiesForGroup,
   hideGroupSticky,
   syncGroupStickiesFromRelay,
-  type GroupSticky
+  type GroupBoardDisplayMode,
+  type GroupSticky,
+  type GroupStickyTrustedAuthor
 } from '../src/utils/group-stickies';
 import {
   archiveGroup,
@@ -85,6 +91,10 @@ import {
   syncLivingSpacesFromGroups
 } from '../src/utils/living-spaces-storage';
 import {
+  compressImageForUpload,
+  compressVideoForUpload,
+} from '../src/utils/media-compression';
+import {
   DEFAULT_RELAY,
   fetchGroupMarks,
   fetchGroupMessageDeletes,
@@ -100,6 +110,7 @@ import {
   registerGroupMemberForPush,
   removeGroupMemberFromPush,
 } from '../src/utils/push-notifications';
+import { uploadToR2 } from '../src/utils/r2';
 import {
   SCHOOL_CONSENT_NOTICE_VERSION,
   getSchoolSpaceConsentSummary,
@@ -117,7 +128,7 @@ import {
 import { useIdentity } from './_layout';
 import { GroupChatPanel } from './group-thread';
 
-type Tab = 'overview' | 'chat' | 'stickies' | 'mantle' | 'calendar' | 'gallery' | 'members' | 'legacy' | 'book';
+type Tab = 'overview' | 'chat' | 'stickies' | 'board' | 'mantle' | 'calendar' | 'gallery' | 'members' | 'legacy' | 'book';
 const GROUP_LOCAL_GALLERY_KEY = 'be_group_local_gallery_v1';
 const SPACE_GALLERY_CACHE_KEY_PREFIX = 'be_space_gallery_cache_v1:';
 const SPACE_FAVORITES_KEY = 'be_space_favorite_ids_v1';
@@ -171,6 +182,14 @@ type SpaceGalleryItem = {
   previewUrl?: string;
   createdAt?: number;
   source?: 'local-chat' | 'chat' | 'highlight';
+};
+
+type BoardDraftAttachment = {
+  id: string;
+  uri: string;
+  type: 'image' | 'video' | 'file';
+  name?: string;
+  mimeType?: string;
 };
 
 const GROUP_TYPE_ICONS: Record<string, string> = {
@@ -481,6 +500,18 @@ function getGroupPublishRelayUrls(group: BEGroup): string[] {
   ]);
 }
 
+function getTrustedBoardAuthors(groupMembers: BEGroupMember[]): GroupStickyTrustedAuthor[] {
+  return groupMembers
+    .filter(member =>
+      member.status === 'active' &&
+      (member.role === 'owner' || member.role === 'admin')
+    )
+    .map(member => ({
+      npub: member.npub,
+      pubkeyHex: member.pubkeyHex,
+    }));
+}
+
 export default function GroupDetailScreen() {
 const { id, tab: routeTab } = useLocalSearchParams<{
   id: string;
@@ -506,6 +537,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
     if (
       routeTab === 'chat' ||
       routeTab === 'stickies' ||
+      routeTab === 'board' ||
       routeTab === 'calendar' ||
       routeTab === 'gallery' ||
       routeTab === 'members' ||
@@ -545,6 +577,15 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   const [selectedMemberAction, setSelectedMemberAction] = useState<BEGroupMember | null>(null);
   const [favoriteSpaceIds, setFavoriteSpaceIds] = useState<string[]>([]);
   const [activeSpaceVideoMarkId, setActiveSpaceVideoMarkId] = useState<string | null>(null);
+
+  const [showBoardComposer, setShowBoardComposer] = useState(false);
+  const [boardDisplayMode, setBoardDisplayMode] = useState<GroupBoardDisplayMode>('pin');
+  const [boardTitle, setBoardTitle] = useState('');
+  const [boardBody, setBoardBody] = useState('');
+  const [boardAttachments, setBoardAttachments] = useState<BoardDraftAttachment[]>([]);
+  const [boardUploadStatus, setBoardUploadStatus] = useState<string | null>(null);
+  const [savingBoardItem, setSavingBoardItem] = useState(false);
+
   const groupDetailLoadRunIdRef = useRef(0);
 
   const spaceMarksViewabilityConfigRef = useRef({
@@ -920,8 +961,10 @@ const { id, tab: routeTab } = useLocalSearchParams<{
       if (groupDetailLoadRunIdRef.current !== runId) return;
 
       try {
+        const trustedBoardAuthors = getTrustedBoardAuthors(await getGroupMembers(id));
+
         const syncedStickies = relayGroup.relayUrl
-          ? await syncGroupStickiesFromRelay(id, relayGroup.relayUrl)
+          ? await syncGroupStickiesFromRelay(id, relayGroup.relayUrl, trustedBoardAuthors)
           : await getStickiesForGroup(id);
 
         setStickies(syncedStickies);
@@ -1107,6 +1150,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
     if (
       routeTab === 'chat' ||
       routeTab === 'stickies' ||
+      routeTab === 'board' ||
       routeTab === 'calendar' ||
       routeTab === 'gallery' ||
       routeTab === 'members' ||
@@ -1165,6 +1209,279 @@ const { id, tab: routeTab } = useLocalSearchParams<{
       }
     } catch (error) {
       console.warn('[Space Detail] metadata publish error:', error);
+    }
+  };
+
+  const resetBoardComposer = () => {
+    setBoardDisplayMode('pin');
+    setBoardTitle('');
+    setBoardBody('');
+    setBoardAttachments([]);
+    setBoardUploadStatus(null);
+    setSavingBoardItem(false);
+  };
+
+  const openBoardComposer = (displayMode: GroupBoardDisplayMode = 'pin') => {
+    if (!group) return;
+
+    if (group.status !== 'active') {
+      Alert.alert('Space archived', 'This Space is archived. Board items can still be viewed, but new ones cannot be added.');
+      return;
+    }
+
+    if (!isAdmin) {
+      Alert.alert('Admins only', 'Only a Space owner or admin can add Bulletin Board items.');
+      return;
+    }
+
+    setBoardDisplayMode(displayMode);
+    setBoardTitle('');
+    setBoardBody('');
+    setSavingBoardItem(false);
+    setShowBoardComposer(true);
+  };
+
+    const handlePickBoardMedia = async () => {
+    if (savingBoardItem) return;
+
+    const remainingSlots = Math.max(0, 5 - boardAttachments.length);
+
+    if (remainingSlots === 0) {
+      Alert.alert('Limit reached', 'You can attach up to 5 items to a Bulletin Board item.');
+      return;
+    }
+
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (permission.status !== 'granted') {
+        Alert.alert('Permission needed', 'Allow media access to attach photos or videos.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.All,
+        allowsMultipleSelection: true,
+        selectionLimit: remainingSlots,
+        quality: 0.9,
+      });
+
+      if (result.canceled || !result.assets?.length) return;
+
+      const newItems: BoardDraftAttachment[] = result.assets
+        .filter(asset => !!asset.uri)
+        .map((asset, index) => ({
+          id: `board_media_${Date.now()}_${index}`,
+          uri: asset.uri,
+          type: asset.type === 'video' ? 'video' : 'image',
+          name: asset.fileName ?? undefined,
+          mimeType: asset.mimeType ?? undefined,
+        }));
+
+      setBoardAttachments(current => [...current, ...newItems].slice(0, 5));
+    } catch (error) {
+      console.warn('[Bulletin Board] media picker failed:', error);
+      Alert.alert('Media error', 'Could not open your photo library.');
+    }
+  };
+
+  const handlePickBoardFiles = async () => {
+    if (savingBoardItem) return;
+
+    const remainingSlots = Math.max(0, 5 - boardAttachments.length);
+
+    if (remainingSlots === 0) {
+      Alert.alert('Limit reached', 'You can attach up to 5 items to a Bulletin Board item.');
+      return;
+    }
+
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        multiple: true,
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled || !result.assets?.length) return;
+
+      const newFiles: BoardDraftAttachment[] = result.assets
+        .filter(asset => !!asset.uri)
+        .slice(0, remainingSlots)
+        .map((asset, index) => ({
+          id: `board_file_${Date.now()}_${index}`,
+          uri: asset.uri,
+          type: 'file',
+          name: asset.name,
+          mimeType: asset.mimeType,
+        }));
+
+      setBoardAttachments(current => [...current, ...newFiles].slice(0, 5));
+    } catch (error) {
+      console.warn('[Bulletin Board] file picker failed:', error);
+      Alert.alert('File error', 'Could not open the file picker.');
+    }
+  };
+
+  const removeBoardAttachment = (attachmentId: string) => {
+    if (savingBoardItem) return;
+
+    setBoardAttachments(current =>
+      current.filter(item => item.id !== attachmentId)
+    );
+  };
+
+  const handleSaveBoardItem = async () => {
+    if (!group || savingBoardItem) return;
+
+    if (!isAdmin) {
+      Alert.alert('Admins only', 'Only a Space owner or admin can save Bulletin Board items.');
+      return;
+    }
+
+    if (!npub) {
+      Alert.alert('Sign in required', 'Sign in before adding to the Bulletin Board.');
+      return;
+    }
+
+    const title = boardTitle.trim();
+    const body = boardBody.trim();
+
+    if (!title || !body) {
+      Alert.alert('Missing info', 'Add a title and message for the Bulletin Board item.');
+      return;
+    }
+
+    setSavingBoardItem(true);
+    setBoardUploadStatus(
+      boardAttachments.length > 0
+        ? 'Preparing attachments...'
+        : 'Posting Bulletin Board item...'
+    );
+
+    try {
+      const uploadedBoardMedia: any[] = [];
+
+      for (let i = 0; i < boardAttachments.length; i++) {
+        const item = boardAttachments[i];
+        let uploadUri = item.uri;
+
+        if (item.type === 'image') {
+          setBoardUploadStatus(`Optimizing photo ${i + 1} of ${boardAttachments.length}.`);
+
+          const compressionResult = await compressImageForUpload({
+            uri: item.uri,
+            onStatus: setBoardUploadStatus,
+          });
+
+          uploadUri = compressionResult.uri;
+
+          setBoardUploadStatus(
+            compressionResult.wasCompressed
+              ? `Uploading optimized photo ${i + 1} of ${boardAttachments.length}.`
+              : `Uploading photo ${i + 1} of ${boardAttachments.length}.`
+          );
+        } else if (item.type === 'video') {
+          const compressionResult = await compressVideoForUpload({
+            uri: item.uri,
+            onStatus: setBoardUploadStatus,
+            onProgress: progress => {
+              setBoardUploadStatus(
+                `Compressing video ${i + 1} of ${boardAttachments.length}… ${Math.round(progress * 100)}%`
+              );
+            },
+          });
+
+          uploadUri = compressionResult.uri;
+
+          setBoardUploadStatus(
+            compressionResult.wasCompressed
+              ? `Uploading compressed video ${i + 1} of ${boardAttachments.length}.`
+              : `Uploading video ${i + 1} of ${boardAttachments.length}.`
+          );
+        } else {
+          setBoardUploadStatus(`Uploading file ${i + 1} of ${boardAttachments.length}.`);
+        }
+
+        const uploadedUrl = await uploadToR2(
+          uploadUri,
+          item.type === 'video' ? 'video' : item.type === 'image' ? 'photo' : 'file'
+        );
+
+        if (!uploadedUrl) {
+          console.warn('[Bulletin Board] skipped failed attachment:', item.uri);
+          continue;
+        }
+
+        let thumbnailUrl: string | undefined;
+
+        if (item.type === 'video') {
+          try {
+            setBoardUploadStatus(`Creating thumbnail ${i + 1} of ${boardAttachments.length}.`);
+
+            const thumbnail = await VideoThumbnails.getThumbnailAsync(uploadUri, {
+              time: 1000,
+            });
+
+            setBoardUploadStatus(`Uploading thumbnail ${i + 1} of ${boardAttachments.length}.`);
+
+            const uploadedThumbnail = await uploadToR2(thumbnail.uri, 'photo');
+            thumbnailUrl = uploadedThumbnail || undefined;
+          } catch (thumbError) {
+            console.warn('[Bulletin Board] thumbnail failed:', thumbError);
+          }
+        }
+
+        uploadedBoardMedia.push({
+          id: `board_uploaded_${Date.now()}_${i}`,
+          uri: uploadedUrl,
+          type: item.type,
+          mediaUrl: uploadedUrl,
+          mediaType: item.type,
+          thumbnailUri: thumbnailUrl,
+          thumbnailUrl,
+          imageUrl: item.type === 'image' ? uploadedUrl : undefined,
+          name: item.name,
+          fileName: item.name,
+          mimeType: item.mimeType,
+        });
+      }
+
+      if (boardAttachments.length > 0 && uploadedBoardMedia.length === 0) {
+        Alert.alert('Upload failed', 'Could not upload the selected attachments.');
+        setSavingBoardItem(false);
+        setBoardUploadStatus(null);
+        return;
+      }
+
+      setBoardUploadStatus('Posting Bulletin Board item...');
+
+      const createdBoardItem = await createGroupSticky({
+        groupId: group.id,
+        title,
+        body,
+        media: uploadedBoardMedia,
+        displayMode: boardDisplayMode,
+        priority: boardDisplayMode === 'alert' ? 'high' : 'normal',
+        relayUrl: group.relayUrl,
+        relayUrls: getGroupPublishRelayUrls(group),
+        authorName: myDisplayName,
+        authorNpub: npub,
+      } as any);
+
+      setStickies(current => {
+        const withoutDuplicate = current.filter(item => item.id !== createdBoardItem.id);
+
+        return [createdBoardItem, ...withoutDuplicate].sort(
+          (a, b) => b.updatedAt - a.updatedAt
+        );
+      });
+
+      setShowBoardComposer(false);
+      resetBoardComposer();
+    } catch (error) {
+      console.warn('[Bulletin Board] save failed:', error);
+      Alert.alert('Could not save', 'The Bulletin Board item could not be saved.');
+      setSavingBoardItem(false);
+      setBoardUploadStatus(null);
     }
   };
 
@@ -1529,6 +1846,26 @@ const openUnifiedMarkComposer = (returnTab: Tab = tab, calendarEvent?: GroupCale
         : {}),
     },
   } as any);
+};
+
+const getBoardItemAuthorLabel = (sticky: GroupSticky): string => {
+  const authorMember = sticky.authorNpub
+    ? members.find(member => member.npub === sticky.authorNpub)
+    : null;
+
+  const displayName =
+    authorMember?.displayName ||
+    sticky.authorName ||
+    (sticky.authorNpub ? `${sticky.authorNpub.slice(0, 12)}…` : 'Space admin');
+
+  const roleLabel =
+    authorMember?.role === 'owner'
+      ? 'Owner'
+      : authorMember?.role === 'admin'
+        ? 'Admin'
+        : 'Admin';
+
+  return `Signed by ${displayName} • ${roleLabel} • ${formatStickyDate(sticky.updatedAt || sticky.createdAt)}`;
 };
 
 const handleOpenHighlightFile = async (fileUrl?: string) => {
@@ -2479,6 +2816,11 @@ const relaySettingsCard = (
                 activeIcon: 'chatbubble-ellipses' as const,
               },
               {
+                key: 'board' as Tab,
+                icon: 'megaphone-outline' as const,
+                activeIcon: 'megaphone' as const,
+              },
+              {
                 key: 'calendar' as Tab,
                 icon: 'calendar-outline' as const,
                 activeIcon: 'calendar' as const,
@@ -3177,11 +3519,6 @@ const relaySettingsCard = (
                 id: view.milestone.id,
                 view,
               })),
-              ...stickies.map(sticky => ({
-                itemType: 'sticky' as const,
-                id: sticky.id,
-                sticky,
-              })),
             ]}
             keyExtractor={item => `${item.itemType}_${item.id}`}
             contentContainerStyle={s.timelineContainer}
@@ -3491,6 +3828,115 @@ const relaySettingsCard = (
             <TouchableOpacity
               style={s.spaceMarkFab}
               onPress={() => openUnifiedMarkComposer('stickies')}
+              activeOpacity={0.88}
+            >
+              <Text style={s.spaceMarkFabText}>+</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {/* Bulletin Board tab */}
+      {tab === 'board' && (
+        <View style={s.spaceTabPanel}>
+          <FlatList<GroupSticky>
+            style={s.spaceTabList}
+            data={stickies}
+            keyExtractor={item => item.id}
+            contentContainerStyle={s.timelineContainer}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                tintColor={theme.gold}
+              />
+            }
+            initialNumToRender={6}
+            maxToRenderPerBatch={6}
+            windowSize={5}
+            removeClippedSubviews={Platform.OS === 'android'}
+            ListHeaderComponent={
+              group.status === 'archived' ? (
+                <View style={s.archivedBanner}>
+                  <Text style={s.archivedBannerText}>
+                    📦 This Space is archived. Board items can still be viewed.
+                  </Text>
+                </View>
+              ) : null
+            }
+            ListEmptyComponent={
+              <View style={s.empty}>
+                <Text style={s.emptyIcon}>📣</Text>
+                <Text style={s.emptyText}>No Board items yet</Text>
+                <Text style={s.emptyHint}>
+                  Pins, announcements, and alerts for this Space will live here.
+                </Text>
+              </View>
+            }
+            renderItem={({ item: sticky }) => (
+              <View style={s.stickyCard}>
+                <View style={s.stickyTop}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.stickyTitle}>{sticky.title}</Text>
+                    <Text style={s.legacyStickyLabel}>
+                      {sticky.displayMode === 'alert'
+                        ? 'Alert'
+                        : sticky.displayMode === 'announcement'
+                          ? 'Announcement'
+                          : 'Pinned note'}
+                    </Text>
+
+                    <Text style={s.stickyMeta} numberOfLines={1}>
+                      {getBoardItemAuthorLabel(sticky)}
+                    </Text>
+                  </View>
+
+                  {isAdmin && (
+                    <TouchableOpacity onPress={() => handleDeleteSticky(sticky)}>
+                      <Text style={s.stickyDelete}>✕</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                {sticky.body ? (
+                  <Text style={s.stickyBody}>{sticky.body}</Text>
+                ) : null}
+
+                {getStickyVisualMediaItems(sticky).length > 0 && (
+                  <MediaCollage
+                    media={getStickyVisualMediaItems(sticky)}
+                    onPressMedia={(index) => openViewerForSticky(sticky, index)}
+                  />
+                )}
+
+                {getStickyFileItems(sticky).length > 0 && (
+                  <View style={s.stickyFileList}>
+                    {getStickyFileItems(sticky).map((file, index) => (
+                      <TouchableOpacity
+                        key={`${sticky.id}_file_${index}`}
+                        style={s.stickyFileRow}
+                        onPress={() => handleOpenHighlightFile(file.mediaUrl || file.uri)}
+                        activeOpacity={0.84}
+                      >
+                        <Text style={s.stickyFileIcon}>📎</Text>
+                        <View style={{ flex: 1 }}>
+                          <Text style={s.stickyFileName} numberOfLines={1}>
+                            {file.name || `Attachment ${index + 1}`}
+                          </Text>
+                          <Text style={s.stickyFileMeta}>Tap to open</Text>
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+              </View>
+            )}
+          />
+
+          {group.status === 'active' && isAdmin && (
+            <TouchableOpacity
+              style={s.spaceMarkFab}
+              onPress={() => openBoardComposer('pin')}
               activeOpacity={0.88}
             >
               <Text style={s.spaceMarkFabText}>+</Text>
@@ -3947,6 +4393,182 @@ const relaySettingsCard = (
         </TouchableOpacity>
       </View>
     )}
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showBoardComposer}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          setShowBoardComposer(false);
+          resetBoardComposer();
+        }}
+      >
+        <View style={s.modalOverlay}>
+          <ScrollView
+            contentContainerStyle={s.modalCard}
+            keyboardShouldPersistTaps="handled"
+          >
+            <Text style={s.modalTitle}>New Bulletin Board Item</Text>
+
+            <Text style={s.inputLabel}>TYPE</Text>
+            <View style={s.visibilityBox}>
+              <TouchableOpacity
+                style={[
+                  s.visibilityOption,
+                  boardDisplayMode === 'pin' && s.visibilityOptionActive,
+                ]}
+                onPress={() => setBoardDisplayMode('pin')}
+                activeOpacity={0.84}
+              >
+                <Text style={s.visibilityIcon}>📌</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.visibilityTitle}>Pin</Text>
+                  <Text style={s.visibilityHint}>A standing notice or reminder.</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  s.visibilityOption,
+                  boardDisplayMode === 'announcement' && s.visibilityOptionActive,
+                ]}
+                onPress={() => setBoardDisplayMode('announcement')}
+                activeOpacity={0.84}
+              >
+                <Text style={s.visibilityIcon}>📣</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.visibilityTitle}>Announcement</Text>
+                  <Text style={s.visibilityHint}>A Space-wide update people should see.</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  s.visibilityOption,
+                  boardDisplayMode === 'alert' && s.visibilityOptionActive,
+                ]}
+                onPress={() => setBoardDisplayMode('alert')}
+                activeOpacity={0.84}
+              >
+                <Text style={s.visibilityIcon}>⚠️</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.visibilityTitle}>Alert</Text>
+                  <Text style={s.visibilityHint}>A high-priority item for the Space.</Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={s.inputLabel}>TITLE</Text>
+            <TextInput
+              style={s.input}
+              value={boardTitle}
+              onChangeText={setBoardTitle}
+              placeholder="Example: Practice moved to 5:30"
+              placeholderTextColor={theme.textMuted}
+              autoCapitalize="sentences"
+            />
+
+            <Text style={s.inputLabel}>MESSAGE</Text>
+            <TextInput
+              style={[s.input, s.inputMulti, { textAlignVertical: 'top' }]}
+              value={boardBody}
+              onChangeText={setBoardBody}
+              placeholder="Add the details people need to know."
+              placeholderTextColor={theme.textMuted}
+              autoCapitalize="sentences"
+              multiline
+            />
+
+                        <Text style={s.inputLabel}>ATTACHMENTS</Text>
+            <View style={s.modalActions}>
+              <TouchableOpacity
+                style={s.cancelBtn}
+                onPress={handlePickBoardMedia}
+                disabled={savingBoardItem}
+                activeOpacity={0.84}
+              >
+                <Text style={s.cancelText}>Photo / Video</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={s.cancelBtn}
+                onPress={handlePickBoardFiles}
+                disabled={savingBoardItem}
+                activeOpacity={0.84}
+              >
+                <Text style={s.cancelText}>File</Text>
+              </TouchableOpacity>
+            </View>
+
+            {boardAttachments.length > 0 && (
+              <View style={s.stickyFileList}>
+                {boardAttachments.map(attachment => (
+                  <View key={attachment.id} style={s.stickyFileRow}>
+                    <Text style={s.stickyFileIcon}>
+                      {attachment.type === 'video' ? '🎥' : attachment.type === 'image' ? '🖼️' : '📎'}
+                    </Text>
+
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={s.stickyFileName} numberOfLines={1}>
+                        {attachment.name ||
+                          (attachment.type === 'video'
+                            ? 'Selected video'
+                            : attachment.type === 'image'
+                              ? 'Selected photo'
+                              : 'Selected file')}
+                      </Text>
+                      <Text style={s.stickyFileMeta}>
+                        {attachment.type === 'video'
+                          ? 'Video'
+                          : attachment.type === 'image'
+                            ? 'Photo'
+                            : attachment.mimeType || 'File'}
+                      </Text>
+                    </View>
+
+                    <TouchableOpacity
+                      onPress={() => removeBoardAttachment(attachment.id)}
+                      disabled={savingBoardItem}
+                    >
+                      <Text style={s.stickyFileOpen}>Remove</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {boardUploadStatus ? (
+              <Text style={s.stickyMeta}>{boardUploadStatus}</Text>
+            ) : null}
+
+            <View style={s.modalActions}>
+              <TouchableOpacity
+                style={s.cancelBtn}
+                onPress={() => {
+                  setShowBoardComposer(false);
+                  resetBoardComposer();
+                }}
+                disabled={savingBoardItem}
+              >
+                <Text style={s.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  s.confirmBtn,
+                  (!boardTitle.trim() || !boardBody.trim() || savingBoardItem) && s.confirmBtnDisabled,
+                ]}
+                onPress={handleSaveBoardItem}
+                disabled={!boardTitle.trim() || !boardBody.trim() || savingBoardItem}
+              >
+                <Text style={s.confirmText}>
+                  {savingBoardItem ? 'Saving…' : 'Save'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
         </View>
       </Modal>
 

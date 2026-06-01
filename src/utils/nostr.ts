@@ -2382,9 +2382,14 @@ export async function publishGroupSticky(input: {
     name?: string;
     thumbnailUri?: string;
   }[];
+  displayMode?: 'pin' | 'announcement' | 'alert';
+  priority?: 'normal' | 'high';
+  expiresAt?: number;
+  authorName?: string;
   authorNpub?: string;
   nsec: string;
   relayUrl: string;
+  relayUrls?: string[];
 }): Promise<{ success: boolean; eventId?: string; error?: string }> {
   try {
     const decoded = nip19.decode(input.nsec);
@@ -2394,12 +2399,21 @@ export async function publishGroupSticky(input: {
     const pk = getPublicKey(sk);
     const now = Math.floor(Date.now() / 1000);
 
+    const displayMode = input.displayMode ?? 'pin';
+    const priority = input.priority ?? 'normal';
+
     const tags: string[][] = [
       ['d', input.stickyId],
       ['t', `group-sticky:${input.groupId}`],
       ['group', input.groupId],
+      ['display-mode', displayMode],
+      ['priority', priority],
       ['client', 'bE-Marks'],
     ];
+
+    if (typeof input.expiresAt === 'number') {
+      tags.push(['expires-at', String(input.expiresAt)]);
+    }
 
     for (const media of input.media ?? []) {
       tags.push(['url', media.uri]);
@@ -2429,6 +2443,10 @@ export async function publishGroupSticky(input: {
         title: input.title,
         body: input.body,
         media: input.media ?? [],
+        displayMode,
+        priority,
+        expiresAt: input.expiresAt,
+        authorName: input.authorName,
         authorNpub: input.authorNpub,
         createdAt: now,
         updatedAt: now,
@@ -2437,7 +2455,22 @@ export async function publishGroupSticky(input: {
     };
 
     const signed = finalizeEvent(unsigned, sk);
-    return await publishToSpecificRelay(signed, input.relayUrl);
+    const relayResult = await publishToSpecificRelays(
+      signed,
+      input.relayUrls && input.relayUrls.length > 0
+        ? input.relayUrls
+        : [input.relayUrl]
+    );
+
+    return {
+      success: relayResult.success,
+      eventId: relayResult.eventId,
+      error: relayResult.success
+        ? relayResult.failedRelays.length > 0
+          ? `Published with ${relayResult.failedRelays.length} relay warning(s)`
+          : undefined
+        : relayResult.error,
+    };
   } catch (e: any) {
     return { success: false, error: e.message };
   }

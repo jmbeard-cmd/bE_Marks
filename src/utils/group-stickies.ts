@@ -15,12 +15,28 @@ export type GroupStickyMedia = {
   thumbnailUri?: string;
 };
 
+export type GroupBoardDisplayMode = 'pin' | 'announcement' | 'alert';
+
+export type GroupBoardPriority = 'normal' | 'high';
+
+export type GroupStickyTrustedAuthor = {
+  npub?: string;
+  pubkeyHex?: string;
+};
+
 export type GroupSticky = {
   id: string;
   groupId: string;
   title: string;
   body: string;
   media?: GroupStickyMedia[];
+
+  // Board / Bulletin presentation.
+  // Kept optional so existing Sticky/Highlight events remain valid.
+  displayMode?: GroupBoardDisplayMode;
+  priority?: GroupBoardPriority;
+  expiresAt?: number;
+
   authorName?: string;
   authorNpub?: string;
   relayUrl?: string;
@@ -45,6 +61,36 @@ async function writeJson<T>(key: string, value: T): Promise<void> {
   }
 }
 
+function isTrustedStickyAuthor(
+  eventPubkey: string | undefined,
+  authorNpub: string | undefined,
+  trustedAuthors?: GroupStickyTrustedAuthor[]
+): boolean {
+  if (!trustedAuthors) return true;
+
+  const trustedNpubs = new Set(
+    trustedAuthors
+      .map(author => author.npub)
+      .filter((value): value is string => !!value)
+  );
+
+  const trustedPubkeys = new Set(
+    trustedAuthors
+      .map(author => author.pubkeyHex?.toLowerCase())
+      .filter((value): value is string => !!value)
+  );
+
+  const normalizedEventPubkey = eventPubkey?.toLowerCase();
+
+  if (normalizedEventPubkey) {
+    return trustedPubkeys.has(normalizedEventPubkey);
+  }
+
+  const normalizedAuthorNpub = authorNpub?.trim();
+
+  return !!normalizedAuthorNpub && trustedNpubs.has(normalizedAuthorNpub);
+}
+
 export async function getStickiesForGroup(groupId: string): Promise<GroupSticky[]> {
   const all = await readJson<GroupSticky[]>(GROUP_STICKIES_KEY, []);
   const hiddenIds = await readJson<string[]>(GROUP_HIDDEN_STICKIES_KEY, []);
@@ -60,9 +106,13 @@ export async function createGroupSticky(input: {
   title: string;
   body: string;
   media?: GroupStickyMedia[];
+  displayMode?: GroupBoardDisplayMode;
+  priority?: GroupBoardPriority;
+  expiresAt?: number;
   authorName?: string;
   authorNpub?: string;
   relayUrl?: string;
+  relayUrls?: string[];
 }): Promise<GroupSticky> {
   const all = await readJson<GroupSticky[]>(GROUP_STICKIES_KEY, []);
   const now = Math.floor(Date.now() / 1000);
@@ -73,6 +123,9 @@ export async function createGroupSticky(input: {
     title: input.title.trim(),
     body: input.body.trim(),
     media: input.media ?? [],
+    displayMode: input.displayMode ?? 'pin',
+    priority: input.priority ?? 'normal',
+    expiresAt: input.expiresAt,
     authorName: input.authorName,
     authorNpub: input.authorNpub,
     relayUrl: input.relayUrl,
@@ -87,15 +140,20 @@ export async function createGroupSticky(input: {
     const identity = await getStoredIdentity();
 
     if (identity?.nsec) {
-            publishGroupSticky({
+      publishGroupSticky({
         stickyId: sticky.id,
         groupId: sticky.groupId,
         title: sticky.title,
         body: sticky.body,
         media: sticky.media ?? [],
+        displayMode: sticky.displayMode,
+        priority: sticky.priority,
+        expiresAt: sticky.expiresAt,
+        authorName: sticky.authorName,
         authorNpub: sticky.authorNpub,
         nsec: identity.nsec,
         relayUrl: input.relayUrl,
+        relayUrls: input.relayUrls,
       }).catch(error => {
         console.warn('[Group Stickies] publish failed:', error);
       });
@@ -126,6 +184,7 @@ export async function hideGroupSticky(stickyId: string): Promise<void> {
 export async function syncGroupStickiesFromRelay(
   groupId: string,
   relayUrl: string,
+  trustedAuthors?: GroupStickyTrustedAuthor[],
 ): Promise<GroupSticky[]> {
   const remoteEvents = await fetchGroupStickies(groupId, relayUrl);
   const all = await readJson<GroupSticky[]>(GROUP_STICKIES_KEY, []);
@@ -133,7 +192,8 @@ export async function syncGroupStickiesFromRelay(
 
   const localForGroup = all
     .filter(sticky => sticky.groupId === groupId)
-    .filter(sticky => !hiddenIds.includes(sticky.id));
+    .filter(sticky => !hiddenIds.includes(sticky.id))
+    .filter(sticky => isTrustedStickyAuthor(undefined, sticky.authorNpub, trustedAuthors));
 
   const otherStickies = all.filter(sticky => sticky.groupId !== groupId);
 
@@ -150,6 +210,10 @@ export async function syncGroupStickiesFromRelay(
       if (!parsed.id || parsed.groupId !== groupId) continue;
       if (hiddenIds.includes(parsed.id)) continue;
 
+      if (!isTrustedStickyAuthor(event.pubkey, parsed.authorNpub, trustedAuthors)) {
+        continue;
+      }
+
       const existing = stickyMap.get(parsed.id);
 
       const remoteSticky: GroupSticky = {
@@ -158,6 +222,12 @@ export async function syncGroupStickiesFromRelay(
         title: parsed.title || '',
         body: parsed.body || '',
         media: Array.isArray(parsed.media) ? parsed.media : [],
+        displayMode:
+          parsed.displayMode === 'announcement' || parsed.displayMode === 'alert'
+            ? parsed.displayMode
+            : 'pin',
+        priority: parsed.priority === 'high' ? 'high' : 'normal',
+        expiresAt: typeof parsed.expiresAt === 'number' ? parsed.expiresAt : undefined,
         authorName: parsed.authorName,
         authorNpub: parsed.authorNpub,
         relayUrl,
