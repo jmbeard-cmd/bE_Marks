@@ -798,9 +798,6 @@ const openMediaViewer = (uri: string) => {
     ...(markPermissions.restricted
       ? [{ label: 'Restricted', value: 'Do not feature, print, or promote', tone: 'danger' as const }]
       : []),
-    ...(markPermissions.privateSpaceOnly
-      ? [{ label: 'Private only', value: 'Keep inside this Space', tone: 'neutral' as const }]
-      : []),
     ...(markPermissions.highlightApproved && !markPermissions.restricted
       ? [{ label: 'Highlight', value: 'Approved for Mantle', tone: 'gold' as const }]
       : []),
@@ -814,16 +811,6 @@ const openMediaViewer = (uri: string) => {
     detail: string;
   }[] = [
     {
-      key: 'privateSpaceOnly',
-      label: 'Private only',
-      detail: 'Visible only inside the trusted Space.',
-    },
-    {
-      key: 'highlightApproved',
-      label: 'Approve for Mantle',
-      detail: 'Can appear in the Space Mantle or featured recaps.',
-    },
-    {
       key: 'bookApproved',
       label: 'Approve for Legacy',
       detail: 'Can be included in future Legacy drafts.',
@@ -831,7 +818,7 @@ const openMediaViewer = (uri: string) => {
     {
       key: 'restricted',
       label: 'Restricted',
-      detail: 'Do not use for highlights, Legacy, reels, or public views.',
+      detail: 'Do not use for Legacy, recaps, or public views.',
     },
   ];
 
