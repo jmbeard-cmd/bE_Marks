@@ -2,8 +2,8 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-    fetchGroupBookEntries,
-    publishGroupBookEntry,
+  fetchGroupBookEntries,
+  publishGroupBookEntry,
 } from './nostr';
 
 const GROUP_BOOK_ENTRIES_KEY = 'be_group_book_entries_v2';
@@ -111,6 +111,7 @@ export async function createGroupBookEntry(input: {
   createdByNpub: string;
   createdByName?: string;
   relayUrl?: string;
+  relayUrls?: string[];
   nsec?: string;
 }): Promise<GroupBookEntry> {
   const entries = await readEntries();
@@ -150,6 +151,7 @@ publishGroupBookEntry({
   createdByName: entry.createdByName,
   nsec: input.nsec,
   relayUrl: input.relayUrl,
+  relayUrls: input.relayUrls,
     }).then(async result => {
       if (!result.success) {
         console.warn('[Group Books] publish entry failed:', result.error);
@@ -183,6 +185,7 @@ export async function updateGroupBookEntryStatus(
   options?: {
     nsec?: string;
     relayUrl?: string;
+    relayUrls?: string[];
   }
 ): Promise<void> {
   const entries = await readEntries();
@@ -218,6 +221,7 @@ publishGroupBookEntry({
   createdByName: changedEntry.createdByName,
   nsec: options.nsec,
   relayUrl: options.relayUrl,
+  relayUrls: options.relayUrls,
     }).then(result => {
       if (!result.success) {
         console.warn('[Group Books] publish status update failed:', result.error);
@@ -284,6 +288,7 @@ export async function publishUnsyncedGroupBookEntries(input: {
   groupId: string;
   nsec?: string;
   relayUrl?: string;
+  relayUrls?: string[];
   force?: boolean;
 }): Promise<void> {
   if (!input.nsec || !input.relayUrl) return;
@@ -312,6 +317,7 @@ export async function publishUnsyncedGroupBookEntries(input: {
         createdByName: entry.createdByName,
         nsec: input.nsec,
         relayUrl: input.relayUrl,
+        relayUrls: input.relayUrls,
       });
 
       if (!result.success) {

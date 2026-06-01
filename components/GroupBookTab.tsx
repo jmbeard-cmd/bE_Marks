@@ -131,6 +131,20 @@ export default function GroupBookTab({
   const [entryDescription, setEntryDescription] = useState('');
   const categoryOptions = entryType === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
 
+  const groupBookRelayUrls = useMemo(() => {
+    const relayUrls = [
+      group.relayUrl,
+      ...(group.backupRelayUrls ?? []),
+    ]
+      .map(relayUrl => relayUrl?.trim())
+      .filter((relayUrl): relayUrl is string =>
+        !!relayUrl &&
+        (relayUrl.startsWith('wss://') || relayUrl.startsWith('ws://'))
+      );
+
+    return Array.from(new Set(relayUrls));
+  }, [group.backupRelayUrls, group.relayUrl]);
+
 const loadBookFromCache = useCallback(async () => {
   const cachedSummary = await getBookSummaryForGroup(group.id);
   setSummary(cachedSummary);
@@ -242,6 +256,7 @@ const handleEntryTypeChange = (nextType: GroupBookEntryType) => {
       createdByNpub: npub,
       createdByName: displayName,
       relayUrl: group.relayUrl,
+      relayUrls: groupBookRelayUrls,
       nsec,
     });
 
@@ -268,10 +283,11 @@ const handleEntryTypeChange = (nextType: GroupBookEntryType) => {
         {
           text: 'Confirm',
           onPress: async () => {
-            await updateGroupBookEntryStatus(entry.id, 'confirmed', {
-              nsec,
-              relayUrl: group.relayUrl,
-            });
+await updateGroupBookEntryStatus(entry.id, 'confirmed', {
+  nsec,
+  relayUrl: group.relayUrl,
+  relayUrls: groupBookRelayUrls,
+});
             setSelectedEntry(null);
           },
         },

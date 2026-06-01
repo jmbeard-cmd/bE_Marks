@@ -709,6 +709,11 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   ) => {
     if (!SPACE_MARK_RELAY_SYNC_ENABLED || !nsec) return;
 
+    const relayUrls = normalizeRelayUrls([
+      targetGroup.relayUrl || DEFAULT_RELAY,
+      ...(targetGroup.backupRelayUrls ?? []),
+    ]);
+
     const result = await publishGroupMark({
       groupId: targetGroup.id,
       milestone: view.milestone,
@@ -716,6 +721,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
       placement: view.placement,
       nsec,
       relayUrl: targetGroup.relayUrl || DEFAULT_RELAY,
+      relayUrls: relayUrls.length > 0 ? relayUrls : [targetGroup.relayUrl || DEFAULT_RELAY],
     });
 
     if (!result.success) {
@@ -2475,13 +2481,11 @@ const relaySettingsCard = (
                 icon: 'library-outline' as const,
                 activeIcon: 'library' as const,
               },
-              ...(group.bookEnabled === true
-                ? [{
-                    key: 'book' as Tab,
-                    icon: 'book-outline' as const,
-                    activeIcon: 'book' as const,
-                  }]
-                : []),
+              {
+                key: 'book' as Tab,
+                icon: 'book-outline' as const,
+                activeIcon: 'book' as const,
+              },
             ].map(item => {
               const active = tab === item.key;
 

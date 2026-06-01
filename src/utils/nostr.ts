@@ -1543,12 +1543,15 @@ export async function publishGroupMembership(input: {
 
 export const GROUP_MESSAGE_KIND = 30082;
 export const GROUP_STICKY_KIND = 30083;
+export const GROUP_CALENDAR_KIND = 30084;
+export const GROUP_RSVP_KIND = 30085;
+export const GROUP_CALENDAR_DELETE_KIND = 30086;
 export const GROUP_MESSAGE_DELETE_KIND = 30087;
 export const GROUP_MESSAGE_REACTION_KIND = 30088;
 export const GROUP_MESSAGE_EDIT_KIND = 30089;
 export const GROUP_POLL_VOTE_KIND = 30090;
 export const GROUP_MARK_KIND = 30091;
-export const GROUP_BOOK_ENTRY_KIND = 30086;
+export const GROUP_BOOK_ENTRY_KIND = 30092;
 
 export type NostrGroupMediaType = 'image' | 'video' | 'file';
 
@@ -1603,6 +1606,7 @@ export async function publishGroupMark(input: {
   placement?: LivingMarkPlacement;
   nsec: string;
   relayUrl: string;
+  relayUrls?: string[];
 }): Promise<{ success: boolean; eventId?: string; error?: string }> {
   try {
     const decoded = nip19.decode(input.nsec);
@@ -1647,7 +1651,22 @@ export async function publishGroupMark(input: {
     };
 
     const signed = finalizeEvent(unsigned, sk);
-    return await publishToSpecificRelay(signed, input.relayUrl);
+    const relayResult = await publishToSpecificRelays(
+      signed,
+      input.relayUrls && input.relayUrls.length > 0
+        ? input.relayUrls
+        : [input.relayUrl]
+    );
+
+    return {
+      success: relayResult.success,
+      eventId: relayResult.eventId,
+      error: relayResult.success
+        ? relayResult.failedRelays.length > 0
+          ? `Published with ${relayResult.failedRelays.length} relay warning(s)`
+          : undefined
+        : relayResult.error,
+    };
   } catch (e: any) {
     return { success: false, error: e.message };
   }
@@ -2982,6 +3001,7 @@ export async function publishGroupBookEntry(input: {
   createdByName?: string;
   nsec: string;
   relayUrl: string;
+  relayUrls?: string[];
 }): Promise<{ success: boolean; eventId?: string; error?: string }> {
   try {
     const decoded = nip19.decode(input.nsec);
@@ -3023,7 +3043,22 @@ export async function publishGroupBookEntry(input: {
     };
 
     const signed = finalizeEvent(unsigned, sk);
-    return await publishToSpecificRelay(signed, input.relayUrl);
+    const relayResult = await publishToSpecificRelays(
+      signed,
+      input.relayUrls && input.relayUrls.length > 0
+        ? input.relayUrls
+        : [input.relayUrl]
+    );
+
+    return {
+      success: relayResult.success,
+      eventId: relayResult.eventId,
+      error: relayResult.success
+        ? relayResult.failedRelays.length > 0
+          ? `Published with ${relayResult.failedRelays.length} relay warning(s)`
+          : undefined
+        : relayResult.error,
+    };
   } catch (e: any) {
     return { success: false, error: e.message };
   }
@@ -3354,12 +3389,7 @@ export async function subscribeToGroupPollVotes(input: {
   }
 }
 
-// ─── Group Calendar (kind 30084) ─────────────────────────────────────────────
-
-
-export const GROUP_CALENDAR_KIND = 30084;
-export const GROUP_RSVP_KIND     = 30085;
-export const GROUP_CALENDAR_DELETE_KIND = 30086;
+// ─── Group Calendar (kinds 30084 / 30085 / 30086) ────────────────────────────
 
 export interface GroupCalendarEventRaw {
   id:           string;
@@ -3448,6 +3478,7 @@ export async function publishGroupCalendarEvent(input: {
   updatedAt?:   number;
   nsec:         string;
   relayUrl:     string;
+  relayUrls?:   string[];
 }): Promise<{ success: boolean; eventId?: string; error?: string }> {
   try {
     const decoded = nip19.decode(input.nsec);
@@ -3518,7 +3549,22 @@ export async function publishGroupCalendarEvent(input: {
     };
 
     const signed = finalizeEvent(unsigned, sk);
-    return await publishToSpecificRelay(signed, input.relayUrl);
+    const relayResult = await publishToSpecificRelays(
+      signed,
+      input.relayUrls && input.relayUrls.length > 0
+        ? input.relayUrls
+        : [input.relayUrl]
+    );
+
+    return {
+      success: relayResult.success,
+      eventId: relayResult.eventId,
+      error: relayResult.success
+        ? relayResult.failedRelays.length > 0
+          ? `Published with ${relayResult.failedRelays.length} relay warning(s)`
+          : undefined
+        : relayResult.error,
+    };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Unknown error';
     return { success: false, error: msg };
@@ -3628,6 +3674,7 @@ export async function publishGroupRSVP(input: {
   displayName?: string;
   nsec:        string;
   relayUrl:    string;
+  relayUrls?:  string[];
 }): Promise<{ success: boolean; eventId?: string; error?: string }> {
   try {
     const decoded = nip19.decode(input.nsec);
@@ -3663,7 +3710,22 @@ export async function publishGroupRSVP(input: {
     };
 
     const signed = finalizeEvent(unsigned, sk);
-    return await publishToSpecificRelay(signed, input.relayUrl);
+    const relayResult = await publishToSpecificRelays(
+      signed,
+      input.relayUrls && input.relayUrls.length > 0
+        ? input.relayUrls
+        : [input.relayUrl]
+    );
+
+    return {
+      success: relayResult.success,
+      eventId: relayResult.eventId,
+      error: relayResult.success
+        ? relayResult.failedRelays.length > 0
+          ? `Published with ${relayResult.failedRelays.length} relay warning(s)`
+          : undefined
+        : relayResult.error,
+    };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Unknown error';
     return { success: false, error: msg };
@@ -3760,6 +3822,7 @@ export async function publishGroupCalendarDelete(input: {
   groupId: string;
   nsec: string;
   relayUrl: string;
+  relayUrls?: string[];
 }): Promise<{ success: boolean; eventId?: string; error?: string }> {
   try {
     const decoded = nip19.decode(input.nsec);
@@ -3788,7 +3851,22 @@ export async function publishGroupCalendarDelete(input: {
     };
 
     const signed = finalizeEvent(unsigned, sk);
-    return await publishToSpecificRelay(signed, input.relayUrl);
+    const relayResult = await publishToSpecificRelays(
+      signed,
+      input.relayUrls && input.relayUrls.length > 0
+        ? input.relayUrls
+        : [input.relayUrl]
+    );
+
+    return {
+      success: relayResult.success,
+      eventId: relayResult.eventId,
+      error: relayResult.success
+        ? relayResult.failedRelays.length > 0
+          ? `Published with ${relayResult.failedRelays.length} relay warning(s)`
+          : undefined
+        : relayResult.error,
+    };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Unknown error';
     return { success: false, error: msg };

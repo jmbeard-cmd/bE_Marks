@@ -1,3 +1,4 @@
+import { exportCalendarEventToIcs } from '@/src/utils/calendar-export';
 import {
   createCalendarEvent,
   deleteCalendarEvent,
@@ -19,7 +20,6 @@ import {
   type RSVPStatus,
   type SpaceEventType,
 } from '@/src/utils/group-calendar';
-import { exportCalendarEventToIcs } from '@/src/utils/calendar-export';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -321,6 +321,20 @@ export default function GroupCalendarTab({
   const memberRosterRef = useRef<MemberRosterSnapshot>(createEmptyMemberRoster());
   const calendarLiveRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const groupCalendarRelayUrls = useMemo(() => {
+    const relayUrls = [
+      group.relayUrl,
+      ...(group.backupRelayUrls ?? []),
+    ]
+      .map(relayUrl => relayUrl?.trim())
+      .filter((relayUrl): relayUrl is string =>
+        !!relayUrl &&
+        (relayUrl.startsWith('wss://') || relayUrl.startsWith('ws://'))
+      );
+
+    return Array.from(new Set(relayUrls));
+  }, [group.backupRelayUrls, group.relayUrl]);
+
   const [scoreEvent, setScoreEvent] = useState<GroupCalendarEvent | null>(null);
   const [scoreOur, setScoreOur] = useState('');
   const [scoreOpponent, setScoreOpponent] = useState('');
@@ -544,6 +558,7 @@ export default function GroupCalendarTab({
       displayName,
       status,
       relayUrl:  group.relayUrl,
+      relayUrls: groupCalendarRelayUrls,
     });
 
     hydrateRSVPState([event]);
@@ -1050,6 +1065,7 @@ export default function GroupCalendarTab({
           authorNpub:    npub,
           authorName:    displayName,
           relayUrl:      group.relayUrl,
+          relayUrls:     groupCalendarRelayUrls,
         });
 
         setEvents(current =>

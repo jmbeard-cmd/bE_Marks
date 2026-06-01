@@ -12,7 +12,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getGroupById } from './group-storage';
+import { getGroupById, normalizeRelayUrls } from './group-storage';
 import {
   fetchGroupCalendarDeletes,
   fetchGroupCalendarEvents,
@@ -135,6 +135,18 @@ function normalizeCalendarNpubs(npubs?: string[]): string[] | undefined {
   return unique.length > 0 ? unique : undefined;
 }
 
+function getCalendarRelayUrls(input: {
+  relayUrl?: string;
+  relayUrls?: string[];
+  backupRelayUrls?: string[];
+}): string[] {
+  return normalizeRelayUrls([
+    input.relayUrl,
+    ...(input.relayUrls ?? []),
+    ...(input.backupRelayUrls ?? []),
+  ]);
+}
+
 async function notifyCalendarEventChange(
   event: GroupCalendarEvent,
   eventType: 'calendar_created' | 'calendar_updated' | 'calendar_deleted'
@@ -234,6 +246,8 @@ export async function createCalendarEvent(input: {
   authorNpub?: string;
   authorName?: string;
   relayUrl?: string;
+  relayUrls?: string[];
+  backupRelayUrls?: string[];
 }): Promise<GroupCalendarEvent> {
   const all = await readJson<GroupCalendarEvent[]>(GROUP_CALENDAR_KEY, []);
   const now = Math.floor(Date.now() / 1000);
@@ -272,10 +286,13 @@ export async function createCalendarEvent(input: {
   await writeJson(GROUP_CALENDAR_KEY, all);
 
   // Publish to relay fire-and-forget — never blocks UI
-  if (input.relayUrl) {
+  const relayUrls = getCalendarRelayUrls(input);
+  const primaryRelayUrl = input.relayUrl ?? relayUrls[0];
+
+  if (primaryRelayUrl && relayUrls.length > 0) {
     const identity = await getStoredIdentity();
     if (identity?.nsec) {
-      publishCalendarEventToRelay(event, identity.nsec, input.relayUrl).catch(e =>
+      publishCalendarEventToRelay(event, identity.nsec, primaryRelayUrl, relayUrls).catch(e =>
         console.warn('[Group Calendar] relay publish failed:', e)
       );
     }
@@ -306,6 +323,12 @@ export async function deleteCalendarEvent(eventId: string): Promise<void> {
   await writeJson(GROUP_RSVP_KEY, rsvps.filter(r => r.eventId !== eventId));
 
   if (event?.relayUrl) {
+    const group = event.groupId ? await getGroupById(event.groupId) : null;
+    const relayUrls = getCalendarRelayUrls({
+      relayUrl: event.relayUrl,
+      backupRelayUrls: group?.backupRelayUrls,
+    });
+
     const identity = await getStoredIdentity();
 
     if (identity?.nsec) {
@@ -314,6 +337,7 @@ export async function deleteCalendarEvent(eventId: string): Promise<void> {
         groupId: event.groupId,
         nsec: identity.nsec,
         relayUrl: event.relayUrl,
+        relayUrls,
       }).catch(e =>
         console.warn('[Group Calendar] relay delete publish failed:', e)
       );
@@ -331,9 +355,9 @@ export async function updateCalendarEvent(
 ): Promise<void> {
   const all = await readJson<GroupCalendarEvent[]>(GROUP_CALENDAR_KEY, []);
   const existingEvent = all.find(event => event.id === eventId);
-  const group = existingEvent?.relayUrl || !existingEvent?.groupId
-    ? null
-    : await getGroupById(existingEvent.groupId);
+  const group = existingEvent?.groupId
+    ? await getGroupById(existingEvent.groupId)
+    : null;
   const recoveredRelayUrl = updates.relayUrl ?? existingEvent?.relayUrl ?? group?.relayUrl;
 
   const updated = all.map(e => {
@@ -352,10 +376,15 @@ export async function updateCalendarEvent(
 
   if (updatedEvent) {
     if (updatedEvent.relayUrl) {
+      const relayUrls = getCalendarRelayUrls({
+        relayUrl: updatedEvent.relayUrl,
+        backupRelayUrls: group?.backupRelayUrls,
+      });
+
       const identity = await getStoredIdentity();
 
       if (identity?.nsec) {
-        publishCalendarEventToRelay(updatedEvent, identity.nsec, updatedEvent.relayUrl).catch(e =>
+        publishCalendarEventToRelay(updatedEvent, identity.nsec, updatedEvent.relayUrl, relayUrls).catch(e =>
           console.warn('[Group Calendar] relay update publish failed:', e)
         );
       }
@@ -397,6 +426,8 @@ export async function submitRSVP(input: {
   status: RSVPStatus;
   note?: string;
   relayUrl?: string;
+  relayUrls?: string[];
+  backupRelayUrls?: string[];
 }): Promise<GroupRSVP> {
   const all = await readJson<GroupRSVP[]>(GROUP_RSVP_KEY, []);
   const now = Math.floor(Date.now() / 1000);
@@ -428,7 +459,10 @@ export async function submitRSVP(input: {
 
   await writeJson(GROUP_RSVP_KEY, all);
 
-  if (input.relayUrl) {
+  const relayUrls = getCalendarRelayUrls(input);
+  const primaryRelayUrl = input.relayUrl ?? relayUrls[0];
+
+  if (primaryRelayUrl && relayUrls.length > 0) {
     const identity = await getStoredIdentity();
     if (identity?.nsec) {
       publishGroupRSVP({
@@ -440,7 +474,8 @@ export async function submitRSVP(input: {
         authorNpub: input.npub,
         displayName: input.displayName,
         nsec:       identity.nsec,
-        relayUrl:   input.relayUrl,
+        relayUrl:   primaryRelayUrl,
+        relayUrls,
       }).catch(e => console.warn('[Group Calendar] RSVP relay publish failed:', e));
     }
   }
@@ -571,7 +606,8 @@ export async function getRSVPCounts(
 async function publishCalendarEventToRelay(
   event: GroupCalendarEvent,
   nsec: string,
-  relayUrl: string
+  relayUrl: string,
+  relayUrls?: string[]
 ): Promise<void> {
   const result = await publishGroupCalendarEvent({
     eventId:     event.id,
@@ -600,6 +636,7 @@ async function publishCalendarEventToRelay(
     updatedAt:   event.updatedAt,
     nsec,
     relayUrl,
+    relayUrls,
   });
 
   if (!result.success) {

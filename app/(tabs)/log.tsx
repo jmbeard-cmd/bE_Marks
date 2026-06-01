@@ -168,6 +168,7 @@ export default function LogScreen() {
   const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
   const [livingSpaces, setLivingSpaces] = useState<LivingSpace[]>([]);
   const [visibleGroupIds, setVisibleGroupIds] = useState<Set<string>>(() => new Set());
+  const [groupRelayUrlsById, setGroupRelayUrlsById] = useState<Record<string, string[]>>({});
   const [selectedSpaceId, setSelectedSpaceId] = useState<string | null>(null);
   const [showContext, setShowContext] = useState(false);
   const [peopleInput, setPeopleInput] = useState('');
@@ -264,8 +265,22 @@ export default function LogScreen() {
         });
 
         if (!cancelled) {
+          const relayUrlsByGroupId = groups.reduce<Record<string, string[]>>((acc, group) => {
+            const relayUrls = [
+              group.relayUrl || DEFAULT_RELAY,
+              ...(group.backupRelayUrls ?? []),
+            ]
+              .map(relayUrl => relayUrl.trim())
+              .filter(relayUrl => relayUrl.startsWith('wss://') || relayUrl.startsWith('ws://'));
+
+            acc[group.id] = Array.from(new Set(relayUrls));
+
+            return acc;
+          }, {});
+
           setLivingSpaces(spaces);
           setVisibleGroupIds(new Set(groups.map(group => group.id)));
+          setGroupRelayUrlsById(relayUrlsByGroupId);
           setPersonCandidates(
             mergeLivingPersonCandidates([
               {
@@ -339,6 +354,11 @@ export default function LogScreen() {
     selectedSpace?.source === 'group'
       ? selectedSpace.relayUrl || DEFAULT_RELAY
       : undefined;
+
+  const selectedGroupRelayUrls =
+    selectedGroupId
+      ? groupRelayUrlsById[selectedGroupId] ?? [selectedGroupRelayUrl || DEFAULT_RELAY]
+      : [];
 
   const contextPeopleLabel = isLiftUpMark
     ? 'Who are you lifting up?'
@@ -1069,6 +1089,7 @@ if (audioUri) {
           placement: livingMarkCapture.placement,
           nsec,
           relayUrl: selectedGroupRelayUrl || DEFAULT_RELAY,
+          relayUrls: selectedGroupRelayUrls,
         });
 
         if (!groupMarkResult.success) {
