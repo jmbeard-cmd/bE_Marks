@@ -62,7 +62,6 @@ import { useIdentity } from './_layout';
 
 const { width } = Dimensions.get('window');
 const LIFT_UP_TAG = 'Lift Up';
-const LIFE_STAGE_OPTIONS = ['Childhood', 'Elementary', 'Middle School', 'High School', 'College', 'Season', 'Trip'];
 
 function getRouteLabel(kind: string): string {
   if (kind === 'local') return 'Local';
@@ -772,9 +771,6 @@ const openMediaViewer = (uri: string) => {
     ...(contextSpaceNames.length
       ? [{ label: 'Space', value: contextSpaceNames.join(', ') }]
       : []),
-    ...(livingView?.metadata.lifeStage
-      ? [{ label: 'Life stage', value: livingView.metadata.lifeStage }]
-      : []),
     ...(livingView?.metadata.eventTitle || (livingView?.metadata.eventId && !livingView.metadata.eventId.startsWith('cal_'))
       ? [{ label: 'Event', value: livingView.metadata.eventTitle || livingView.metadata.eventId }]
       : []),
@@ -1284,36 +1280,6 @@ const openMediaViewer = (uri: string) => {
                             numberOfLines={1}
                           >
                             {space.name}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </ScrollView>
-
-                  <Text style={[s.contextSubLabel, { color: theme.textMuted }]}>Life stage</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.contextChipScroll}>
-                    {LIFE_STAGE_OPTIONS.map(option => {
-                      const active = contextLifeStage === option;
-
-                      return (
-                        <TouchableOpacity
-                          key={option}
-                          style={[
-                            s.contextSelectChip,
-                            { backgroundColor: theme.surface, borderColor: theme.border },
-                            active && { backgroundColor: theme.gold, borderColor: theme.gold },
-                          ]}
-                          onPress={() => setContextLifeStage(active ? '' : option)}
-                          activeOpacity={0.8}
-                        >
-                          <Text
-                            style={[
-                              s.contextSelectChipText,
-                              { color: theme.textSecondary },
-                              active && { color: theme.bg, fontWeight: '800' },
-                            ]}
-                          >
-                            {option}
                           </Text>
                         </TouchableOpacity>
                       );
