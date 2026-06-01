@@ -1861,20 +1861,6 @@ const preview =
       </TouchableOpacity>
     );
   })}
-
-  <TouchableOpacity
-    style={s.profilePill}
-    onPress={() => router.push('/settings' as any)}
-    activeOpacity={0.86}
-  >
-    {profile?.picture ? (
-      <Image source={{ uri: profile.picture }} style={s.profilePillImage} />
-    ) : (
-      <View style={s.profilePillFallback}>
-        <Text style={s.profilePillText}>{getInitials(myDisplayName)}</Text>
-      </View>
-    )}
-  </TouchableOpacity>
 </View>
 
       <View style={s.searchWrap}>
@@ -2399,8 +2385,8 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     borderColor: theme.border,
   },
   filterPillActive: {
-    backgroundColor: theme.gold,
-    borderColor: theme.gold,
+    backgroundColor: theme.gold + '1F',
+    borderColor: theme.gold + '55',
   },
   filterPillText: {
     color: theme.text,
@@ -2409,7 +2395,7 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     letterSpacing: -0.1,
   },
   filterPillTextActive: {
-    color: theme.bg,
+    color: theme.gold,
   },
   filterCount: {
     minWidth: 21,
@@ -2418,10 +2404,13 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 6,
-    backgroundColor: theme.gold,
+    backgroundColor: theme.gold + '22',
+    borderWidth: 0.5,
+    borderColor: theme.gold + '44',
   },
   filterCountActive: {
-    backgroundColor: theme.bg,
+    backgroundColor: theme.gold + '26',
+    borderColor: theme.gold + '66',
   },
     filterCountTextActive: {
     color: theme.gold,
@@ -2461,7 +2450,7 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     fontWeight: '900',
   },
   filterCountText: {
-    color: theme.bg,
+    color: theme.gold,
     fontSize: 10,
     fontWeight: '900',
   },
@@ -2512,7 +2501,6 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
   listEmpty: {
     flexGrow: 1,
   },
-
   threadRow: {
     backgroundColor: theme.surface,
     flexDirection: 'row',
@@ -2839,22 +2827,31 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
 
   fab: {
     position: 'absolute',
-    right: 22,
-    bottom: 26,
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    backgroundColor: theme.gold,
+    right: 20,
+    bottom: 92,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor:
+      theme.bg === '#0D0F0E'
+        ? 'rgba(18,20,19,0.88)'
+        : theme.surface + 'EE',
+    borderWidth: 0.75,
+    borderColor: theme.gold + '66',
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.16,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 5,
   },
   fabText: {
-    color: theme.surface,
-    fontSize: 26,
+    color: theme.gold,
+    fontSize: 25,
     fontWeight: '800',
     marginTop: -2,
   },
-
   overlay: {
     flex: 1,
     justifyContent: 'flex-end',

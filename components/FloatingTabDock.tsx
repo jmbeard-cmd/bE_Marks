@@ -7,6 +7,11 @@ type FloatingTabDockProps = BottomTabBarProps & {
   theme: typeof Colors.dark;
 };
 
+function withAlpha(color: string, alphaHex: string) {
+  if (/^#[0-9A-F]{6}$/i.test(color)) return `${color}${alphaHex}`;
+  return color;
+}
+
 export default function FloatingTabDock({
   state,
   descriptors,
@@ -61,9 +66,12 @@ return (
           {
             backgroundColor:
               theme.bg === '#0D0F0E'
-                ? 'rgba(18,20,19,0.96)'
-                : theme.surface,
-            borderColor: theme.border,
+                ? 'rgba(18,20,19,0.88)'
+                : withAlpha(theme.surface, 'EE'),
+            borderColor:
+              theme.bg === '#0D0F0E'
+                ? 'rgba(255,255,255,0.14)'
+                : withAlpha(theme.border, 'CC'),
           },
         ]}
       >
@@ -78,9 +86,9 @@ return (
               : options.title ?? route.name;
 
           const color = focused
-            ? theme.bg
+            ? theme.gold
             : theme.bg === '#0D0F0E'
-              ? 'rgba(255,255,255,0.78)'
+              ? 'rgba(255,255,255,0.82)'
               : theme.textMuted;
 
           const onPress = () => {
@@ -101,7 +109,8 @@ return (
               style={[
                 s.item,
                 focused && {
-                  backgroundColor: theme.gold,
+                  backgroundColor: withAlpha(theme.gold, '2E'),
+                  borderColor: withAlpha(theme.gold, '7A'),
                 },
               ]}
               onPress={onPress}
@@ -120,7 +129,7 @@ return (
                   s.label,
                   {
                     color,
-                    fontWeight: focused ? '900' : '800',
+                    fontWeight: focused ? '800' : '700',
                   },
                 ]}
                 numberOfLines={1}
@@ -153,15 +162,17 @@ const s = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     shadowColor: '#000',
-    shadowOpacity: 0.32,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 9 },
-    elevation: 16,
+    shadowOpacity: 0.18,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 7 },
+    elevation: 10,
   },
   item: {
     flex: 1,
     minHeight: 52,
     borderRadius: 26,
+    borderWidth: 0.5,
+    borderColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 10,

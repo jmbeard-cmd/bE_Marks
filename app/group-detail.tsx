@@ -2231,8 +2231,7 @@ const spaceCategoryIcon = getGroupTypeIcon(group);
 const spaceHomeMeta = [
   `${members.length} ${members.length === 1 ? 'member' : 'members'}`,
   group.season,
-  spaceRelayLabel,
-].filter(Boolean).join(' - ');
+].filter(Boolean).join(' • ');
 const isFavoriteSpace = favoriteSpaceIds.includes(group.id);
 const shouldLiftSpaceChatTray =
   spaceKeyboardHeight > 0 &&
@@ -2414,58 +2413,58 @@ const relaySettingsCard = (
             </Text>
           </TouchableOpacity>
 
-          <View style={s.spaceProfilePills}>
-            <TouchableOpacity
-              style={[s.spaceProfilePill, tab === 'stickies' && s.spaceProfilePillActive]}
-              onPress={() => selectSpaceTab('stickies')}
-              activeOpacity={0.86}
-            >
-              <Text style={[s.spaceProfilePillText, tab === 'stickies' && s.spaceProfilePillTextActive]}>
-                Marks
-              </Text>
-            </TouchableOpacity>
+          <View style={s.spaceHeaderDock}>
+            {[
+              {
+                key: 'stickies' as Tab,
+                icon: 'albums-outline' as const,
+                activeIcon: 'albums' as const,
+              },
+              {
+                key: 'chat' as Tab,
+                icon: 'chatbubble-ellipses-outline' as const,
+                activeIcon: 'chatbubble-ellipses' as const,
+              },
+              {
+                key: 'calendar' as Tab,
+                icon: 'calendar-outline' as const,
+                activeIcon: 'calendar' as const,
+              },
+              {
+                key: 'gallery' as Tab,
+                icon: 'images-outline' as const,
+                activeIcon: 'images' as const,
+              },
+              {
+                key: 'legacy' as Tab,
+                icon: 'library-outline' as const,
+                activeIcon: 'library' as const,
+              },
+              ...(group.bookEnabled === true
+                ? [{
+                    key: 'book' as Tab,
+                    icon: 'book-outline' as const,
+                    activeIcon: 'book' as const,
+                  }]
+                : []),
+            ].map(item => {
+              const active = tab === item.key;
 
-            <TouchableOpacity
-              style={[s.spaceProfilePill, tab === 'chat' && s.spaceProfilePillActive]}
-              onPress={() => selectSpaceTab('chat')}
-              activeOpacity={0.86}
-            >
-              <Text style={[s.spaceProfilePillText, tab === 'chat' && s.spaceProfilePillTextActive]}>
-                Chat
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[s.spaceProfilePill, tab === 'calendar' && s.spaceProfilePillActive]}
-              onPress={() => selectSpaceTab('calendar')}
-              activeOpacity={0.86}
-            >
-              <Text style={[s.spaceProfilePillText, tab === 'calendar' && s.spaceProfilePillTextActive]}>
-                Calendar
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[s.spaceProfilePill, tab === 'legacy' && s.spaceProfilePillActive]}
-              onPress={() => selectSpaceTab('legacy')}
-              activeOpacity={0.86}
-            >
-              <Text style={[s.spaceProfilePillText, tab === 'legacy' && s.spaceProfilePillTextActive]}>
-                Legacy
-              </Text>
-            </TouchableOpacity>
-
-            {group.bookEnabled === true && (
-              <TouchableOpacity
-                style={[s.spaceProfilePill, tab === 'book' && s.spaceProfilePillActive]}
-                onPress={() => selectSpaceTab('book')}
-                activeOpacity={0.86}
-              >
-                <Text style={[s.spaceProfilePillText, tab === 'book' && s.spaceProfilePillTextActive]}>
-                  Book
-                </Text>
-              </TouchableOpacity>
-            )}
+              return (
+                <TouchableOpacity
+                  key={item.key}
+                  style={[s.spaceHeaderDockItem, active && s.spaceHeaderDockItemActive]}
+                  onPress={() => selectSpaceTab(item.key)}
+                  activeOpacity={0.86}
+                >
+                  <Ionicons
+                    name={active ? item.activeIcon : item.icon}
+                    size={22}
+                    color={active ? theme.gold : theme.textSecondary}
+                  />
+                </TouchableOpacity>
+              );
+            })}
           </View>
         </View>
 
@@ -3739,6 +3738,8 @@ const relaySettingsCard = (
       </View>
       </View>
 
+      {/* Space navigation lives in the header dock. */}
+
       <Modal
         visible={!!selectedMemberAction}
         transparent
@@ -4120,35 +4121,44 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     fontWeight: '800',
     marginTop: 3,
   },
+  spaceHeaderDock: {
+    alignSelf: 'flex-start',
+    marginTop: 10,
+    minHeight: 48,
+    borderRadius: 24,
+    borderWidth: 0.5,
+    borderColor: theme.bg === Colors.light.bg
+      ? 'rgba(23,18,14,0.12)'
+      : 'rgba(255,255,255,0.14)',
+    backgroundColor: theme.bg === Colors.light.bg
+      ? 'rgba(255,255,255,0.72)'
+      : 'rgba(18,20,19,0.72)',
+    padding: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 5,
+  },
+  spaceHeaderDockItem: {
+    width: 42,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 0.5,
+    borderColor: 'transparent',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  spaceHeaderDockItemActive: {
+    backgroundColor: theme.gold + '2E',
+    borderColor: theme.gold + '7A',
+  },
     spaceProfileIdentityTap: {
     alignSelf: 'flex-start',
     maxWidth: '100%',
-  },
-  spaceProfilePills: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 13,
-  },
-  spaceProfilePill: {
-    paddingHorizontal: 13,
-    paddingVertical: 8,
-    borderRadius: 999,
-    borderWidth: 0.5,
-    borderColor: theme.border,
-    backgroundColor: theme.surface,
-  },
-  spaceProfilePillActive: {
-    backgroundColor: theme.gold,
-    borderColor: theme.gold,
-  },
-  spaceProfilePillText: {
-    color: theme.text,
-    fontSize: 12,
-    fontWeight: '900',
-  },
-  spaceProfilePillTextActive: {
-    color: theme.bg,
   },
   spaceContentTray: {
     position: 'absolute',
@@ -4174,8 +4184,8 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
   },
   spaceTrayHeader: {
     paddingHorizontal: 16,
-    paddingTop: 18,
-    paddingBottom: 12,
+    paddingTop: 14,
+    paddingBottom: 10,
     borderBottomWidth: 0.5,
     borderBottomColor: theme.border,
     backgroundColor: theme.bg === Colors.light.bg

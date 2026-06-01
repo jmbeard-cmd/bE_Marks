@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as VideoThumbnails from 'expo-video-thumbnails';
@@ -6,6 +7,7 @@ import {
   ActivityIndicator,
   Alert,
   BackHandler,
+  DeviceEventEmitter,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -72,7 +74,6 @@ import { useIdentity } from '../_layout';
 
 const LIFT_UP_TAG = 'Lift Up';
 const PRESET_TAGS = ['Family', 'Faith', 'Career', 'School', 'Travel', 'Health', 'Achievement', 'Personal'];
-const LIFE_STAGE_OPTIONS = ['Childhood', 'Elementary', 'Middle School', 'High School', 'College', 'Season', 'Trip'];
 
 type MarkMode = 'memory' | 'lift-up';
 
@@ -164,6 +165,7 @@ export default function LogScreen() {
   const [progress, setProgress] = useState(0);
   const [publishToNostr, setPublishToNostr] = useState(false);
   const [audioUri, setAudioUri] = useState<string | undefined>();
+  const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
   const [livingSpaces, setLivingSpaces] = useState<LivingSpace[]>([]);
   const [visibleGroupIds, setVisibleGroupIds] = useState<Set<string>>(() => new Set());
   const [selectedSpaceId, setSelectedSpaceId] = useState<string | null>(null);
@@ -177,6 +179,7 @@ export default function LogScreen() {
   const [calendarEvents, setCalendarEvents] = useState<GroupCalendarEvent[]>([]);
   const [selectedCalendarEventId, setSelectedCalendarEventId] = useState<string | null>(null);
   const [loadingCalendarEvents, setLoadingCalendarEvents] = useState(false);
+  const [showCalendarPicker, setShowCalendarPicker] = useState(false);
   const [savedToBook, setSavedToBook] = useState(false);
   const [accountSafety, setAccountSafety] = useState<AccountSafetySettings | null>(null);
 
@@ -194,6 +197,14 @@ export default function LogScreen() {
   const notePlaceholder = isLiftUpMark
     ? 'What happened that should be remembered?'
     : 'What happened? How did it feel?';
+
+      useEffect(() => {
+    DeviceEventEmitter.emit('be:floatingDock:setHidden', true);
+
+    return () => {
+      DeviceEventEmitter.emit('be:floatingDock:setHidden', false);
+    };
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -460,18 +471,24 @@ export default function LogScreen() {
     accountSafety?.childUnder13 === true && !!selectedGroupSpaceId;
 
   const publicPublishLabel = publicPostingLockedForChildGroup
-    ? 'Make your Mark safely in this Space'
+    ? 'Space-safe Mark'
     : selectedIsSharedSpace
-      ? 'Make your Mark beyond this Space'
-      : 'Make your Mark on the world';
+      ? 'Also publish beyond this Space'
+      : 'Make your Mark public';
 
   const publicPublishHint = publicPostingLockedForChildGroup
-    ? 'Public posting is turned off for child accounts in group Spaces.'
+    ? 'This Mark will save inside the Space. Public posting is turned off for child accounts.'
     : selectedIsFamilySpace
-      ? 'Family Space still syncs privately when this is off.'
+      ? 'This Mark saves to Family Space by default. Turn this on only if it should also appear beyond Family.'
       : selectedGroupSpaceId
-        ? 'Space members still receive this through the Space relay when this is off.'
-        : 'Optional. Turn this on only when you want this Mark visible on your public relay.';
+        ? 'This Mark saves to the Space by default. Turn this on only if it should also appear on your public timeline.'
+        : 'Optional. Turn this on only when you want this Mark visible on your public timeline.';
+
+  const primarySaveLabel = selectedGroupSpaceId
+    ? 'Save to Space'
+    : selectedIsFamilySpace
+      ? 'Save to Family Space'
+      : 'Save Mark';
 
   useEffect(() => {
     if (selectedIsSharedSpace || publicPostingLockedForChildGroup) {
@@ -480,6 +497,21 @@ export default function LogScreen() {
     }
   }, [publicPostingLockedForChildGroup, selectedIsSharedSpace, selectedSpaceId]);
 
+  const handleLiftUpAction = () => {
+    if (markMode === 'lift-up') {
+      setMarkMode('memory');
+      return;
+    }
+
+    setMarkMode('lift-up');
+    setShowContext(true);
+  };
+
+  const handleCalendarAction = () => {
+    setShowCalendarPicker(value => !value);
+    setShowContext(false);
+  };
+  
   const handlePublicPublishToggle = () => {
     if (publicPostingLockedForChildGroup) {
       Alert.alert(
@@ -766,6 +798,19 @@ const toggleCalendarEvent = (event: GroupCalendarEvent) => {
   setEventInput(event.title);
 };
 
+const extractHashTags = (value: string): string[] => {
+  return Array.from(
+    new Set(
+      value
+        .split(/\s+/)
+        .map(item => item.trim())
+        .filter(item => item.startsWith('#') && item.length > 1)
+        .map(item => item.replace(/^#+/, '').replace(/[^a-zA-Z0-9_-]/g, ''))
+        .filter(Boolean)
+    )
+  );
+};
+
 const addTag = (t: string) => {
     const clean = t.trim();
     if (!clean || tags.includes(clean)) return;
@@ -902,9 +947,11 @@ if (audioUri) {
 
       // Warn user immediately if any media failed — don't silently drop it
 
+      const hashTags = extractHashTags(tagInput);
+
       const finalTags = isLiftUpMark
-        ? Array.from(new Set([...tags, LIFT_UP_TAG]))
-        : tags;
+        ? Array.from(new Set([...tags, ...hashTags, LIFT_UP_TAG]))
+        : Array.from(new Set([...tags, ...hashTags]));
       
       // ── Step 2: Optionally publish to public/profile relay ──
       let nostrEventId: string | undefined;
@@ -912,7 +959,7 @@ if (audioUri) {
 
       setProgress(70);
       if (publishToNostr && nsec && !publicPostingLockedForChildGroup) {
-        setSaveStatus('Making your Mark public...');
+        setSaveStatus(selectedIsSharedSpace ? 'Publishing beyond this Space...' : 'Publishing publicly...');
 
         const result = await signAndPublish({
           note: fullNote,
@@ -1088,6 +1135,7 @@ if (audioUri) {
       setTags([]);
       setMedia([]);
       setAudioUri(undefined);
+      setShowVoiceRecorder(false);
       setTagInput('');
       setSelectedSpaceId(null);
       setShowContext(false);
@@ -1136,7 +1184,7 @@ setProgress(0);
 
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1 }}
+      style={{ flex: 1, backgroundColor: theme.bg }}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
         <SafeAreaView style={[s.safe, { backgroundColor: theme.bg }]}>
@@ -1144,291 +1192,266 @@ setProgress(0);
 
         <BEHeader title="Mark" />
 
-        {/* Photo */}
-        {/* Photos */}
-<View style={s.field}>
-  <Text style={[s.label, { color: theme.textMuted }]}>PHOTOS</Text>
-
-  {media.length > 0 ? (
-    <ScrollView horizontal style={s.photoPreviewRow}>
-      {media.map(item => (
-        <View key={item.id} style={s.multiPhotoWrap}>
-          <Image
-  source={{ uri: item.type === 'video' ? item.thumbnailUri || item.uri : item.uri }}
-  style={s.multiPhoto}
-  resizeMode="cover"
-/>
-
-{item.type === 'video' && (
-  <View style={s.videoBadge}>
-    <Text style={s.videoBadgeText}>▶</Text>
-  </View>
-)}
-
-          <TouchableOpacity
-            style={s.removePhotoBtn}
-            onPress={() => setMedia(prev => prev.filter(m => m.id !== item.id))}
-          >
-            <Text style={s.removePhotoText}>✕</Text>
-          </TouchableOpacity>
-        </View>
-      ))}
-    </ScrollView>
-  ) : null}
-
-  <View style={s.photoRow}>
-  <TouchableOpacity style={[s.photoBtn, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={takePhoto}>
-    <Text style={s.photoBtnIcon}>📷</Text>
-    <Text style={[s.photoBtnText, { color: theme.textSecondary }]}>Take Photo</Text>
-  </TouchableOpacity>
-
-  <TouchableOpacity style={[s.photoBtn, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={recordVideo}>
-    <Text style={s.photoBtnIcon}>🎥</Text>
-    <Text style={[s.photoBtnText, { color: theme.textSecondary }]}>Record Video</Text>
-  </TouchableOpacity>
-
-  <TouchableOpacity style={[s.photoBtn, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={pickPhoto}>
-    <Text style={s.photoBtnIcon}>🖼️</Text>
-    <Text style={[s.photoBtnText, { color: theme.textSecondary }]}>Library</Text>
-  </TouchableOpacity>
-</View>
-</View>
-
-        {/* Mark type */}
-        <View style={s.field}>
-          <Text style={[s.label, { color: theme.textMuted }]}>MARK TYPE</Text>
-
-          <View style={s.markTypeRow}>
-            <TouchableOpacity
-              style={[
-                s.markTypeChip,
-                { backgroundColor: theme.surface, borderColor: theme.border },
-                markMode === 'memory' && { backgroundColor: theme.gold, borderColor: theme.gold },
-              ]}
-              onPress={() => setMarkMode('memory')}
-              activeOpacity={0.84}
-            >
-              <Text
-                style={[
-                  s.markTypeTitle,
-                  { color: theme.textSecondary },
-                  markMode === 'memory' && { color: theme.bg },
-                ]}
-              >
-                Memory
-              </Text>
-              <Text
-                style={[
-                  s.markTypeHint,
-                  { color: theme.textMuted },
-                  markMode === 'memory' && { color: theme.bg },
-                ]}
-              >
-                Capture what happened
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                s.markTypeChip,
-                { backgroundColor: theme.surface, borderColor: theme.border },
-                markMode === 'lift-up' && { backgroundColor: theme.gold, borderColor: theme.gold },
-              ]}
-              onPress={() => setMarkMode('lift-up')}
-              activeOpacity={0.84}
-            >
-              <Text
-                style={[
-                  s.markTypeTitle,
-                  { color: theme.textSecondary },
-                  markMode === 'lift-up' && { color: theme.bg },
-                ]}
-              >
-                Lift Up
-              </Text>
-              <Text
-                style={[
-                  s.markTypeHint,
-                  { color: theme.textMuted },
-                  markMode === 'lift-up' && { color: theme.bg },
-                ]}
-              >
-                Encourage someone
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Title */}
-        <View style={s.field}>
-          <Text style={[s.label, { color: theme.textMuted }]}>TITLE</Text>
+        {/* Composer */}
+        <View style={s.composerField}>
           <TextInput
-  style={[s.titleInput, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]}
-            placeholder={titlePlaceholder}
-            placeholderTextColor={theme.textMuted}
-            value={title}
-            onChangeText={setTitle}
-            returnKeyType="next"
-          />
-        </View>
-
-        {/* Note */}
-        <View style={s.field}>
-          <Text style={[s.label, { color: theme.textMuted }]}>NOTE</Text>
-          <TextInput
-  style={[s.textarea, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]}
-            placeholder={notePlaceholder}
+            style={[
+              s.markComposerInput,
+              {
+                color: theme.text,
+                backgroundColor: theme.surface,
+                borderColor: theme.border,
+              },
+            ]}
+            placeholder={isLiftUpMark ? 'Who should this Mark lift up?' : "What's worth remembering?"}
             placeholderTextColor={theme.textMuted}
             value={note}
             onChangeText={setNote}
             multiline
-            numberOfLines={4}
+            numberOfLines={6}
             textAlignVertical="top"
           />
         </View>
 
-        {/* Voice note */}
+                {/* Hashtags */}
         <View style={s.field}>
-          <Text style={[s.label, { color: theme.textMuted }]}>VOICE NOTE</Text>
-          <AudioRecorder
-            onRecordingComplete={(uri) => setAudioUri(uri || undefined)}
-            existingUri={audioUri}
+          <TextInput
+            style={[
+              s.hashTagInput,
+              {
+                color: theme.text,
+                backgroundColor: theme.surface,
+                borderColor: theme.border,
+              },
+            ]}
+            placeholder="#tags"
+            placeholderTextColor={theme.textMuted}
+            value={tagInput}
+            onChangeText={setTagInput}
+            returnKeyType="done"
+            autoCapitalize="none"
+            autoCorrect={false}
           />
         </View>
 
-        {/* Tags */}
+        {/* Media */}
         <View style={s.field}>
-          <Text style={[s.label, { color: theme.textMuted }]}>TAGS</Text>
-          <View style={s.presets}>
-            {PRESET_TAGS.map(t => (
-              <TouchableOpacity
-                key={t}
-                style={[
-  s.presetChip,
-  { backgroundColor: theme.surface, borderColor: theme.border },
-  tags.includes(t) && { backgroundColor: theme.gold, borderColor: theme.gold },
-]}
-                onPress={() => tags.includes(t) ? removeTag(t) : addTag(t)}
-              >
-                <Text style={[
-  s.presetText,
-  { color: theme.textSecondary },
-  tags.includes(t) && { color: theme.bg, fontWeight: '600' }
-]}>{t}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
 
-          {/* Custom tag input with visible + button */}
-          <View style={s.tagInputRow}>
-            <TextInput
-  style={[s.tagInput, { color: theme.text, backgroundColor: theme.surface, borderColor: theme.border }]}
-              placeholder="Custom tag..."
-              placeholderTextColor={theme.textMuted}
-              value={tagInput}
-              onChangeText={setTagInput}
-              onSubmitEditing={() => addTag(tagInput)}
-              returnKeyType="done"
-              autoCapitalize="words"
-            />
-<TouchableOpacity
-  style={[
-    s.tagAddBtn,
-    { backgroundColor: theme.gold },
-    !tagInput.trim() && s.tagAddBtnDim,
-  ]}
-              onPress={() => addTag(tagInput)}
-              disabled={!tagInput.trim()}
+          {media.length > 0 ? (
+            <ScrollView horizontal style={s.photoPreviewRow}>
+              {media.map(item => (
+                <View key={item.id} style={s.multiPhotoWrap}>
+                  <Image
+                    source={{ uri: item.type === 'video' ? item.thumbnailUri || item.uri : item.uri }}
+                    style={s.multiPhoto}
+                    resizeMode="cover"
+                  />
+
+                  {item.type === 'video' && (
+                    <View style={s.videoBadge}>
+                      <Text style={s.videoBadgeText}>▶</Text>
+                    </View>
+                  )}
+
+                  <TouchableOpacity
+                    style={s.removePhotoBtn}
+                    onPress={() => setMedia(prev => prev.filter(m => m.id !== item.id))}
+                  >
+                    <Text style={s.removePhotoText}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </ScrollView>
+          ) : null}
+
+          <View style={s.mediaRail}>
+            <TouchableOpacity
+              style={[s.mediaRailBtn, { backgroundColor: theme.surface, borderColor: theme.border }]}
+              onPress={pickPhoto}
+              activeOpacity={0.82}
             >
-            <Text style={[s.tagAddBtnText, { color: theme.bg }]}>+ Add</Text>
+              <Ionicons name="images-outline" size={22} color={theme.textSecondary} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[s.mediaRailBtn, { backgroundColor: theme.surface, borderColor: theme.border }]}
+              onPress={takePhoto}
+              activeOpacity={0.82}
+            >
+              <Ionicons name="camera-outline" size={22} color={theme.textSecondary} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[s.mediaRailBtn, { backgroundColor: theme.surface, borderColor: theme.border }]}
+              onPress={recordVideo}
+              activeOpacity={0.82}
+            >
+              <Ionicons name="videocam-outline" size={22} color={theme.textSecondary} />
+            </TouchableOpacity>
+
+                      <TouchableOpacity
+              style={[
+                s.mediaRailBtn,
+                { backgroundColor: theme.surface, borderColor: theme.border },
+                !!selectedCalendarEventId && { borderColor: theme.gold, backgroundColor: theme.gold + '1F' },
+              ]}
+              onPress={handleCalendarAction}
+              activeOpacity={0.82}
+            >
+              <Ionicons
+                name={selectedCalendarEventId ? 'calendar' : 'calendar-outline'}
+                size={22}
+                color={selectedCalendarEventId ? theme.gold : theme.textSecondary}
+              />
+            </TouchableOpacity>  
+
+            <TouchableOpacity
+              style={[
+                s.mediaRailBtn,
+                { backgroundColor: theme.surface, borderColor: theme.border },
+                showVoiceRecorder && { borderColor: theme.gold, backgroundColor: theme.gold + '1F' },
+              ]}
+              onPress={() => setShowVoiceRecorder(value => !value)}
+              activeOpacity={0.82}
+            >
+              <Ionicons
+                name="mic-outline"
+                size={22}
+                color={showVoiceRecorder ? theme.gold : theme.textSecondary}
+              />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                s.mediaRailBtn,
+                { backgroundColor: theme.surface, borderColor: theme.border },
+                isLiftUpMark && { borderColor: theme.gold, backgroundColor: theme.gold + '1F' },
+              ]}
+              onPress={handleLiftUpAction}
+              activeOpacity={0.82}
+            >
+              <Ionicons
+                name="arrow-up-circle-outline"
+                size={23}
+                color={isLiftUpMark ? theme.gold : theme.textSecondary}
+              />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[s.mediaRailBtn, { backgroundColor: theme.surface, borderColor: theme.border }]}
+              onPress={() => setShowContext(value => !value)}
+              activeOpacity={0.82}
+            >
+              <Ionicons name="ellipsis-horizontal-circle-outline" size={23} color={theme.textSecondary} />
             </TouchableOpacity>
           </View>
 
-          {tags.length > 0 && (
-            <View style={s.selectedTags}>
-              {tags.map(t => (
-                <TouchableOpacity key={t} style={[s.tagChip, { backgroundColor: theme.surface, borderColor: theme.gold }]} onPress={() => removeTag(t)}>
-                  <Text style={[s.tagChipText, { color: theme.gold }]}>{t} ✕</Text>
+          {showCalendarPicker && (
+            <View style={[s.calendarPickerPanel, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <View style={s.calendarPickerHeader}>
+                <Text style={[s.calendarPickerTitle, { color: theme.text }]}>
+                  Calendar event
+                </Text>
+
+                <TouchableOpacity
+                  onPress={() => setShowCalendarPicker(false)}
+                  activeOpacity={0.82}
+                >
+                  <Ionicons name="close" size={18} color={theme.textMuted} />
                 </TouchableOpacity>
-              ))}
+              </View>
+
+              {selectedGroupSpaceId ? (
+                loadingCalendarEvents ? (
+                  <View style={s.calendarEventLoadingRow}>
+                    <ActivityIndicator size="small" color={theme.gold} />
+                    <Text style={[s.calendarEventLoadingText, { color: theme.textMuted }]}>
+                      Loading events…
+                    </Text>
+                  </View>
+                ) : calendarEvents.length > 0 ? (
+                  <ScrollView
+                    style={s.calendarPickerList}
+                    nestedScrollEnabled
+                    showsVerticalScrollIndicator={false}
+                  >
+                    {calendarEvents.map(event => {
+                      const active = selectedCalendarEventId === event.id;
+
+                      return (
+                        <TouchableOpacity
+                          key={event.id}
+                          style={[
+                            s.calendarPickerEventRow,
+                            { borderColor: theme.border, backgroundColor: theme.raised },
+                            active && { borderColor: theme.gold, backgroundColor: theme.gold + '1F' },
+                          ]}
+                          onPress={() => toggleCalendarEvent(event)}
+                          activeOpacity={0.82}
+                        >
+                          <View style={s.calendarPickerEventText}>
+                            <Text
+                              style={[
+                                s.calendarPickerEventTitle,
+                                { color: active ? theme.gold : theme.text },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {event.title}
+                            </Text>
+
+                            <Text style={[s.calendarPickerEventMeta, { color: theme.textMuted }]} numberOfLines={1}>
+                              {formatEventDate(event)} • {formatEventTime(event)}
+                            </Text>
+                          </View>
+
+                          {active && (
+                            <Ionicons name="checkmark-circle" size={20} color={theme.gold} />
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                ) : (
+                  <Text style={[s.calendarEventEmptyText, { color: theme.textMuted }]}>
+                    No events found for this Space yet.
+                  </Text>
+                )
+              ) : (
+                <Text style={[s.calendarEventEmptyText, { color: theme.textMuted }]}>
+                  Calendar events are available when making a Mark inside a Space.
+                </Text>
+              )}
+
+              <TextInput
+                style={[
+                  s.calendarPickerInput,
+                  { color: theme.text, backgroundColor: theme.raised, borderColor: theme.border },
+                ]}
+                placeholder="Or type event name..."
+                placeholderTextColor={theme.textMuted}
+                value={eventInput}
+                onChangeText={text => {
+                  setEventInput(text);
+                  setSelectedCalendarEventId(null);
+                }}
+                returnKeyType="done"
+              />
             </View>
           )}
         </View>
 
-        {placementChipSpaces.length > 0 && (
+        {showVoiceRecorder && (
           <View style={s.field}>
-            <Text style={[s.label, { color: theme.textMuted }]}>PLACE IN</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.placeChipRow}>
-              <TouchableOpacity
-                style={[
-                  s.placeChip,
-                  { backgroundColor: theme.surface, borderColor: theme.border },
-                  !selectedSpaceId && { backgroundColor: theme.gold, borderColor: theme.gold },
-                ]}
-                onPress={() => setSelectedSpaceId(null)}
-              >
-                <Text
-                  style={[
-                    s.placeChipText,
-                    { color: theme.textSecondary },
-                    !selectedSpaceId && { color: theme.bg, fontWeight: '700' },
-                  ]}
-                >
-                  Auto
-                </Text>
-              </TouchableOpacity>
-
-              {placementChipSpaces.map(space => {
-                const active = selectedSpaceId === space.id;
-
-                return (
-                  <TouchableOpacity
-                    key={space.id}
-                    style={[
-                      s.placeChip,
-                      { backgroundColor: theme.surface, borderColor: theme.border },
-                      active && { backgroundColor: theme.gold, borderColor: theme.gold },
-                    ]}
-                    onPress={() => setSelectedSpaceId(active ? null : space.id)}
-                  >
-                    <Text
-                      style={[
-                        s.placeChipText,
-                        { color: theme.textSecondary },
-                        active && { color: theme.bg, fontWeight: '700' },
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {space.name}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-            <Text style={[s.placeHint, { color: theme.textMuted }]}>
-              Optional. Auto can suggest placement from tags, family, and media details.
-            </Text>
+            <AudioRecorder
+              onRecordingComplete={(uri) => setAudioUri(uri || undefined)}
+              existingUri={audioUri}
+            />
           </View>
         )}
 
-        <View style={s.field}>
-          <TouchableOpacity
-            style={[s.contextToggle, { backgroundColor: theme.surface, borderColor: theme.border }]}
-            onPress={() => setShowContext(value => !value)}
-            activeOpacity={0.82}
-          >
-            <View style={s.contextTitleWrap}>
-              <Text style={[s.contextTitle, { color: theme.text }]}>Context</Text>
-              <Text style={[s.contextHint, { color: theme.textMuted }]}>
-                Add what you know now. bE can calmly ask for missing details later.
-              </Text>
-            </View>
-            <Text style={[s.contextToggleText, { color: theme.gold }]}>
-              {showContext ? 'Hide' : 'Add'}
-            </Text>
-          </TouchableOpacity>
-
-          {showContext && (
+        {showContext && (
+          <View style={s.field}>
             <View style={[s.contextPanel, { backgroundColor: theme.surface, borderColor: theme.border }]}>
               <Text style={[s.contextMiniHint, { color: theme.textMuted }]}>
                 {contextPeopleLabel}
@@ -1520,116 +1543,6 @@ setProgress(0);
                 </View>
               )}
 
-              <Text style={[s.contextMiniHint, { color: theme.textMuted }]}>Calendar event</Text>
-
-              {selectedGroupSpaceId ? (
-                <>
-                  {loadingCalendarEvents ? (
-                    <View style={s.calendarEventLoadingRow}>
-                      <ActivityIndicator size="small" color={theme.gold} />
-                      <Text style={[s.calendarEventLoadingText, { color: theme.textMuted }]}>
-                        Loading calendar events…
-                      </Text>
-                    </View>
-                  ) : calendarEvents.length > 0 ? (
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={s.contextChipRow}
-                    >
-                      {calendarEvents.map(event => {
-                        const active = selectedCalendarEventId === event.id;
-
-                        return (
-                          <TouchableOpacity
-                            key={event.id}
-                            style={[
-                              s.calendarEventChip,
-                              { backgroundColor: theme.raised, borderColor: theme.border },
-                              active && { backgroundColor: theme.gold, borderColor: theme.gold },
-                            ]}
-                            onPress={() => toggleCalendarEvent(event)}
-                            activeOpacity={0.8}
-                          >
-                            <Text
-                              style={[
-                                s.calendarEventChipTitle,
-                                { color: theme.textSecondary },
-                                active && { color: theme.bg, fontWeight: '800' },
-                              ]}
-                              numberOfLines={1}
-                            >
-                              {event.title}
-                            </Text>
-                            <Text
-                              style={[
-                                s.calendarEventChipMeta,
-                                { color: theme.textMuted },
-                                active && { color: theme.bg },
-                              ]}
-                              numberOfLines={1}
-                            >
-                              {formatEventDate(event)} • {formatEventTime(event)}
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </ScrollView>
-                  ) : (
-                    <Text style={[s.calendarEventEmptyText, { color: theme.textMuted }]}>
-                      No calendar events found for this Space yet.
-                    </Text>
-                  )}
-                </>
-              ) : (
-                <Text style={[s.calendarEventEmptyText, { color: theme.textMuted }]}>
-                  Pick a group Space above to attach this Mark to a calendar event.
-                </Text>
-              )}
-
-              <TextInput
-                style={[s.contextInput, { color: theme.text, backgroundColor: theme.raised, borderColor: theme.border }]}
-                placeholder="Or type event name, season, trip, or ceremony"
-                placeholderTextColor={theme.textMuted}
-                value={eventInput}
-                onChangeText={text => {
-                  setEventInput(text);
-                  setSelectedCalendarEventId(null);
-                }}
-                returnKeyType="done"
-              />
-
-              <Text style={[s.contextMiniHint, { color: theme.textMuted }]}>Life stage</Text>
-
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.contextChipRow}>
-                {LIFE_STAGE_OPTIONS.map(option => {
-                  const active = lifeStage === option;
-
-                  return (
-                    <TouchableOpacity
-                      key={option}
-                      style={[
-                        s.contextChip,
-                        { backgroundColor: theme.raised, borderColor: theme.border },
-                        active && { backgroundColor: theme.gold, borderColor: theme.gold },
-                      ]}
-                      onPress={() => setLifeStage(active ? '' : option)}
-                      activeOpacity={0.8}
-                    >
-                      <Text
-                        style={[
-                          s.contextChipText,
-                          { color: theme.textSecondary },
-                          active && { color: theme.bg, fontWeight: '700' },
-                        ]}
-                      >
-                        {option}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-
               <TouchableOpacity
                 style={[
                   s.contextChip,
@@ -1650,8 +1563,8 @@ setProgress(0);
                 </Text>
               </TouchableOpacity>
             </View>
-          )}
-        </View>
+          </View>
+        )}
 
         {/* Public visibility / safety control */}
         <View style={[s.relayRow, { borderColor: theme.border }]}>
@@ -1709,7 +1622,7 @@ setProgress(0);
               <Text style={[s.saveBtnText, { color: theme.bg }]}>{saveStatus || 'Saving...'}</Text>
             </View>
           ) : (
-            <Text style={[s.saveBtnText, { color: theme.bg }]}>Save Mark</Text>
+            <Text style={[s.saveBtnText, { color: theme.bg }]}>{primarySaveLabel}</Text>
           )}
         </TouchableOpacity>
 
@@ -1741,16 +1654,41 @@ setProgress(0);
 const s = StyleSheet.create({
   safe: { flex: 1 },
   container: { padding: 20, paddingBottom: 48 },
-  photoRow: { flexDirection: 'row', gap: 10, marginBottom: 22 },
-  photoBtn: { flex: 1, height: 90, borderRadius: 10, borderWidth: 0.5, alignItems: 'center', justifyContent: 'center', gap: 6 },
-  photoBtnIcon: { fontSize: 24 },
-  photoBtnText: { fontSize: 12, fontWeight: '500', textAlign: 'center' },
+  photoRow: { flexDirection: 'row', gap: 10, marginBottom: 18 },
+  mediaRail: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 16,
+  },
+  mediaRailBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    borderWidth: 0.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoBtnIcon: { fontSize: 23 },
+  photoBtnText: { fontSize: 13, fontWeight: '900', textAlign: 'center' },
   photoPreview: { marginBottom: 22, borderRadius: 10, overflow: 'hidden', borderWidth: 0.5, borderColor: '#2a2a2a' },
   photo: { width: '100%', height: 220 },
   photoActions: { flexDirection: 'row', justifyContent: 'center', gap: 20, paddingVertical: 10, backgroundColor: '#1a1a1a' },
   photoActionBtn: { padding: 4 },
   photoActionText: { fontSize: 13, color: '#888' },
   field: { marginBottom: 22 },
+  composerField: { marginBottom: 14 },
+  markComposerInput: {
+    borderWidth: 0.5,
+    borderRadius: 18,
+    paddingHorizontal: 15,
+    paddingTop: 14,
+    paddingBottom: 14,
+    fontSize: 18,
+    minHeight: 190,
+    lineHeight: 25,
+    fontWeight: '500',
+  },
   markTypeRow: { flexDirection: 'row', gap: 10 },
   markTypeChip: { flex: 1, minHeight: 64, borderRadius: 14, borderWidth: 0.5, paddingHorizontal: 12, paddingVertical: 10, justifyContent: 'center' },
   markTypeTitle: { fontSize: 14, fontWeight: '900', marginBottom: 3 },
@@ -1848,6 +1786,14 @@ videoBadgeText: {
   fontWeight: '800',
 },
   // Custom tag row
+  hashTagInput: {
+    borderWidth: 0.5,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 14,
+    fontWeight: '700',
+  },
   tagInputRow: { flexDirection: 'row', gap: 8, alignItems: 'center', marginTop: 4 },
   tagInput: { flex: 1, borderWidth: 0.5, borderRadius: 8, padding: 10, fontSize: 14 },
   tagAddBtn: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 8 },
@@ -1881,7 +1827,58 @@ videoBadgeText: {
   contextChipText: { fontSize: 12, fontWeight: '700' },
   personChip: { minHeight: 34, maxWidth: 180, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 17, borderWidth: 0.5, flexDirection: 'row', alignItems: 'center', gap: 7 },
   personChipAvatar: { width: 20, height: 20, borderRadius: 10, borderWidth: 0.5, textAlign: 'center', lineHeight: 19, fontSize: 10, fontWeight: '900', overflow: 'hidden' },
-    calendarEventLoadingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 },
+   calendarPickerPanel: {
+    borderWidth: 0.5,
+    borderRadius: 18,
+    padding: 12,
+    marginTop: 2,
+    gap: 10,
+  },
+  calendarPickerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  calendarPickerTitle: {
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  calendarPickerList: {
+    maxHeight: 220,
+  },
+  calendarPickerEventRow: {
+    minHeight: 58,
+    borderWidth: 0.5,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    marginBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  calendarPickerEventText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  calendarPickerEventTitle: {
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  calendarPickerEventMeta: {
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 3,
+  },
+  calendarPickerInput: {
+    borderWidth: 0.5,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  calendarEventLoadingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 },
   calendarEventLoadingText: { fontSize: 12, fontWeight: '600' },
   calendarEventEmptyText: { fontSize: 12, lineHeight: 17 },
   calendarEventChip: { width: 210, minHeight: 54, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 14, borderWidth: 0.5, justifyContent: 'center' },
