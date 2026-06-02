@@ -69,7 +69,10 @@ export default function IdentityScreen() {
       setUseAmber(true);
       setIdentity(npub, '');
 
-      Alert.alert('Amber connected', 'Your Amber signer is now connected to bE Marks.');
+      Alert.alert(
+        'Amber connected',
+        'Amber is connected for identity and profile actions. For full Space posting without repeated approvals, use a local key or imported nsec.'
+      );
     } catch (error) {
       console.warn('[Amber] request failed:', error);
       Alert.alert('Amber failed', 'Could not connect Amber to bE Marks.');
@@ -115,8 +118,8 @@ export default function IdentityScreen() {
 />
 <OptionCard
   icon="🛡️"
-  title="Amber signer"
-  description="Use the Amber app on Android to sign without exposing your nsec."
+  title="Connect external signer"
+  description="Use Amber on Android for identity and profile actions. Full Space posting uses a local key or imported nsec."
   onPress={() => setMode('amber')}
 />
           </View>
@@ -146,9 +149,9 @@ export default function IdentityScreen() {
 
         {mode === 'amber' && (
           <View style={s.form}>
-            <Text style={s.sectionLabel}>AMBER SIGNER (NIP-55)</Text>
+            <Text style={s.sectionLabel}>EXTERNAL SIGNER (AMBER)</Text>
             <Text style={s.hint}>
-              Amber keeps your private key off this app. Install Amber from GitHub or the Play Store, then tap below.
+              Amber keeps your private key outside bE Marks. Use it to connect your Nostr identity and publish profile updates. Full Space posting works best with a local bE Marks key or imported nsec.
             </Text>
             <Pressable style={s.primaryBtn} onPress={handleAmber} disabled={loading}>
               {loading ? <ActivityIndicator color="#111" /> : <Text style={s.primaryBtnText}>Open Amber</Text>}

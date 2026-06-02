@@ -106,9 +106,11 @@ export default function IdentityKeysScreen() {
         </View>
 
         <View style={[s.heroCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-          <Text style={[s.heroTitle, { color: theme.text }]}>Your signed identity</Text>
+          <Text style={[s.heroTitle, { color: theme.text }]}>Your bE Marks identity</Text>
           <Text style={[s.heroText, { color: theme.textMuted }]}>
-            This is the identity that signs your Marks, Space actions, messages, and profile updates.
+            {useAmber
+              ? 'Amber is connected as an external identity/profile signer. Full Space posting works best with a local bE Marks key or imported nsec on this device.'
+              : 'Your local key signs Marks, Space actions, messages, and profile updates on this device.'}
           </Text>
         </View>
 
@@ -136,12 +138,14 @@ export default function IdentityKeysScreen() {
             <View style={{ flex: 1 }}>
               <Text style={[s.rowTitle, { color: theme.text }]}>Signer</Text>
               <Text style={[s.rowHint, { color: theme.textMuted }]}>
-                {useAmber ? 'Amber is signing events for this account.' : 'Built-in key is signing events on this device.'}
+                {useAmber
+                  ? 'External signer connected for identity and profile actions only.'
+                  : 'Local key active for full bE Marks posting.'}
               </Text>
             </View>
 
             <Text style={[s.badge, { color: theme.gold, borderColor: theme.border }]}>
-              {useAmber ? 'Amber' : 'Built-in'}
+              {useAmber ? 'External' : 'Local'}
             </Text>
           </View>
         </View>

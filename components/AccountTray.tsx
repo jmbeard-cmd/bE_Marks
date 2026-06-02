@@ -191,7 +191,9 @@ export default function AccountTray({ visible, onClose }: AccountTrayProps) {
                 <View style={{ flex: 1 }}>
                   <Text style={[s.rowTitle, { color: theme.text }]}>Identity & Keys</Text>
                   <Text style={[s.rowHint, { color: theme.textMuted }]}>
-                    {useAmber ? 'Amber signer active' : 'Built-in signer active'}
+                    {useAmber
+                      ? 'External signer connected for identity/profile only'
+                      : 'Local key active for full Space posting'}
                   </Text>
                 </View>
                 <Text style={[s.rowAction, { color: theme.gold }]}>Open</Text>
