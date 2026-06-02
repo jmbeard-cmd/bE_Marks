@@ -18,7 +18,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { compressImageForUpload } from '../src/utils/media-compression';
-import { publishProfile } from '../src/utils/nostr';
+import { publishProfile, publishProfileWithAmber } from '../src/utils/nostr';
 import { uploadToR2 } from '../src/utils/r2';
 import { useIdentity } from './_layout';
 
@@ -26,6 +26,7 @@ export default function ProfileScreen() {
   const {
     npub,
     nsec,
+    useAmber,
     profile,
     setProfile,
     relays,
@@ -140,8 +141,13 @@ export default function ProfileScreen() {
   };
 
   const saveProfileEdits = async () => {
-    if (!nsec) {
-      Alert.alert('No key', 'Cannot publish without a private key.');
+    if (!nsec && !useAmber) {
+      Alert.alert('No key', 'Cannot publish without a private key or Amber signer.');
+      return;
+    }
+
+    if (useAmber && !npub) {
+      Alert.alert('No public key', 'Amber is connected, but no public key was found.');
       return;
     }
 
@@ -155,7 +161,9 @@ export default function ProfileScreen() {
     };
 
     try {
-      const result = await publishProfile(updated, nsec, relays);
+      const result = useAmber && npub
+        ? await publishProfileWithAmber(updated, npub, relays)
+        : await publishProfile(updated, nsec!, relays);
 
       if (result.success) {
         setProfile(updated);

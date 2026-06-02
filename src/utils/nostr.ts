@@ -10,7 +10,7 @@ import {
   type Event,
   type UnsignedEvent,
 } from 'nostr-tools';
-import { Linking, Platform } from 'react-native';
+import { Platform } from 'react-native';
 import type {
   LivingMarkMetadata,
   LivingMarkPlacement,
@@ -732,6 +732,40 @@ export async function publishProfile(
   }
 }
 
+export async function publishProfileWithAmber(
+  profile: NostrProfile,
+  npub: string,
+  relays: string[]
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const pubkeyHex = npubToHex(npub);
+
+    const unsigned: UnsignedEvent = {
+      kind: 0,
+      created_at: Math.floor(Date.now() / 1000),
+      tags: [],
+      content: JSON.stringify(profile),
+      pubkey: pubkeyHex,
+    };
+
+    const signed = await signWithAmber(JSON.stringify(unsigned), pubkeyHex);
+
+    if (!signed) {
+      return { success: false, error: 'Amber did not return a signed profile event.' };
+    }
+
+    const results = await Promise.all(relays.map(r => publishToSpecificRelay(signed, r)));
+    const anySuccess = results.some(r => r.success);
+
+    return {
+      success: anySuccess,
+      error: anySuccess ? undefined : 'All relays failed',
+    };
+  } catch (e: any) {
+    return { success: false, error: e?.message || 'Could not publish profile with Amber' };
+  }
+}
+
 // ─── Relay List (kind 10002) ──────────────────────────────────────
 
 export function fetchRelayList(npub: string): Promise<string[]> {
@@ -1038,13 +1072,54 @@ export function fetchFamilyMilestones(
 
 // ─── Amber Signer (Android NIP-55) ────────────────────────────────
 
-export async function signWithAmber(eventJson: string): Promise<string | null> {
-  const callbackUrl = 'marksapp://amber-callback';
-  const url = `intent:#Intent;scheme=nostrsigner;S.event=${encodeURIComponent(eventJson)};S.callbackUrl=${encodeURIComponent(callbackUrl)};S.type=sign_event;end`;
-  const canOpen = await Linking.canOpenURL(url);
-  if (!canOpen) return null;
-  await Linking.openURL(url);
-  return null;
+export async function signWithAmber(
+  eventJson: string,
+  currentUserPubkey?: string,
+  signerPackageName?: string
+): Promise<Event | null> {
+  try {
+    const unsignedEvent = JSON.parse(eventJson) as UnsignedEvent & { id?: string };
+    const intentParams: Record<string, any> = {
+      data: `nostrsigner:${eventJson}`,
+      extra: {
+        type: 'sign_event',
+        id: unsignedEvent.id || `amber_sign_${Date.now()}`,
+        ...(currentUserPubkey ? { current_user: currentUserPubkey } : {}),
+      },
+    };
+
+    if (signerPackageName) {
+      intentParams.packageName = signerPackageName;
+    }
+
+    const result = await IntentLauncher.startActivityAsync(
+      'android.intent.action.VIEW',
+      intentParams
+    ) as any;
+
+    const resultExtra = result?.extra ?? {};
+    const signedEventJson =
+      resultExtra.event ||
+      resultExtra.result ||
+      (typeof result?.data === 'string' ? result.data : '');
+
+    if (!signedEventJson || typeof signedEventJson !== 'string') {
+      console.warn('[Amber] sign_event returned no signed event:', result);
+      return null;
+    }
+
+    const parsed = JSON.parse(signedEventJson) as Event;
+
+    if (!parsed?.id || !parsed?.sig || !parsed?.pubkey) {
+      console.warn('[Amber] sign_event returned invalid event:', parsed);
+      return null;
+    }
+
+    return parsed;
+  } catch (error) {
+    console.warn('[Amber] sign_event failed:', error);
+    return null;
+  }
 }
 
 export type AmberPublicKeyResult = {
