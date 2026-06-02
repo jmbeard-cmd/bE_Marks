@@ -3,8 +3,10 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
+  DeviceEventEmitter,
   FlatList,
   Image,
+  InteractionManager,
   Keyboard,
   Modal,
   PanResponder,
@@ -74,10 +76,10 @@ type SheetComposerState = {
 };
 
 const FEED_OPTIONS: { key: FeedKey; label: string; hint: string }[] = [
-  { key: 'profile', label: 'My Profile', hint: 'Your Marks and profile feed' },
-  { key: 'family', label: 'Family', hint: 'Shared family Marks' },
-  { key: 'follows', label: 'Follows', hint: 'Nostr follows feed' },
-  { key: 'subscribed', label: 'Subscribed', hint: 'Schools, churches, and group feeds' },
+  { key: 'profile', label: 'My Marks', hint: 'Marks you created and saved' },
+  { key: 'family', label: 'Family Marks', hint: 'Shared family Marks' },
+  { key: 'follows', label: 'Following', hint: 'Marks and posts from people you follow' },
+  { key: 'subscribed', label: 'Community Feeds', hint: 'Town, school, church, and relay feeds' },
 ];
 
 const DEFAULT_TAG_FILTERS = [
@@ -245,12 +247,12 @@ function createTimelineFeedItem(input: {
   const isMine = !milestone.authorNpub || milestone.authorNpub === currentNpub;
   const contextLabel =
     feedKey === 'family'
-      ? familyName || 'Family'
+      ? familyName || 'Family Marks'
       : milestone.familyId
-        ? familyName || 'Family'
+        ? familyName || 'Family Marks'
         : isMine
-          ? 'My Profile'
-          : 'Follows';
+          ? 'My Marks'
+          : 'Following';
 
   return {
     id: milestone.id,
@@ -290,7 +292,39 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
   const composerInputRef = useRef<TextInput>(null);
   const composerTextRef = useRef('');
   const composerFocusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastFeedScrollYRef = useRef(0);
+  const dockHiddenRef = useRef(false);
+  const hasLoadedTimelineOnceRef = useRef(false);
   const insets = useSafeAreaInsets();
+
+  const setFloatingDockHidden = useCallback((hidden: boolean) => {
+    if (dockHiddenRef.current === hidden) return;
+
+    dockHiddenRef.current = hidden;
+    DeviceEventEmitter.emit('be:floatingDock:setHidden', hidden);
+  }, []);
+
+  const handleFeedScroll = useCallback((event: any) => {
+    const y = event.nativeEvent.contentOffset.y;
+    const previousY = lastFeedScrollYRef.current;
+    const deltaY = y - previousY;
+
+    lastFeedScrollYRef.current = y;
+
+    if (y < 24) {
+      setFloatingDockHidden(false);
+      return;
+    }
+
+    if (deltaY > 8) {
+      setFloatingDockHidden(true);
+      return;
+    }
+
+    if (deltaY < -8) {
+      setFloatingDockHidden(false);
+    }
+  }, [setFloatingDockHidden]);
 
   // Swipe-to-close for filter drawer
   const drawerTranslateY = useRef(new Animated.Value(0)).current;
@@ -430,9 +464,26 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
   }, [family, npub, load]);
 
   useFocusEffect(useCallback(() => {
-    load();
-    return () => {};
-  }, [load]));
+    let cancelled = false;
+
+    if (!hasLoadedTimelineOnceRef.current) {
+      Promise.resolve()
+        .then(load)
+        .then(() => {
+          if (!cancelled) {
+            hasLoadedTimelineOnceRef.current = true;
+          }
+        })
+        .catch(error => {
+          console.warn('[Timeline] initial load failed:', error);
+        });
+    }
+
+    return () => {
+      cancelled = true;
+      setFloatingDockHidden(false);
+    };
+  }, [load, setFloatingDockHidden]));
 
   const onRefresh = async () => {
   setRefreshing(true);
@@ -829,6 +880,100 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
 
   function TimelineCard({ item }: { item: TimelineFeedItem }) {
     const milestone = item.milestone;
+    const visibleTags = milestone.tags.slice(0, 2);
+    const hiddenTagCount = Math.max(0, milestone.tags.length - visibleTags.length);
+
+    if (item.hasVisualMedia) {
+      return (
+        <View style={s.feedMarkCardImmersive}>
+          <View style={s.feedMarkMediaFrame}>
+            <MediaCollage
+              media={item.mediaItems}
+              fitMode="cover"
+              fixedHeight={500}
+              onPressMedia={(mediaIndex) => openViewerForMilestone(milestone, mediaIndex)}
+            />
+
+            <View pointerEvents="none" style={s.feedMarkOverlayTop}>
+              <View style={s.feedMarkOverlayAuthor}>
+                <View style={s.feedMarkOverlayAvatar}>
+                  {item.authorAvatar ? (
+                    <Image source={{ uri: item.authorAvatar }} style={s.feedMarkOverlayAvatarImage} />
+                  ) : (
+                    <Text style={s.feedMarkOverlayAvatarText}>{item.authorInitials}</Text>
+                  )}
+                </View>
+
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={s.feedMarkOverlayAuthorName} numberOfLines={1}>
+                    {item.authorName}
+                  </Text>
+                  <Text style={s.feedMarkOverlayMeta} numberOfLines={1}>
+                    {item.contextLabel} - {item.timeLabel}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={s.feedMarkOverlayBottom}
+              onPress={() => openMarkDetail(item)}
+              activeOpacity={0.9}
+            >
+              {item.title ? (
+                <Text style={s.feedMarkOverlayTitle} numberOfLines={2}>
+                  {item.title}
+                </Text>
+              ) : null}
+
+              {item.body ? (
+                <Text style={s.feedMarkOverlayBody} numberOfLines={1}>
+                  {item.body}
+                </Text>
+              ) : null}
+
+              {(visibleTags.length > 0 || hiddenTagCount > 0) && (
+                <View style={s.feedMarkOverlayTagRow}>
+                  <Text style={s.feedMarkOverlayTagText} numberOfLines={1}>
+                    {visibleTags.join(' · ')}
+                  </Text>
+
+                  {hiddenTagCount > 0 && (
+                    <View style={s.feedMarkOverlayTagBadge}>
+                      <Text style={s.feedMarkOverlayTagBadgeText}>+{hiddenTagCount}</Text>
+                    </View>
+                  )}
+                </View>
+              )}
+
+              <View style={s.feedMarkOverlayActions}>
+                <TouchableOpacity
+                  style={s.feedMarkOverlayAction}
+                  onPress={() => openSheetComposer(item, 'comment')}
+                  activeOpacity={0.75}
+                  accessibilityRole="button"
+                  accessibilityLabel="Comment on this Mark"
+                >
+                  <Ionicons name="chatbubble-outline" size={18} color="#fff" />
+                  <Text style={s.feedMarkOverlayActionText}>Comment</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={s.feedMarkOverlayAction}
+                  onPress={() => shareFeedItem(item)}
+                  activeOpacity={0.75}
+                  accessibilityRole="button"
+                  accessibilityLabel="Share this Mark"
+                >
+                  <Ionicons name="share-social-outline" size={18} color="#fff" />
+                  <Text style={s.feedMarkOverlayActionText}>Share</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          </View>
+        </View>
+      );
+    }
 
     return (
       <View style={[s.socialCard, themed.raised, themed.border]}>
@@ -857,7 +1002,7 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
           </View>
         </TouchableOpacity>
 
-        {(item.hasVisualMedia || item.hasAudioOnly) && (
+        {item.hasAudioOnly && (
           <MediaCollage
             media={item.mediaItems}
             audioUri={milestone.audioUri}
@@ -1015,18 +1160,18 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
         </View>
       ) : feedKey === 'follows' ? (
         <View style={s.empty}>
-          <Text style={[s.emptyIcon, themed.mutedText]}>Follows</Text>
-          <Text style={[s.emptyText, themed.primaryText]}>Follows feed coming online</Text>
+          <Text style={[s.emptyIcon, themed.mutedText]}>Following</Text>
+          <Text style={[s.emptyText, themed.primaryText]}>Following feed coming online</Text>
           <Text style={[s.emptyHint, themed.mutedText]}>
-            This feed will read your standard Nostr follows list and show posts from those profiles.
+            This feed will show Marks and posts from people you follow across Nostr.
           </Text>
         </View>
       ) : feedKey === 'subscribed' ? (
         <View style={s.empty}>
-          <Text style={[s.emptyIcon, themed.mutedText]}>Feeds</Text>
-          <Text style={[s.emptyText, themed.primaryText]}>No subscribed feeds yet</Text>
+          <Text style={[s.emptyIcon, themed.mutedText]}>Community</Text>
+          <Text style={[s.emptyText, themed.primaryText]}>No community feeds yet</Text>
           <Text style={[s.emptyHint, themed.mutedText]}>
-            School, church, and group relay feeds will appear here once access is available for this identity.
+            Town, school, church, and bE Community relay feeds will appear here as you subscribe to them.
           </Text>
         </View>
       ) : filtered.length === 0 ? (
@@ -1051,12 +1196,34 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
           contentContainerStyle={s.list}
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled"
+          initialNumToRender={5}
+          maxToRenderPerBatch={4}
+          updateCellsBatchingPeriod={24}
+          windowSize={7}
+          onScroll={handleFeedScroll}
+          scrollEventThrottle={16}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.gold} />}
         />
       )}
 
-      <TouchableOpacity style={[s.fab, themed.fab]} onPress={() => router.push('/(tabs)/log' as any)} activeOpacity={0.85}>
-        <Text style={[s.fabIcon, themed.darkOnGold]}>+</Text>
+      <TouchableOpacity
+        style={[
+          s.markFab,
+          {
+            backgroundColor:
+              theme.bg === '#0D0F0E'
+                ? 'rgba(7,18,13,0.72)'
+                : 'rgba(255,255,255,0.78)',
+            borderColor: `${theme.gold}88`,
+            shadowColor: theme.gold,
+          },
+        ]}
+        onPress={() => router.push('/(tabs)/log' as any)}
+        activeOpacity={0.88}
+        accessibilityRole="button"
+        accessibilityLabel="Create a new Mark"
+      >
+        <Text style={[s.markFabText, { color: theme.gold }]}>+</Text>
       </TouchableOpacity>
 
       <Modal visible={showFeedMenu} transparent animationType="fade" onRequestClose={() => setShowFeedMenu(false)}>
@@ -1127,7 +1294,7 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
               keyboardShouldPersistTaps="handled"
             >
               <View style={s.drawerSection}>
-                <Text style={[s.drawerSectionLabel, themed.mutedText]}>LOG VIEW</Text>
+                <Text style={[s.drawerSectionLabel, themed.mutedText]}>MARK VIEW</Text>
                 <View style={s.drawerChips}>
                   {LOG_FILTER_OPTIONS.map(option => {
                     const active = pendingFilters.logMode === option.key;
@@ -1751,7 +1918,140 @@ const s = StyleSheet.create({
   activeChipText: { fontSize: 11 },
   clearChip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, backgroundColor: '#2a1a1a', borderWidth: 0.5, borderColor: '#c00' },
   clearChipText: { fontSize: 11, color: '#c00' },
-  list: { paddingHorizontal: 12, paddingTop: 12, paddingBottom: 100 },
+  list: { paddingHorizontal: 10, paddingTop: 12, paddingBottom: 116 },
+  feedMarkCardImmersive: {
+    borderRadius: 18,
+    overflow: 'hidden',
+    marginBottom: 14,
+    backgroundColor: '#000',
+  },
+  feedMarkMediaFrame: {
+    borderRadius: 18,
+    overflow: 'hidden',
+    backgroundColor: '#000',
+    position: 'relative',
+  },
+  feedMarkOverlayTop: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    zIndex: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  feedMarkOverlayAuthor: {
+    maxWidth: 190,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    borderRadius: 999,
+    paddingHorizontal: 7,
+    paddingVertical: 5,
+    backgroundColor: 'rgba(0,0,0,0.34)',
+  },
+  feedMarkOverlayAvatar: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(255,255,255,0.28)',
+    overflow: 'hidden',
+  },
+  feedMarkOverlayAvatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 13,
+  },
+  feedMarkOverlayAvatarText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  feedMarkOverlayAuthorName: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  feedMarkOverlayMeta: {
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 9,
+    fontWeight: '700',
+    marginTop: 1,
+  },
+  feedMarkOverlayBottom: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 5,
+    paddingHorizontal: 13,
+    paddingTop: 10,
+    paddingBottom: 10,
+    backgroundColor: 'rgba(0,0,0,0.56)',
+  },
+  feedMarkOverlayTitle: {
+    color: '#fff',
+    fontSize: 19,
+    lineHeight: 23,
+    fontWeight: '900',
+    letterSpacing: -0.2,
+  },
+  feedMarkOverlayBody: {
+    color: 'rgba(255,255,255,0.78)',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+    marginTop: 3,
+  },
+  feedMarkOverlayTagRow: {
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  feedMarkOverlayTagText: {
+    flex: 1,
+    color: 'rgba(255,255,255,0.78)',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  feedMarkOverlayTagBadge: {
+    minWidth: 24,
+    height: 20,
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.16)',
+  },
+  feedMarkOverlayTagBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  feedMarkOverlayActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 10,
+  },
+  feedMarkOverlayAction: {
+    minHeight: 34,
+    borderRadius: 17,
+    paddingHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(255,255,255,0.13)',
+  },
+  feedMarkOverlayActionText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '900',
+  },
   socialCard: {
     borderRadius: 14,
     borderWidth: 0.5,
@@ -2111,21 +2411,28 @@ markCollagePlay: {
   emptyHint: { fontSize: 13, marginTop: 6, textAlign: 'center' },
   emptyActionBtn: { marginTop: 20, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8, borderWidth: 0.5, },
   emptyActionText: { fontSize: 14, fontWeight: '500' },
- fab: {
-  position: 'absolute',
-  bottom: 24,
-  right: 24,
-  width: 58,
-  height: 58,
-  borderRadius: 29,
-  alignItems: 'center',
-  justifyContent: 'center',
-  shadowOffset: { width: 0, height: 4 },
-  shadowOpacity: 0.4,
-  shadowRadius: 8,
-  elevation: 8,
-},
-fabIcon: { fontSize: 32, lineHeight: 36, fontWeight: '300' },
+  markFab: {
+    position: 'absolute',
+    right: 20,
+    bottom: 96,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.24,
+    shadowRadius: 8,
+    elevation: 7,
+    zIndex: 20,
+  },
+  markFabText: {
+    fontSize: 30,
+    fontWeight: '300',
+    lineHeight: 32,
+    marginTop: -1,
+  },
 drawerOverlay: { flex: 1, justifyContent: 'flex-end' },
 drawer: { borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingHorizontal: 20, paddingBottom: 24, maxHeight: '88%' },
 drawerBackdrop: { 
