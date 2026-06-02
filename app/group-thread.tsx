@@ -1348,6 +1348,15 @@ const showName =
     if (!text || !groupId || sending) return;
     if (!guardCanPost()) return;
 
+    if (!nsec) {
+      Alert.alert(
+        'Set up a local key to post',
+        'This Space action needs a local bE Marks key on this device. Create a bE Marks identity or import your saved key to post without repeated signer approvals.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
     if (editingMessage) {
       setSending(true);
 

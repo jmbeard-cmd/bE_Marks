@@ -136,6 +136,9 @@ export default function IdentityScreen() {
               onChangeText={setNsecInput}
               autoCapitalize="none"
               autoCorrect={false}
+              autoComplete="password"
+              textContentType="password"
+              importantForAutofill="yes"
               secureTextEntry
             />
             <Pressable style={s.primaryBtn} onPress={handleImport} disabled={loading}>
