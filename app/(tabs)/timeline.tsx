@@ -23,6 +23,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import EmojiReactionStrip from '../../components/EmojiReactionStrip';
 import ImageViewerModal, { ViewerImage } from '../../components/ImageViewerModal';
+import LivingPromptNudgeCard from '../../components/LivingPromptNudgeCard';
 import MarkActionRow from '../../components/MarkActionRow';
 import MarkCommentsSheet from '../../components/MarkCommentsSheet';
 import MediaCollage from '../../components/MediaCollage';
@@ -987,76 +988,6 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
     }
   };
 
-  function LivingPromptNudgeCard({ card }: { card: LivingMarkPromptCard }) {
-    const spaceName = card.prompt.suggestedSpaceIds?.[0]
-      ? card.view.spaces.find(space => space.id === card.prompt.suggestedSpaceIds?.[0])?.name
-      : undefined;
-    const actionLabel = card.canCompleteInline ? 'Done' : 'Add details';
-
-    return (
-      <View style={[s.nudgeWrap, themed.safe, themed.border]}>
-        <View style={[s.nudgeCard, themed.raised, themed.border]}>
-          <View style={s.nudgeHeader}>
-            <View style={[s.nudgeIcon, themed.surface, themed.border]}>
-              <Ionicons name="sparkles-outline" size={17} color={theme.gold} />
-            </View>
-            <View style={s.nudgeCopy}>
-              <Text style={[s.nudgeEyebrow, themed.goldText]}>Complete this Mark</Text>
-              <Text style={[s.nudgeQuestion, themed.primaryText]}>{card.prompt.question}</Text>
-            </View>
-          </View>
-
-          <TouchableOpacity
-            style={[s.nudgeMarkPreview, themed.surface, themed.border]}
-            onPress={() => openPromptMarkDetail(card)}
-            activeOpacity={0.82}
-          >
-            <Text style={[s.nudgeMarkTitle, themed.primaryText]} numberOfLines={1}>
-              {card.markTitle || 'Mark'}
-            </Text>
-            <Text style={[s.nudgeMarkText, themed.mutedText]} numberOfLines={2}>
-              {card.markPreview}
-            </Text>
-            {spaceName && (
-              <Text style={[s.nudgeSpaceHint, themed.goldText]} numberOfLines={1}>
-                Suggested Space: {spaceName}
-              </Text>
-            )}
-          </TouchableOpacity>
-
-          <View style={s.nudgeActions}>
-            <TouchableOpacity
-              style={[s.nudgeActionBtn, themed.surface, themed.border]}
-              onPress={() => openPromptMarkDetail(card)}
-              disabled={savingPromptAction}
-              activeOpacity={0.78}
-            >
-              <Text style={[s.nudgeActionText, themed.primaryText]}>Review</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[s.nudgeActionBtn, themed.surface, themed.border]}
-              onPress={handlePromptSnooze}
-              disabled={savingPromptAction}
-              activeOpacity={0.78}
-            >
-              <Text style={[s.nudgeActionText, themed.mutedText]}>Not now</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[s.nudgeDoneBtn, themed.goldBg, savingPromptAction && s.nudgeDisabled]}
-              onPress={handlePromptDone}
-              disabled={savingPromptAction}
-              activeOpacity={0.78}
-            >
-              <Text style={[s.nudgeDoneText, themed.darkOnGold]}>
-                {savingPromptAction ? 'Saving...' : actionLabel}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    );
-  }
-
   function renderTimelineCard(
     item: TimelineFeedItem,
     shouldAutoPlayVideo: boolean
@@ -1343,7 +1274,14 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
       )}
 
       {livingPromptCard && (
-        <LivingPromptNudgeCard card={livingPromptCard} />
+        <LivingPromptNudgeCard
+          card={livingPromptCard}
+          theme={theme}
+          saving={savingPromptAction}
+          onOpenDetail={openPromptMarkDetail}
+          onSnooze={handlePromptSnooze}
+          onDone={handlePromptDone}
+        />
       )}
 
       {activeFilterCount > 0 && (
@@ -1989,101 +1927,6 @@ const s = StyleSheet.create({
   bannerHint: { fontSize: 12, color: '#7a5a1a', marginTop: 2 },
   bannerDismiss: { padding: 4 },
   bannerDismissText: { fontSize: 14, color: '#555' },
-  nudgeWrap: {
-    paddingHorizontal: 12,
-    paddingTop: 12,
-    paddingBottom: 4,
-    borderBottomWidth: 0.5,
-  },
-  nudgeCard: {
-    borderRadius: 14,
-    borderWidth: 0.5,
-    padding: 12,
-  },
-  nudgeHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-    marginBottom: 10,
-  },
-  nudgeIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    borderWidth: 0.5,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  nudgeCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  nudgeEyebrow: {
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 0.7,
-    textTransform: 'uppercase',
-    marginBottom: 3,
-  },
-  nudgeQuestion: {
-    fontSize: 14,
-    lineHeight: 19,
-    fontWeight: '800',
-  },
-  nudgeMarkPreview: {
-    borderRadius: 10,
-    borderWidth: 0.5,
-    paddingHorizontal: 10,
-    paddingVertical: 9,
-  },
-  nudgeMarkTitle: {
-    fontSize: 13,
-    fontWeight: '900',
-    marginBottom: 3,
-  },
-  nudgeMarkText: {
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: '600',
-  },
-  nudgeSpaceHint: {
-    fontSize: 11,
-    fontWeight: '800',
-    marginTop: 6,
-  },
-  nudgeActions: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 10,
-  },
-  nudgeActionBtn: {
-    flex: 1,
-    minHeight: 36,
-    borderRadius: 10,
-    borderWidth: 0.5,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 8,
-  },
-  nudgeActionText: {
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  nudgeDoneBtn: {
-    flex: 1,
-    minHeight: 36,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 8,
-  },
-  nudgeDoneText: {
-    fontSize: 12,
-    fontWeight: '900',
-  },
-  nudgeDisabled: {
-    opacity: 0.55,
-  },
   tabRow: { flexDirection: 'row', borderBottomWidth: 0.5 },
   tabBtn: { flex: 1, paddingVertical: 12, alignItems: 'center' },
   tabBtnActive: { borderBottomWidth: 2 },
