@@ -293,6 +293,7 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [pendingFilters, setPendingFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [sheetComposer, setSheetComposer] = useState<SheetComposerState | null>(null);
+  const [composerDraft, setComposerDraft] = useState('');
   const [savingComposer, setSavingComposer] = useState(false);
   const [savingPromptAction, setSavingPromptAction] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
@@ -702,6 +703,7 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
   const openSheetComposer = (item: TimelineFeedItem, mode: ComposerMode) => {
     setSheetComposer({ item, mode });
     composerTextRef.current = '';
+    setComposerDraft('');
   };
 
   const refreshPromptCard = async () => {
@@ -764,15 +766,17 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
       clearTimeout(composerFocusTimerRef.current);
       composerFocusTimerRef.current = null;
     }
+
     Keyboard.dismiss();
     setSheetComposer(null);
     composerTextRef.current = '';
+    setComposerDraft('');
   };
 
   const saveSheetComposer = async () => {
     if (!sheetComposer) return;
 
-    const text = composerTextRef.current.trim();
+    const text = composerDraft.trim();
 
     if (!text || savingComposer) return;
 
@@ -800,7 +804,21 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
             : existing
         )
       );
-      closeSheetComposer();
+
+      setSheetComposer(current =>
+        current
+          ? {
+              ...current,
+              item: {
+                ...current.item,
+                milestone: updatedMilestone,
+              },
+            }
+          : current
+      );
+
+      composerTextRef.current = '';
+      setComposerDraft('');
 
       if (updatedMilestone.familyId && nsec && npub) {
         publishFamilyMilestone(
@@ -957,36 +975,38 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
               </View>
             </View>
 
-            <TouchableOpacity
-              style={s.feedMarkOverlayBottom}
-              onPress={() => openMarkDetail(item)}
-              activeOpacity={0.9}
-            >
-              {item.title ? (
-                <Text style={s.feedMarkOverlayTitle} numberOfLines={2}>
-                  {item.title}
-                </Text>
-              ) : null}
-
-              {item.body ? (
-                <Text style={s.feedMarkOverlayBody} numberOfLines={1}>
-                  {item.body}
-                </Text>
-              ) : null}
-
-              {(visibleTags.length > 0 || hiddenTagCount > 0) && (
-                <View style={s.feedMarkOverlayTagRow}>
-                  <Text style={s.feedMarkOverlayTagText} numberOfLines={1}>
-                    {visibleTags.join(' · ')}
+            <View style={s.feedMarkOverlayBottom}>
+              <TouchableOpacity
+                style={s.feedMarkOverlayCopyTap}
+                onPress={() => openMarkDetail(item)}
+                activeOpacity={0.9}
+              >
+                {item.title ? (
+                  <Text style={s.feedMarkOverlayTitle} numberOfLines={2}>
+                    {item.title}
                   </Text>
+                ) : null}
 
-                  {hiddenTagCount > 0 && (
-                    <View style={s.feedMarkOverlayTagBadge}>
-                      <Text style={s.feedMarkOverlayTagBadgeText}>+{hiddenTagCount}</Text>
-                    </View>
-                  )}
-                </View>
-              )}
+                {item.body ? (
+                  <Text style={s.feedMarkOverlayBody} numberOfLines={1}>
+                    {item.body}
+                  </Text>
+                ) : null}
+
+                {(visibleTags.length > 0 || hiddenTagCount > 0) && (
+                  <View style={s.feedMarkOverlayTagRow}>
+                    <Text style={s.feedMarkOverlayTagText} numberOfLines={1}>
+                      {visibleTags.join(' · ')}
+                    </Text>
+
+                    {hiddenTagCount > 0 && (
+                      <View style={s.feedMarkOverlayTagBadge}>
+                        <Text style={s.feedMarkOverlayTagBadgeText}>+{hiddenTagCount}</Text>
+                      </View>
+                    )}
+                  </View>
+                )}
+              </TouchableOpacity>
 
               <View style={s.feedMarkOverlayActions}>
                 <TouchableOpacity
@@ -1029,7 +1049,7 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
                   <Ionicons name="share-social-outline" size={21} color="#fff" />
                 </TouchableOpacity>
               </View>
-            </TouchableOpacity>
+            </View>
           </View>
         </View>
       );
@@ -2006,80 +2026,134 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
             activeOpacity={1}
             onPress={closeSheetComposer}
           />
-            <View
-              style={[
-                s.composerSheet,
-                themed.surface,
-                themed.border,
-                {
-                  bottom: composerBottom,
-                  paddingBottom: Math.max(insets.bottom, 12) + 12,
-                },
-              ]}
-            >
-              <View style={[s.composerHandle, { backgroundColor: theme.border }]} />
-              <View style={s.composerSheetHeader}>
-                <View style={[s.authorAvatar, themed.raised, themed.border]}>
-                  {sheetComposer.item.authorAvatar ? (
-                    <Image source={{ uri: sheetComposer.item.authorAvatar }} style={s.authorAvatarImage} />
-                  ) : (
-                    <Text style={[s.authorAvatarText, themed.goldText]}>{sheetComposer.item.authorInitials}</Text>
-                  )}
-                </View>
-                <View style={s.composerSheetCopy}>
-                  <Text style={[s.composerSheetTitle, themed.primaryText]}>
-                    {sheetComposer.mode === 'reflect' ? 'Add a reflection' : 'Add a comment'}
-                  </Text>
-                  <Text style={[s.composerSheetContext, themed.mutedText]} numberOfLines={1}>
-                    {sheetComposer.item.authorName} - {sheetComposer.item.contextLabel}
-                  </Text>
-                </View>
+
+          <View
+            style={[
+              s.composerSheet,
+              themed.surface,
+              themed.border,
+              {
+                bottom: composerBottom,
+                paddingBottom: Math.max(insets.bottom, 12) + 12,
+              },
+            ]}
+          >
+            <View style={[s.composerHandle, { backgroundColor: theme.border }]} />
+
+            <View style={s.composerSheetHeader}>
+              <View style={[s.authorAvatar, themed.raised, themed.border]}>
+                {sheetComposer.item.authorAvatar ? (
+                  <Image source={{ uri: sheetComposer.item.authorAvatar }} style={s.authorAvatarImage} />
+                ) : (
+                  <Text style={[s.authorAvatarText, themed.goldText]}>{sheetComposer.item.authorInitials}</Text>
+                )}
               </View>
 
+              <View style={s.composerSheetCopy}>
+                <Text style={[s.composerSheetTitle, themed.primaryText]}>
+                  Comments
+                </Text>
+                <Text style={[s.composerSheetContext, themed.mutedText]} numberOfLines={1}>
+                  {sheetComposer.item.authorName} - {sheetComposer.item.contextLabel}
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                style={[s.composerSheetCloseBtn, themed.raised, themed.border]}
+                onPress={closeSheetComposer}
+                activeOpacity={0.78}
+                disabled={savingComposer}
+              >
+                <Text style={[s.composerSheetCloseText, themed.mutedText]}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              style={s.commentsScroll}
+              contentContainerStyle={s.commentsScrollContent}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              {(sheetComposer.item.milestone.reflections ?? []).length === 0 ? (
+                <View style={[s.emptyCommentsCard, themed.raised, themed.border]}>
+                  <Text style={[s.emptyCommentsTitle, themed.primaryText]}>
+                    No comments yet
+                  </Text>
+                  <Text style={[s.emptyCommentsHint, themed.mutedText]}>
+                    Start the conversation around this Mark.
+                  </Text>
+                </View>
+              ) : (
+                [...(sheetComposer.item.milestone.reflections ?? [])]
+                  .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))
+                  .map((comment, index) => {
+                    const isMine = !!npub && comment.authorNpub === npub;
+                    const commentAuthor = isMine
+                      ? 'You'
+                      : comment.authorNpub
+                        ? `${comment.authorNpub.slice(0, 10)}…`
+                        : 'Member';
+
+                    return (
+                      <View
+                        key={`comment_${sheetComposer.item.id}_${comment.createdAt}_${index}`}
+                        style={[
+                          s.commentBubble,
+                          isMine ? s.commentBubbleMine : s.commentBubbleOther,
+                          {
+                            backgroundColor: isMine ? `${theme.gold}18` : theme.raised,
+                            borderColor: isMine ? `${theme.gold}44` : theme.border,
+                          },
+                        ]}
+                      >
+                        <View style={s.commentBubbleHeader}>
+                          <Text style={[s.commentAuthor, { color: isMine ? theme.gold : theme.text }]}>
+                            {commentAuthor}
+                          </Text>
+
+                          <Text style={[s.commentTime, themed.mutedText]}>
+                            {comment.createdAt ? formatDate(comment.createdAt) : 'Now'}
+                          </Text>
+                        </View>
+
+                        <Text style={[s.commentText, themed.primaryText]}>
+                          {comment.text}
+                        </Text>
+                      </View>
+                    );
+                  })
+              )}
+            </ScrollView>
+
+            <View style={[s.commentInputBar, themed.border]}>
               <TextInput
-                key={`${sheetComposer.item.id}_${sheetComposer.mode}`}
                 ref={composerInputRef}
-                style={[s.composerSheetInput, themed.raised, themed.border, themed.primaryText]}
-                defaultValue=""
+                style={[s.commentInput, themed.raised, themed.border, themed.primaryText]}
+                value={composerDraft}
                 onChangeText={text => {
                   composerTextRef.current = text;
+                  setComposerDraft(text);
                 }}
-                placeholder={
-                  sheetComposer.mode === 'reflect'
-                    ? 'Looking back, what do you notice?'
-                    : 'Add a quick comment...'
-                }
+                placeholder="Add a comment..."
                 placeholderTextColor={theme.textMuted}
                 multiline
                 textAlignVertical="top"
               />
 
-              <View style={s.composerSheetActions}>
-                <TouchableOpacity
-                  style={[s.composerSheetCancel, themed.border]}
-                  onPress={closeSheetComposer}
-                  activeOpacity={0.75}
-                  disabled={savingComposer}
-                >
-                  <Text style={[s.composerSheetCancelText, themed.mutedText]}>Cancel</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    s.composerSheetSave,
-                    themed.goldBg,
-                    savingComposer && s.composerSheetSaveDisabled,
-                  ]}
-                  onPress={saveSheetComposer}
-                  activeOpacity={0.75}
-                  disabled={savingComposer}
-                >
-                  <Text style={[s.composerSheetSaveText, themed.darkOnGold]}>
-                    {savingComposer ? 'Saving...' : 'Save'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
+              <TouchableOpacity
+                style={[
+                  s.commentSendBtn,
+                  themed.goldBg,
+                  (!composerDraft.trim() || savingComposer) && s.composerSheetSaveDisabled,
+                ]}
+                onPress={saveSheetComposer}
+                activeOpacity={0.78}
+                disabled={!composerDraft.trim() || savingComposer}
+              >
+                <Ionicons name="send" size={18} color={theme.bg} />
+              </TouchableOpacity>
             </View>
+          </View>
         </View>
       )}
     </SafeAreaView>
@@ -2388,6 +2462,9 @@ const s = StyleSheet.create({
     paddingTop: 10,
     paddingBottom: 10,
     backgroundColor: 'rgba(0,0,0,0.50)',
+  },
+  feedMarkOverlayCopyTap: {
+    marginBottom: 8,
   },
   feedMarkOverlayTitle: {
     color: '#fff',
@@ -2775,13 +2852,13 @@ const s = StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     borderTopWidth: 0.5,
     paddingHorizontal: 18,
     paddingTop: 10,
     paddingBottom: 24,
-    maxHeight: 310,
+    maxHeight: '78%',
   },
   composerHandle: {
     width: 42,
@@ -2794,7 +2871,7 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   composerSheetCopy: {
     flex: 1,
@@ -2851,6 +2928,100 @@ const s = StyleSheet.create({
   composerSheetSaveText: {
     fontSize: 13,
     fontWeight: '900',
+  },
+  composerSheetCloseBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 0.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  composerSheetCloseText: {
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  commentsScroll: {
+    maxHeight: 320,
+  },
+  commentsScrollContent: {
+    paddingTop: 4,
+    paddingBottom: 12,
+    gap: 10,
+  },
+  emptyCommentsCard: {
+    borderWidth: 0.5,
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'center',
+  },
+  emptyCommentsTitle: {
+    fontSize: 15,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  emptyCommentsHint: {
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'center',
+    lineHeight: 17,
+  },
+  commentBubble: {
+    borderWidth: 0.5,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    maxWidth: '92%',
+  },
+  commentBubbleMine: {
+    alignSelf: 'flex-end',
+  },
+  commentBubbleOther: {
+    alignSelf: 'flex-start',
+  },
+  commentBubbleHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 5,
+  },
+  commentAuthor: {
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  commentTime: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  commentText: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  commentInputBar: {
+    borderTopWidth: 0.5,
+    paddingTop: 10,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 10,
+  },
+  commentInput: {
+    flex: 1,
+    minHeight: 42,
+    maxHeight: 104,
+    borderWidth: 0.5,
+    borderRadius: 18,
+    paddingHorizontal: 13,
+    paddingVertical: 10,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  commentSendBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   socialActions: {
     borderTopWidth: 0.5,
