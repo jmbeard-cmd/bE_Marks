@@ -226,7 +226,12 @@ function MediaPreviewVideo({
 
     if (shouldPlay) {
       player.play();
+      return;
     }
+
+    try {
+      player.pause();
+    } catch {}
   }, [player, shouldPlay, muted, loop]);
 
   return (
@@ -510,7 +515,7 @@ export default function MediaCollage({
               style={[s.slide, { width: carouselWidth, height: mediaHeight }]}
               onPress={() => onPressMedia?.(index)}
             >
-              {shouldAutoPlayVideo ? (
+              {autoPlayVideos && type === 'video' && !!mediaUri ? (
                 <MediaPreviewVideo
                   uri={mediaUri}
                   thumbnailUri={previewUri}

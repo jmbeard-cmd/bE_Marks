@@ -302,6 +302,26 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
   const lastFeedScrollYRef = useRef(0);
   const dockHiddenRef = useRef(false);
   const hasLoadedTimelineOnceRef = useRef(false);
+  const [activeVideoMarkId, setActiveVideoMarkId] = useState<string | null>(null);
+
+  const timelineViewabilityConfigRef = useRef({
+    itemVisiblePercentThreshold: 35,
+    minimumViewTime: 0,
+  });
+
+  const onViewableTimelineItemsChangedRef = useRef(({ viewableItems }: any) => {
+    const firstVisibleVideo = viewableItems
+      .map((entry: any) => entry.item as TimelineFeedItem)
+      .find((feedItem: TimelineFeedItem | undefined) => (
+        !!feedItem?.hasVisualMedia &&
+        Array.isArray(feedItem.mediaItems) &&
+        feedItem.mediaItems.some((media: any) => (
+          media?.type === 'video' || media?.mediaType === 'video'
+        ))
+      ));
+
+    setActiveVideoMarkId(firstVisibleVideo?.id ?? null);
+  });
   const insets = useSafeAreaInsets();
 
   const setFloatingDockHidden = useCallback((hidden: boolean) => {
@@ -885,7 +905,10 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
     );
   }
 
-  function TimelineCard({ item }: { item: TimelineFeedItem }) {
+  function renderTimelineCard(
+    item: TimelineFeedItem,
+    shouldAutoPlayVideo: boolean
+  ) {
     const milestone = item.milestone;
     const visibleTags = milestone.tags.slice(0, 2);
     const hiddenTagCount = Math.max(0, milestone.tags.length - visibleTags.length);
@@ -906,6 +929,10 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
               media={item.mediaItems}
               fitMode="cover"
               fixedHeight={500}
+              autoPlayVideos
+              playVideos={shouldAutoPlayVideo}
+              videoMuted
+              videoLoop
               onPressMedia={(mediaIndex) => openViewerForMilestone(milestone, mediaIndex)}
             />
 
@@ -1429,8 +1456,9 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
   }
 
   const renderItem = ({ item }: { item: TimelineFeedItem }) => {
-    return <TimelineCard item={item} />;
+    return renderTimelineCard(item, item.id === activeVideoMarkId);
   };
+
   const composerBottom = keyboardHeight > 0
     ? keyboardHeight + 8
     : Math.max(insets.bottom, 12) + 76;
@@ -1554,13 +1582,16 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
           data={feedItems}
           keyExtractor={item => item.id}
           renderItem={renderItem}
+          viewabilityConfig={timelineViewabilityConfigRef.current}
+          onViewableItemsChanged={onViewableTimelineItemsChangedRef.current}
           contentContainerStyle={s.list}
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled"
-          initialNumToRender={5}
+          initialNumToRender={4}
           maxToRenderPerBatch={4}
           updateCellsBatchingPeriod={24}
-          windowSize={7}
+          windowSize={5}
+          removeClippedSubviews={Platform.OS === 'android'}
           onScroll={handleFeedScroll}
           scrollEventThrottle={16}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.gold} />}
