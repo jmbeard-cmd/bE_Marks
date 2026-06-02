@@ -1,7 +1,7 @@
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
-import * as SecureStore from 'expo-secure-store';
 import { router } from 'expo-router';
+import * as SecureStore from 'expo-secure-store';
 import { nip19 } from 'nostr-tools';
 import { useEffect, useState } from 'react';
 import {
@@ -19,7 +19,6 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { DEFAULT_RELAYS, RELAY_LABELS } from '../../src/constants/relays';
 import {
   AccentPalettes,
   type AccentPaletteKey,
@@ -29,10 +28,8 @@ import {
   clearIdentity,
   DEFAULT_RELAY,
   fetchFamilyMembers,
-  fetchRelayList,
   publishFamilyMembership,
   publishProfile,
-  publishRelayList
 } from '../../src/utils/nostr';
 import { uploadToR2 } from '../../src/utils/r2';
 import {
@@ -93,12 +90,6 @@ useEffect(() => {
   const [editPicture, setEditPicture] = useState('');
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
-
-  const [editingRelays, setEditingRelays] = useState(false);
-  const [newRelay, setNewRelay] = useState('');
-  const [localRelays, setLocalRelays] = useState<string[]>([]);
-  const [loadingRelays, setLoadingRelays] = useState(false);
-    const [savingRelays, setSavingRelays] = useState(false);
 
   const [editingFamilyRelay, setEditingFamilyRelay] = useState(false);
   const [familyRelayMode, setFamilyRelayMode] = useState<FamilyRelayMode>('default');
@@ -263,63 +254,6 @@ useEffect(() => {
       Alert.alert('Error', result.error || 'Could not publish profile.');
     }
     setSavingProfile(false);
-  };
-
-  const openRelayEditor = async () => {
-    setLoadingRelays(true);
-    if (npub) {
-      const fetched = await fetchRelayList(npub);
-      setLocalRelays(fetched);
-    } else {
-      setLocalRelays(relays);
-    }
-    setLoadingRelays(false);
-    setEditingRelays(true);
-  };
-
-  const addRelay = () => {
-    const url = newRelay.trim();
-    if (!url.startsWith('wss://') && !url.startsWith('ws://')) {
-      Alert.alert('Invalid relay', 'Relay URL must start with wss:// or ws://');
-      return;
-    }
-    if (localRelays.includes(url)) { setNewRelay(''); return; }
-    setLocalRelays(prev => [...prev, url]);
-    setNewRelay('');
-  };
-
-  const removeRelay = (url: string) => {
-    if (localRelays.length === 1) { Alert.alert('Cannot remove', 'You need at least one relay.'); return; }
-    setLocalRelays(prev => prev.filter(r => r !== url));
-  };
-
-  const togglePresetRelay = (url: string) => {
-  setLocalRelays(prev => {
-    if (prev.includes(url)) {
-      if (prev.length === 1) {
-        Alert.alert('Cannot remove', 'You need at least one relay.');
-        return prev;
-      }
-
-      return prev.filter(r => r !== url);
-    }
-
-    return [...prev, url];
-  });
-};
-
-    const saveRelays = async () => {
-    if (!nsec) { Alert.alert('No key', 'Cannot publish without a private key.'); return; }
-    setSavingRelays(true);
-    const result = await publishRelayList(localRelays, nsec);
-    if (result.success) {
-      setRelays(localRelays);
-      setEditingRelays(false);
-      Alert.alert('✓ Relays updated', 'Your relay list has been published.');
-    } else {
-      Alert.alert('Error', result.error || 'Could not publish relay list.');
-    }
-    setSavingRelays(false);
   };
 
   const openFamilyRelayEditor = () => {
@@ -806,94 +740,35 @@ const handleJoinFamily = async () => {
 
           {/* ── RELAYS ── */}
           <View style={s.section}>
-            <View style={s.sectionHeaderRow}>
-              <Text style={[s.sectionLabel, { color: theme.textMuted }]}>RELAYS</Text>
-              {!editingRelays && (
-                <TouchableOpacity onPress={openRelayEditor}>
-                  {loadingRelays ? <ActivityIndicator color="#c9973a" size="small" /> : <Text style={[s.sectionAction, { color: theme.gold }]}>Manage</Text>}
-                </TouchableOpacity>
-              )}
-            </View>
-            {!editingRelays ? (
-              relays.map(r => (
-                <View key={r} style={[s.row, { borderBottomColor: theme.border }]}>
-                  <Text style={[s.relayUrl, { color: theme.textMuted }]} numberOfLines={1}>{r.replace('wss://', '')}</Text>
-                  <View style={s.relayDot} />
-                </View>
-              ))
-            ) : (
-              <View style={s.editBlock}>
-                <Text style={[s.inputLabel, { color: theme.textMuted }]}>COMMON RELAYS</Text>
+            <Text style={[s.sectionLabel, { color: theme.textMuted }]}>RELAY NETWORK</Text>
 
-{DEFAULT_RELAYS.map(r => {
-  const selected = localRelays.includes(r);
+            <TouchableOpacity
+              style={[
+                s.spaceCard,
+                { backgroundColor: theme.surface, borderColor: theme.border },
+              ]}
+              onPress={() => router.push('/relay-network' as any)}
+              activeOpacity={0.85}
+            >
+              <Text style={[s.spaceCardTitle, { color: theme.text }]}>
+                Personal relay setup
+              </Text>
 
-  return (
-    <TouchableOpacity
-      key={r}
-      style={[s.relayPickerRow, { borderBottomColor: theme.border }]}
-      onPress={() => togglePresetRelay(r)}
-      activeOpacity={0.8}
-    >
-      <View style={{ flex: 1 }}>
-        <Text style={[s.relayPickerName, { color: theme.text }]}>
-          {RELAY_LABELS[r] || r}
-        </Text>
-        <Text style={[s.relayPickerUrl, { color: theme.textMuted }]} numberOfLines={1}>
-          {r}
-        </Text>
-      </View>
+              <Text style={[s.spaceCardHint, { color: theme.textMuted }]}>
+                Search, select, and save the relays used for public Marks, profile publishing, and your personal feed.
+              </Text>
 
-      <Text
-  style={[
-    s.relayPickerStatus,
-    { color: theme.textMuted },
-    selected && { color: theme.gold }
-  ]}
->
-        {selected ? 'ON' : 'OFF'}
-      </Text>
-    </TouchableOpacity>
-  );
-})}
-
-{localRelays.filter(r => !DEFAULT_RELAYS.includes(r)).length > 0 && (
-  <>
-    <Text style={[s.inputLabel, { marginTop: 16, color: theme.textMuted }]}>CUSTOM RELAYS</Text>
-
-    {localRelays.filter(r => !DEFAULT_RELAYS.includes(r)).map(r => (
-      <View key={r} style={[s.relayRow, { borderBottomColor: theme.border }]}>
-        <Text style={[s.relayUrlEdit, { color: theme.textSecondary }]} numberOfLines={1}>{r}</Text>
-        <TouchableOpacity onPress={() => removeRelay(r)}>
-          <Text style={[s.relayRemove, { color: theme.textMuted }]}>✕</Text>
-        </TouchableOpacity>
-      </View>
-    ))}
-  </>
-)}
-                <View style={s.relayAddRow}>
-                  <TextInput
-  style={[
-    s.input,
-    { flex: 1, backgroundColor: theme.surface, borderColor: theme.border, color: theme.text }
-  ]} value={newRelay} onChangeText={setNewRelay} placeholder="wss://relay.example.com" placeholderTextColor="#444" autoCapitalize="none" keyboardType="url" />
-                  <TouchableOpacity
-  style={[s.relayAddBtn, { backgroundColor: theme.surface, borderColor: theme.border }]}
-  onPress={addRelay}
->
-                    <Text style={[s.relayAddBtnText, { color: theme.gold }]}>Add</Text>
-                  </TouchableOpacity>
-                </View>
-                <View style={s.inputActions}>
-                  <TouchableOpacity style={[s.cancelBtn, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={() => setEditingRelays(false)}>
-                    <Text style={[s.cancelText, { color: theme.textMuted }]}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={[s.confirmBtn, { backgroundColor: theme.gold }]} onPress={saveRelays} disabled={savingRelays}>
-                    {savingRelays ? <ActivityIndicator color="#111" /> : <Text style={[s.confirmText, { color: theme.bg }]}>Save relays</Text>}
-                  </TouchableOpacity>
-                </View>
+              <View style={[s.spaceCardRow, { borderBottomColor: theme.border }]}>
+                <Text style={[s.rowLabel, { color: theme.textSecondary }]}>Active relays</Text>
+                <Text style={[s.rowValue, { color: theme.gold }]}>
+                  {Array.from(new Set(relays)).length}
+                </Text>
               </View>
-            )}
+
+              <Text style={[s.rowHint, { color: theme.textMuted, marginTop: 10 }]}>
+                Space relays are managed inside each Space by admins.
+              </Text>
+            </TouchableOpacity>
           </View>
 
                     {/* ── FAMILY ── */}
@@ -1467,7 +1342,23 @@ relayPickerStatus: {
   fontSize: 12,
   fontWeight: '700',
   marginLeft: 12,
-},putLabel: { fontSize: 11, color: '#444', fontWeight: '600', letterSpacing: 0.8, marginBottom: 6 },
+},
+relaySearchInput: {
+  borderWidth: 0.5,
+  borderRadius: 14,
+  paddingHorizontal: 13,
+  paddingVertical: 11,
+  fontSize: 14,
+  fontWeight: '700',
+  marginBottom: 8,
+},
+relayDiscoveryEmpty: {
+  fontSize: 12,
+  lineHeight: 17,
+  marginTop: 8,
+  marginBottom: 4,
+},
+putLabel: { fontSize: 11, color: '#444', fontWeight: '600', letterSpacing: 0.8, marginBottom: 6 },
 input: {
   borderWidth: 0.5,
   borderRadius: 12,

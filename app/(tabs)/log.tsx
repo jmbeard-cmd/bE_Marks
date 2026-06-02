@@ -987,7 +987,7 @@ if (audioUri) {
           imageUrl: uploadedPhoto,
           videoUrl: uploadedVideo,
           audioUrl: uploadedAudio,
-        }, nsec);
+        }, nsec, relays);
 
         if (result.success) {
           nostrEventId = result.eventId;

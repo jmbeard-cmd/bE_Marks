@@ -1217,18 +1217,35 @@ export function buildMilestoneEvent(payload: MilestonePayload, pubkeyHex: string
 
 export async function signAndPublish(
   payload: MilestonePayload,
-  nsec: string
+  nsec: string,
+  relayUrls?: string[]
 ): Promise<{ success: boolean; eventId?: string; error?: string }> {
   try {
     const decoded = nip19.decode(nsec);
     if (decoded.type !== 'nsec') throw new Error('Invalid nsec');
+
     const sk = decoded.data as Uint8Array;
     const pk = getPublicKey(sk);
     const unsigned = buildMilestoneEvent(payload, pk);
     const signed = finalizeEvent(unsigned, sk);
-    // Publish to all fast relays simultaneously
-    const results = await Promise.all(FAST_RELAYS.map(r => publishToSpecificRelay(signed, r)));
+
+    const publishRelays = Array.from(
+      new Set(
+        [
+          ...(relayUrls && relayUrls.length > 0 ? relayUrls : []),
+          ...FAST_RELAYS,
+        ]
+          .map(relayUrl => relayUrl.trim())
+          .filter(relayUrl => relayUrl.startsWith('wss://') || relayUrl.startsWith('ws://'))
+      )
+    );
+
+    const results = await Promise.all(
+      publishRelays.map(r => publishToSpecificRelay(signed, r))
+    );
+
     const success = results.find(r => r.success);
+
     return success ?? { success: false, error: 'All relays failed' };
   } catch (e: any) {
     return { success: false, error: e.message };
