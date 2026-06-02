@@ -48,8 +48,18 @@ export default function FloatingTabDock({
   }, [dockOpacity, dockTranslateY]);
 
   const visibleRoutes = state.routes.filter(route =>
-    route.name === 'messages' || route.name === 'settings'
+    route.name === 'messages' ||
+    route.name === 'timeline' ||
+    route.name === 'settings'
   );
+
+  const getDockLabel = (routeName: string, fallbackLabel: string) => {
+    if (routeName === 'messages') return 'Spaces';
+    if (routeName === 'timeline') return 'Marks';
+    if (routeName === 'settings') return 'Account';
+
+    return fallbackLabel;
+  };
 
 return (
   <Animated.View
@@ -82,10 +92,12 @@ return (
           const options = descriptor?.options ?? {};
           const routeIndex = state.routes.findIndex(item => item.key === route.key);
           const focused = state.index === routeIndex;
-          const label =
+          const fallbackLabel =
             typeof options.tabBarLabel === 'string'
               ? options.tabBarLabel
               : options.title ?? route.name;
+
+          const label = getDockLabel(route.name, fallbackLabel);
 
           const color = focused
             ? theme.gold
@@ -162,7 +174,7 @@ const s = StyleSheet.create({
     alignItems: 'center',
   },
   dock: {
-    width: 244,
+    width: 324,
     minHeight: 64,
     borderRadius: 32,
     borderWidth: 0.5,
