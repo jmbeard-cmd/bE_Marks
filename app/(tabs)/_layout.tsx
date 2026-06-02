@@ -1,5 +1,7 @@
 import { Tabs } from 'expo-router';
+import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
+import AccountTray from '../../components/AccountTray';
 import FloatingTabDock from '../../components/FloatingTabDock';
 import { useIdentity } from '../_layout';
 
@@ -44,7 +46,10 @@ function SettingsIcon({ color }: { color: string }) {
 
 export default function TabLayout() {
   const { theme } = useIdentity();
+  const [accountTrayVisible, setAccountTrayVisible] = useState(false);
+
   return (
+    <>
 <Tabs
   initialRouteName="messages"
   tabBar={(props) => {
@@ -54,7 +59,13 @@ export default function TabLayout() {
       return null;
     }
 
-    return <FloatingTabDock {...props} theme={theme} />;
+    return (
+      <FloatingTabDock
+        {...props}
+        theme={theme}
+        onOpenAccountTray={() => setAccountTrayVisible(true)}
+      />
+    );
   }}
   screenOptions={{
     headerShown: false,
@@ -95,6 +106,12 @@ export default function TabLayout() {
       {/* Hidden screens — not tabs */}
       <Tabs.Screen name="log" options={{ href: null }} />
     </Tabs>
+
+      <AccountTray
+        visible={accountTrayVisible}
+        onClose={() => setAccountTrayVisible(false)}
+      />
+    </>
   );
 }
 

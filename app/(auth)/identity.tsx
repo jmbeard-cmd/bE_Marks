@@ -1,4 +1,5 @@
 import { useRouter } from 'expo-router';
+import { nip19 } from 'nostr-tools';
 import { useState } from 'react';
 import {
   ActivityIndicator,
@@ -47,11 +48,34 @@ export default function IdentityScreen() {
       Alert.alert('Android only', 'Amber signer is only available on Android.');
       return;
     }
+
     setLoading(true);
-    const pk = await getPublicKeyFromAmber();
-    setUseAmber(true);
-    if (!pk) Alert.alert('Amber', 'Opening Amber… Once approved, return to Milestones.');
-    setLoading(false);
+
+    try {
+      const amberResult = await getPublicKeyFromAmber();
+
+      if (!amberResult?.pubkey) {
+        Alert.alert(
+          'Amber not connected',
+          'Amber opened, but did not return a public key. Approve the request in Amber and try again.'
+        );
+        return;
+      }
+
+      const npub = amberResult.pubkey.startsWith('npub1')
+        ? amberResult.pubkey
+        : nip19.npubEncode(amberResult.pubkey);
+
+      setUseAmber(true);
+      setIdentity(npub, '');
+
+      Alert.alert('Amber connected', 'Your Amber signer is now connected to bE Marks.');
+    } catch (error) {
+      console.warn('[Amber] request failed:', error);
+      Alert.alert('Amber failed', 'Could not connect Amber to bE Marks.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

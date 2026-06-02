@@ -5,6 +5,7 @@ import { Colors } from '../src/constants/theme';
 
 type FloatingTabDockProps = BottomTabBarProps & {
   theme: typeof Colors.dark;
+  onOpenAccountTray?: () => void;
 };
 
 function withAlpha(color: string, alphaHex: string) {
@@ -17,6 +18,7 @@ export default function FloatingTabDock({
   descriptors,
   navigation,
   theme,
+  onOpenAccountTray,
 }: FloatingTabDockProps) {
   const dockTranslateY = useRef(new Animated.Value(0)).current;
   const dockOpacity = useRef(new Animated.Value(1)).current;
@@ -98,7 +100,14 @@ return (
               canPreventDefault: true,
             });
 
-            if (!focused && !event.defaultPrevented) {
+            if (event.defaultPrevented) return;
+
+            if (route.name === 'settings' && onOpenAccountTray) {
+              onOpenAccountTray();
+              return;
+            }
+
+            if (!focused) {
               navigation.navigate(route.name);
             }
           };

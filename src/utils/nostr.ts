@@ -1,3 +1,4 @@
+import * as IntentLauncher from 'expo-intent-launcher';
 import * as SecureStore from 'expo-secure-store';
 import {
   finalizeEvent,
@@ -1046,13 +1047,53 @@ export async function signWithAmber(eventJson: string): Promise<string | null> {
   return null;
 }
 
-export async function getPublicKeyFromAmber(): Promise<string | null> {
-  const callbackUrl = 'marksapp://amber-callback';
-  const url = `intent:#Intent;scheme=nostrsigner;S.callbackUrl=${encodeURIComponent(callbackUrl)};S.type=get_public_key;end`;
-  const canOpen = await Linking.canOpenURL(url);
-  if (!canOpen) return null;
-  await Linking.openURL(url);
-  return null;
+export type AmberPublicKeyResult = {
+  pubkey: string;
+  packageName?: string;
+};
+
+export async function getPublicKeyFromAmber(): Promise<AmberPublicKeyResult | null> {
+  try {
+    const result = await IntentLauncher.startActivityAsync(
+      'android.intent.action.VIEW',
+      {
+        data: 'nostrsigner:',
+        extra: {
+          type: 'get_public_key',
+        },
+      }
+    ) as any;
+
+    const resultExtra = result?.extra ?? {};
+    const resultData = typeof result?.data === 'string' ? result.data : '';
+
+    const pubkey =
+      resultExtra.result ||
+      resultExtra.pubkey ||
+      resultExtra.publicKey;
+
+    const packageName =
+      resultExtra.package ||
+      resultExtra.packageName;
+
+    if (typeof pubkey === 'string' && pubkey.trim()) {
+      return {
+        pubkey: pubkey.trim(),
+        packageName: typeof packageName === 'string' ? packageName : undefined,
+      };
+    }
+
+    console.warn('[Amber] get_public_key returned no pubkey:', {
+      resultCode: result?.resultCode,
+      data: resultData,
+      extra: resultExtra,
+    });
+
+    return null;
+  } catch (error) {
+    console.warn('[Amber] get_public_key intent failed:', error);
+    return null;
+  }
 }
 
 // ─── Event Building ───────────────────────────────────────────────

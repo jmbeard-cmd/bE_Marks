@@ -631,11 +631,12 @@ const handleJoinFamily = async () => {
 <Text style={[s.profileNpub, { color: theme.textMuted }]} numberOfLines={1}>{shortNpub}</Text>
               </View>
               <TouchableOpacity
-  onPress={startEditProfile}
-  style={[s.editProfileBtn, { borderColor: theme.gold }]}
->
-  <Text style={[s.editProfileBtnText, { color: theme.gold }]}>Edit</Text>
-</TouchableOpacity>
+                onPress={() => router.push('/profile' as any)}
+                style={[s.editProfileBtn, { borderColor: theme.gold }]}
+                activeOpacity={0.85}
+              >
+                <Text style={[s.editProfileBtnText, { color: theme.gold }]}>Open</Text>
+              </TouchableOpacity>
             </View>
 
             {editingProfile && (
