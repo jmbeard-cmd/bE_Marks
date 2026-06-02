@@ -28,6 +28,15 @@ export type MarkMedia = {
   thumbnailUri?: string;
 };
 
+export type MilestoneLiftUp = {
+  id: string;
+  type: 'lifted' | 'cheered' | 'proud' | 'grateful' | 'celebrating' | 'encouraged';
+  label: string;
+  emoji: string;
+  createdAt: number;
+  authorNpub?: string;
+};
+
 export interface Milestone {
   id: string;
   note: string;
@@ -40,6 +49,7 @@ export interface Milestone {
   nostrEventId?: string;
   publishedToRelay: boolean;
   reflections?: { text: string; createdAt: number; authorNpub?: string }[];
+  liftUps?: MilestoneLiftUp[];
   familyId?: string;
   authorNpub?: string;
   authorName?: string;
@@ -175,6 +185,25 @@ function mergeReflections(
   ));
 }
 
+function mergeLiftUps(
+  existing?: Milestone['liftUps'],
+  incoming?: Milestone['liftUps']
+): Milestone['liftUps'] {
+  return [
+    ...(existing ?? []),
+    ...(incoming ?? []),
+  ].filter((liftUp, index, arr) => (
+    index === arr.findIndex(item =>
+      item.id === liftUp.id ||
+      (
+        item.type === liftUp.type &&
+        item.createdAt === liftUp.createdAt &&
+        item.authorNpub === liftUp.authorNpub
+      )
+    )
+  ));
+}
+
 function mergeSameIdMilestones(existing: Milestone, incoming: Milestone): Milestone {
   const normalizedExisting = normalizeMilestoneMedia(existing.id, existing.media);
   const normalizedIncoming = normalizeMilestoneMedia(incoming.id, incoming.media);
@@ -190,6 +219,7 @@ function mergeSameIdMilestones(existing: Milestone, incoming: Milestone): Milest
     id: existing.id,
     media: normalizedMerged.media ?? normalizedExisting.media ?? [],
     reflections: mergeReflections(existing.reflections, incoming.reflections),
+    liftUps: mergeLiftUps(existing.liftUps, incoming.liftUps),
   };
 }
 
@@ -368,6 +398,7 @@ export async function saveRemoteMilestone(m: Milestone): Promise<void> {
         id: existing.id,
         media: normalizeMilestoneMedia(existing.id, existing.media).media ?? [],
         reflections: mergeReflections(existing.reflections, m.reflections),
+        liftUps: mergeLiftUps(existing.liftUps, m.liftUps),
       };
     }
 
