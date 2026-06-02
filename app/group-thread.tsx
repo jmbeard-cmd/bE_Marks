@@ -1623,6 +1623,15 @@ const showName =
     if (!groupId || uploadingImage || attachments.length === 0) return;
     if (!guardCanPost()) return;
 
+    if (!nsec) {
+      Alert.alert(
+        'Set up a local key to post',
+        'Media, files, and camera posts need a local bE Marks key on this device. Create a bE Marks identity or import your saved key to post without repeated signer approvals.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
     const clientMessageId = createClientMessageId(groupId);
     const activeReplyTarget = replyTarget;
 
