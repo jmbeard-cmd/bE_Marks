@@ -1,3 +1,4 @@
+import { useAudioPlayer } from 'expo-audio';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -262,6 +263,74 @@ function MediaPreviewVideo({
   );
 }
 
+function AudioOnlyPreview({
+  uri,
+  s,
+}: {
+  uri: string | null;
+  s: ReturnType<typeof createStyles>;
+}) {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const player = useAudioPlayer(uri ? { uri } : null);
+
+  useEffect(() => {
+    if (!player) return;
+
+    const subscription = player.addListener('playbackStatusUpdate', (status: any) => {
+      if (status.didJustFinish) {
+        setIsPlaying(false);
+      }
+    });
+
+    return () => {
+      subscription?.remove?.();
+      try {
+        player.pause();
+      } catch {}
+    };
+  }, [player]);
+
+  const togglePlayback = () => {
+    if (!player || !uri) return;
+
+    try {
+      if (isPlaying) {
+        player.pause();
+        setIsPlaying(false);
+        return;
+      }
+
+      player.play();
+      setIsPlaying(true);
+    } catch (error) {
+      console.warn('[MediaCollage] audio playback failed:', error);
+      setIsPlaying(false);
+    }
+  };
+
+  return (
+    <TouchableOpacity
+      style={s.audioThumb}
+      onPress={togglePlayback}
+      disabled={!uri}
+      activeOpacity={0.82}
+      accessibilityRole="button"
+      accessibilityLabel={isPlaying ? 'Stop voice note' : 'Play voice note'}
+    >
+      <View style={s.audioPlayCircle}>
+        <Text style={s.audioThumbIcon}>{isPlaying ? '⏸' : '▶'}</Text>
+      </View>
+
+      <View style={s.audioThumbTextWrap}>
+        <Text style={s.audioThumbLabel}>Voice note</Text>
+        <Text style={s.audioThumbHint}>
+          {!uri ? 'Audio unavailable' : isPlaying ? 'Playing… tap to pause' : 'Tap to play'}
+        </Text>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
 export default function MediaCollage({
   media,
   audioUri,
@@ -300,16 +369,15 @@ export default function MediaCollage({
     return type === 'image' || type === 'video';
   });
 
-  const hasAudio =
-    !!audioUri || mediaItems.some(item => getMediaType(item) === 'audio');
+  const audioItems = mediaItems.filter(item => getMediaType(item) === 'audio');
+  const audioPlaybackUri =
+    audioUri ||
+    (audioItems[0] ? getMediaUrl(audioItems[0]) || undefined : undefined);
+
+  const hasAudio = !!audioPlaybackUri || audioItems.length > 0;
 
   if (visualItems.length === 0 && hasAudio) {
-    return (
-      <View style={s.audioThumb}>
-        <Text style={s.audioThumbIcon}>🎙</Text>
-        <Text style={s.audioThumbLabel}>Voice note</Text>
-      </View>
-    );
+    return <AudioOnlyPreview uri={audioPlaybackUri ?? null} s={s} />;
   }
 
   if (visualItems.length === 0) return null;
@@ -617,20 +685,46 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
   },
   audioThumb: {
     width: '100%',
-    height: 56,
+    minHeight: 64,
     backgroundColor: theme.raised,
     alignItems: 'center',
-    justifyContent: 'center',
     flexDirection: 'row',
-    gap: 8,
-    borderBottomWidth: 0.5,
-    borderBottomColor: theme.border,
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    borderRadius: 16,
+  },
+  audioPlayCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.surface,
+    borderWidth: 0.5,
+    borderColor: theme.gold,
   },
   audioThumbIcon: {
-    fontSize: 18,
+    color: theme.gold,
+    fontSize: 16,
+    fontWeight: '900',
+    marginLeft: 1,
+  },
+  audioThumbTextWrap: {
+    flex: 1,
+    minWidth: 0,
   },
   audioThumbLabel: {
-    fontSize: 12,
+    fontSize: 13,
+    color: theme.text,
+    fontWeight: '900',
+  },
+  audioThumbHint: {
+    fontSize: 11,
     color: theme.textMuted,
+    fontWeight: '700',
+    marginTop: 2,
   },
 });

@@ -6,7 +6,6 @@ import {
   DeviceEventEmitter,
   FlatList,
   Image,
-  InteractionManager,
   Keyboard,
   Modal,
   PanResponder,
@@ -18,7 +17,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import ImageViewerModal, { ViewerImage } from '../../components/ImageViewerModal';
@@ -194,7 +193,7 @@ function applyFilters(
 }
 
 function getMilestoneMediaItems(item: Milestone): any[] {
-  const mediaItems = Array.isArray(item.media) ? [...item.media] : [];
+  const mediaItems: any[] = Array.isArray(item.media) ? [...item.media] : [];
 
   if (item.photoUri && !mediaItems.some(m => m.uri === item.photoUri)) {
     mediaItems.push({
@@ -209,6 +208,14 @@ function getMilestoneMediaItems(item: Milestone): any[] {
       id: `${item.id}_legacy_video`,
       uri: item.videoUri,
       type: 'video',
+    });
+  }
+
+  if (item.audioUri && !mediaItems.some(m => m.uri === item.audioUri)) {
+    mediaItems.push({
+      id: `${item.id}_legacy_audio`,
+      uri: item.audioUri,
+      type: 'audio',
     });
   }
 
@@ -885,7 +892,15 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
 
     if (item.hasVisualMedia) {
       return (
-        <View style={s.feedMarkCardImmersive}>
+        <View
+          style={[
+            s.feedMarkCardImmersive,
+            {
+              borderColor: `${theme.gold}55`,
+              shadowColor: theme.gold,
+            },
+          ]}
+        >
           <View style={s.feedMarkMediaFrame}>
             <MediaCollage
               media={item.mediaItems}
@@ -948,27 +963,373 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
 
               <View style={s.feedMarkOverlayActions}>
                 <TouchableOpacity
-                  style={s.feedMarkOverlayAction}
+                  style={s.feedMarkOverlayIconAction}
                   onPress={() => openSheetComposer(item, 'comment')}
                   activeOpacity={0.75}
                   accessibilityRole="button"
                   accessibilityLabel="Comment on this Mark"
                 >
-                  <Ionicons name="chatbubble-outline" size={18} color="#fff" />
-                  <Text style={s.feedMarkOverlayActionText}>Comment</Text>
+                  <Ionicons name="chatbubble-outline" size={20} color="#fff" />
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={s.feedMarkOverlayAction}
+                  style={[s.feedMarkOverlayIconAction, s.feedMarkOverlayIconActionMuted]}
+                  disabled
+                  activeOpacity={0.75}
+                  accessibilityRole="button"
+                  accessibilityLabel="Lift up this Mark"
+                >
+                  <Ionicons name="sparkles-outline" size={21} color="#fff" />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[s.feedMarkOverlayIconAction, s.feedMarkOverlayIconActionMuted]}
+                  disabled
+                  activeOpacity={0.75}
+                  accessibilityRole="button"
+                  accessibilityLabel="Tag this Mark"
+                >
+                  <Ionicons name="pricetag-outline" size={20} color="#fff" />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={s.feedMarkOverlayIconAction}
                   onPress={() => shareFeedItem(item)}
                   activeOpacity={0.75}
                   accessibilityRole="button"
                   accessibilityLabel="Share this Mark"
                 >
-                  <Ionicons name="share-social-outline" size={18} color="#fff" />
-                  <Text style={s.feedMarkOverlayActionText}>Share</Text>
+                  <Ionicons name="share-social-outline" size={21} color="#fff" />
                 </TouchableOpacity>
               </View>
+            </TouchableOpacity>
+          </View>
+        </View>
+      );
+    }
+
+    if (!item.hasAudioOnly) {
+      return (
+        <View
+          style={[
+            s.textMarkCard,
+            {
+              backgroundColor:
+                themeMode === 'dark'
+                  ? 'rgba(8,22,16,0.96)'
+                  : 'rgba(250,246,238,0.98)',
+              borderColor: `${theme.gold}55`,
+              shadowColor: theme.gold,
+            },
+          ]}
+        >
+          <View pointerEvents="none" style={s.textMarkBackground}>
+            <View style={[s.textMarkGlowOne, { backgroundColor: `${theme.gold}24` }]} />
+            <View style={[s.textMarkGlowTwo, { backgroundColor: `${theme.gold}14` }]} />
+            <View style={[s.textMarkHorizon, { borderColor: `${theme.gold}28` }]} />
+          </View>
+
+          <TouchableOpacity
+            style={s.textMarkContent}
+            onPress={() => openMarkDetail(item)}
+            activeOpacity={0.9}
+          >
+            <View style={s.textMarkAuthorRow}>
+              <View style={[s.textMarkAvatar, { borderColor: `${theme.gold}44` }]}>
+                {item.authorAvatar ? (
+                  <Image source={{ uri: item.authorAvatar }} style={s.textMarkAvatarImage} />
+                ) : (
+                  <Text style={[s.textMarkAvatarText, { color: theme.gold }]}>
+                    {item.authorInitials}
+                  </Text>
+                )}
+              </View>
+
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={[s.textMarkAuthorName, { color: theme.text }]} numberOfLines={1}>
+                  {item.authorName}
+                </Text>
+                <Text style={[s.textMarkMeta, { color: theme.textMuted }]} numberOfLines={1}>
+                  {item.contextLabel} - {item.timeLabel}
+                </Text>
+              </View>
+            </View>
+
+            <Text style={[s.textMarkQuoteMark, { color: `${theme.gold}28` }]}>“</Text>
+
+            {item.title ? (
+              <Text style={[s.textMarkTitle, { color: theme.text }]} numberOfLines={3}>
+                {item.title}
+              </Text>
+            ) : null}
+
+            {item.body ? (
+              <Text style={[s.textMarkBody, { color: theme.textSecondary }]} numberOfLines={6}>
+                {item.body}
+              </Text>
+            ) : null}
+
+            {(visibleTags.length > 0 || hiddenTagCount > 0) && (
+              <View style={s.textMarkTagRow}>
+                {visibleTags.map(tag => (
+                  <Text
+                    key={tag}
+                    style={[
+                      s.textMarkTag,
+                      {
+                        color: theme.gold,
+                        borderColor: `${theme.gold}38`,
+                        backgroundColor: `${theme.gold}12`,
+                      },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {tag}
+                  </Text>
+                ))}
+
+                {hiddenTagCount > 0 && (
+                  <Text
+                    style={[
+                      s.textMarkTag,
+                      {
+                        color: theme.gold,
+                        borderColor: `${theme.gold}38`,
+                        backgroundColor: `${theme.gold}12`,
+                      },
+                    ]}
+                  >
+                    +{hiddenTagCount}
+                  </Text>
+                )}
+              </View>
+            )}
+          </TouchableOpacity>
+
+          <View style={s.textMarkActions}>
+            <TouchableOpacity
+              style={[
+                s.textMarkIconAction,
+                {
+                  backgroundColor: `${theme.gold}14`,
+                  borderColor: `${theme.gold}30`,
+                },
+              ]}
+              onPress={() => openSheetComposer(item, 'comment')}
+              activeOpacity={0.75}
+              accessibilityRole="button"
+              accessibilityLabel="Comment on this Mark"
+            >
+              <Ionicons name="chatbubble-outline" size={21} color={theme.gold} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                s.textMarkIconAction,
+                s.textMarkIconActionMuted,
+                {
+                  backgroundColor: `${theme.gold}10`,
+                  borderColor: `${theme.gold}22`,
+                },
+              ]}
+              disabled
+              activeOpacity={0.75}
+              accessibilityRole="button"
+              accessibilityLabel="Lift up this Mark"
+            >
+              <Ionicons name="sparkles-outline" size={22} color={theme.gold} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                s.textMarkIconAction,
+                s.textMarkIconActionMuted,
+                {
+                  backgroundColor: `${theme.gold}10`,
+                  borderColor: `${theme.gold}22`,
+                },
+              ]}
+              disabled
+              activeOpacity={0.75}
+              accessibilityRole="button"
+              accessibilityLabel="Tag this Mark"
+            >
+              <Ionicons name="pricetag-outline" size={21} color={theme.gold} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                s.textMarkIconAction,
+                {
+                  backgroundColor: `${theme.gold}14`,
+                  borderColor: `${theme.gold}30`,
+                },
+              ]}
+              onPress={() => shareFeedItem(item)}
+              activeOpacity={0.75}
+              accessibilityRole="button"
+              accessibilityLabel="Share this Mark"
+            >
+              <Ionicons name="share-social-outline" size={22} color={theme.gold} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      );
+    }
+
+    if (item.hasAudioOnly) {
+      return (
+        <View
+          style={[
+            s.voiceMarkCard,
+            {
+              backgroundColor:
+                themeMode === 'dark'
+                  ? 'rgba(10,18,25,0.96)'
+                  : 'rgba(246,249,252,0.98)',
+              borderColor: `${theme.gold}55`,
+              shadowColor: theme.gold,
+            },
+          ]}
+        >
+          <View pointerEvents="none" style={s.voiceMarkBackground}>
+            <View style={[s.voiceMarkGlowOne, { backgroundColor: `${theme.gold}20` }]} />
+            <View style={[s.voiceMarkGlowTwo, { backgroundColor: `${theme.gold}12` }]} />
+          </View>
+
+          <TouchableOpacity
+            style={s.voiceMarkContent}
+            onPress={() => openMarkDetail(item)}
+            activeOpacity={0.9}
+          >
+            <View style={s.voiceMarkAuthorRow}>
+              <View style={[s.voiceMarkAvatar, { borderColor: `${theme.gold}44` }]}>
+                {item.authorAvatar ? (
+                  <Image source={{ uri: item.authorAvatar }} style={s.voiceMarkAvatarImage} />
+                ) : (
+                  <Text style={[s.voiceMarkAvatarText, { color: theme.gold }]}>
+                    {item.authorInitials}
+                  </Text>
+                )}
+              </View>
+
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={[s.voiceMarkAuthorName, { color: theme.text }]} numberOfLines={1}>
+                  {item.authorName}
+                </Text>
+                <Text style={[s.voiceMarkMeta, { color: theme.textMuted }]} numberOfLines={1}>
+                  {item.contextLabel} - {item.timeLabel}
+                </Text>
+              </View>
+            </View>
+
+            <View style={s.voiceMarkCenter}>
+              <View style={[s.voiceMarkIconWrap, { borderColor: `${theme.gold}44` }]}>
+                <Ionicons name="mic-outline" size={30} color={theme.gold} />
+              </View>
+
+              <View style={s.voiceWaveRow}>
+                {[18, 30, 44, 28, 52, 34, 22, 40, 26].map((height, index) => (
+                  <View
+                    key={`voice_wave_${index}`}
+                    style={[
+                      s.voiceWaveBar,
+                      {
+                        height,
+                        backgroundColor: `${theme.gold}${index % 2 === 0 ? '88' : '55'}`,
+                      },
+                    ]}
+                  />
+                ))}
+              </View>
+            </View>
+
+            {item.title ? (
+              <Text style={[s.voiceMarkTitle, { color: theme.text }]} numberOfLines={2}>
+                {item.title}
+              </Text>
+            ) : null}
+
+            {item.body ? (
+              <Text style={[s.voiceMarkBody, { color: theme.textSecondary }]} numberOfLines={3}>
+                {item.body}
+              </Text>
+            ) : null}
+          </TouchableOpacity>
+
+          <View style={s.voiceAudioPlayer}>
+            <MediaCollage
+              media={item.mediaItems}
+              audioUri={milestone.audioUri}
+              onPressMedia={(mediaIndex) => openViewerForMilestone(milestone, mediaIndex)}
+            />
+          </View>
+
+          <View style={s.voiceMarkActions}>
+            <TouchableOpacity
+              style={[
+                s.voiceMarkIconAction,
+                {
+                  backgroundColor: `${theme.gold}14`,
+                  borderColor: `${theme.gold}30`,
+                },
+              ]}
+              onPress={() => openSheetComposer(item, 'comment')}
+              activeOpacity={0.75}
+              accessibilityRole="button"
+              accessibilityLabel="Comment on this Mark"
+            >
+              <Ionicons name="chatbubble-outline" size={21} color={theme.gold} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                s.voiceMarkIconAction,
+                s.voiceMarkIconActionMuted,
+                {
+                  backgroundColor: `${theme.gold}10`,
+                  borderColor: `${theme.gold}22`,
+                },
+              ]}
+              disabled
+              activeOpacity={0.75}
+              accessibilityRole="button"
+              accessibilityLabel="Lift up this Mark"
+            >
+              <Ionicons name="sparkles-outline" size={22} color={theme.gold} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                s.voiceMarkIconAction,
+                s.voiceMarkIconActionMuted,
+                {
+                  backgroundColor: `${theme.gold}10`,
+                  borderColor: `${theme.gold}22`,
+                },
+              ]}
+              disabled
+              activeOpacity={0.75}
+              accessibilityRole="button"
+              accessibilityLabel="Tag this Mark"
+            >
+              <Ionicons name="pricetag-outline" size={21} color={theme.gold} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                s.voiceMarkIconAction,
+                {
+                  backgroundColor: `${theme.gold}14`,
+                  borderColor: `${theme.gold}30`,
+                },
+              ]}
+              onPress={() => shareFeedItem(item)}
+              activeOpacity={0.75}
+              accessibilityRole="button"
+              accessibilityLabel="Share this Mark"
+            >
+              <Ionicons name="share-social-outline" size={22} color={theme.gold} />
             </TouchableOpacity>
           </View>
         </View>
@@ -1924,6 +2285,11 @@ const s = StyleSheet.create({
     overflow: 'hidden',
     marginBottom: 14,
     backgroundColor: '#000',
+    borderWidth: 0.7,
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    elevation: 5,
   },
   feedMarkMediaFrame: {
     borderRadius: 18,
@@ -1990,7 +2356,7 @@ const s = StyleSheet.create({
     paddingHorizontal: 13,
     paddingTop: 10,
     paddingBottom: 10,
-    backgroundColor: 'rgba(0,0,0,0.56)',
+    backgroundColor: 'rgba(0,0,0,0.50)',
   },
   feedMarkOverlayTitle: {
     color: '#fff',
@@ -2038,19 +2404,284 @@ const s = StyleSheet.create({
     gap: 8,
     marginTop: 10,
   },
-  feedMarkOverlayAction: {
-    minHeight: 34,
-    borderRadius: 17,
-    paddingHorizontal: 10,
+  feedMarkOverlayIconAction: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(255,255,255,0.22)',
+  },
+  feedMarkOverlayIconActionMuted: {
+    opacity: 0.64,
+  },
+  textMarkCard: {
+    minHeight: 280,
+    borderRadius: 18,
+    borderWidth: 0.7,
+    overflow: 'hidden',
+    marginBottom: 14,
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.16,
+    shadowRadius: 10,
+    elevation: 5,
+    position: 'relative',
+  },
+  textMarkBackground: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  textMarkGlowOne: {
+    position: 'absolute',
+    width: 190,
+    height: 190,
+    borderRadius: 95,
+    top: -70,
+    right: -54,
+  },
+  textMarkGlowTwo: {
+    position: 'absolute',
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    bottom: -105,
+    left: -78,
+  },
+  textMarkHorizon: {
+    position: 'absolute',
+    width: 270,
+    height: 270,
+    borderRadius: 135,
+    borderWidth: 1,
+    bottom: -190,
+    alignSelf: 'center',
+  },
+  textMarkContent: {
+    flex: 1,
+    paddingHorizontal: 18,
+    paddingTop: 16,
+    paddingBottom: 8,
+  },
+  textMarkAuthorRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    backgroundColor: 'rgba(255,255,255,0.13)',
+    gap: 9,
+    marginBottom: 22,
   },
-  feedMarkOverlayActionText: {
-    color: '#fff',
+  textMarkAvatar: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 0.7,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    backgroundColor: 'rgba(0,0,0,0.12)',
+  },
+  textMarkAvatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 17,
+  },
+  textMarkAvatarText: {
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  textMarkAuthorName: {
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  textMarkMeta: {
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  textMarkQuoteMark: {
+    position: 'absolute',
+    top: 62,
+    right: 18,
+    fontSize: 86,
+    lineHeight: 90,
+    fontWeight: '900',
+  },
+  textMarkTitle: {
+    fontSize: 26,
+    lineHeight: 31,
+    fontWeight: '900',
+    letterSpacing: -0.5,
+    marginBottom: 8,
+  },
+  textMarkBody: {
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: '700',
+  },
+  textMarkTagRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 7,
+    marginTop: 16,
+  },
+  textMarkTag: {
+    maxWidth: 130,
+    borderRadius: 999,
+    borderWidth: 0.6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     fontSize: 11,
     fontWeight: '900',
+  },
+  textMarkActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    paddingHorizontal: 18,
+    paddingBottom: 16,
+    paddingTop: 8,
+  },
+  textMarkIconAction: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 0.6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  textMarkIconActionMuted: {
+    opacity: 0.62,
+  },
+  voiceMarkCard: {
+    minHeight: 300,
+    borderRadius: 18,
+    borderWidth: 0.7,
+    overflow: 'hidden',
+    marginBottom: 14,
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.16,
+    shadowRadius: 10,
+    elevation: 5,
+    position: 'relative',
+  },
+  voiceMarkBackground: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  voiceMarkGlowOne: {
+    position: 'absolute',
+    width: 210,
+    height: 210,
+    borderRadius: 105,
+    top: -84,
+    right: -64,
+  },
+  voiceMarkGlowTwo: {
+    position: 'absolute',
+    width: 230,
+    height: 230,
+    borderRadius: 115,
+    bottom: -112,
+    left: -82,
+  },
+  voiceMarkContent: {
+    paddingHorizontal: 18,
+    paddingTop: 16,
+    paddingBottom: 8,
+  },
+  voiceMarkAuthorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    marginBottom: 22,
+  },
+  voiceMarkAvatar: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 0.7,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    backgroundColor: 'rgba(0,0,0,0.12)',
+  },
+  voiceMarkAvatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 17,
+  },
+  voiceMarkAvatarText: {
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  voiceMarkAuthorName: {
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  voiceMarkMeta: {
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  voiceMarkCenter: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+  },
+  voiceMarkIconWrap: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    borderWidth: 0.8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.12)',
+    marginBottom: 16,
+  },
+  voiceWaveRow: {
+    height: 58,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  voiceWaveBar: {
+    width: 6,
+    borderRadius: 999,
+  },
+  voiceMarkTitle: {
+    fontSize: 24,
+    lineHeight: 29,
+    fontWeight: '900',
+    letterSpacing: -0.45,
+    marginTop: 14,
+    marginBottom: 7,
+  },
+  voiceMarkBody: {
+    fontSize: 14,
+    lineHeight: 21,
+    fontWeight: '700',
+  },
+  voiceAudioPlayer: {
+    paddingHorizontal: 14,
+    paddingTop: 2,
+    paddingBottom: 8,
+  },
+  voiceMarkActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    paddingHorizontal: 18,
+    paddingBottom: 16,
+    paddingTop: 8,
+  },
+  voiceMarkIconAction: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 0.6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  voiceMarkIconActionMuted: {
+    opacity: 0.62,
   },
   socialCard: {
     borderRadius: 14,

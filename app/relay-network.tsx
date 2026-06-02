@@ -3,6 +3,8 @@ import { useMemo, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
+    KeyboardAvoidingView,
+    Platform,
     ScrollView,
     StyleSheet,
     Text,
@@ -184,8 +186,17 @@ export default function RelayNetworkScreen() {
   };
 
   return (
-    <SafeAreaView style={[s.safe, { backgroundColor: theme.bg }]}>
-      <ScrollView contentContainerStyle={s.container}>
+    <KeyboardAvoidingView
+      style={[s.safe, { backgroundColor: theme.bg }]}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 24}
+    >
+      <SafeAreaView style={s.safe}>
+        <ScrollView
+          contentContainerStyle={s.container}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+        >
         <View style={s.topRow}>
           <TouchableOpacity onPress={() => router.back()} activeOpacity={0.85}>
             <Text style={[s.backText, { color: theme.text }]}>Back</Text>
@@ -403,8 +414,9 @@ export default function RelayNetworkScreen() {
             </Text>
           </View>
         </View>
-      </ScrollView>
-    </SafeAreaView>
+        </ScrollView>
+      </SafeAreaView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -414,7 +426,7 @@ const s = StyleSheet.create({
   },
   container: {
     padding: 20,
-    paddingBottom: 48,
+    paddingBottom: 140,
   },
   topRow: {
     flexDirection: 'row',
