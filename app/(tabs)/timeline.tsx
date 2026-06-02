@@ -17,10 +17,13 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
+  type GestureResponderEvent
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import EmojiReactionStrip from '../../components/EmojiReactionStrip';
 import ImageViewerModal, { ViewerImage } from '../../components/ImageViewerModal';
+import MarkActionRow from '../../components/MarkActionRow';
 import MediaCollage from '../../components/MediaCollage';
 import type { LivingMarkLogFilter, LivingMarkPromptCard, LivingMarkView } from '../../src/types/living-spaces';
 import { SYSTEM_LIVING_SPACE_IDS } from '../../src/utils/living-space-routing';
@@ -105,12 +108,12 @@ const LOG_FILTER_OPTIONS: { key: LivingMarkLogFilter; label: string }[] = [
 ];
 
 const LIFT_UP_CHOICES: Pick<MilestoneLiftUp, 'type' | 'label' | 'emoji'>[] = [
-  { type: 'lifted', label: 'Lifted', emoji: '✨' },
-  { type: 'cheered', label: 'Cheered', emoji: '🙌' },
-  { type: 'proud', label: 'Proud', emoji: '⭐' },
-  { type: 'grateful', label: 'Grateful', emoji: '🙏' },
-  { type: 'celebrating', label: 'Celebrating', emoji: '🎉' },
-  { type: 'encouraged', label: 'Encouraged', emoji: '💛' },
+  { type: 'lifted', label: 'Loved', emoji: '❤️' },
+  { type: 'cheered', label: 'Liked', emoji: '👍' },
+  { type: 'proud', label: 'Laughing', emoji: '😂' },
+  { type: 'grateful', label: 'Celebrating', emoji: '🎉' },
+  { type: 'celebrating', label: 'Fired up', emoji: '🔥' },
+  { type: 'encouraged', label: 'Surprised', emoji: '😮' },
 ];
 
 function normalizeTag(tag: string): string {
@@ -332,6 +335,7 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
   const [pendingFilters, setPendingFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [sheetComposer, setSheetComposer] = useState<SheetComposerState | null>(null);
   const [liftUpSheetItem, setLiftUpSheetItem] = useState<TimelineFeedItem | null>(null);
+  const [liftUpAnchor, setLiftUpAnchor] = useState<{ x: number; y: number } | null>(null);
   const [composerDraft, setComposerDraft] = useState('');
   const [savingComposer, setSavingComposer] = useState(false);
   const [savingLiftUp, setSavingLiftUp] = useState(false);
@@ -746,13 +750,17 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
     setComposerDraft('');
   };
 
-    const openLiftUpSheet = (item: TimelineFeedItem) => {
+  const openLiftUpSheet = (item: TimelineFeedItem, event: GestureResponderEvent) => {
+    const { pageX, pageY } = event.nativeEvent;
+
+    setLiftUpAnchor({ x: pageX, y: pageY });
     setLiftUpSheetItem(item);
   };
 
   const closeLiftUpSheet = () => {
     if (savingLiftUp) return;
     setLiftUpSheetItem(null);
+    setLiftUpAnchor(null);
   };
 
   const saveLiftUp = async (choice: Pick<MilestoneLiftUp, 'type' | 'label' | 'emoji'>) => {
@@ -821,6 +829,7 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
       );
 
       setLiftUpSheetItem(null);
+      setLiftUpAnchor(null);
     } catch (error) {
       console.warn('[Timeline Lift Up] Save failed:', error);
     } finally {
@@ -1132,63 +1141,16 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
                 )}
               </TouchableOpacity>
 
-              <View style={s.feedMarkOverlayActions}>
-                <TouchableOpacity
-                  style={s.feedMarkOverlayIconAction}
-                  onPress={() => openSheetComposer(item, 'comment')}
-                  activeOpacity={0.75}
-                  accessibilityRole="button"
-                  accessibilityLabel="Comment on this Mark"
-                >
-                  <Ionicons name="chatbubble-outline" size={20} color="#fff" />
-
-                  {commentCount > 0 && (
-                    <View style={s.feedMarkOverlayCountBadge}>
-                      <Text style={s.feedMarkOverlayCountText}>
-                        {commentCount > 99 ? '99+' : commentCount}
-                      </Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={s.feedMarkOverlayIconAction}
-                  onPress={() => openLiftUpSheet(item)}
-                  activeOpacity={0.75}
-                  accessibilityRole="button"
-                  accessibilityLabel="Lift up this Mark"
-                >
-                  <Ionicons name="sparkles-outline" size={21} color="#fff" />
-
-                  {liftUpCount > 0 && (
-                    <View style={s.feedMarkOverlayCountBadge}>
-                      <Text style={s.feedMarkOverlayCountText}>
-                        {liftUpCount > 99 ? '99+' : liftUpCount}
-                      </Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[s.feedMarkOverlayIconAction, s.feedMarkOverlayIconActionMuted]}
-                  disabled
-                  activeOpacity={0.75}
-                  accessibilityRole="button"
-                  accessibilityLabel="Tag this Mark"
-                >
-                  <Ionicons name="pricetag-outline" size={20} color="#fff" />
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={s.feedMarkOverlayIconAction}
-                  onPress={() => shareFeedItem(item)}
-                  activeOpacity={0.75}
-                  accessibilityRole="button"
-                  accessibilityLabel="Share this Mark"
-                >
-                  <Ionicons name="share-social-outline" size={21} color="#fff" />
-                </TouchableOpacity>
-              </View>
+              <MarkActionRow
+                variant="overlay"
+                theme={theme}
+                commentCount={commentCount}
+                liftUpCount={liftUpCount}
+                onComment={() => openSheetComposer(item, 'comment')}
+                onLiftUp={(event) => openLiftUpSheet(item, event)}
+                onShare={() => shareFeedItem(item)}
+                style={s.feedMarkOverlayActions}
+              />
             </View>
           </View>
         </View>
@@ -1293,88 +1255,16 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
             )}
           </TouchableOpacity>
 
-          <View style={s.textMarkActions}>
-            <TouchableOpacity
-              style={[
-                s.textMarkIconAction,
-                {
-                  backgroundColor: `${theme.gold}14`,
-                  borderColor: `${theme.gold}30`,
-                },
-              ]}
-              onPress={() => openSheetComposer(item, 'comment')}
-              activeOpacity={0.75}
-              accessibilityRole="button"
-              accessibilityLabel="Comment on this Mark"
-            >
-              <Ionicons name="chatbubble-outline" size={21} color={theme.gold} />
-
-              {commentCount > 0 && (
-                <View style={[s.timelineActionCountBadge, { backgroundColor: theme.gold }]}>
-                  <Text style={[s.timelineActionCountText, { color: theme.bg }]}>
-                    {commentCount > 99 ? '99+' : commentCount}
-                  </Text>
-                </View>
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                s.textMarkIconAction,
-                {
-                  backgroundColor: `${theme.gold}14`,
-                  borderColor: `${theme.gold}30`,
-                },
-              ]}
-              onPress={() => openLiftUpSheet(item)}
-              activeOpacity={0.75}
-              accessibilityRole="button"
-              accessibilityLabel="Lift up this Mark"
-            >
-              <Ionicons name="sparkles-outline" size={22} color={theme.gold} />
-
-              {liftUpCount > 0 && (
-                <View style={[s.timelineActionCountBadge, { backgroundColor: theme.gold }]}>
-                  <Text style={[s.timelineActionCountText, { color: theme.bg }]}>
-                    {liftUpCount > 99 ? '99+' : liftUpCount}
-                  </Text>
-                </View>
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                s.textMarkIconAction,
-                s.textMarkIconActionMuted,
-                {
-                  backgroundColor: `${theme.gold}10`,
-                  borderColor: `${theme.gold}22`,
-                },
-              ]}
-              disabled
-              activeOpacity={0.75}
-              accessibilityRole="button"
-              accessibilityLabel="Tag this Mark"
-            >
-              <Ionicons name="pricetag-outline" size={21} color={theme.gold} />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                s.textMarkIconAction,
-                {
-                  backgroundColor: `${theme.gold}14`,
-                  borderColor: `${theme.gold}30`,
-                },
-              ]}
-              onPress={() => shareFeedItem(item)}
-              activeOpacity={0.75}
-              accessibilityRole="button"
-              accessibilityLabel="Share this Mark"
-            >
-              <Ionicons name="share-social-outline" size={22} color={theme.gold} />
-            </TouchableOpacity>
-          </View>
+          <MarkActionRow
+            variant="gold"
+            theme={theme}
+            commentCount={commentCount}
+            liftUpCount={liftUpCount}
+            onComment={() => openSheetComposer(item, 'comment')}
+            onLiftUp={(event) => openLiftUpSheet(item, event)}
+            onShare={() => shareFeedItem(item)}
+            style={s.textMarkActions}
+          />
         </View>
       );
     }
@@ -1467,88 +1357,16 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
             />
           </View>
 
-          <View style={s.voiceMarkActions}>
-            <TouchableOpacity
-              style={[
-                s.voiceMarkIconAction,
-                {
-                  backgroundColor: `${theme.gold}14`,
-                  borderColor: `${theme.gold}30`,
-                },
-              ]}
-              onPress={() => openSheetComposer(item, 'comment')}
-              activeOpacity={0.75}
-              accessibilityRole="button"
-              accessibilityLabel="Comment on this Mark"
-            >
-              <Ionicons name="chatbubble-outline" size={21} color={theme.gold} />
-
-              {commentCount > 0 && (
-                <View style={[s.timelineActionCountBadge, { backgroundColor: theme.gold }]}>
-                  <Text style={[s.timelineActionCountText, { color: theme.bg }]}>
-                    {commentCount > 99 ? '99+' : commentCount}
-                  </Text>
-                </View>
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                s.voiceMarkIconAction,
-                {
-                  backgroundColor: `${theme.gold}14`,
-                  borderColor: `${theme.gold}30`,
-                },
-              ]}
-              onPress={() => openLiftUpSheet(item)}
-              activeOpacity={0.75}
-              accessibilityRole="button"
-              accessibilityLabel="Lift up this Mark"
-            >
-              <Ionicons name="sparkles-outline" size={22} color={theme.gold} />
-
-              {liftUpCount > 0 && (
-                <View style={[s.timelineActionCountBadge, { backgroundColor: theme.gold }]}>
-                  <Text style={[s.timelineActionCountText, { color: theme.bg }]}>
-                    {liftUpCount > 99 ? '99+' : liftUpCount}
-                  </Text>
-                </View>
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                s.voiceMarkIconAction,
-                s.voiceMarkIconActionMuted,
-                {
-                  backgroundColor: `${theme.gold}10`,
-                  borderColor: `${theme.gold}22`,
-                },
-              ]}
-              disabled
-              activeOpacity={0.75}
-              accessibilityRole="button"
-              accessibilityLabel="Tag this Mark"
-            >
-              <Ionicons name="pricetag-outline" size={21} color={theme.gold} />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                s.voiceMarkIconAction,
-                {
-                  backgroundColor: `${theme.gold}14`,
-                  borderColor: `${theme.gold}30`,
-                },
-              ]}
-              onPress={() => shareFeedItem(item)}
-              activeOpacity={0.75}
-              accessibilityRole="button"
-              accessibilityLabel="Share this Mark"
-            >
-              <Ionicons name="share-social-outline" size={22} color={theme.gold} />
-            </TouchableOpacity>
-          </View>
+          <MarkActionRow
+            variant="gold"
+            theme={theme}
+            commentCount={commentCount}
+            liftUpCount={liftUpCount}
+            onComment={() => openSheetComposer(item, 'comment')}
+            onLiftUp={(event) => openLiftUpSheet(item, event)}
+            onShare={() => shareFeedItem(item)}
+            style={s.voiceMarkActions}
+          />
         </View>
       );
     }
@@ -2191,70 +2009,24 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
 
             {liftUpSheetItem && (
         <View style={s.composerOverlay} pointerEvents="box-none">
-          <TouchableOpacity
-            style={s.composerBackdrop}
-            activeOpacity={1}
-            onPress={closeLiftUpSheet}
+          <EmojiReactionStrip
+            choices={LIFT_UP_CHOICES.map(choice => ({
+              id: choice.type,
+              emoji: choice.emoji,
+              label: choice.label,
+            }))}
+            onSelect={(choice) => {
+              const liftUpChoice = LIFT_UP_CHOICES.find(item => item.type === choice.id);
+
+              if (liftUpChoice) {
+                saveLiftUp(liftUpChoice);
+              }
+            }}
+            onClose={closeLiftUpSheet}
+            disabled={savingLiftUp}
+            theme={theme}
+            anchor={liftUpAnchor}
           />
-
-          <View
-            style={[
-              s.liftUpSheet,
-              themed.surface,
-              themed.border,
-              {
-                paddingBottom: Math.max(insets.bottom, 12) + 18,
-              },
-            ]}
-          >
-            <View style={[s.composerHandle, { backgroundColor: theme.border }]} />
-
-            <View style={s.liftUpHeader}>
-              <View style={[s.nudgeIcon, themed.raised, themed.border]}>
-                <Ionicons name="sparkles-outline" size={18} color={theme.gold} />
-              </View>
-
-              <View style={{ flex: 1 }}>
-                <Text style={[s.composerSheetTitle, themed.primaryText]}>
-                  Lift this Mark up
-                </Text>
-                <Text style={[s.composerSheetContext, themed.mutedText]} numberOfLines={1}>
-                  Choose encouragement only.
-                </Text>
-              </View>
-
-              <TouchableOpacity
-                style={[s.composerSheetCloseBtn, themed.raised, themed.border]}
-                onPress={closeLiftUpSheet}
-                activeOpacity={0.78}
-                disabled={savingLiftUp}
-              >
-                <Text style={[s.composerSheetCloseText, themed.mutedText]}>✕</Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={s.liftUpChoiceGrid}>
-              {LIFT_UP_CHOICES.map(choice => (
-                <TouchableOpacity
-                  key={choice.type}
-                  style={[
-                    s.liftUpChoice,
-                    themed.raised,
-                    themed.border,
-                    savingLiftUp && { opacity: 0.6 },
-                  ]}
-                  onPress={() => saveLiftUp(choice)}
-                  activeOpacity={0.82}
-                  disabled={savingLiftUp}
-                >
-                  <Text style={s.liftUpChoiceEmoji}>{choice.emoji}</Text>
-                  <Text style={[s.liftUpChoiceLabel, themed.primaryText]}>
-                    {choice.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
         </View>
       )}
 
