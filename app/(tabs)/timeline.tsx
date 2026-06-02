@@ -2,16 +2,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Animated,
   DeviceEventEmitter,
   FlatList,
   Image,
   Keyboard,
   Modal,
-  PanResponder,
   Platform,
   RefreshControl,
-  ScrollView,
   Share,
   StyleSheet,
   Text,
@@ -29,20 +26,16 @@ import MarkCommentsSheet from '../../components/MarkCommentsSheet';
 import MediaCollage from '../../components/MediaCollage';
 import TimelineTextMarkCard from '../../components/TimelineTextMarkCard';
 import TimelineVoiceMarkCard from '../../components/TimelineVoiceMarkCard';
-import type { LivingMarkLogFilter, LivingMarkPromptCard, LivingMarkView } from '../../src/types/living-spaces';
-import { SYSTEM_LIVING_SPACE_IDS } from '../../src/utils/living-space-routing';
+import type { LivingMarkPromptCard } from '../../src/types/living-spaces';
 import {
   applyLivingMarkPromptAction,
   getLivingMarkPromptCards,
-  getLivingMarkViewsForMilestones,
 } from '../../src/utils/living-spaces-storage';
 import { DEFAULT_RELAY, fetchFamilyMembers, fetchFamilyMilestones, publishFamilyMilestone } from '../../src/utils/nostr';
 import {
   formatDate,
-  getLastFamilyCheck,
   getMilestones,
   saveRemoteMilestone,
-  setLastFamilyCheck,
   updateMilestone,
   upsertFamilyMember,
   type Milestone,
@@ -50,16 +43,7 @@ import {
 } from '../../src/utils/storage';
 import { useIdentity } from '../_layout';
 
-interface FilterState {
-  logMode: LivingMarkLogFilter;
-  tags: string[];
-  mediaType: 'all' | 'photo' | 'video' | 'voice' | 'text';
-  dateRange: 'all' | 'week' | 'month' | 'year';
-  hasReflection: boolean;
-  authorNpub: string | null;
-}
-
-type FeedKey = 'profile' | 'family' | 'follows' | 'subscribed';
+type FeedKey = 'profile' | 'follows' | 'subscribed';
 type ComposerMode = 'reflect' | 'comment';
 
 type TimelineFeedItem = {
@@ -84,31 +68,8 @@ type SheetComposerState = {
 
 const FEED_OPTIONS: { key: FeedKey; label: string; hint: string }[] = [
   { key: 'profile', label: 'My Marks', hint: 'Marks you created and saved' },
-  { key: 'family', label: 'Family Marks', hint: 'Shared family Marks' },
-  { key: 'follows', label: 'Following', hint: 'Marks and posts from people you follow' },
-  { key: 'subscribed', label: 'Community Feeds', hint: 'Town, school, church, and relay feeds' },
-];
-
-const DEFAULT_TAG_FILTERS = [
-  'Family',
-  'Faith',
-  'School',
-  'Sports',
-  'Travel',
-  'Achievement',
-  'Health',
-  'Personal',
-];
-
-const MAX_RECENT_CUSTOM_TAGS = 12;
-
-const LOG_FILTER_OPTIONS: { key: LivingMarkLogFilter; label: string }[] = [
-  { key: 'all', label: 'All' },
-  { key: 'people', label: 'People' },
-  { key: 'spaces', label: 'Spaces' },
-  { key: 'years', label: 'Years' },
-  { key: 'tags', label: 'Tags' },
-  { key: 'places', label: 'Places' },
+  { key: 'follows', label: 'Following', hint: 'Marks from people you follow' },
+  { key: 'subscribed', label: 'Broadcasts', hint: 'Community and public feeds you subscribe to' },
 ];
 
 const LIFT_UP_CHOICES: Pick<MilestoneLiftUp, 'type' | 'label' | 'emoji'>[] = [
@@ -120,28 +81,6 @@ const LIFT_UP_CHOICES: Pick<MilestoneLiftUp, 'type' | 'label' | 'emoji'>[] = [
   { type: 'encouraged', label: 'Surprised', emoji: '😮' },
 ];
 
-function normalizeTag(tag: string): string {
-  return tag.trim().toLowerCase();
-}
-
-function uniqueTags(tags: string[]): string[] {
-  const seen = new Set<string>();
-  const result: string[] = [];
-
-  for (const rawTag of tags) {
-    const clean = rawTag.trim();
-    if (!clean) continue;
-
-    const normalized = normalizeTag(clean);
-    if (seen.has(normalized)) continue;
-
-    seen.add(normalized);
-    result.push(clean);
-  }
-
-  return result;
-}
-
 function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return '?';
@@ -149,65 +88,6 @@ function getInitials(name: string): string {
   return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase();
 }
 
-const DEFAULT_FILTERS: FilterState = {
-  logMode: 'all',
-  tags: [],
-  mediaType: 'all',
-  dateRange: 'all',
-  hasReflection: false,
-  authorNpub: null,
-};
-
-function countActiveFilters(f: FilterState): number {
-  let count = 0;
-  if (f.logMode !== 'all') count++;
-  if (f.tags.length > 0) count++;
-  if (f.mediaType !== 'all') count++;
-  if (f.dateRange !== 'all') count++;
-  if (f.hasReflection) count++;
-  if (f.authorNpub) count++;
-  return count;
-}
-
-function passesLogMode(
-  milestone: Milestone,
-  mode: LivingMarkLogFilter,
-  view?: LivingMarkView
-): boolean {
-  if (mode === 'all') return true;
-  if (mode === 'people') return (view?.metadata.peopleIds?.length ?? 0) > 0;
-  if (mode === 'spaces') {
-    return (view?.placement.spaceIds ?? []).some(spaceId => spaceId !== SYSTEM_LIVING_SPACE_IDS.profile);
-  }
-  if (mode === 'years') return !!(view?.metadata.capturedAt ?? view?.metadata.occurredAt ?? milestone.createdAt);
-  if (mode === 'tags') return (milestone.tags ?? []).length > 0;
-  if (mode === 'places') return !!view?.metadata.place;
-
-  return true;
-}
-
-function applyFilters(
-  milestones: Milestone[],
-  filters: FilterState,
-  npub: string | null,
-  livingViewsByMarkId: Record<string, LivingMarkView>
-): Milestone[] {
-  const now = Math.floor(Date.now() / 1000);
-  return milestones.filter(m => {
-    if (!passesLogMode(m, filters.logMode, livingViewsByMarkId[m.id])) return false;
-    if (filters.tags.length > 0 && !filters.tags.some(t => m.tags.includes(t))) return false;
-    if (filters.mediaType === 'photo' && !m.photoUri) return false;
-    if (filters.mediaType === 'video' && !m.videoUri) return false;
-    if (filters.mediaType === 'voice' && !m.audioUri) return false;
-    if (filters.mediaType === 'text' && (m.photoUri || m.videoUri || m.audioUri)) return false;
-    if (filters.dateRange === 'week' && m.createdAt < now - 7 * 86400) return false;
-    if (filters.dateRange === 'month' && m.createdAt < now - 30 * 86400) return false;
-    if (filters.dateRange === 'year' && m.createdAt < now - 365 * 86400) return false;
-    if (filters.hasReflection && (!m.reflections || m.reflections.length === 0)) return false;
-    if (filters.authorNpub && m.authorNpub !== filters.authorNpub) return false;
-    return true;
-  });
-}
 
 function getMilestoneMediaItems(item: Milestone): any[] {
   const mediaItems: any[] = Array.isArray(item.media) ? [...item.media] : [];
@@ -297,14 +177,11 @@ function createTimelineFeedItem(input: {
     currentProfile?.name ||
     'You';
   const isMine = !milestone.authorNpub || milestone.authorNpub === currentNpub;
-  const contextLabel =
-    feedKey === 'family'
-      ? familyName || 'Family Marks'
-      : milestone.familyId
-        ? familyName || 'Family Marks'
-        : isMine
-          ? 'My Marks'
-          : 'Following';
+  const contextLabel = milestone.familyId
+    ? familyName || 'Space Mark'
+    : isMine
+      ? 'My Marks'
+      : 'Following';
 
   return {
     id: milestone.id,
@@ -324,19 +201,13 @@ function createTimelineFeedItem(input: {
 
 export default function TimelineScreen() {
   const [milestones, setMilestones] = useState<Milestone[]>([]);
-  const [livingViewsByMarkId, setLivingViewsByMarkId] = useState<Record<string, LivingMarkView>>({});
   const [livingPromptCard, setLivingPromptCard] = useState<LivingMarkPromptCard | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [feedKey, setFeedKey] = useState<FeedKey>('profile');
   const [showFeedMenu, setShowFeedMenu] = useState(false);
-    const [newFamilyCount, setNewFamilyCount] = useState(0);
   const [viewerImages, setViewerImages] = useState<ViewerImage[]>([]);
-const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
-  const [showBanner, setShowBanner] = useState(false);
-  const [showFilterDrawer, setShowFilterDrawer] = useState(false);
-  const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
-  const [pendingFilters, setPendingFilters] = useState<FilterState>(DEFAULT_FILTERS);
+  const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
   const [sheetComposer, setSheetComposer] = useState<SheetComposerState | null>(null);
   const [liftUpSheetItem, setLiftUpSheetItem] = useState<TimelineFeedItem | null>(null);
   const [liftUpAnchor, setLiftUpAnchor] = useState<{ x: number; y: number } | null>(null);
@@ -402,54 +273,12 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
     }
   }, [setFloatingDockHidden]);
 
-  // Swipe-to-close for filter drawer
-  const drawerTranslateY = useRef(new Animated.Value(0)).current;
-  const drawerPan = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: (_, g) => g.dy > 8,
-      onPanResponderMove: (_, g) => {
-        if (g.dy > 0) drawerTranslateY.setValue(g.dy);
-      },
-      onPanResponderRelease: (_, g) => {
-        if (g.dy > 80 || g.vy > 0.5) {
-          Animated.timing(drawerTranslateY, {
-            toValue: 600, duration: 200, useNativeDriver: true,
-          }).start(() => {
-            drawerTranslateY.setValue(0);
-            setShowFilterDrawer(false);
-          });
-        } else {
-          Animated.spring(drawerTranslateY, { toValue: 0, useNativeDriver: true }).start();
-        }
-      },
-    })
-  ).current;
   const router = useRouter();
     const { npub, nsec, family, profile, relays, theme, themeMode } = useIdentity();
 
     const load = useCallback(async () => {
     const all = await getMilestones();
     setMilestones(all);
-
-    try {
-      const livingViews = await getLivingMarkViewsForMilestones({
-        milestones: all,
-        currentNpub: npub,
-      });
-      setLivingViewsByMarkId(
-        livingViews.reduce(
-          (acc, view) => {
-            acc[view.milestone.id] = view;
-            return acc;
-          },
-          {} as Record<string, LivingMarkView>
-        )
-      );
-    } catch (error) {
-      console.warn('[Living Spaces] failed to load Log filters:', error);
-      setLivingViewsByMarkId({});
-    }
 
     try {
       const promptCards = await getLivingMarkPromptCards({
@@ -462,21 +291,7 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
       setLivingPromptCard(null);
     }
 
-    if (family) {
-      const lastCheck = await getLastFamilyCheck(family.id);
-      const familyMilestones = all.filter(m => m.familyId === family.id);
-      const newOnes = familyMilestones.filter(m => m.authorNpub !== npub && m.createdAt > lastCheck);
-
-      if (newOnes.length > 0) {
-        setNewFamilyCount(newOnes.length);
-        setShowBanner(true);
-      }
-
-      await setLastFamilyCheck(family.id, Math.floor(Date.now() / 1000));
-      return;
-    }
-
-  }, [family, npub]);
+  }, [npub]);
 
     const syncFamilyMilestones = useCallback(async () => {
     if (!family || !npub) return;
@@ -572,24 +387,6 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
   setRefreshing(false);
 };
 
-  const openDrawer = () => { setPendingFilters(filters); setShowFilterDrawer(true); };
-  const applyDrawer = () => { setFilters(pendingFilters); setShowFilterDrawer(false); };
-  const clearFilters = () => { setPendingFilters(DEFAULT_FILTERS); setFilters(DEFAULT_FILTERS); setShowFilterDrawer(false); };
-
-  const togglePendingTag = (tag: string) => {
-    setPendingFilters(prev => ({
-      ...prev,
-      tags: prev.tags.includes(tag) ? prev.tags.filter(t => t !== tag) : [...prev.tags, tag],
-    }));
-  };
-
-  const switchToFamily = () => {
-    setFeedKey('family');
-    setShowBanner(false);
-    setFilters(DEFAULT_FILTERS);
-    syncFamilyMilestones();
-  };
-
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
@@ -629,43 +426,9 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
   }, [sheetComposer]);
 
   const myMilestones = milestones.filter(m => !m.familyId || m.authorNpub === npub);
-  const familyMilestones = family ? milestones.filter(m => m.familyId === family.id) : [];
-  const source =
-    feedKey === 'family'
-      ? familyMilestones
-      : feedKey === 'profile'
-        ? myMilestones
-        : [];
+  const source = feedKey === 'profile' ? myMilestones : [];
   const activeFeed = FEED_OPTIONS.find(option => option.key === feedKey) ?? FEED_OPTIONS[0];
-  const tab = feedKey === 'family' ? 'family' : 'mine';
-  const familyAuthors = Array.from(new Set(familyMilestones.map(m => m.authorNpub).filter(Boolean))) as string[];
-  const allTags = uniqueTags(source.flatMap(m => m.tags ?? []));
-
-  const usedTagLookup = new Set(allTags.map(normalizeTag));
-
-  const presetTags = DEFAULT_TAG_FILTERS.filter(tag =>
-    usedTagLookup.has(normalizeTag(tag))
-  );
-
-  const recentCustomTags = uniqueTags(
-    [...source]
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .flatMap(m => m.tags ?? [])
-      .filter(tag => !DEFAULT_TAG_FILTERS.some(defaultTag =>
-        normalizeTag(defaultTag) === normalizeTag(tag)
-      ))
-  ).slice(0, MAX_RECENT_CUSTOM_TAGS);
-
-  const visibleDrawerTags = new Set(
-    [...presetTags, ...recentCustomTags].map(normalizeTag)
-  );
-
-  const selectedHiddenTags = pendingFilters.tags.filter(tag =>
-    !visibleDrawerTags.has(normalizeTag(tag))
-  );
-    const filtered = applyFilters(source, filters, npub, livingViewsByMarkId);
-  const activeFilterCount = countActiveFilters(filters);
-  const feedItems = filtered.map(milestone =>
+  const feedItems = source.map(milestone =>
     createTimelineFeedItem({
       milestone,
       currentNpub: npub,
@@ -1242,36 +1005,8 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
           <Text style={[s.feedSelectorCaret, themed.mutedText]}>v</Text>
         </TouchableOpacity>
 
-        <View style={s.feedHeaderSide}>
-          <TouchableOpacity
-            style={[s.feedHeaderBtn, themed.raised, themed.border]}
-            onPress={openDrawer}
-            activeOpacity={0.86}
-          >
-            <Text style={[s.feedHeaderBtnText, themed.primaryText]}>Filter</Text>
-            {activeFilterCount > 0 && (
-              <View style={[s.feedHeaderBadge, themed.goldBg]}>
-                <Text style={[s.feedHeaderBadgeText, themed.darkOnGold]}>{activeFilterCount}</Text>
-              </View>
-            )}
-          </TouchableOpacity>
-        </View>
+        <View style={s.feedHeaderSide} />
       </View>
-
-      {showBanner && family && (
-                <TouchableOpacity style={[s.banner, themed.banner]} onPress={switchToFamily} activeOpacity={0.85}>
-          <View style={s.bannerContent}>
-            <Text style={s.bannerIcon}>👨‍👩‍👧‍👦</Text>
-            <View style={s.bannerText}>
-                            <Text style={[s.bannerTitle, themed.goldText]}>{newFamilyCount === 1 ? '1 new family Mark' : `${newFamilyCount} new family Mark`}</Text>
-              <Text style={[s.bannerHint, themed.mutedText]}>Tap to view {family.name}</Text>
-            </View>
-            <TouchableOpacity onPress={() => setShowBanner(false)} style={s.bannerDismiss}>
-              <Text style={s.bannerDismissText}>✕</Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      )}
 
       {livingPromptCard && (
         <LivingPromptNudgeCard
@@ -1284,66 +1019,31 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
         />
       )}
 
-      {activeFilterCount > 0 && (
-      <View style={[s.filterBar, themed.border]}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filterBarInner}>
-          <TouchableOpacity style={[s.clearChip, themed.surface]} onPress={clearFilters}><Text style={s.clearChipText}>Clear</Text></TouchableOpacity>
-          {filters.logMode !== 'all' && (
-            <View style={[s.activeChip, themed.surface, { borderColor: theme.border }]}>
-              <Text style={[s.activeChipText, themed.goldText]}>
-                {LOG_FILTER_OPTIONS.find(option => option.key === filters.logMode)?.label ?? filters.logMode}
-              </Text>
-            </View>
-          )}
-          {filters.tags.map(t => <View key={t} style={[s.activeChip, themed.surface, { borderColor: theme.border }]}><Text style={[s.activeChipText, themed.goldText]}>{t}</Text></View>)}
-          {filters.mediaType !== 'all' && <View style={s.activeChip}><Text style={s.activeChipText}>{filters.mediaType}</Text></View>}
-          {filters.dateRange !== 'all' && <View style={s.activeChip}><Text style={s.activeChipText}>{filters.dateRange === 'week' ? 'This week' : filters.dateRange === 'month' ? 'This month' : 'This year'}</Text></View>}
-          {filters.hasReflection && <View style={s.activeChip}><Text style={s.activeChipText}>Has reflection</Text></View>}
-        </ScrollView>
-      </View>
-      )}
-
-      {feedKey === 'family' && !family ? (
-        <View style={s.empty}>
-          <Text style={[s.emptyIcon, themed.mutedText]}>👨‍👩‍👧‍👦</Text>
-          <Text style={[s.emptyText, themed.primaryText]}>No family group yet</Text>
-          <Text style={[s.emptyHint, themed.mutedText]}>Go to Settings to create or join a family.</Text>
-    <TouchableOpacity
-  style={[s.emptyActionBtn, { backgroundColor: theme.gold }]}
-  onPress={() => router.push('/(tabs)/settings' as any)}
->
-  <Text style={[s.emptyActionText, { color: theme.bg }]}>Go to Settings</Text>
-</TouchableOpacity>
-        </View>
-      ) : feedKey === 'follows' ? (
+      {feedKey === 'follows' ? (
         <View style={s.empty}>
           <Text style={[s.emptyIcon, themed.mutedText]}>Following</Text>
           <Text style={[s.emptyText, themed.primaryText]}>Following feed coming online</Text>
           <Text style={[s.emptyHint, themed.mutedText]}>
-            This feed will show Marks and posts from people you follow across Nostr.
+            This feed will show Marks from people you follow across Nostr.
           </Text>
         </View>
       ) : feedKey === 'subscribed' ? (
         <View style={s.empty}>
-          <Text style={[s.emptyIcon, themed.mutedText]}>Community</Text>
-          <Text style={[s.emptyText, themed.primaryText]}>No community feeds yet</Text>
+          <Text style={[s.emptyIcon, themed.mutedText]}>Broadcasts</Text>
+          <Text style={[s.emptyText, themed.primaryText]}>No broadcasts yet</Text>
           <Text style={[s.emptyHint, themed.mutedText]}>
-            Town, school, church, and bE Community relay feeds will appear here as you subscribe to them.
+            Community, school, church, town, and public feeds you subscribe to will appear here.
           </Text>
         </View>
-      ) : filtered.length === 0 ? (
+      ) : source.length === 0 ? (
         <View style={s.empty}>
-          <Text style={[s.emptyIcon, themed.mutedText]}>{activeFilterCount > 0 ? '🔍' : syncing ? '⟳' : '◎'}</Text>
-          <Text style={[s.emptyText, themed.primaryText]}>{syncing ? 'Syncing…' : activeFilterCount > 0 ? 'No matches' : tab === 'family' ? 'No family Marks yet' : 'No Marks yet'}</Text>
-          <Text style={[s.emptyHint, themed.mutedText]}>{syncing ? '' : activeFilterCount > 0 ? 'Try adjusting your filters.' : tab === 'family' ? 'Save a Mark and tag it to your family.' : 'Tap + to capture your first Mark.'}</Text>
-{activeFilterCount > 0 && (
-  <TouchableOpacity
-    style={[s.emptyActionBtn, { backgroundColor: theme.gold }]}
-    onPress={clearFilters}
-  >
-    <Text style={[s.emptyActionText, { color: theme.bg }]}>Clear filters</Text>
-  </TouchableOpacity>
-)}
+          <Text style={[s.emptyIcon, themed.mutedText]}>{syncing ? '⟳' : '◎'}</Text>
+          <Text style={[s.emptyText, themed.primaryText]}>
+            {syncing ? 'Syncing…' : 'No Marks yet'}
+          </Text>
+          <Text style={[s.emptyHint, themed.mutedText]}>
+            {syncing ? '' : 'Tap + to capture your first Mark.'}
+          </Text>
         </View>
       ) : (
         <FlatList
@@ -1404,12 +1104,6 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
                   onPress={() => {
                     setFeedKey(option.key);
                     setShowFeedMenu(false);
-                    setShowBanner(false);
-                    setFilters(DEFAULT_FILTERS);
-
-                    if (option.key === 'family') {
-                      syncFamilyMilestones();
-                    }
                   }}
                 >
                   <View style={s.feedMenuCopy}>
@@ -1423,342 +1117,6 @@ const [selectedViewerUri, setSelectedViewerUri] = useState<string | null>(null);
             })}
           </View>
         </TouchableOpacity>
-      </Modal>
-
-        <Modal visible={showFilterDrawer} transparent animationType="slide" onRequestClose={() => setShowFilterDrawer(false)}>
-<View style={[s.drawerOverlay, { backgroundColor: 'rgba(0,0,0,0.4)' }]}>
-  <TouchableOpacity
-    style={s.drawerBackdrop}
-    activeOpacity={1}
-    onPress={() => setShowFilterDrawer(false)}
-  />
-
-  <Animated.View
-    style={[
-      s.drawer,
-      themed.surface,
-      themed.border,
-      {
-        transform: [{ translateY: drawerTranslateY }],
-        borderTopWidth: 0.5,
-      },
-    ]}
-  >
-         <View style={[s.drawerHandle, { backgroundColor: theme.border }]} {...drawerPan.panHandlers} />
-          <Text style={[s.drawerTitle, themed.primaryText]}>Filter Marks</Text>
-
-            <ScrollView
-              style={s.drawerScroll}
-              contentContainerStyle={s.drawerScrollContent}
-              showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
-            >
-              <View style={s.drawerSection}>
-                <Text style={[s.drawerSectionLabel, themed.mutedText]}>MARK VIEW</Text>
-                <View style={s.drawerChips}>
-                  {LOG_FILTER_OPTIONS.map(option => {
-                    const active = pendingFilters.logMode === option.key;
-
-                    return (
-                      <TouchableOpacity
-                        key={option.key}
-                        style={[
-                          s.drawerChip,
-                          themed.raised,
-                          themed.border,
-                          active && {
-                            backgroundColor: theme.gold,
-                            borderColor: theme.gold,
-                          },
-                        ]}
-                        onPress={() => setPendingFilters(prev => ({ ...prev, logMode: option.key }))}
-                      >
-                        <Text
-                          style={[
-                            s.drawerChipText,
-                            themed.primaryText,
-                            active && {
-                              color: theme.bg,
-                              fontWeight: '600',
-                            },
-                          ]}
-                        >
-                          {option.label}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </View>
-
-              {(presetTags.length > 0 || recentCustomTags.length > 0 || selectedHiddenTags.length > 0) && (
-                <View style={s.drawerSection}>
-                  <Text style={[s.drawerSectionLabel, themed.mutedText]}>TAGS</Text>
-
-                  {presetTags.length > 0 && (
-                    <>
-                      <Text style={[s.drawerSubLabel, themed.mutedText]}>Featured</Text>
-                      <View style={s.drawerChips}>
-                        {presetTags.map(t => {
-                          const isSelected = pendingFilters.tags.some(tag => normalizeTag(tag) === normalizeTag(t));
-
-                          return (
-                            <TouchableOpacity
-                              key={`preset_${t}`}
-                              style={[
-                                s.drawerChip,
-                                themed.raised,
-                                themed.border,
-                                isSelected && {
-                                  backgroundColor: theme.gold,
-                                  borderColor: theme.gold,
-                                },
-                              ]}
-                              onPress={() => togglePendingTag(t)}
-                            >
-                              <Text
-                                style={[
-                                  s.drawerChipText,
-                                  themed.primaryText,
-                                  isSelected && {
-                                    color: theme.bg,
-                                    fontWeight: '600',
-                                  },
-                                ]}
-                              >
-                                {t}
-                              </Text>
-                            </TouchableOpacity>
-                          );
-                        })}
-                      </View>
-                    </>
-                  )}
-
-                  {recentCustomTags.length > 0 && (
-                    <>
-                      <Text style={[s.drawerSubLabel, themed.mutedText]}>Recent custom tags</Text>
-                      <View style={s.drawerChips}>
-                        {recentCustomTags.map(t => {
-                          const isSelected = pendingFilters.tags.some(tag => normalizeTag(tag) === normalizeTag(t));
-
-                          return (
-                            <TouchableOpacity
-                              key={`recent_${t}`}
-                              style={[
-                                s.drawerChip,
-                                themed.raised,
-                                themed.border,
-                                isSelected && {
-                                  backgroundColor: theme.gold,
-                                  borderColor: theme.gold,
-                                },
-                              ]}
-                              onPress={() => togglePendingTag(t)}
-                            >
-                              <Text
-                                style={[
-                                  s.drawerChipText,
-                                  themed.primaryText,
-                                  isSelected && {
-                                    color: theme.bg,
-                                    fontWeight: '600',
-                                  },
-                                ]}
-                              >
-                                {t}
-                              </Text>
-                            </TouchableOpacity>
-                          );
-                        })}
-                      </View>
-                    </>
-                  )}
-
-                  {selectedHiddenTags.length > 0 && (
-                    <>
-                      <Text style={[s.drawerSubLabel, themed.mutedText]}>Selected</Text>
-                      <View style={s.drawerChips}>
-                        {selectedHiddenTags.map(t => (
-                          <TouchableOpacity
-                            key={`selected_hidden_${t}`}
-                            style={[
-                              s.drawerChip,
-                              {
-                                backgroundColor: theme.gold,
-                                borderColor: theme.gold,
-                              },
-                            ]}
-                            onPress={() => togglePendingTag(t)}
-                          >
-                            <Text
-                              style={[
-                                s.drawerChipText,
-                                {
-                                  color: theme.bg,
-                                  fontWeight: '600',
-                                },
-                              ]}
-                            >
-                              {t}
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </>
-                  )}
-                </View>
-              )}
-
-              <View style={s.drawerSection}>
-                <Text style={[s.drawerSectionLabel, themed.mutedText]}>MEDIA TYPE</Text>
-                <View style={s.drawerChips}>
-                  {(['all', 'photo', 'video', 'voice', 'text'] as const).map(m => (
-                    <TouchableOpacity
-                      key={m}
-                      style={[
-                        s.drawerChip,
-                        themed.raised,
-                        themed.border,
-                        pendingFilters.mediaType === m && {
-                          backgroundColor: theme.gold,
-                          borderColor: theme.gold,
-                        },
-                      ]}
-                      onPress={() => setPendingFilters(prev => ({ ...prev, mediaType: m }))}
-                    >
-                      <Text
-                        style={[
-                          s.drawerChipText,
-                          themed.primaryText,
-                          pendingFilters.mediaType === m && {
-                            color: theme.bg,
-                            fontWeight: '600',
-                          },
-                        ]}
-                      >
-                        {m === 'all'
-                          ? 'All media'
-                          : m === 'photo'
-                            ? '📷 Photo'
-                            : m === 'video'
-                              ? '🎥 Video'
-                              : m === 'voice'
-                                ? '🎙 Voice'
-                                : '📝 Text only'}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-              {tab === 'family' && familyAuthors.length > 1 && (
-                <View style={s.drawerSection}>
-                  <Text style={[s.drawerSectionLabel, themed.mutedText]}>FAMILY MEMBER</Text>
-                  <View style={s.drawerChips}>
-<TouchableOpacity
-  style={[
-    s.drawerChip,
-    themed.raised,
-    themed.border,
-    pendingFilters.authorNpub === null && {
-      backgroundColor: theme.gold,
-      borderColor: theme.gold,
-    },
-  ]}
-  onPress={() => setPendingFilters(prev => ({ ...prev, authorNpub: null }))}
->
-  <Text
-    style={[
-      s.drawerChipText,
-      themed.primaryText,
-      pendingFilters.authorNpub === null && {
-        color: theme.bg,
-        fontWeight: '600',
-      },
-    ]}
-  >
-    Everyone
-  </Text>
-</TouchableOpacity>
-                    {familyAuthors.map(a => (
-<TouchableOpacity
-  key={a}
-  style={[
-    s.drawerChip,
-    themed.raised,
-    themed.border,
-    pendingFilters.authorNpub === a && {
-      backgroundColor: theme.gold,
-      borderColor: theme.gold,
-    },
-  ]}
-  onPress={() => setPendingFilters(prev => ({ ...prev, authorNpub: a }))}
->
-  <Text
-    style={[
-      s.drawerChipText,
-      themed.primaryText,
-      pendingFilters.authorNpub === a && {
-        color: theme.bg,
-        fontWeight: '600',
-      },
-    ]}
-  >
-    {a === npub ? 'Me' : `${a.slice(0, 8)}…`}
-  </Text>
-</TouchableOpacity>
-                    ))}
-                  </View>
-                </View>
-              )}
-
-              <View style={s.drawerSection}>
-                <Text style={[s.drawerSectionLabel, themed.mutedText]}>REFLECTIONS</Text>
-                <TouchableOpacity
-                  style={[
-                    s.drawerChip,
-                    themed.raised,
-                    themed.border,
-                    pendingFilters.hasReflection && {
-                      backgroundColor: theme.gold,
-                      borderColor: theme.gold,
-                    },
-                  ]}
-                  onPress={() => setPendingFilters(prev => ({ ...prev, hasReflection: !prev.hasReflection }))}
-                >
-                  <Text
-                    style={[
-                      s.drawerChipText,
-                      themed.primaryText,
-                      pendingFilters.hasReflection && {
-                        color: theme.bg,
-                        fontWeight: '600',
-                      },
-                    ]}
-                  >
-                    ✦ Has reflection
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
-
-          <View style={[s.drawerActions, themed.border]}>
-  <TouchableOpacity
-    style={[s.drawerClearBtn, themed.surface, themed.border]}
-    onPress={clearFilters}
-  >
-    <Text style={[s.drawerClearText, themed.mutedText]}>Clear all</Text>
-  </TouchableOpacity>
-
-  <TouchableOpacity
-    style={[s.drawerApplyBtn, themed.goldBg]}
-    onPress={applyDrawer}
-  >
-    <Text style={[s.drawerApplyText, themed.darkOnGold]}>Apply filters</Text>
-  </TouchableOpacity>
-</View>
-          </Animated.View>
-        </View>
       </Modal>
 
       <ImageViewerModal
@@ -1834,34 +1192,6 @@ const s = StyleSheet.create({
     width: 36,
     height: 36,
   },
-  feedHeaderBtn: {
-    minWidth: 64,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 0.5,
-    paddingHorizontal: 12,
-  },
-  feedHeaderBtnText: {
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  feedHeaderBadge: {
-    position: 'absolute',
-    top: -5,
-    right: -4,
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
-    paddingHorizontal: 5,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  feedHeaderBadgeText: {
-    fontSize: 10,
-    fontWeight: '900',
-  },
   feedSelector: {
     maxWidth: 176,
     minHeight: 38,
@@ -1919,28 +1249,6 @@ const s = StyleSheet.create({
     fontSize: 22,
     fontWeight: '900',
   },
-  banner: { backgroundColor: '#1e1600', borderBottomWidth: 0.5, borderBottomColor: '#c9973a33' },
-  bannerContent: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, gap: 12 },
-  bannerIcon: { fontSize: 22 },
-  bannerText: { flex: 1 },
-  bannerTitle: { fontSize: 14, color: '#c9973a', fontWeight: '600' },
-  bannerHint: { fontSize: 12, color: '#7a5a1a', marginTop: 2 },
-  bannerDismiss: { padding: 4 },
-  bannerDismissText: { fontSize: 14, color: '#555' },
-  tabRow: { flexDirection: 'row', borderBottomWidth: 0.5 },
-  tabBtn: { flex: 1, paddingVertical: 12, alignItems: 'center' },
-  tabBtnActive: { borderBottomWidth: 2 },
-  tabText: { fontSize: 13, color: '#444', fontWeight: '500' },
-  tabTextActive: { fontWeight: '700' },
-  tabLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  tabBadge: { borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2, minWidth: 18, alignItems: 'center' },
-  tabBadgeText: { fontSize: 10, fontWeight: '700' },
-  filterBar: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: 0.5 },
-  filterBarInner: { paddingHorizontal: 12, paddingVertical: 9, gap: 6, flexDirection: 'row', alignItems: 'center' },
-  activeChip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, backgroundColor: '#1e1600', borderWidth: 0.5, borderColor: '#c9973a33' },
-  activeChipText: { fontSize: 11 },
-  clearChip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, backgroundColor: '#2a1a1a', borderWidth: 0.5, borderColor: '#c00' },
-  clearChipText: { fontSize: 11, color: '#c00' },
   list: { paddingHorizontal: 10, paddingTop: 12, paddingBottom: 116 },
   feedMarkCardImmersive: {
     borderRadius: 18,
@@ -2365,85 +1673,4 @@ markCollagePlay: {
     lineHeight: 32,
     marginTop: -1,
   },
-drawerOverlay: { flex: 1, justifyContent: 'flex-end' },
-drawer: { borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingHorizontal: 20, paddingBottom: 24, maxHeight: '88%' },
-drawerBackdrop: { 
-  ...StyleSheet.absoluteFillObject
-}, 
-  drawerScroll: { flexGrow: 0 },
-  drawerScrollContent: { paddingBottom: 12 },
-drawerHandle: { 
-  width: 36, 
-  height: 4, 
-  borderRadius: 2, 
-  alignSelf: 'center', 
-  marginTop: 12, 
-  marginBottom: 16 
-},
-drawerTitle: { 
-  fontSize: 17, 
-  fontWeight: '600', 
-  marginBottom: 20 
-},
-drawerSection: { 
-  marginBottom: 22 
-},
-drawerSectionLabel: { 
-  fontSize: 11, 
-  fontWeight: '600', 
-  letterSpacing: 0.8, 
-  marginBottom: 10 
-},
-drawerSubLabel: {
-  fontSize: 10,
-  fontWeight: '700',
-  letterSpacing: 0.7,
-  textTransform: 'uppercase',
-  marginTop: 4,
-  marginBottom: 8,
-  opacity: 0.72,
-},
-  drawerChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-drawerChip: { 
-  paddingHorizontal: 14, 
-  paddingVertical: 8, 
-  borderRadius: 20, 
-  borderWidth: 0.5 
-},
-drawerChipActive: { 
-},
-drawerChipText: { 
-  fontSize: 13 
-},
-drawerChipTextActive: { 
-  fontWeight: '600' 
-},
-drawerActions: { 
-  flexDirection: 'row', 
-  gap: 12, 
-  marginTop: 8, 
-  paddingTop: 16, 
-  borderTopWidth: 0.5 
-},
-drawerClearBtn: { 
-  flex: 1, 
-  padding: 14, 
-  borderRadius: 10, 
-  borderWidth: 0.5, 
-  alignItems: 'center' 
-},
-drawerClearText: { 
-  fontSize: 14,
-  fontWeight: '700',
-},
-drawerApplyBtn: { 
-  flex: 2, 
-  padding: 14, 
-  borderRadius: 10, 
-  alignItems: 'center' 
-},
-drawerApplyText: { 
-  fontSize: 14,
-  fontWeight: '700' 
-},
 });
