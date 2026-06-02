@@ -1212,6 +1212,22 @@ const { id, tab: routeTab } = useLocalSearchParams<{
     }
   };
 
+  const refreshBookGroupState = useCallback(async () => {
+    if (!group?.id) return;
+
+    try {
+      const updatedGroup = await getGroupById(group.id);
+
+      if (updatedGroup) {
+        setGroup(updatedGroup);
+      }
+
+      await syncLivingSpacesFromGroups();
+    } catch (error) {
+      console.warn('[Book] group refresh failed:', error);
+    }
+  }, [group?.id]);
+
   const resetBoardComposer = () => {
     setBoardDisplayMode('pin');
     setBoardTitle('');
@@ -4134,7 +4150,7 @@ const relaySettingsCard = (
           nsec={nsec ?? undefined}
           displayName={myDisplayName}
           theme={theme}
-          onGroupUpdated={load}
+          onGroupUpdated={refreshBookGroupState}
         />
         </View>
       )}

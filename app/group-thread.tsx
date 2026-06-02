@@ -1701,6 +1701,17 @@ const showName =
       setUploadingImage(false);
       forceScrollToBottom(true);
 
+      console.log('[Groups] publish gate', {
+        hasNpub: !!npub,
+        hasNsec: !!nsec,
+        relayUrl,
+        relayUrls,
+      });
+
+      if (!nsec) {
+        console.warn('[Groups] Space chat skipped relay publish because nsec is missing.');
+      }
+
       if (nsec) {
         publishGroupMessage({
           groupId,

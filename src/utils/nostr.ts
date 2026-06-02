@@ -2201,6 +2201,171 @@ export async function publishGroupMessage(input: {
   }
 }
 
+export async function publishGroupMessageWithAmber(input: {
+  groupId: string;
+  clientMessageId?: string;
+  text?: string;
+  kind?: 'message' | 'system';
+  systemType?: 'join' | 'leave' | 'remove';
+
+  // Reply metadata
+  replyToMessageId?: string;
+  replyToClientMessageId?: string;
+  replyPreviewText?: string;
+  replyPreviewSenderName?: string;
+
+  // New multi-attachment support
+  media?: NostrGroupMessageMedia[];
+
+  // Poll support
+  poll?: NostrGroupPoll;
+
+  // Legacy single media support
+  mediaUrl?: string;
+  mediaType?: NostrGroupMediaType;
+  thumbnailUrl?: string;
+
+  // old support
+  imageUrl?: string;
+
+  senderNpub: string;
+  senderName?: string;
+  relayUrl: string;
+  relayUrls?: string[];
+  signerPackageName?: string;
+}): Promise<{ success: boolean; eventId?: string; error?: string }> {
+  try {
+    const trimmedText = input.text?.trim() || '';
+    const media = normalizeGroupMessageMedia(input);
+    const primaryMedia = media[0];
+    const poll = normalizeNostrGroupPoll(input.poll);
+
+    const mediaUrl = input.mediaUrl || input.imageUrl || primaryMedia?.uri;
+    const mediaType =
+      input.mediaType ||
+      primaryMedia?.type ||
+      (input.imageUrl ? 'image' : undefined);
+
+    if (!trimmedText && media.length === 0 && !mediaUrl && !poll) {
+      throw new Error('Cannot publish an empty group message');
+    }
+
+    const pubkeyHex = npubToHex(input.senderNpub);
+    const now = Math.floor(Date.now() / 1000);
+    const clientMessageId =
+      input.clientMessageId ||
+      `client_msg_${input.groupId}_${now}_${Math.random().toString(36).slice(2, 10)}`;
+
+    const tags: string[][] = [
+      ['d', clientMessageId],
+      ['t', `group-msg:${input.groupId}`],
+      ['group', input.groupId],
+      ['clientMessageId', clientMessageId],
+      ['client', 'bE-Marks'],
+    ];
+
+    if (poll) {
+      tags.push(['poll', poll.id]);
+    }
+
+    if (input.replyToClientMessageId) {
+      tags.push(['replyToClientMessageId', input.replyToClientMessageId]);
+    }
+
+    if (input.replyToMessageId) {
+      tags.push(['replyToMessageId', input.replyToMessageId]);
+    }
+
+    for (const item of media) {
+      tags.push(['url', item.uri]);
+
+      if (item.type === 'image') {
+        tags.push(['image', item.uri]);
+        tags.push(['imeta', `url ${item.uri}`, 'mime image/jpeg']);
+      }
+
+      if (item.type === 'video') {
+        tags.push(['video', item.uri]);
+        tags.push(['imeta', `url ${item.uri}`, 'mime video/mp4']);
+      }
+
+      if (item.type === 'file') {
+        tags.push(['file', item.uri]);
+
+        if (item.mimeType) {
+          tags.push(['imeta', `url ${item.uri}`, `mime ${item.mimeType}`]);
+        }
+      }
+    }
+
+    const content = JSON.stringify({
+      groupId: input.groupId,
+      clientMessageId,
+      text: trimmedText || undefined,
+      kind: input.kind || 'message',
+      systemType: input.systemType,
+
+      replyToMessageId: input.replyToMessageId,
+      replyToClientMessageId: input.replyToClientMessageId,
+      replyPreviewText: input.replyPreviewText,
+      replyPreviewSenderName: input.replyPreviewSenderName,
+
+      media,
+      poll,
+
+      // legacy single media fields preserved for older app versions
+      mediaUrl,
+      mediaType,
+      thumbnailUrl: input.thumbnailUrl || primaryMedia?.thumbnailUrl,
+      imageUrl: mediaType === 'image' ? mediaUrl : undefined,
+
+      senderNpub: input.senderNpub,
+      senderName: input.senderName,
+      createdAt: now,
+    });
+
+    const unsigned: UnsignedEvent = {
+      kind: GROUP_MESSAGE_KIND,
+      created_at: now,
+      tags,
+      content,
+      pubkey: pubkeyHex,
+    };
+
+    const signed = await signWithAmber(
+      JSON.stringify(unsigned),
+      pubkeyHex,
+      input.signerPackageName
+    );
+
+    if (!signed) {
+      return {
+        success: false,
+        error: 'Amber did not return a signed group message event.',
+      };
+    }
+
+    const relayResult = await publishToSpecificRelays(
+      signed,
+      input.relayUrls && input.relayUrls.length > 0
+        ? input.relayUrls
+        : [input.relayUrl]
+    );
+
+    return {
+      success: relayResult.success,
+      eventId: relayResult.eventId,
+      error: relayResult.success
+        ? relayResult.failedRelays.length > 0
+          ? `Published with ${relayResult.failedRelays.length} relay warning(s)`
+          : undefined
+        : relayResult.error,
+    };
+  } catch (e: any) {
+    return { success: false, error: e?.message || 'Could not publish group message with Amber' };
+  }
+}
+
 export async function publishGroupMessageDelete(input: {
   groupId: string;
   messageId: string;
