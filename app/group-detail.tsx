@@ -2344,6 +2344,90 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
     setSelectedMemberAction(member);
   };
 
+  const highlightViewerImages = useMemo<ViewerImage[]>(() => {
+    return stickies.flatMap(sticky => {
+      const media = (sticky as any).media;
+
+      if (!media) return [];
+
+      const mediaItems = Array.isArray(media) ? media : [media];
+
+      return mediaItems
+        .filter(item => !!(item.mediaUrl || item.uri))
+        .map(item => {
+          const viewerType: 'image' | 'video' =
+            item.mediaType === 'video' || item.type === 'video' ? 'video' : 'image';
+
+          return {
+            id: `${sticky.id}_${item.mediaUrl || item.uri}`,
+            uri: item.mediaUrl || item.uri,
+            type: viewerType,
+            thumbnailUrl: item.thumbnailUrl || item.thumbnailUri,
+          };
+        });
+    });
+  }, [stickies]);
+
+  const galleryOnlyViewerImages = useMemo<ViewerImage[]>(() => {
+    return galleryItems
+      .filter(item => !!item.mediaUrl)
+      .map(item => {
+        const viewerType: 'image' | 'video' =
+          item.mediaType === 'video' ? 'video' : 'image';
+
+        return {
+          id: item.id,
+          uri: item.mediaUrl,
+          type: viewerType,
+          thumbnailUrl: item.thumbnailUrl,
+        };
+      });
+  }, [galleryItems]);
+
+  const galleryViewerImages = useMemo<ViewerImage[]>(() => {
+    return [
+      ...galleryOnlyViewerImages,
+      ...highlightViewerImages,
+    ];
+  }, [galleryOnlyViewerImages, highlightViewerImages]);
+
+  const spaceMarkListItems = useMemo(() => {
+    return spaceMarkViews.map(view => ({
+      itemType: 'mark' as const,
+      id: view.milestone.id,
+      view,
+    }));
+  }, [spaceMarkViews]);
+
+  const mantleMarkViews = useMemo(() => {
+    return spaceMarkViews
+      .filter(view =>
+        view.metadata.markPermissions.highlightApproved === true &&
+        view.metadata.markPermissions.restricted !== true
+      )
+      .sort((a, b) => getMantleMarkTimestamp(b) - getMantleMarkTimestamp(a));
+  }, [spaceMarkViews]);
+
+  const leadMantleView = mantleMarkViews[0] ?? null;
+  const supportingMantleViews = mantleMarkViews.slice(1, 4);
+  const recapMantleViews = mantleMarkViews.slice(4);
+
+  const legacyMarkViews = useMemo(() => {
+    return spaceMarkViews
+      .filter(view =>
+        view.metadata.markPermissions.restricted !== true &&
+        (
+          view.metadata.savedToBook === true ||
+          view.metadata.markPermissions.bookApproved === true
+        )
+      )
+      .sort((a, b) => getMantleMarkTimestamp(b) - getMantleMarkTimestamp(a));
+  }, [spaceMarkViews]);
+
+  const leadLegacyView = legacyMarkViews[0] ?? null;
+  const supportingLegacyViews = legacyMarkViews.slice(1, 4);
+  const recapLegacyViews = legacyMarkViews.slice(4);
+
   if (!group) return (
     <SpaceDetailLoadingState theme={theme} />
   );
@@ -2362,69 +2446,7 @@ const schoolConsentStatusLabel = schoolConsentEnabled
     : 'Safeguards on'
   : 'Not enabled';
 
-const highlightViewerImages: ViewerImage[] = stickies
-  .flatMap(sticky => {
-    const media = (sticky as any).media;
-
-    if (!media) return [];
-
-    const mediaItems = Array.isArray(media) ? media : [media];
-
-    return mediaItems
-      .filter(item => !!(item.mediaUrl || item.uri))
-      .map(item => {
-        const viewerType: 'image' | 'video' =
-          item.mediaType === 'video' || item.type === 'video' ? 'video' : 'image';
-
-        return {
-          id: `${sticky.id}_${item.mediaUrl || item.uri}`,
-          uri: item.mediaUrl || item.uri,
-          type: viewerType,
-          thumbnailUrl: item.thumbnailUrl || item.thumbnailUri,
-        };
-      });
-  });
-
-const galleryViewerImages: ViewerImage[] = [
-  ...galleryItems
-    .filter(item => !!item.mediaUrl)
-    .map(item => {
-      const viewerType: 'image' | 'video' =
-        item.mediaType === 'video' ? 'video' : 'image';
-
-      return {
-        id: item.id,
-        uri: item.mediaUrl,
-        type: viewerType,
-        thumbnailUrl: item.thumbnailUrl,
-      };
-    }),
-  ...highlightViewerImages,
-];
-
 const sportsMantle = isSportsSpace(group);
-const mantleMarkViews = spaceMarkViews
-  .filter(view =>
-    view.metadata.markPermissions.highlightApproved === true &&
-    view.metadata.markPermissions.restricted !== true
-  )
-  .sort((a, b) => getMantleMarkTimestamp(b) - getMantleMarkTimestamp(a));
-const leadMantleView = mantleMarkViews[0] ?? null;
-const supportingMantleViews = mantleMarkViews.slice(1, 4);
-const recapMantleViews = mantleMarkViews.slice(4);
-
-const legacyMarkViews = spaceMarkViews
-  .filter(view =>
-    view.metadata.markPermissions.restricted !== true &&
-    (
-      view.metadata.savedToBook === true ||
-      view.metadata.markPermissions.bookApproved === true
-    )
-  )
-  .sort((a, b) => getMantleMarkTimestamp(b) - getMantleMarkTimestamp(a));
-const leadLegacyView = legacyMarkViews[0] ?? null;
-const supportingLegacyViews = legacyMarkViews.slice(1, 4);
-const recapLegacyViews = legacyMarkViews.slice(4);
 
 const openRiverForMantle = (markId?: string) => {
   const targetMarkId = markId ?? mantleMarkViews[0]?.milestone.id;
@@ -2549,20 +2571,6 @@ const renderMantleMarkCard = (
 };
 
 const openViewerForGalleryItem = (mediaUrl: string) => {
-  const galleryOnlyViewerImages: ViewerImage[] = galleryItems
-    .filter(item => !!item.mediaUrl)
-    .map(item => {
-      const viewerType: 'image' | 'video' =
-        item.mediaType === 'video' ? 'video' : 'image';
-
-      return {
-        id: item.id,
-        uri: item.mediaUrl,
-        type: viewerType,
-        thumbnailUrl: item.thumbnailUrl,
-      };
-    });
-
   setActiveViewerImages(galleryOnlyViewerImages);
   setSelectedGalleryImage(mediaUrl);
 };
@@ -3471,13 +3479,7 @@ const relaySettingsCard = (
         <View style={s.spaceTabPanel}>
           <FlatList<any>
             style={s.spaceTabList}
-            data={[
-              ...spaceMarkViews.map(view => ({
-                itemType: 'mark' as const,
-                id: view.milestone.id,
-                view,
-              })),
-            ]}
+            data={spaceMarkListItems}
             keyExtractor={item => `${item.itemType}_${item.id}`}
             contentContainerStyle={s.timelineContainer}
             refreshControl={
