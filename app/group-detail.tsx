@@ -1,5 +1,6 @@
 import GroupBookTab from '@/components/GroupBookTab';
 import GroupCalendarTab from '@/components/GroupCalendarTab';
+import SpaceDetailTabBar from '@/components/SpaceDetailTabBar';
 import {
   getCalendarEventsForGroup,
   getUpcomingEventsForGroup,
@@ -2819,62 +2820,11 @@ const relaySettingsCard = (
             </Text>
           </TouchableOpacity>
 
-          <View style={s.spaceHeaderDock}>
-            {[
-              {
-                key: 'stickies' as Tab,
-                icon: 'albums-outline' as const,
-                activeIcon: 'albums' as const,
-              },
-              {
-                key: 'chat' as Tab,
-                icon: 'chatbubble-ellipses-outline' as const,
-                activeIcon: 'chatbubble-ellipses' as const,
-              },
-              {
-                key: 'board' as Tab,
-                icon: 'megaphone-outline' as const,
-                activeIcon: 'megaphone' as const,
-              },
-              {
-                key: 'calendar' as Tab,
-                icon: 'calendar-outline' as const,
-                activeIcon: 'calendar' as const,
-              },
-              {
-                key: 'gallery' as Tab,
-                icon: 'images-outline' as const,
-                activeIcon: 'images' as const,
-              },
-              {
-                key: 'legacy' as Tab,
-                icon: 'library-outline' as const,
-                activeIcon: 'library' as const,
-              },
-              {
-                key: 'book' as Tab,
-                icon: 'book-outline' as const,
-                activeIcon: 'book' as const,
-              },
-            ].map(item => {
-              const active = tab === item.key;
-
-              return (
-                <TouchableOpacity
-                  key={item.key}
-                  style={[s.spaceHeaderDockItem, active && s.spaceHeaderDockItemActive]}
-                  onPress={() => selectSpaceTab(item.key)}
-                  activeOpacity={0.86}
-                >
-                  <Ionicons
-                    name={active ? item.activeIcon : item.icon}
-                    size={22}
-                    color={active ? theme.gold : theme.textSecondary}
-                  />
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+          <SpaceDetailTabBar
+            activeTab={tab}
+            theme={theme}
+            onSelect={nextTab => selectSpaceTab(nextTab)}
+          />
         </View>
 
       {/* Header control center and invite panels */}
@@ -4809,41 +4759,6 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
     marginTop: 3,
-  },
-  spaceHeaderDock: {
-    alignSelf: 'flex-start',
-    marginTop: 10,
-    minHeight: 48,
-    borderRadius: 24,
-    borderWidth: 0.5,
-    borderColor: theme.bg === Colors.light.bg
-      ? 'rgba(23,18,14,0.12)'
-      : 'rgba(255,255,255,0.14)',
-    backgroundColor: theme.bg === Colors.light.bg
-      ? 'rgba(255,255,255,0.72)'
-      : 'rgba(18,20,19,0.72)',
-    padding: 4,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    shadowColor: '#000',
-    shadowOpacity: 0.12,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 5,
-  },
-  spaceHeaderDockItem: {
-    width: 42,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 0.5,
-    borderColor: 'transparent',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  spaceHeaderDockItemActive: {
-    backgroundColor: theme.gold + '2E',
-    borderColor: theme.gold + '7A',
   },
     spaceProfileIdentityTap: {
     alignSelf: 'flex-start',
