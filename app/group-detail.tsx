@@ -1,5 +1,6 @@
 import GroupBookTab from '@/components/GroupBookTab';
 import GroupCalendarTab from '@/components/GroupCalendarTab';
+import SpaceBoardComposerModal from '@/components/SpaceBoardComposerModal';
 import SpaceDetailLoadingState from '@/components/SpaceDetailLoadingState';
 import SpaceTrayHeader from '@/components/SpaceTrayHeader';
 import {
@@ -4349,181 +4350,27 @@ const relaySettingsCard = (
         </View>
       </Modal>
 
-      <Modal
+      <SpaceBoardComposerModal
         visible={showBoardComposer}
-        transparent
-        animationType="slide"
-        onRequestClose={() => {
+        theme={theme}
+        displayMode={boardDisplayMode}
+        title={boardTitle}
+        body={boardBody}
+        attachments={boardAttachments}
+        uploadStatus={boardUploadStatus}
+        saving={savingBoardItem}
+        onClose={() => {
           setShowBoardComposer(false);
           resetBoardComposer();
         }}
-      >
-        <View style={s.modalOverlay}>
-          <ScrollView
-            contentContainerStyle={s.modalCard}
-            keyboardShouldPersistTaps="handled"
-          >
-            <Text style={s.modalTitle}>New Bulletin Board Item</Text>
-
-            <Text style={s.inputLabel}>TYPE</Text>
-            <View style={s.visibilityBox}>
-              <TouchableOpacity
-                style={[
-                  s.visibilityOption,
-                  boardDisplayMode === 'pin' && s.visibilityOptionActive,
-                ]}
-                onPress={() => setBoardDisplayMode('pin')}
-                activeOpacity={0.84}
-              >
-                <Text style={s.visibilityIcon}>📌</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.visibilityTitle}>Pin</Text>
-                  <Text style={s.visibilityHint}>A standing notice or reminder.</Text>
-                </View>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  s.visibilityOption,
-                  boardDisplayMode === 'announcement' && s.visibilityOptionActive,
-                ]}
-                onPress={() => setBoardDisplayMode('announcement')}
-                activeOpacity={0.84}
-              >
-                <Text style={s.visibilityIcon}>📣</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.visibilityTitle}>Announcement</Text>
-                  <Text style={s.visibilityHint}>A Space-wide update people should see.</Text>
-                </View>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  s.visibilityOption,
-                  boardDisplayMode === 'alert' && s.visibilityOptionActive,
-                ]}
-                onPress={() => setBoardDisplayMode('alert')}
-                activeOpacity={0.84}
-              >
-                <Text style={s.visibilityIcon}>⚠️</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.visibilityTitle}>Alert</Text>
-                  <Text style={s.visibilityHint}>A high-priority item for the Space.</Text>
-                </View>
-              </TouchableOpacity>
-            </View>
-
-            <Text style={s.inputLabel}>TITLE</Text>
-            <TextInput
-              style={s.input}
-              value={boardTitle}
-              onChangeText={setBoardTitle}
-              placeholder="Example: Practice moved to 5:30"
-              placeholderTextColor={theme.textMuted}
-              autoCapitalize="sentences"
-            />
-
-            <Text style={s.inputLabel}>MESSAGE</Text>
-            <TextInput
-              style={[s.input, s.inputMulti, { textAlignVertical: 'top' }]}
-              value={boardBody}
-              onChangeText={setBoardBody}
-              placeholder="Add the details people need to know."
-              placeholderTextColor={theme.textMuted}
-              autoCapitalize="sentences"
-              multiline
-            />
-
-                        <Text style={s.inputLabel}>ATTACHMENTS</Text>
-            <View style={s.modalActions}>
-              <TouchableOpacity
-                style={s.cancelBtn}
-                onPress={handlePickBoardMedia}
-                disabled={savingBoardItem}
-                activeOpacity={0.84}
-              >
-                <Text style={s.cancelText}>Photo / Video</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={s.cancelBtn}
-                onPress={handlePickBoardFiles}
-                disabled={savingBoardItem}
-                activeOpacity={0.84}
-              >
-                <Text style={s.cancelText}>File</Text>
-              </TouchableOpacity>
-            </View>
-
-            {boardAttachments.length > 0 && (
-              <View style={s.stickyFileList}>
-                {boardAttachments.map(attachment => (
-                  <View key={attachment.id} style={s.stickyFileRow}>
-                    <Text style={s.stickyFileIcon}>
-                      {attachment.type === 'video' ? '🎥' : attachment.type === 'image' ? '🖼️' : '📎'}
-                    </Text>
-
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <Text style={s.stickyFileName} numberOfLines={1}>
-                        {attachment.name ||
-                          (attachment.type === 'video'
-                            ? 'Selected video'
-                            : attachment.type === 'image'
-                              ? 'Selected photo'
-                              : 'Selected file')}
-                      </Text>
-                      <Text style={s.stickyFileMeta}>
-                        {attachment.type === 'video'
-                          ? 'Video'
-                          : attachment.type === 'image'
-                            ? 'Photo'
-                            : attachment.mimeType || 'File'}
-                      </Text>
-                    </View>
-
-                    <TouchableOpacity
-                      onPress={() => removeBoardAttachment(attachment.id)}
-                      disabled={savingBoardItem}
-                    >
-                      <Text style={s.stickyFileOpen}>Remove</Text>
-                    </TouchableOpacity>
-                  </View>
-                ))}
-              </View>
-            )}
-
-            {boardUploadStatus ? (
-              <Text style={s.stickyMeta}>{boardUploadStatus}</Text>
-            ) : null}
-
-            <View style={s.modalActions}>
-              <TouchableOpacity
-                style={s.cancelBtn}
-                onPress={() => {
-                  setShowBoardComposer(false);
-                  resetBoardComposer();
-                }}
-                disabled={savingBoardItem}
-              >
-                <Text style={s.cancelText}>Cancel</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  s.confirmBtn,
-                  (!boardTitle.trim() || !boardBody.trim() || savingBoardItem) && s.confirmBtnDisabled,
-                ]}
-                onPress={handleSaveBoardItem}
-                disabled={!boardTitle.trim() || !boardBody.trim() || savingBoardItem}
-              >
-                <Text style={s.confirmText}>
-                  {savingBoardItem ? 'Saving…' : 'Save'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </ScrollView>
-        </View>
-      </Modal>
+        onChangeDisplayMode={setBoardDisplayMode}
+        onChangeTitle={setBoardTitle}
+        onChangeBody={setBoardBody}
+        onPickMedia={handlePickBoardMedia}
+        onPickFiles={handlePickBoardFiles}
+        onRemoveAttachment={removeBoardAttachment}
+        onSave={handleSaveBoardItem}
+      />
 
       <ImageViewerModal
         images={activeViewerImages.length > 0 ? activeViewerImages : galleryViewerImages}
