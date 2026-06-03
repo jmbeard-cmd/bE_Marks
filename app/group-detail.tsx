@@ -1,5 +1,6 @@
 import GroupBookTab from '@/components/GroupBookTab';
 import GroupCalendarTab from '@/components/GroupCalendarTab';
+import SpaceDetailLoadingState from '@/components/SpaceDetailLoadingState';
 import SpaceTrayHeader from '@/components/SpaceTrayHeader';
 import {
   getCalendarEventsForGroup,
@@ -2338,11 +2339,7 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
   };
 
   if (!group) return (
-    <SafeAreaView style={s.safe}>
-      <View style={s.loading}>
-        <Text style={s.loadingText}>Loading…</Text>
-      </View>
-    </SafeAreaView>
+    <SpaceDetailLoadingState theme={theme} />
   );
 
 const deepLink = `https://beginningend.com/join/${group.inviteCode}`;
@@ -4578,13 +4575,6 @@ function formatStickyDate(unix: number): string {
 
 const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
   safe: { flex: 1, backgroundColor: theme.bg, position: 'relative' },
-  loading: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.bg,
-  },
-  loadingText: { color: theme.textMuted, fontSize: 15 },
 
   visibilityBox: {
     gap: 8,
