@@ -1,9 +1,11 @@
 import GroupBookTab from '@/components/GroupBookTab';
 import GroupCalendarTab from '@/components/GroupCalendarTab';
+import SpaceArchivedBanner from '@/components/SpaceArchivedBanner';
 import SpaceBoardComposerModal from '@/components/SpaceBoardComposerModal';
 import SpaceBoardEmptyState from '@/components/SpaceBoardEmptyState';
 import SpaceBoardItemCard from '@/components/SpaceBoardItemCard';
 import SpaceDetailLoadingState from '@/components/SpaceDetailLoadingState';
+import SpaceEmptyState from '@/components/SpaceEmptyState';
 import SpaceStickyHighlightCard from '@/components/SpaceStickyHighlightCard';
 import SpaceTrayHeader from '@/components/SpaceTrayHeader';
 import {
@@ -3453,13 +3455,12 @@ const relaySettingsCard = (
                 )}
               </>
             ) : (
-              <View style={s.empty}>
-                <Text style={s.emptyIcon}>M</Text>
-                <Text style={s.emptyText}>No Mantle highlights yet</Text>
-                <Text style={s.emptyHint}>
-                  Approved, unrestricted Marks will appear here.
-                </Text>
-              </View>
+              <SpaceEmptyState
+                theme={theme}
+                icon="M"
+                title="No Mantle highlights yet"
+                hint="Approved, unrestricted Marks will appear here."
+              />
             )}
           </ScrollView>
         </View>
@@ -3494,21 +3495,19 @@ const relaySettingsCard = (
             onViewableItemsChanged={spaceMarksViewabilityRef.current}
             ListHeaderComponent={
               group.status === 'archived' ? (
-                <View style={s.archivedBanner}>
-                  <Text style={s.archivedBannerText}>
-                    📦 This Space is archived. Marks can still be viewed.
-                  </Text>
-                </View>
+                <SpaceArchivedBanner
+                  theme={theme}
+                  message="📦 This Space is archived. Marks can still be viewed."
+                />
               ) : null
             }
             ListEmptyComponent={
-              <View style={s.empty}>
-                <Text style={s.emptyIcon}>📌</Text>
-                <Text style={s.emptyText}>No Marks yet</Text>
-                <Text style={s.emptyHint}>
-                  Members can add Marks, memories, media, or important notes here.
-                </Text>
-              </View>
+              <SpaceEmptyState
+                theme={theme}
+                icon="📌"
+                title="No Marks yet"
+                hint="Members can add Marks, memories, media, or important notes here."
+              />
             }
             renderItem={({ item }) => {
               if (item.itemType === 'sticky') {
@@ -3765,11 +3764,10 @@ const relaySettingsCard = (
             removeClippedSubviews={Platform.OS === 'android'}
             ListHeaderComponent={
               group.status === 'archived' ? (
-                <View style={s.archivedBanner}>
-                  <Text style={s.archivedBannerText}>
-                    📦 This Space is archived. Board items can still be viewed.
-                  </Text>
-                </View>
+                <SpaceArchivedBanner
+                  theme={theme}
+                  message="📦 This Space is archived. Board items can still be viewed."
+                />
               ) : null
             }
             ListEmptyComponent={<SpaceBoardEmptyState theme={theme} />}
@@ -3880,13 +3878,12 @@ const relaySettingsCard = (
             );
           }}
           ListEmptyComponent={
-            <View style={s.empty}>
-              <Text style={s.emptyIcon}>🖼️</Text>
-              <Text style={s.emptyText}>No media yet</Text>
-              <Text style={s.emptyHint}>
-                Photos and videos posted in chat will appear here.
-              </Text>
-            </View>
+            <SpaceEmptyState
+              theme={theme}
+              icon="🖼️"
+              title="No media yet"
+              hint="Photos and videos posted in chat will appear here."
+            />
           }
         />
       )}
@@ -3966,13 +3963,12 @@ const relaySettingsCard = (
                 )}
               </>
             ) : (
-              <View style={s.empty}>
-                <Text style={s.emptyIcon}>L</Text>
-                <Text style={s.emptyText}>No Legacy Marks yet</Text>
-                <Text style={s.emptyHint}>
-                  Marks saved toward Legacy or approved for Legacy will appear here.
-                </Text>
-              </View>
+              <SpaceEmptyState
+                theme={theme}
+                icon="L"
+                title="No Legacy Marks yet"
+                hint="Marks saved toward Legacy or approved for Legacy will appear here."
+              />
             )}
           </ScrollView>
         </View>
@@ -4075,13 +4071,12 @@ const relaySettingsCard = (
             );
           }}
           ListEmptyComponent={
-            <View style={s.empty}>
-              <Text style={s.emptyIcon}>👥</Text>
-              <Text style={s.emptyText}>No members yet</Text>
-              <Text style={s.emptyHint}>
-                Members will appear here after they join this Space.
-              </Text>
-            </View>
+            <SpaceEmptyState
+              theme={theme}
+              icon="👥"
+              title="No members yet"
+              hint="Members will appear here after they join this Space."
+            />
           }
         />
       )}
@@ -6283,14 +6278,6 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
 
   // Timeline
   timelineContainer: { padding: 14, paddingBottom: 100 },
-  archivedBanner: { backgroundColor: theme.raised, borderRadius: 10, padding: 12, marginBottom: 16, borderWidth: 0.5, borderColor: '#3a3a00' },
-  archivedBannerText: { color: theme.textMuted,fontSize: 13, textAlign: 'center' },
-
-  // Empty
-  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 48 },
-  emptyIcon: { fontSize: 36, marginBottom: 12 },
-  emptyText: { fontSize: 17, color: theme.text, fontWeight: '500' },
-  emptyHint: { fontSize: 13, color: theme.textMuted, marginTop: 6, textAlign: 'center' },
 
   // Members
   membersList: {
