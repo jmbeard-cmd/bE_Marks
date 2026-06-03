@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import BEHeader from '../../components/BEHeader';
+import SpaceCard from '../../components/SpaceCard';
 import { Colors } from '../../src/constants/theme';
 import { saveLocalGroupSystemMessage } from '../../src/utils/group-messages';
 import {
@@ -30,12 +31,12 @@ import {
   scheduleGroupsMembershipRefresh,
   subscribeToGroupsIndex,
 } from '../../src/utils/groups-index';
+import { syncLivingSpacesFromGroups } from '../../src/utils/living-spaces-storage';
 import {
   DEFAULT_RELAY,
   npubToHex,
   publishGroupMessage,
 } from '../../src/utils/nostr';
-import { syncLivingSpacesFromGroups } from '../../src/utils/living-spaces-storage';
 import {
   notifyGroupEvent,
   registerGroupMemberForPush,
@@ -73,22 +74,6 @@ function normalizeGroupType(value?: string): string {
   return (value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
-function getGroupInitials(name: string): string {
-  const clean = name.trim();
-  if (!clean) return 'GR';
-  return clean.slice(0, 2).toUpperCase();
-}
-
-function getGroupIcon(group: BEGroup): string {
-  const customIcon = group.icon?.trim();
-
-  if (customIcon) {
-    return customIcon;
-  }
-
-  return getGroupInitials(group.name);
-}
-
 function getGroupTypeIcon(group: BEGroup): string | null {
   const directKey = normalizeGroupType(group.sport);
 
@@ -97,18 +82,6 @@ function getGroupTypeIcon(group: BEGroup): string | null {
   }
 
   return null;
-}
-
-function formatGroupTime(unixSecs?: number): string {
-  if (!unixSecs) return '';
-  const date = new Date(unixSecs * 1000);
-  const now = new Date();
-  const isToday = date.toDateString() === now.toDateString();
-  const yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
-  if (isToday) return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  if (date.toDateString() === yesterday.toDateString()) return 'Yesterday';
-  return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
 type Sheet = 'none' | 'create' | 'join';
@@ -355,71 +328,15 @@ const s = useMemo(() => createStyles(theme), [theme]);
     setJoining(false);
   };
 
-  function getRelayLabel(group: BEGroup): {
-    text: string;
-    icon: string;
-    type: 'default' | 'custom' | 'both';
-  } {
-    const mode = group.relayMode ?? 'default';
-
-    if (mode === 'custom') return { text: 'Private', icon: '◆', type: 'custom' };
-    if (mode === 'both') return { text: 'Both', icon: '↔', type: 'both' };
-    return { text: 'bE', icon: '●', type: 'default' };
-  }
-
   const renderGroup = ({ item }: { item: BEGroup }) => {
-    const relay = getRelayLabel(item);
-    const groupTypeIcon = getGroupTypeIcon(item);
-    const preview =
-      item.lastPostPreview ||
-      `${item.memberCount ?? 0} member${(item.memberCount ?? 0) !== 1 ? 's' : ''}`;
-
     return (
-      <TouchableOpacity
-        style={[s.card, item.status === 'archived' && s.cardArchived]}
-        activeOpacity={0.88}
+      <SpaceCard
+        group={item}
+        theme={theme}
+        categoryIcon={getGroupTypeIcon(item)}
+        archived={item.status === 'archived'}
         onPress={() => router.push({ pathname: '/group-thread', params: { id: item.id } } as any)}
-      >
-        <View style={[s.groupIcon, item.status === 'archived' && s.groupIconArchived]}>
-          <Text style={s.groupIconText}>{getGroupIcon(item)}</Text>
-        </View>
-
-        <View style={s.cardBody}>
-          <View style={s.cardTop}>
-            <Text style={[s.groupName, item.status === 'archived' && s.groupNameArchived]} numberOfLines={1}>
-              {item.name}
-            </Text>
-            {!!item.lastPostAt && <Text style={s.cardTime}>{formatGroupTime(item.lastPostAt)}</Text>}
-          </View>
-
-          <Text style={s.cardPreview} numberOfLines={1}>
-            {preview}
-          </Text>
-
-          <View style={s.cardMetaRow}>
-            {groupTypeIcon && <Text style={s.categoryBadge}>{groupTypeIcon}</Text>}
-
-            {item.season && <Text style={s.seasonBadge}>{item.season}</Text>}
-
-            <Text style={s.memberBadge}>
-              {item.memberCount ?? 0} member{(item.memberCount ?? 0) !== 1 ? 's' : ''}
-            </Text>
-
-            <View
-              style={[
-                s.relayBadge,
-                relay.type === 'custom' && s.relayBadgeCustom,
-                relay.type === 'both' && s.relayBadgeBoth,
-              ]}
-            >
-              <Text style={s.relayBadgeIcon}>{relay.icon}</Text>
-              <Text style={s.relayBadgeText}>{relay.text}</Text>
-            </View>
-
-            {item.status === 'archived' && <Text style={s.archivedBadge}>Archived</Text>}
-          </View>
-        </View>
-      </TouchableOpacity>
+      />
     );
   };
 
@@ -697,153 +614,6 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
   emptyBtnText: { color: theme.surface, fontWeight: '700', fontSize: 14 },
   emptyBtnOutline: { borderWidth: 0.5, borderColor: theme.gold, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12, width: '100%', alignItems: 'center' },
   emptyBtnOutlineText: { color: theme.gold, fontWeight: '600', fontSize: 14 },
-
-  // Group card
-  card: {
-    flexDirection: 'row',
-    gap: 13,
-    alignItems: 'center',
-    backgroundColor: theme.surface,
-    borderWidth: 0.5,
-    borderColor: theme.border,
-    borderRadius: 18,
-    padding: 15,
-    marginBottom: 12,
-  },
-  cardArchived: {
-    opacity: 0.58,
-  },
-  groupIcon: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: theme.raised,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 0.5,
-    borderColor: theme.gold + '33',
-  },
-  groupIconArchived: {
-    backgroundColor: theme.surface,
-    borderColor: theme.border,
-  },
-  groupIconText: {
-    fontSize: 22,
-  },
-  cardBody: {
-    flex: 1,
-    minWidth: 0,
-  },
-  cardTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-    gap: 8,
-  },
-  groupName: {
-    color: theme.text,
-    fontSize: 16,
-    fontWeight: '700',
-    flex: 1,
-    letterSpacing: -0.2,
-  },
-  groupNameArchived: {
-    color: theme.textMuted,
-  },
-  cardTime: {
-    color: theme.textMuted,
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  cardPreview: {
-    color: theme.textSecondary,
-    fontSize: 13,
-    lineHeight: 18,
-    marginBottom: 9,
-  },
-  cardMetaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  seasonBadge: {
-    fontSize: 10,
-    color: theme.gold,
-    backgroundColor: theme.raised,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-    borderWidth: 0.5,
-    borderColor: theme.gold + '55',
-    fontWeight: '700',
-    letterSpacing: 0.2,
-  },
-  categoryBadge: {
-    minWidth: 24,
-    height: 24,
-    color: theme.gold,
-    backgroundColor: theme.raised,
-    paddingTop: Platform.OS === 'ios' ? 3 : 2,
-    paddingHorizontal: 4,
-    borderRadius: 12,
-    borderWidth: 0.5,
-    borderColor: theme.gold + '55',
-    textAlign: 'center',
-    overflow: 'hidden',
-  },
-  memberBadge: {
-    fontSize: 10,
-    color: theme.textSecondary,
-    backgroundColor: theme.bg,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-    borderWidth: 0.5,
-    borderColor: theme.border,
-    fontWeight: '600',
-  },
-  archivedBadge: {
-    fontSize: 10,
-    color: theme.textMuted,
-    backgroundColor: theme.surface,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-    borderWidth: 0.5,
-    borderColor: theme.border,
-    fontWeight: '600',
-  },
-  relayBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-    borderWidth: 0.5,
-    borderColor: theme.border,
-    backgroundColor: theme.bg,
-  },
-  relayBadgeIcon: {
-    fontSize: 8,
-    color: theme.textMuted,
-  },
-  relayBadgeText: {
-    fontSize: 10,
-    color: theme.textSecondary,
-    fontWeight: '700',
-    letterSpacing: 0.25,
-  },
-  relayBadgeCustom: {
-    borderColor: theme.gold + '55',
-    backgroundColor: theme.raised,
-  },
-  relayBadgeBoth: {
-    borderColor: theme.gold + '55',
-    backgroundColor: theme.raised,
-  },
 
   // Archived section
   archivedSection: { marginTop: 8 },
