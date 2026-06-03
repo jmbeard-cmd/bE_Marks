@@ -3,12 +3,10 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   DeviceEventEmitter,
-  FlatList,
   Image,
   Keyboard,
   Modal,
   Platform,
-  RefreshControl,
   Share,
   StyleSheet,
   Text,
@@ -24,6 +22,9 @@ import LivingPromptNudgeCard from '../../components/LivingPromptNudgeCard';
 import MarkActionRow from '../../components/MarkActionRow';
 import MarkCommentsSheet from '../../components/MarkCommentsSheet';
 import MediaCollage from '../../components/MediaCollage';
+import BroadcastsFeed from '../../components/timeline/BroadcastsFeed';
+import FollowingFeed from '../../components/timeline/FollowingFeed';
+import MyMarksFeed from '../../components/timeline/MyMarksFeed';
 import TimelineTextMarkCard from '../../components/TimelineTextMarkCard';
 import TimelineVoiceMarkCard from '../../components/TimelineVoiceMarkCard';
 import type { LivingMarkPromptCard } from '../../src/types/living-spaces';
@@ -1020,49 +1021,20 @@ export default function TimelineScreen() {
       )}
 
       {feedKey === 'follows' ? (
-        <View style={s.empty}>
-          <Text style={[s.emptyIcon, themed.mutedText]}>Following</Text>
-          <Text style={[s.emptyText, themed.primaryText]}>Following feed coming online</Text>
-          <Text style={[s.emptyHint, themed.mutedText]}>
-            This feed will show Marks from people you follow across Nostr.
-          </Text>
-        </View>
+        <FollowingFeed theme={theme} />
       ) : feedKey === 'subscribed' ? (
-        <View style={s.empty}>
-          <Text style={[s.emptyIcon, themed.mutedText]}>Broadcasts</Text>
-          <Text style={[s.emptyText, themed.primaryText]}>No broadcasts yet</Text>
-          <Text style={[s.emptyHint, themed.mutedText]}>
-            Community, school, church, town, and public feeds you subscribe to will appear here.
-          </Text>
-        </View>
-      ) : source.length === 0 ? (
-        <View style={s.empty}>
-          <Text style={[s.emptyIcon, themed.mutedText]}>{syncing ? '⟳' : '◎'}</Text>
-          <Text style={[s.emptyText, themed.primaryText]}>
-            {syncing ? 'Syncing…' : 'No Marks yet'}
-          </Text>
-          <Text style={[s.emptyHint, themed.mutedText]}>
-            {syncing ? '' : 'Tap + to capture your first Mark.'}
-          </Text>
-        </View>
+        <BroadcastsFeed theme={theme} />
       ) : (
-        <FlatList
-          data={feedItems}
-          keyExtractor={item => item.id}
+        <MyMarksFeed
+          items={feedItems}
+          syncing={syncing}
+          refreshing={refreshing}
+          theme={theme}
           renderItem={renderItem}
+          onRefresh={onRefresh}
+          onScroll={handleFeedScroll}
           viewabilityConfig={timelineViewabilityConfigRef.current}
           onViewableItemsChanged={onViewableTimelineItemsChangedRef.current}
-          contentContainerStyle={s.list}
-          keyboardDismissMode="interactive"
-          keyboardShouldPersistTaps="handled"
-          initialNumToRender={4}
-          maxToRenderPerBatch={4}
-          updateCellsBatchingPeriod={24}
-          windowSize={5}
-          removeClippedSubviews={Platform.OS === 'android'}
-          onScroll={handleFeedScroll}
-          scrollEventThrottle={16}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.gold} />}
         />
       )}
 
