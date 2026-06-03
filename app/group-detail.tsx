@@ -275,11 +275,11 @@ function isSportsSpace(group: BEGroup): boolean {
   return directKey ? SPORTS_SPACE_KEYS.has(directKey) : false;
 }
 
-function getMantleMarkTimestamp(view: LivingMarkView): number {
+function getLegacyMarkTimestamp(view: LivingMarkView): number {
   return view.metadata.occurredAt ?? view.metadata.capturedAt ?? view.milestone.createdAt;
 }
 
-function getMantleMediaImageUri(media?: MarkMedia): string | undefined {
+function getLegacyMediaImageUri(media?: MarkMedia): string | undefined {
   if (!media) return undefined;
   return media.type === 'image' ? media.uri : media.thumbnailUri;
 }
@@ -2410,7 +2410,7 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
           view.metadata.markPermissions.bookApproved === true
         )
       )
-      .sort((a, b) => getMantleMarkTimestamp(b) - getMantleMarkTimestamp(a));
+      .sort((a, b) => getLegacyMarkTimestamp(b) - getLegacyMarkTimestamp(a));
   }, [spaceMarkViews]);
 
   const {
@@ -2424,6 +2424,22 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
       recapLegacyViews: legacyMarkViews.slice(4),
     };
   }, [legacyMarkViews]);
+
+  const schoolConsentToggleOptions = useMemo(() => {
+    return [
+      { label: 'Under 13', active: childUnder13, onPress: () => setChildUnder13(prev => !prev) },
+      { label: 'Media', active: childConsentMedia, onPress: () => setChildConsentMedia(prev => !prev) },
+      { label: 'Name', active: childConsentName, onPress: () => setChildConsentName(prev => !prev) },
+      { label: 'Mantle', active: childConsentMantle, onPress: () => setChildConsentMantle(prev => !prev) },
+      { label: 'Legacy', active: childConsentLegacy, onPress: () => setChildConsentLegacy(prev => !prev) },
+    ];
+  }, [
+    childUnder13,
+    childConsentMedia,
+    childConsentName,
+    childConsentMantle,
+    childConsentLegacy,
+  ]);
 
   if (!group) return (
     <SpaceDetailLoadingState theme={theme} />
@@ -2453,7 +2469,7 @@ const openRiverForLegacy = (markId?: string) => {
   openMarkDetail(targetMarkId, 'legacy');
 };
 
-const renderMantleMarkCard = (
+const renderLegacyMarkCard = (
   view: LivingMarkView,
   variant: 'lead' | 'podium' | 'recap',
   index = 0
@@ -2463,8 +2479,8 @@ const renderMantleMarkCard = (
   const markMedia = getMilestoneMediaItems(mark);
   const authorProfile = getSpaceMarkAuthorProfile(mark);
   const firstMedia = markMedia.find(item => item.type === 'image' || item.type === 'video');
-  const mantleImageUri = getMantleMediaImageUri(firstMedia);
-  const markDate = formatStickyDate(getMantleMarkTimestamp(view));
+  const legacyImageUri = getLegacyMediaImageUri(firstMedia);
+  const markDate = formatStickyDate(getLegacyMarkTimestamp(view));
 
   if (variant === 'lead') {
     return (
@@ -2479,10 +2495,10 @@ const renderMantleMarkCard = (
           <Text style={s.mantleFeatureDate}>{markDate}</Text>
         </View>
 
-        {mantleImageUri ? (
+        {legacyImageUri ? (
           <View style={s.mantleFeatureMediaFrame}>
             <Image
-              source={{ uri: mantleImageUri }}
+              source={{ uri: legacyImageUri }}
               style={s.mantleFeatureMediaImage}
               resizeMode="cover"
             />
@@ -2522,9 +2538,9 @@ const renderMantleMarkCard = (
       activeOpacity={0.88}
     >
       <View style={isPodium ? s.mantlePodiumMediaWrap : s.mantleRecapMediaWrap}>
-        {mantleImageUri ? (
+        {legacyImageUri ? (
           <Image
-            source={{ uri: mantleImageUri }}
+            source={{ uri: legacyImageUri }}
             style={s.mantleMiniMedia}
             resizeMode="cover"
           />
@@ -2637,7 +2653,7 @@ const liftedSpaceChatTrayStyle = shouldLiftSpaceChatTray
       bottom: Math.max(spaceKeyboardHeight + (Platform.OS === 'ios' ? 10 : 6), 6),
     }
   : null;
-const relaySettingsCard = (
+const relaySettingsCard = spaceSettingsRelayOpen ? (
   <View style={s.groupRelayCard}>
     <View style={s.groupRelayHeader}>
       <View style={{ flex: 1 }}>
@@ -2765,7 +2781,7 @@ const relaySettingsCard = (
       </View>
     )}
   </View>
-);
+) : null;
 
   return (
     <SafeAreaView style={s.safe}>
@@ -2988,13 +3004,7 @@ const relaySettingsCard = (
                         />
 
                         <View style={s.schoolConsentToggleGrid}>
-                          {[
-                            { label: 'Under 13', active: childUnder13, onPress: () => setChildUnder13(prev => !prev) },
-                            { label: 'Media', active: childConsentMedia, onPress: () => setChildConsentMedia(prev => !prev) },
-                            { label: 'Name', active: childConsentName, onPress: () => setChildConsentName(prev => !prev) },
-                            { label: 'Mantle', active: childConsentMantle, onPress: () => setChildConsentMantle(prev => !prev) },
-                            { label: 'Legacy', active: childConsentLegacy, onPress: () => setChildConsentLegacy(prev => !prev) },
-                          ].map(option => (
+                          {schoolConsentToggleOptions.map(option => (
                             <TouchableOpacity
                               key={option.label}
                               style={[s.schoolConsentToggle, option.active && s.schoolConsentToggleActive]}
@@ -3074,7 +3084,7 @@ const relaySettingsCard = (
               <Text style={s.spaceSettingsRowAction}>{spaceSettingsRelayOpen ? 'Hide' : spaceRelayLabel}</Text>
             </TouchableOpacity>
 
-            {spaceSettingsRelayOpen && relaySettingsCard}
+            {relaySettingsCard}
 
             {(isAdmin || canLeaveGroup) && (
               <View style={s.spaceSettingsDangerGroup}>
@@ -3827,7 +3837,7 @@ const relaySettingsCard = (
 
             {leadLegacyView ? (
               <>
-                {renderMantleMarkCard(leadLegacyView, 'lead')}
+                {renderLegacyMarkCard(leadLegacyView, 'lead')}
 
                 {supportingLegacyViews.length > 0 && (
                   <View style={s.mantlePodiumSection}>
@@ -3837,7 +3847,7 @@ const relaySettingsCard = (
                     </View>
 
                     <View style={s.mantlePodiumGrid}>
-                      {supportingLegacyViews.map((view, index) => renderMantleMarkCard(view, 'podium', index))}
+                      {supportingLegacyViews.map((view, index) => renderLegacyMarkCard(view, 'podium', index))}
                     </View>
                   </View>
                 )}
@@ -3850,7 +3860,7 @@ const relaySettingsCard = (
                     </View>
 
                     <View style={s.mantleRecapGrid}>
-                      {recapLegacyViews.map((view, index) => renderMantleMarkCard(view, 'recap', index))}
+                      {recapLegacyViews.map((view, index) => renderLegacyMarkCard(view, 'recap', index))}
                     </View>
                   </View>
                 )}
