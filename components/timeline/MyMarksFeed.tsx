@@ -1,16 +1,24 @@
+import { Ionicons } from '@expo/vector-icons';
+import { useCallback } from 'react';
 import {
     FlatList,
+    Image,
     Platform,
     RefreshControl,
     StyleSheet,
     Text,
+    TouchableOpacity,
     View,
-    type ListRenderItem,
+    type GestureResponderEvent,
     type NativeScrollEvent,
     type NativeSyntheticEvent,
     type ViewabilityConfig,
     type ViewToken,
 } from 'react-native';
+import MarkActionRow from '../../components/MarkActionRow';
+import MediaCollage from '../../components/MediaCollage';
+import TimelineTextMarkCard from '../../components/TimelineTextMarkCard';
+import TimelineVoiceMarkCard from '../../components/TimelineVoiceMarkCard';
 import {
     formatDate,
     type Milestone,
@@ -43,7 +51,14 @@ type MyMarksFeedProps = {
   syncing: boolean;
   refreshing: boolean;
   theme: any;
-  renderItem: ListRenderItem<MyMarksFeedItem>;
+  themeMode: string;
+  currentNpub: string | null;
+  activeVideoMarkId: string | null;
+  onOpenDetail: (item: MyMarksFeedItem) => void;
+  onComment: (item: MyMarksFeedItem) => void;
+  onLiftUp: (item: MyMarksFeedItem, event: GestureResponderEvent) => void;
+  onShare: (item: MyMarksFeedItem) => void;
+  onPressMedia: (milestone: Milestone, mediaIndex: number) => void;
   onRefresh: () => void;
   onScroll: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
   viewabilityConfig: ViewabilityConfig;
@@ -105,6 +120,34 @@ function getMyMarksAuthorLabel(
   return null;
 }
 
+export function getMyMarksCommentCount(milestone: Milestone): number {
+  return Array.isArray(milestone.reflections) ? milestone.reflections.length : 0;
+}
+
+export function getMyMarksLiftUpCount(milestone: Milestone): number {
+  const mark = milestone as any;
+
+  if (Array.isArray(mark.liftUps)) return mark.liftUps.length;
+  if (Array.isArray(mark.encouragements)) return mark.encouragements.length;
+
+  if (Array.isArray(mark.reactions)) {
+    return mark.reactions.filter((reaction: any) => {
+      const value = String(reaction?.type || reaction?.emoji || reaction?.label || '').toLowerCase();
+
+      return (
+        value.includes('lift') ||
+        value.includes('sparkle') ||
+        value.includes('encourage') ||
+        value === '✨' ||
+        value === '🙌' ||
+        value === '⭐'
+      );
+    }).length;
+  }
+
+  return 0;
+}
+
 export function buildMyMarksFeedItems({
   milestones,
   currentNpub,
@@ -154,12 +197,269 @@ export default function MyMarksFeed({
   syncing,
   refreshing,
   theme,
-  renderItem,
+  themeMode,
+  currentNpub,
+  activeVideoMarkId,
+  onOpenDetail,
+  onComment,
+  onLiftUp,
+  onShare,
+  onPressMedia,
   onRefresh,
   onScroll,
   viewabilityConfig,
   onViewableItemsChanged,
 }: MyMarksFeedProps) {
+  const themed = {
+    goldText: { color: theme.gold },
+    mutedText: { color: theme.textMuted },
+    secondaryText: { color: theme.textSecondary },
+    primaryText: { color: theme.text },
+    border: { borderColor: theme.border },
+    surface: { backgroundColor: theme.surface },
+    raised: { backgroundColor: theme.raised },
+  };
+
+  const renderCard = useCallback((item: MyMarksFeedItem, shouldAutoPlayVideo: boolean) => {
+    const milestone = item.milestone;
+    const visibleTags = milestone.tags.slice(0, 2);
+    const hiddenTagCount = Math.max(0, milestone.tags.length - visibleTags.length);
+    const commentCount = getMyMarksCommentCount(milestone);
+    const liftUpCount = getMyMarksLiftUpCount(milestone);
+
+    if (item.hasVisualMedia) {
+      return (
+        <View
+          style={[
+            s.feedMarkCardImmersive,
+            {
+              borderColor: `${theme.gold}55`,
+              shadowColor: theme.gold,
+            },
+          ]}
+        >
+          <View style={s.feedMarkMediaFrame}>
+            <MediaCollage
+              media={item.mediaItems}
+              fitMode="cover"
+              fixedHeight={500}
+              autoPlayVideos
+              playVideos={shouldAutoPlayVideo}
+              videoMuted
+              videoLoop
+              onPressMedia={(mediaIndex) => onPressMedia(milestone, mediaIndex)}
+            />
+
+            <View pointerEvents="none" style={s.feedMarkOverlayTop}>
+              <View style={s.feedMarkOverlayAuthor}>
+                <View style={s.feedMarkOverlayAvatar}>
+                  {item.authorAvatar ? (
+                    <Image source={{ uri: item.authorAvatar }} style={s.feedMarkOverlayAvatarImage} />
+                  ) : (
+                    <Text style={s.feedMarkOverlayAvatarText}>{item.authorInitials}</Text>
+                  )}
+                </View>
+
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={s.feedMarkOverlayAuthorName} numberOfLines={1}>
+                    {item.authorName}
+                  </Text>
+                  <Text style={s.feedMarkOverlayMeta} numberOfLines={1}>
+                    {item.contextLabel} - {item.timeLabel}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={s.feedMarkOverlayBottom}>
+              <TouchableOpacity
+                style={s.feedMarkOverlayCopyTap}
+                onPress={() => onOpenDetail(item)}
+                activeOpacity={0.9}
+              >
+                {item.title ? (
+                  <Text style={s.feedMarkOverlayTitle} numberOfLines={2}>
+                    {item.title}
+                  </Text>
+                ) : null}
+
+                {item.body ? (
+                  <Text style={s.feedMarkOverlayBody} numberOfLines={1}>
+                    {item.body}
+                  </Text>
+                ) : null}
+
+                {(visibleTags.length > 0 || hiddenTagCount > 0) && (
+                  <View style={s.feedMarkOverlayTagRow}>
+                    <Text style={s.feedMarkOverlayTagText} numberOfLines={1}>
+                      {visibleTags.join(' · ')}
+                    </Text>
+
+                    {hiddenTagCount > 0 && (
+                      <View style={s.feedMarkOverlayTagBadge}>
+                        <Text style={s.feedMarkOverlayTagBadgeText}>+{hiddenTagCount}</Text>
+                      </View>
+                    )}
+                  </View>
+                )}
+              </TouchableOpacity>
+
+              <MarkActionRow
+                variant="overlay"
+                theme={theme}
+                commentCount={commentCount}
+                liftUpCount={liftUpCount}
+                onComment={() => onComment(item)}
+                onLiftUp={(event) => onLiftUp(item, event)}
+                onShare={() => onShare(item)}
+                style={s.feedMarkOverlayActions}
+              />
+            </View>
+          </View>
+        </View>
+      );
+    }
+
+    if (!item.hasAudioOnly) {
+      return (
+        <TimelineTextMarkCard
+          item={item}
+          theme={theme}
+          themeMode={themeMode}
+          commentCount={commentCount}
+          liftUpCount={liftUpCount}
+          onOpenDetail={() => onOpenDetail(item)}
+          onComment={() => onComment(item)}
+          onLiftUp={(event) => onLiftUp(item, event)}
+          onShare={() => onShare(item)}
+        />
+      );
+    }
+
+    if (item.hasAudioOnly) {
+      return (
+        <TimelineVoiceMarkCard
+          item={item}
+          theme={theme}
+          themeMode={themeMode}
+          commentCount={commentCount}
+          liftUpCount={liftUpCount}
+          onOpenDetail={() => onOpenDetail(item)}
+          onComment={() => onComment(item)}
+          onLiftUp={(event) => onLiftUp(item, event)}
+          onShare={() => onShare(item)}
+          onPressMedia={(mediaIndex) => onPressMedia(milestone, mediaIndex)}
+        />
+      );
+    }
+
+    return (
+      <View style={[s.socialCard, themed.raised, themed.border]}>
+        <TouchableOpacity onPress={() => onOpenDetail(item)} activeOpacity={0.85}>
+          <View style={s.socialHeader}>
+            <View style={[s.authorAvatar, themed.surface, themed.border]}>
+              {item.authorAvatar ? (
+                <Image source={{ uri: item.authorAvatar }} style={s.authorAvatarImage} />
+              ) : (
+                <Text style={[s.authorAvatarText, themed.goldText]}>{item.authorInitials}</Text>
+              )}
+            </View>
+
+            <View style={s.socialHeaderCopy}>
+              <Text style={[s.authorName, themed.primaryText]} numberOfLines={1}>
+                {item.authorName}
+              </Text>
+              <Text style={[s.feedContext, themed.mutedText]} numberOfLines={1}>
+                {item.contextLabel} - {item.timeLabel}
+              </Text>
+            </View>
+
+            {milestone.publishedToRelay && (
+              <Text style={[s.relayBadge, themed.mutedText]}>relay</Text>
+            )}
+          </View>
+        </TouchableOpacity>
+
+        {item.hasAudioOnly && (
+          <MediaCollage
+            media={item.mediaItems}
+            audioUri={milestone.audioUri}
+            onPressMedia={(mediaIndex) => onPressMedia(milestone, mediaIndex)}
+          />
+        )}
+
+        <TouchableOpacity onPress={() => onOpenDetail(item)} activeOpacity={0.85}>
+          <View style={s.socialBody}>
+            {item.title && <Text style={[s.cardTitle, themed.primaryText]}>{item.title}</Text>}
+            {item.body ? (
+              <Text style={[s.note, themed.secondaryText]} numberOfLines={item.title ? 4 : 5}>
+                {item.body}
+              </Text>
+            ) : null}
+
+            {milestone.tags.length > 0 && (
+              <View style={s.tags}>
+                {milestone.tags.map(t => (
+                  <Text key={t} style={[s.tag, themed.surface, { color: theme.gold, borderColor: theme.border }]}>
+                    {t}
+                  </Text>
+                ))}
+              </View>
+            )}
+
+            <View style={s.cardMeta}>
+              {milestone.reflections && milestone.reflections.length > 0 && (
+                <Text style={[s.reflectionBadge, themed.mutedText]}>
+                  {milestone.reflections.length} reflection{milestone.reflections.length > 1 ? 's' : ''}
+                </Text>
+              )}
+
+              {milestone.authorNpub && milestone.authorNpub !== currentNpub && (
+                <Text style={[s.authorBadge, themed.mutedText]}>{milestone.authorNpub.slice(0, 10)}...</Text>
+              )}
+            </View>
+          </View>
+        </TouchableOpacity>
+
+        <View style={[s.socialActions, themed.border]}>
+          <TouchableOpacity
+            style={s.socialAction}
+            onPress={() => onComment(item)}
+            activeOpacity={0.75}
+            accessibilityRole="button"
+            accessibilityLabel="Comment on this Mark"
+          >
+            <Ionicons name="chatbubble-outline" size={21} color={theme.text} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={s.socialAction}
+            onPress={() => onShare(item)}
+            activeOpacity={0.75}
+            accessibilityRole="button"
+            accessibilityLabel="Share this Mark"
+          >
+            <Ionicons name="share-social-outline" size={22} color={theme.text} />
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }, [
+    currentNpub,
+    onComment,
+    onLiftUp,
+    onOpenDetail,
+    onPressMedia,
+    onShare,
+    theme,
+    themeMode,
+    themed,
+  ]);
+
+  const renderItem = useCallback(({ item }: { item: MyMarksFeedItem }) => {
+    return renderCard(item, item.id === activeVideoMarkId);
+  }, [activeVideoMarkId, renderCard]);
+
   if (items.length === 0) {
     return (
       <View style={s.empty}>
@@ -230,5 +530,231 @@ const s = StyleSheet.create({
     marginTop: 6,
     textAlign: 'center',
     lineHeight: 18,
+  },
+  feedMarkCardImmersive: {
+    borderRadius: 18,
+    overflow: 'hidden',
+    marginBottom: 14,
+    backgroundColor: '#000',
+    borderWidth: 0.7,
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    elevation: 5,
+  },
+  feedMarkMediaFrame: {
+    borderRadius: 18,
+    overflow: 'hidden',
+    backgroundColor: '#000',
+    position: 'relative',
+  },
+  feedMarkOverlayTop: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    zIndex: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  feedMarkOverlayAuthor: {
+    maxWidth: 190,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    borderRadius: 999,
+    paddingHorizontal: 7,
+    paddingVertical: 5,
+    backgroundColor: 'rgba(0,0,0,0.34)',
+  },
+  feedMarkOverlayAvatar: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(255,255,255,0.28)',
+    overflow: 'hidden',
+  },
+  feedMarkOverlayAvatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 13,
+  },
+  feedMarkOverlayAvatarText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  feedMarkOverlayAuthorName: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  feedMarkOverlayMeta: {
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 9,
+    fontWeight: '700',
+    marginTop: 1,
+  },
+  feedMarkOverlayBottom: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 5,
+    paddingHorizontal: 13,
+    paddingTop: 10,
+    paddingBottom: 10,
+    backgroundColor: 'rgba(0,0,0,0.50)',
+  },
+  feedMarkOverlayCopyTap: {
+    marginBottom: 8,
+  },
+  feedMarkOverlayTitle: {
+    color: '#fff',
+    fontSize: 19,
+    lineHeight: 23,
+    fontWeight: '900',
+    letterSpacing: -0.2,
+  },
+  feedMarkOverlayBody: {
+    color: 'rgba(255,255,255,0.78)',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+    marginTop: 3,
+  },
+  feedMarkOverlayTagRow: {
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  feedMarkOverlayTagText: {
+    flex: 1,
+    color: 'rgba(255,255,255,0.78)',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  feedMarkOverlayTagBadge: {
+    minWidth: 24,
+    height: 20,
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.16)',
+  },
+  feedMarkOverlayTagBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  feedMarkOverlayActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 10,
+  },
+  socialCard: {
+    borderRadius: 14,
+    borderWidth: 0.5,
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  socialHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  authorAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 0.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  authorAvatarImage: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  authorAvatarText: {
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  socialHeaderCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  authorName: {
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  feedContext: {
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  socialBody: {
+    paddingHorizontal: 14,
+    paddingBottom: 12,
+  },
+  socialActions: {
+    borderTopWidth: 0.5,
+    flexDirection: 'row',
+  },
+  socialAction: {
+    flex: 1,
+    minHeight: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#fff',
+    marginBottom: 5,
+  },
+  note: {
+    fontSize: 14,
+    color: '#888',
+    lineHeight: 20,
+  },
+  tags: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 5,
+    marginTop: 10,
+  },
+  tag: {
+    fontSize: 11,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 20,
+    borderWidth: 0.5,
+  },
+  cardMeta: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 8,
+    flexWrap: 'wrap',
+  },
+  relayBadge: {
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  reflectionBadge: {
+    fontSize: 10,
+  },
+  authorBadge: {
+    fontSize: 10,
+    color: '#555',
   },
 });

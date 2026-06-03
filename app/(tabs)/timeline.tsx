@@ -26,7 +26,9 @@ import BroadcastsFeed from '../../components/timeline/BroadcastsFeed';
 import FollowingFeed from '../../components/timeline/FollowingFeed';
 import MyMarksFeed, {
   buildMyMarksFeedItems,
+  getMyMarksCommentCount,
   getMyMarksFeedMediaItems,
+  getMyMarksLiftUpCount,
   type MyMarksFeedItem,
 } from '../../components/timeline/MyMarksFeed';
 import TimelineTextMarkCard from '../../components/TimelineTextMarkCard';
@@ -71,34 +73,6 @@ const LIFT_UP_CHOICES: Pick<MilestoneLiftUp, 'type' | 'label' | 'emoji'>[] = [
   { type: 'celebrating', label: 'Fired up', emoji: '🔥' },
   { type: 'encouraged', label: 'Surprised', emoji: '😮' },
 ];
-
-function getTimelineCommentCount(milestone: Milestone): number {
-  return Array.isArray(milestone.reflections) ? milestone.reflections.length : 0;
-}
-
-function getTimelineLiftUpCount(milestone: Milestone): number {
-  const mark = milestone as any;
-
-  if (Array.isArray(mark.liftUps)) return mark.liftUps.length;
-  if (Array.isArray(mark.encouragements)) return mark.encouragements.length;
-
-  if (Array.isArray(mark.reactions)) {
-    return mark.reactions.filter((reaction: any) => {
-      const value = String(reaction?.type || reaction?.emoji || reaction?.label || '').toLowerCase();
-
-      return (
-        value.includes('lift') ||
-        value.includes('sparkle') ||
-        value.includes('encourage') ||
-        value === '✨' ||
-        value === '🙌' ||
-        value === '⭐'
-      );
-    }).length;
-  }
-
-  return 0;
-}
 
 export default function TimelineScreen() {
   const [milestones, setMilestones] = useState<Milestone[]>([]);
@@ -656,8 +630,8 @@ export default function TimelineScreen() {
     const milestone = item.milestone;
     const visibleTags = milestone.tags.slice(0, 2);
     const hiddenTagCount = Math.max(0, milestone.tags.length - visibleTags.length);
-    const commentCount = getTimelineCommentCount(milestone);
-    const liftUpCount = getTimelineLiftUpCount(milestone);
+    const commentCount = getMyMarksCommentCount(milestone);
+    const liftUpCount = getMyMarksLiftUpCount(milestone);
 
     if (item.hasVisualMedia) {
       return (
@@ -877,10 +851,6 @@ export default function TimelineScreen() {
     );
   }
 
-  const renderItem = ({ item }: { item: TimelineFeedItem }) => {
-    return renderTimelineCard(item, item.id === activeVideoMarkId);
-  };
-
   const composerBottom = keyboardHeight > 0
     ? keyboardHeight + 8
     : Math.max(insets.bottom, 12) + 76;
@@ -927,7 +897,14 @@ export default function TimelineScreen() {
           syncing={syncing}
           refreshing={refreshing}
           theme={theme}
-          renderItem={renderItem}
+          themeMode={themeMode}
+          currentNpub={npub}
+          activeVideoMarkId={activeVideoMarkId}
+          onOpenDetail={openMarkDetail}
+          onComment={(item) => openSheetComposer(item, 'comment')}
+          onLiftUp={openLiftUpSheet}
+          onShare={shareFeedItem}
+          onPressMedia={openViewerForMilestone}
           onRefresh={onRefresh}
           onScroll={handleFeedScroll}
           viewabilityConfig={timelineViewabilityConfigRef.current}
