@@ -17,6 +17,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import SpaceCard from '../../components/SpaceCard';
 import { Colors } from '../../src/constants/theme';
 import type { LivingSpace, LivingSpaceType } from '../../src/types/living-spaces';
 import { getActiveGroupChatId } from '../../src/utils/active-group-chat';
@@ -119,17 +120,6 @@ function getGroupInitials(name: string): string {
   const clean = name.trim();
   if (!clean) return 'G';
   return clean.slice(0, 2).toUpperCase();
-}
-
-function getGroupAvatarText(group: BEGroup): string {
-  const customIcon = group.icon?.trim();
-  return customIcon || getGroupInitials(group.name);
-}
-
-function getCustomGroupIcon(group: BEGroup): string | null {
-  const customIcon = group.icon?.trim();
-
-  return customIcon || null;
 }
 
 function isRemoteImageUri(uri?: string | null): uri is string {
@@ -313,12 +303,6 @@ function formatLivingSpaceType(space?: LivingSpace): string {
 
 function getSpaceTypeLabel(type: LivingSpaceType): string {
   return SPACE_TYPE_LABELS[type] ?? 'Space';
-}
-
-function formatRelayLabel(group: BEGroup): string {
-  if (group.relayMode === 'custom') return 'private relay';
-  if (group.relayMode === 'both') return 'bE + space relay';
-  return 'bE relay';
 }
 
 async function resolveNip05Address(address: string): Promise<{ pubkey: string; npub: string; nip05: string }> {
@@ -1700,72 +1684,27 @@ const result = await ImagePicker.launchImageLibraryAsync({
       const livingSpace = livingSpaceByGroupId.get(group.id);
       const groupTypeIcon = getGroupTypeIcon(group);
       const canEditGroup = editableGroupIds.has(group.id);
-      const hasUnread = item.unread > 0;
       const memberCount = group.memberCount ?? 0;
-const preview =
-  group.description?.trim() ||
-  groupPreviewOverrides[group.id]?.preview ||
-  group.lastPostPreview ||
-  `${memberCount} member${memberCount !== 1 ? 's' : ''}`;
+      const preview =
+        group.description?.trim() ||
+        groupPreviewOverrides[group.id]?.preview ||
+        group.lastPostPreview ||
+        `${memberCount} member${memberCount !== 1 ? 's' : ''}`;
       const spaceTypeLabel = formatLivingSpaceType(livingSpace);
-      const updatedLabel = formatThreadTime(item.updatedAt);
 
       return (
-        <TouchableOpacity
-          style={[s.spaceLiveCard, hasUnread && s.spaceLiveCardUnread]}
-          activeOpacity={0.88}
+        <SpaceCard
+          group={group}
+          theme={theme}
+          variant="immersive"
+          preview={preview}
+          updatedAt={item.updatedAt}
+          unreadCount={item.unread}
+          categoryIcon={groupTypeIcon}
+          spaceTypeLabel={spaceTypeLabel}
           onPress={() => openGroup(group, 'overview')}
-          onLongPress={canEditGroup ? () => { void openEditGroup(group); } : undefined}
-        >
-          {group.coverImage ? (
-            <Image source={{ uri: group.coverImage }} style={s.spaceLiveCardImage} />
-          ) : (
-            <View style={s.spaceLiveCardFallback}>
-              <Text style={s.spaceLiveCardFallbackText}>{getGroupAvatarText(group)}</Text>
-            </View>
-          )}
-
-          <View style={s.spaceLiveCardShade} />
-
-          <View style={s.spaceLiveCardContent}>
-            <View style={s.spaceLiveCardTopRow}>
-              <View style={s.spaceLiveCardIdentity}>
-<Text style={s.spaceLiveCardKicker} numberOfLines={1}>
-  {groupTypeIcon ? `${groupTypeIcon} ` : ''}{spaceTypeLabel}
-</Text>
-                <Text style={s.spaceLiveCardTitle} numberOfLines={2}>
-                  {group.name}
-                </Text>
-              </View>
-
-<View style={s.spaceLiveCardActions}>
-  {hasUnread && (
-    <View style={s.spaceLiveUnreadBadge}>
-      <Text style={s.spaceLiveUnreadText}>{item.unread}</Text>
-    </View>
-  )}
-</View>
-            </View>
-
-<Text style={s.spaceLiveCardPreview} numberOfLines={1}>
-  {preview}
-</Text>
-
-            <View style={s.spaceLiveCardFooter}>
-              <Text style={s.spaceLiveChip}>
-                {memberCount} member{memberCount !== 1 ? 's' : ''}
-              </Text>
-
-              {group.season ? (
-                <Text style={s.spaceLiveChip}>{group.season}</Text>
-              ) : null}
-
-              {!!updatedLabel && (
-                <Text style={s.spaceLiveTime}>{updatedLabel}</Text>
-              )}
-            </View>
-          </View>
-        </TouchableOpacity>
+          onEdit={canEditGroup ? () => { void openEditGroup(group); } : undefined}
+        />
       );
     }
 
@@ -2591,27 +2530,6 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     borderRadius: 999,
     backgroundColor: theme.raised,
   },
-  threadMetaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    alignSelf: 'flex-start',
-    maxWidth: '100%',
-  },
-  spaceCategoryBadge: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 4,
-    backgroundColor: theme.raised,
-    borderWidth: 0.5,
-    borderColor: theme.gold + '55',
-  },
-  spaceCategoryBadgeText: {
-    fontSize: 11,
-  },
   threadMetaLocal: {
     alignSelf: 'flex-start',
     color: theme.textMuted,
@@ -2643,152 +2561,10 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  moreBtnHidden: {
-    width: 0,
-    opacity: 0,
-  },
   moreText: {
     color: theme.textMuted,
     fontSize: 22,
     fontWeight: '900',
-  },
-  spaceLiveCard: {
-    minHeight: 176,
-    borderRadius: 26,
-    marginBottom: 12,
-    overflow: 'hidden',
-    borderWidth: 0.5,
-    borderColor: theme.border,
-    backgroundColor: theme.raised,
-    position: 'relative',
-  },
-  spaceLiveCardUnread: {
-    borderColor: theme.gold + '88',
-  },
-  spaceLiveCardImage: {
-    ...StyleSheet.absoluteFillObject,
-    width: '100%',
-    height: '100%',
-  },
-  spaceLiveCardFallback: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.raised,
-  },
-  spaceLiveCardFallbackText: {
-    color: theme.gold,
-    fontSize: 54,
-    fontWeight: '900',
-  },
-  spaceLiveCardShade: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: theme.bg === Colors.light.bg
-      ? 'rgba(17,24,28,0.46)'
-      : 'rgba(0,0,0,0.46)',
-  },
-  spaceLiveCardContent: {
-    minHeight: 184,
-    padding: 17,
-    justifyContent: 'space-between',
-  },
-  spaceLiveCardTopRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  spaceLiveCardIdentity: {
-    flex: 1,
-    minWidth: 0,
-  },
-  spaceLiveCardKicker: {
-    color: 'rgba(255,255,255,0.78)',
-    fontSize: 11,
-    fontWeight: '900',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-    marginBottom: 2,
-  },
-  spaceLiveCardTitle: {
-    color: '#fff',
-    fontSize: 22,
-    lineHeight: 26,
-    fontWeight: '900',
-    letterSpacing: -0.4,
-  },
-  spaceLiveCardActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  spaceLiveUnreadBadge: {
-    minWidth: 26,
-    height: 26,
-    borderRadius: 13,
-    paddingHorizontal: 7,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.gold,
-  },
-  spaceLiveUnreadText: {
-    color: theme.bg,
-    fontSize: 12,
-    fontWeight: '900',
-  },
-  spaceLiveMoreBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.38)',
-    borderWidth: 0.5,
-    borderColor: 'rgba(255,255,255,0.18)',
-  },
-  spaceLiveMoreText: {
-    color: '#fff',
-    fontSize: 20,
-    fontWeight: '900',
-    marginTop: -2,
-  },
-    spaceLiveMoreIconText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '900',
-  },
-  spaceLiveCardPreview: {
-    color: 'rgba(255,255,255,0.88)',
-    fontSize: 14,
-    lineHeight: 19,
-    fontWeight: '700',
-    marginTop: 18,
-  },
-  spaceLiveCardFooter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 16,
-  },
-  spaceLiveChip: {
-    color: 'rgba(255,255,255,0.9)',
-    fontSize: 11,
-    fontWeight: '900',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-    backgroundColor: 'rgba(0,0,0,0.28)',
-    borderWidth: 0.5,
-    borderColor: 'rgba(255,255,255,0.18)',
-    overflow: 'hidden',
-  },
-  spaceLiveTime: {
-    color: 'rgba(255,255,255,0.78)',
-    fontSize: 11,
-    fontWeight: '900',
-    marginLeft: 'auto',
-    paddingHorizontal: 2,
   },
   empty: {
     flex: 1,

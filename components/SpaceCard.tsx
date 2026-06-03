@@ -25,6 +25,8 @@ type SpaceCardProps = {
   updatedAt?: number;
   unreadCount?: number;
   categoryIcon?: string | null;
+  spaceTypeLabel?: string;
+  variant?: 'compact' | 'immersive';
   archived?: boolean;
   onPress: () => void;
   onEdit?: () => void;
@@ -82,17 +84,85 @@ export default function SpaceCard({
   updatedAt,
   unreadCount = 0,
   categoryIcon,
+  spaceTypeLabel = 'Space',
+  variant = 'compact',
   archived = group.status === 'archived',
   onPress,
   onEdit,
 }: SpaceCardProps) {
   const relay = getRelayLabel(group);
+  const memberCount = group.memberCount ?? 0;
   const displayPreview =
     preview ||
     group.lastPostPreview ||
-    `${group.memberCount ?? 0} member${(group.memberCount ?? 0) !== 1 ? 's' : ''}`;
+    `${memberCount} member${memberCount !== 1 ? 's' : ''}`;
   const timeLabel = formatSpaceTime(updatedAt ?? group.lastPostAt ?? group.updatedAt);
   const coverImage = group.coverImage?.trim();
+
+  if (variant === 'immersive') {
+    return (
+      <TouchableOpacity
+        style={[s.immersiveCard, unreadCount > 0 && s.immersiveCardUnread]}
+        activeOpacity={0.88}
+        onPress={onPress}
+        onLongPress={onEdit}
+      >
+        {coverImage ? (
+          <Image source={{ uri: coverImage }} style={s.immersiveCardImage} />
+        ) : (
+          <View style={[s.immersiveCardFallback, { backgroundColor: theme.raised }]}>
+            <Text style={[s.immersiveCardFallbackText, { color: theme.gold }]}>
+              {getSpaceAvatarText(group)}
+            </Text>
+          </View>
+        )}
+
+        <View style={s.immersiveCardShade} />
+
+        <View style={s.immersiveCardContent}>
+          <View style={s.immersiveCardTopRow}>
+            <View style={s.immersiveCardIdentity}>
+              <Text style={s.immersiveCardKicker} numberOfLines={1}>
+                {categoryIcon ? `${categoryIcon} ` : ''}{spaceTypeLabel}
+              </Text>
+
+              <Text style={s.immersiveCardTitle} numberOfLines={2}>
+                {group.name}
+              </Text>
+            </View>
+
+            <View style={s.immersiveCardActions}>
+              {unreadCount > 0 && (
+                <View style={[s.immersiveUnreadBadge, { backgroundColor: theme.gold }]}>
+                  <Text style={[s.immersiveUnreadText, { color: theme.bg }]}>
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
+
+          <Text style={s.immersiveCardPreview} numberOfLines={1}>
+            {displayPreview}
+          </Text>
+
+          <View style={s.immersiveCardFooter}>
+            <Text style={s.immersiveChip}>
+              {memberCount} member{memberCount !== 1 ? 's' : ''}
+            </Text>
+
+            {group.season ? (
+              <Text style={s.immersiveChip}>{group.season}</Text>
+            ) : null}
+
+            {!!timeLabel && (
+              <Text style={s.immersiveTime}>{timeLabel}</Text>
+            )}
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  }
 
   return (
     <TouchableOpacity
@@ -250,6 +320,117 @@ export default function SpaceCard({
 }
 
 const s = StyleSheet.create({
+  immersiveCard: {
+    minHeight: 176,
+    borderRadius: 26,
+    marginBottom: 12,
+    overflow: 'hidden',
+    borderWidth: 0.5,
+    borderColor: 'rgba(255,255,255,0.14)',
+    backgroundColor: '#111',
+    position: 'relative',
+  },
+  immersiveCardUnread: {
+    borderColor: 'rgba(231,184,77,0.88)',
+  },
+  immersiveCardImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
+  },
+  immersiveCardFallback: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  immersiveCardFallbackText: {
+    fontSize: 54,
+    fontWeight: '900',
+  },
+  immersiveCardShade: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.46)',
+  },
+  immersiveCardContent: {
+    minHeight: 184,
+    padding: 17,
+    justifyContent: 'space-between',
+  },
+  immersiveCardTopRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  immersiveCardIdentity: {
+    flex: 1,
+    minWidth: 0,
+  },
+  immersiveCardKicker: {
+    color: 'rgba(255,255,255,0.78)',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    marginBottom: 2,
+  },
+  immersiveCardTitle: {
+    color: '#fff',
+    fontSize: 22,
+    lineHeight: 26,
+    fontWeight: '900',
+    letterSpacing: -0.4,
+  },
+  immersiveCardActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  immersiveUnreadBadge: {
+    minWidth: 26,
+    height: 26,
+    borderRadius: 13,
+    paddingHorizontal: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  immersiveUnreadText: {
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  immersiveCardPreview: {
+    color: 'rgba(255,255,255,0.88)',
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '700',
+    marginTop: 18,
+  },
+  immersiveCardFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 16,
+  },
+  immersiveChip: {
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 11,
+    fontWeight: '900',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.28)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(255,255,255,0.18)',
+    overflow: 'hidden',
+  },
+  immersiveTime: {
+    color: 'rgba(255,255,255,0.78)',
+    fontSize: 11,
+    fontWeight: '900',
+    marginLeft: 'auto',
+    paddingHorizontal: 2,
+  },
   card: {
     minHeight: 94,
     borderRadius: 18,
