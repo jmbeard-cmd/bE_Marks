@@ -1,6 +1,6 @@
 import GroupBookTab from '@/components/GroupBookTab';
 import GroupCalendarTab from '@/components/GroupCalendarTab';
-import SpaceDetailTabBar from '@/components/SpaceDetailTabBar';
+import SpaceTrayHeader from '@/components/SpaceTrayHeader';
 import {
   getCalendarEventsForGroup,
   getUpcomingEventsForGroup,
@@ -2808,24 +2808,14 @@ const relaySettingsCard = (
       </View>
 
       <View style={[s.spaceContentTray, liftedSpaceChatTrayStyle]}>
-        <View style={s.spaceTrayHeader}>
-          <TouchableOpacity
-            style={s.spaceProfileIdentityTap}
-            onPress={openSpaceControlCenter}
-            activeOpacity={0.86}
-          >
-            <Text style={s.spaceProfileTitle} numberOfLines={2}>{group.name}</Text>
-            <Text style={s.spaceProfileMeta} numberOfLines={1}>
-              Tap for controls • {spaceHomeMeta}
-            </Text>
-          </TouchableOpacity>
-
-          <SpaceDetailTabBar
-            activeTab={tab}
-            theme={theme}
-            onSelect={nextTab => selectSpaceTab(nextTab)}
-          />
-        </View>
+        <SpaceTrayHeader
+          title={group.name}
+          meta={spaceHomeMeta}
+          activeTab={tab}
+          theme={theme}
+          onOpenControls={openSpaceControlCenter}
+          onSelectTab={nextTab => selectSpaceTab(nextTab)}
+        />
 
       {/* Header control center and invite panels */}
       {showSpaceSettingsMenu && (
@@ -4749,21 +4739,6 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
       ? 'rgba(255,255,255,0.46)'
       : 'rgba(255,255,255,0.08)',
   },
-  spaceProfileTitle: {
-    color: theme.text,
-    fontSize: 23,
-    fontWeight: '900',
-  },
-  spaceProfileMeta: {
-    color: theme.textMuted,
-    fontSize: 12,
-    fontWeight: '800',
-    marginTop: 3,
-  },
-    spaceProfileIdentityTap: {
-    alignSelf: 'flex-start',
-    maxWidth: '100%',
-  },
   spaceContentTray: {
     position: 'absolute',
     left: 0,
@@ -4785,16 +4760,6 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     shadowOpacity: 0.14,
     shadowRadius: 18,
     elevation: 10,
-  },
-  spaceTrayHeader: {
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 10,
-    borderBottomWidth: 0.5,
-    borderBottomColor: theme.border,
-    backgroundColor: theme.bg === Colors.light.bg
-      ? 'rgba(255,255,255,0.42)'
-      : 'rgba(18,18,18,0.38)',
   },
   spaceTrayBody: {
     flex: 1,
