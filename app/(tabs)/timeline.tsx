@@ -24,7 +24,11 @@ import MarkCommentsSheet from '../../components/MarkCommentsSheet';
 import MediaCollage from '../../components/MediaCollage';
 import BroadcastsFeed from '../../components/timeline/BroadcastsFeed';
 import FollowingFeed from '../../components/timeline/FollowingFeed';
-import MyMarksFeed from '../../components/timeline/MyMarksFeed';
+import MyMarksFeed, {
+  buildMyMarksFeedItems,
+  getMyMarksFeedMediaItems,
+  type MyMarksFeedItem,
+} from '../../components/timeline/MyMarksFeed';
 import TimelineTextMarkCard from '../../components/TimelineTextMarkCard';
 import TimelineVoiceMarkCard from '../../components/TimelineVoiceMarkCard';
 import type { LivingMarkPromptCard } from '../../src/types/living-spaces';
@@ -34,7 +38,6 @@ import {
 } from '../../src/utils/living-spaces-storage';
 import { DEFAULT_RELAY, fetchFamilyMembers, fetchFamilyMilestones, publishFamilyMilestone } from '../../src/utils/nostr';
 import {
-  formatDate,
   getMilestones,
   saveRemoteMilestone,
   updateMilestone,
@@ -47,20 +50,7 @@ import { useIdentity } from '../_layout';
 type FeedKey = 'profile' | 'follows' | 'subscribed';
 type ComposerMode = 'reflect' | 'comment';
 
-type TimelineFeedItem = {
-  id: string;
-  milestone: Milestone;
-  authorName: string;
-  authorInitials: string;
-  authorAvatar?: string;
-  contextLabel: string;
-  timeLabel: string;
-  title: string | null;
-  body: string;
-  mediaItems: any[];
-  hasVisualMedia: boolean;
-  hasAudioOnly: boolean;
-};
+type TimelineFeedItem = MyMarksFeedItem;
 
 type SheetComposerState = {
   item: TimelineFeedItem;
@@ -81,44 +71,6 @@ const LIFT_UP_CHOICES: Pick<MilestoneLiftUp, 'type' | 'label' | 'emoji'>[] = [
   { type: 'celebrating', label: 'Fired up', emoji: '🔥' },
   { type: 'encouraged', label: 'Surprised', emoji: '😮' },
 ];
-
-function getInitials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return '?';
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase();
-}
-
-
-function getMilestoneMediaItems(item: Milestone): any[] {
-  const mediaItems: any[] = Array.isArray(item.media) ? [...item.media] : [];
-
-  if (item.photoUri && !mediaItems.some(m => m.uri === item.photoUri)) {
-    mediaItems.push({
-      id: `${item.id}_legacy_photo`,
-      uri: item.photoUri,
-      type: 'image',
-    });
-  }
-
-  if (item.videoUri && !mediaItems.some(m => m.uri === item.videoUri)) {
-    mediaItems.push({
-      id: `${item.id}_legacy_video`,
-      uri: item.videoUri,
-      type: 'video',
-    });
-  }
-
-  if (item.audioUri && !mediaItems.some(m => m.uri === item.audioUri)) {
-    mediaItems.push({
-      id: `${item.id}_legacy_audio`,
-      uri: item.audioUri,
-      type: 'audio',
-    });
-  }
-
-  return mediaItems;
-}
 
 function getTimelineCommentCount(milestone: Milestone): number {
   return Array.isArray(milestone.reflections) ? milestone.reflections.length : 0;
@@ -146,58 +98,6 @@ function getTimelineLiftUpCount(milestone: Milestone): number {
   }
 
   return 0;
-}
-
-function getMilestoneAuthorLabel(item: Milestone, currentNpub: string | null): string | null {
-  const savedName = item.authorName?.trim();
-
-  if (savedName) return savedName;
-  if (item.authorNpub && item.authorNpub === currentNpub) return 'You';
-  if (item.authorNpub) return `${item.authorNpub.slice(0, 10)}…`;
-
-  return null;
-}
-
-function createTimelineFeedItem(input: {
-  milestone: Milestone;
-  currentNpub: string | null;
-  currentProfile?: any;
-  feedKey: FeedKey;
-  familyName?: string;
-}): TimelineFeedItem {
-  const { milestone, currentNpub, currentProfile, feedKey, familyName } = input;
-  const hasTitle = milestone.note?.includes('\n\n');
-  const title = hasTitle ? milestone.note.split('\n\n')[0] : null;
-  const body = hasTitle ? milestone.note.split('\n\n').slice(1).join('\n\n') : milestone.note;
-  const mediaItems = getMilestoneMediaItems(milestone);
-  const hasVisualMedia = mediaItems.some(m => m.type === 'image' || m.type === 'video');
-  const hasAudioOnly = !hasVisualMedia && mediaItems.some(m => m.type === 'audio');
-  const authorName =
-    getMilestoneAuthorLabel(milestone, currentNpub) ||
-    currentProfile?.display_name ||
-    currentProfile?.name ||
-    'You';
-  const isMine = !milestone.authorNpub || milestone.authorNpub === currentNpub;
-  const contextLabel = milestone.familyId
-    ? familyName || 'Space Mark'
-    : isMine
-      ? 'My Marks'
-      : 'Following';
-
-  return {
-    id: milestone.id,
-    milestone,
-    authorName,
-    authorInitials: getInitials(authorName),
-    authorAvatar: isMine ? currentProfile?.picture : undefined,
-    contextLabel,
-    timeLabel: formatDate(milestone.createdAt),
-    title,
-    body,
-    mediaItems,
-    hasVisualMedia,
-    hasAudioOnly,
-  };
 }
 
 export default function TimelineScreen() {
@@ -429,15 +329,12 @@ export default function TimelineScreen() {
   const myMilestones = milestones.filter(m => !m.familyId || m.authorNpub === npub);
   const source = feedKey === 'profile' ? myMilestones : [];
   const activeFeed = FEED_OPTIONS.find(option => option.key === feedKey) ?? FEED_OPTIONS[0];
-  const feedItems = source.map(milestone =>
-    createTimelineFeedItem({
-      milestone,
-      currentNpub: npub,
-      currentProfile: profile,
-      feedKey,
-      familyName: family?.name,
-    })
-  );
+  const feedItems = buildMyMarksFeedItems({
+    milestones: source,
+    currentNpub: npub,
+    currentProfile: profile,
+    familyName: family?.name,
+  });
 
   const headerLogo =
     themeMode === 'light'
@@ -465,7 +362,7 @@ export default function TimelineScreen() {
   };
 
   function openViewerForMilestone(milestone: Milestone, startIndex: number) {
-  const mediaItems = getMilestoneMediaItems(milestone).filter(
+  const mediaItems = getMyMarksFeedMediaItems(milestone).filter(
     m => m.type === 'image' || m.type === 'video'
   );
 
