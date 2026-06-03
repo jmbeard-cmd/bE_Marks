@@ -1,7 +1,10 @@
 import GroupBookTab from '@/components/GroupBookTab';
 import GroupCalendarTab from '@/components/GroupCalendarTab';
 import SpaceBoardComposerModal from '@/components/SpaceBoardComposerModal';
+import SpaceBoardEmptyState from '@/components/SpaceBoardEmptyState';
+import SpaceBoardItemCard from '@/components/SpaceBoardItemCard';
 import SpaceDetailLoadingState from '@/components/SpaceDetailLoadingState';
+import SpaceStickyHighlightCard from '@/components/SpaceStickyHighlightCard';
 import SpaceTrayHeader from '@/components/SpaceTrayHeader';
 import {
   getCalendarEventsForGroup,
@@ -3512,64 +3515,15 @@ const relaySettingsCard = (
                 const sticky = item.sticky as GroupSticky;
 
                 return (
-                  <View style={s.stickyCard}>
-                    <View style={s.stickyTop}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={s.stickyTitle}>{sticky.title}</Text>
-                        <Text style={s.legacyStickyLabel}>Legacy highlight</Text>
-                      </View>
-
-                      {isAdmin && (
-                        <TouchableOpacity onPress={() => handleDeleteSticky(sticky)}>
-                          <Text style={s.stickyDelete}>✕</Text>
-                        </TouchableOpacity>
-                      )}
-                    </View>
-
-                    {sticky.body ? (
-                      <Text style={s.stickyBody}>{sticky.body}</Text>
-                    ) : null}
-
-                    {getStickyVisualMediaItems(sticky).length > 0 && (
-                      <MediaCollage
-                        media={getStickyVisualMediaItems(sticky)}
-                        onPressMedia={(index) => openViewerForSticky(sticky, index)}
-                      />
-                    )}
-
-                    {getStickyFileItems(sticky).length > 0 && (
-                      <View style={s.stickyFileList}>
-                        {getStickyFileItems(sticky).map((file, index) => (
-                          <TouchableOpacity
-                            key={`${sticky.id}_file_${index}`}
-                            style={s.stickyFileRow}
-                            onPress={() => handleOpenHighlightFile(file.mediaUrl || file.uri)}
-                            activeOpacity={0.82}
-                          >
-                            <Text style={s.stickyFileIcon}>📎</Text>
-
-                            <View style={{ flex: 1 }}>
-                              <Text style={s.stickyFileName} numberOfLines={1}>
-                                {file.fileName || file.name || 'Attached file'}
-                              </Text>
-
-                              {!!file.mimeType && (
-                                <Text style={s.stickyFileMeta} numberOfLines={1}>
-                                  {file.mimeType}
-                                </Text>
-                              )}
-                            </View>
-
-                            <Text style={s.stickyFileOpen}>Open</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    )}
-
-                    <Text style={s.stickyMeta}>
-                      Legacy note - {formatStickyDate(sticky.createdAt)}
-                    </Text>
-                  </View>
+                  <SpaceStickyHighlightCard
+                    sticky={sticky}
+                    theme={theme}
+                    isAdmin={isAdmin}
+                    createdAtLabel={formatStickyDate(sticky.createdAt)}
+                    onDelete={() => handleDeleteSticky(sticky)}
+                    onPressMedia={(index) => openViewerForSticky(sticky, index)}
+                    onOpenFile={handleOpenHighlightFile}
+                  />
                 );
               }
 
@@ -3818,72 +3772,17 @@ const relaySettingsCard = (
                 </View>
               ) : null
             }
-            ListEmptyComponent={
-              <View style={s.empty}>
-                <Text style={s.emptyIcon}>📣</Text>
-                <Text style={s.emptyText}>No Board items yet</Text>
-                <Text style={s.emptyHint}>
-                  Pins, announcements, and alerts for this Space will live here.
-                </Text>
-              </View>
-            }
+            ListEmptyComponent={<SpaceBoardEmptyState theme={theme} />}
             renderItem={({ item: sticky }) => (
-              <View style={s.stickyCard}>
-                <View style={s.stickyTop}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.stickyTitle}>{sticky.title}</Text>
-                    <Text style={s.legacyStickyLabel}>
-                      {sticky.displayMode === 'alert'
-                        ? 'Alert'
-                        : sticky.displayMode === 'announcement'
-                          ? 'Announcement'
-                          : 'Pinned note'}
-                    </Text>
-
-                    <Text style={s.stickyMeta} numberOfLines={1}>
-                      {getBoardItemAuthorLabel(sticky)}
-                    </Text>
-                  </View>
-
-                  {isAdmin && (
-                    <TouchableOpacity onPress={() => handleDeleteSticky(sticky)}>
-                      <Text style={s.stickyDelete}>✕</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-
-                {sticky.body ? (
-                  <Text style={s.stickyBody}>{sticky.body}</Text>
-                ) : null}
-
-                {getStickyVisualMediaItems(sticky).length > 0 && (
-                  <MediaCollage
-                    media={getStickyVisualMediaItems(sticky)}
-                    onPressMedia={(index) => openViewerForSticky(sticky, index)}
-                  />
-                )}
-
-                {getStickyFileItems(sticky).length > 0 && (
-                  <View style={s.stickyFileList}>
-                    {getStickyFileItems(sticky).map((file, index) => (
-                      <TouchableOpacity
-                        key={`${sticky.id}_file_${index}`}
-                        style={s.stickyFileRow}
-                        onPress={() => handleOpenHighlightFile(file.mediaUrl || file.uri)}
-                        activeOpacity={0.84}
-                      >
-                        <Text style={s.stickyFileIcon}>📎</Text>
-                        <View style={{ flex: 1 }}>
-                          <Text style={s.stickyFileName} numberOfLines={1}>
-                            {file.name || `Attachment ${index + 1}`}
-                          </Text>
-                          <Text style={s.stickyFileMeta}>Tap to open</Text>
-                        </View>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                )}
-              </View>
+              <SpaceBoardItemCard
+                sticky={sticky}
+                theme={theme}
+                isAdmin={isAdmin}
+                authorLabel={getBoardItemAuthorLabel(sticky)}
+                onDelete={() => handleDeleteSticky(sticky)}
+                onPressMedia={(index) => openViewerForSticky(sticky, index)}
+                onOpenFile={handleOpenHighlightFile}
+              />
             )}
           />
 
@@ -4999,14 +4898,6 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
   },
-  stickyCard: {
-    backgroundColor: theme.surface,
-    borderWidth: 0.5,
-    borderColor: theme.border,
-    borderRadius: 18,
-    padding: 16,
-    marginBottom: 13,
-  },
   spaceMarksOverview: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -5345,43 +5236,6 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     fontSize: 28,
     fontWeight: '800',
   },
-  stickyTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 12,
-    marginBottom: 9,
-  },
-  stickyTitle: {
-    color: theme.text,
-    fontSize: 16,
-    fontWeight: '800',
-    letterSpacing: -0.2,
-  },
-  legacyStickyLabel: {
-    color: theme.textMuted,
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-    marginTop: 2,
-  },
-  stickyDelete: {
-    color: '#555',
-    fontSize: 16,
-    paddingHorizontal: 4,
-    fontWeight: '700',
-  },
-  stickyBody: {
-    color: theme.text,
-    fontSize: 14,
-    lineHeight: 21,
-  },
-  stickyMeta: {
-    color: theme.textMuted,
-    fontSize: 11,
-    marginTop: 12,
-    fontWeight: '600',
-  },
   spaceMarkBadge: {
     color: theme.gold,
     fontSize: 11,
@@ -5596,38 +5450,6 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     fontSize: 24,
     fontWeight: '800',
     lineHeight: 26,
-  },
-  stickyFileList: {
-    gap: 8,
-    marginTop: 12,
-  },
-  stickyFileRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    padding: 11,
-    borderRadius: 12,
-    borderWidth: 0.5,
-    borderColor: theme.border,
-    backgroundColor: theme.raised,
-  },
-  stickyFileIcon: {
-    fontSize: 17,
-  },
-  stickyFileName: {
-    color: theme.text,
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  stickyFileMeta: {
-    color: theme.textMuted,
-    fontSize: 10,
-    marginTop: 2,
-  },
-  stickyFileOpen: {
-    color: theme.gold,
-    fontSize: 12,
-    fontWeight: '900',
   },
   groupRelayCard: {
     padding: 16,
@@ -6778,39 +6600,6 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     fontWeight: '800',
     fontSize: 13,
   },
-  modalScrollContent: {
-    flexGrow: 1,
-    justifyContent: 'flex-end',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'flex-end',
-  },
-  modalCard: {
-    backgroundColor: theme.surface,
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
-    borderTopWidth: 0.5,
-    borderTopColor: theme.border,
-    padding: 20,
-  },
-  modalTitle: {
-    color: theme.text,
-    fontSize: 18,
-    fontWeight: '700',
-    marginBottom: 16,
-  },
-  highlightUploadStatus: {
-    color: '#c9973a',
-    fontSize: 12,
-    fontWeight: '700',
-    marginTop: 12,
-    textAlign: 'center',
-  },
-  confirmBtnDisabled: {
-    opacity: 0.65,
-  },
   inputLabel: {
     fontSize: 11,
     color: theme.textMuted,
@@ -6827,9 +6616,6 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     fontSize: 15,
     color: theme.text,
     backgroundColor: theme.surface,
-  },
-  inputMulti: {
-    minHeight: 120,
   },
   markContextToggle: {
     flexDirection: 'row',
