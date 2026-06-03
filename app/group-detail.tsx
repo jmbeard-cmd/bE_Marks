@@ -2399,19 +2399,6 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
     }));
   }, [spaceMarkViews]);
 
-  const mantleMarkViews = useMemo(() => {
-    return spaceMarkViews
-      .filter(view =>
-        view.metadata.markPermissions.highlightApproved === true &&
-        view.metadata.markPermissions.restricted !== true
-      )
-      .sort((a, b) => getMantleMarkTimestamp(b) - getMantleMarkTimestamp(a));
-  }, [spaceMarkViews]);
-
-  const leadMantleView = mantleMarkViews[0] ?? null;
-  const supportingMantleViews = mantleMarkViews.slice(1, 4);
-  const recapMantleViews = mantleMarkViews.slice(4);
-
   const legacyMarkViews = useMemo(() => {
     return spaceMarkViews
       .filter(view =>
@@ -2448,14 +2435,6 @@ const schoolConsentStatusLabel = schoolConsentEnabled
 
 const sportsMantle = isSportsSpace(group);
 
-const openRiverForMantle = (markId?: string) => {
-  const targetMarkId = markId ?? mantleMarkViews[0]?.milestone.id;
-
-  if (!targetMarkId) return;
-
-  openMarkDetail(targetMarkId, 'mantle');
-};
-
 const openRiverForLegacy = (markId?: string) => {
   const targetMarkId = markId ?? legacyMarkViews[0]?.milestone.id;
 
@@ -2482,7 +2461,7 @@ const renderMantleMarkCard = (
       <TouchableOpacity
         key={`mantle_lead_${mark.id}`}
         style={[s.mantleFeatureCard, sportsMantle && s.mantleFeatureCardSports]}
-        onPress={() => openRiverForMantle(mark.id)}
+        onPress={() => openRiverForLegacy(mark.id)}
         activeOpacity={0.88}
       >
         <View style={s.mantleFeatureLabelRow}>
@@ -2529,7 +2508,7 @@ const renderMantleMarkCard = (
     <TouchableOpacity
       key={`mantle_${variant}_${mark.id}`}
       style={isPodium ? s.mantlePodiumCard : s.mantleRecapCard}
-      onPress={() => openRiverForMantle(mark.id)}
+      onPress={() => openRiverForLegacy(mark.id)}
       activeOpacity={0.88}
     >
       <View style={isPodium ? s.mantlePodiumMediaWrap : s.mantleRecapMediaWrap}>
@@ -3256,20 +3235,6 @@ const relaySettingsCard = (
 
                 <TouchableOpacity
                   style={s.overviewFlowItem}
-                  onPress={() => selectSpaceTab('mantle')}
-                  activeOpacity={0.86}
-                >
-                  <View style={s.overviewFlowIcon}>
-                    <Ionicons name="sparkles-outline" size={18} color={theme.textSecondary} />
-                  </View>
-                  <Text style={s.overviewFlowAction}>Feature</Text>
-                  <Text style={s.overviewFlowName}>Mantle</Text>
-                  <Text style={s.overviewFlowHint}>Showcase the best approved highlights from this Space.</Text>
-                  <Text style={s.overviewFlowCount}>{mantleMarkViews.length}</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={s.overviewFlowItem}
                   onPress={() => selectSpaceTab('legacy')}
                   activeOpacity={0.86}
                 >
@@ -3387,90 +3352,6 @@ const relaySettingsCard = (
             variant="inline"
             onMediaMessagesChanged={refreshLocalGalleryFromCache}
           />
-        </View>
-      )}
-
-      {tab === 'mantle' && (
-        <View style={s.spaceTabPanel}>
-          <ScrollView
-            style={s.spaceTabScroll}
-            contentContainerStyle={s.mantlePageContent}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.gold} />}
-          >
-            <View style={[s.mantleCompactHeader, sportsMantle && s.mantleCompactHeaderSports]}>
-              <View style={s.mantleCompactTopRow}>
-                <View style={s.mantleCompactBadge}>
-                  <Text style={s.mantleCompactBadgeText}>
-                    {spaceCategoryIcon ? `${spaceCategoryIcon} ` : ''}{sportsMantle ? 'Trophy case' : 'Living collage'}
-                  </Text>
-                </View>
-                <Text style={s.mantleCompactCount}>
-                  {mantleMarkViews.length} {mantleMarkViews.length === 1 ? 'Mark' : 'Marks'}
-                </Text>
-              </View>
-              <Text style={s.mantleCompactTitle} numberOfLines={2}>
-                {sportsMantle ? `${group.name} Showcase` : `${group.name} Mantle`}
-              </Text>
-              <Text style={s.mantleCompactSubtitle} numberOfLines={2}>
-                Approved highlights from this Space.
-              </Text>
-              <TouchableOpacity
-                style={[
-                  s.mantleRiverButton,
-                  mantleMarkViews.length === 0 && s.mantleRiverButtonDisabled,
-                ]}
-                onPress={() => openRiverForMantle()}
-                disabled={mantleMarkViews.length === 0}
-                activeOpacity={0.86}
-              >
-                <View style={s.mantleRiverIconWrap}>
-                  <Ionicons name="play" size={13} color={theme.bg} />
-                </View>
-                <Text style={s.mantleRiverButtonText}>Open Lead Mark</Text>
-              </TouchableOpacity>
-            </View>
-
-            {leadMantleView ? (
-              <>
-                {renderMantleMarkCard(leadMantleView, 'lead')}
-
-                {supportingMantleViews.length > 0 && (
-                  <View style={s.mantlePodiumSection}>
-                    <View style={s.mantleSectionHeader}>
-                      <Text style={s.mantleSectionKicker}>
-                        {sportsMantle ? 'Top moments' : 'Featured memories'}
-                      </Text>
-                      <Text style={s.mantleSectionTitle}>
-                        {sportsMantle ? 'The showcase stand' : 'The collage wall'}
-                      </Text>
-                    </View>
-                    <View style={s.mantlePodiumGrid}>
-                      {supportingMantleViews.map((view, index) => renderMantleMarkCard(view, 'podium', index))}
-                    </View>
-                  </View>
-                )}
-
-                {recapMantleViews.length > 0 && (
-                  <View style={s.mantleRecapSection}>
-                    <View style={s.mantleSectionHeader}>
-                      <Text style={s.mantleSectionKicker}>Recap</Text>
-                      <Text style={s.mantleSectionTitle}>More from this stretch</Text>
-                    </View>
-                    <View style={s.mantleRecapGrid}>
-                      {recapMantleViews.map((view, index) => renderMantleMarkCard(view, 'recap', index))}
-                    </View>
-                  </View>
-                )}
-              </>
-            ) : (
-              <SpaceEmptyState
-                theme={theme}
-                icon="M"
-                title="No Mantle highlights yet"
-                hint="Approved, unrestricted Marks will appear here."
-              />
-            )}
-          </ScrollView>
         </View>
       )}
 
