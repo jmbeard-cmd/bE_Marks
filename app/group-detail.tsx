@@ -136,7 +136,7 @@ import {
 import { useIdentity } from './_layout';
 import { GroupChatPanel } from './group-thread';
 
-type Tab = 'overview' | 'chat' | 'stickies' | 'board' | 'mantle' | 'calendar' | 'gallery' | 'members' | 'legacy' | 'book';
+type Tab = 'overview' | 'chat' | 'stickies' | 'board' | 'calendar' | 'gallery' | 'members' | 'legacy' | 'book';
 const GROUP_LOCAL_GALLERY_KEY = 'be_group_local_gallery_v1';
 const SPACE_GALLERY_CACHE_KEY_PREFIX = 'be_space_gallery_cache_v1:';
 const SPACE_FAVORITES_KEY = 'be_space_favorite_ids_v1';
@@ -523,7 +523,7 @@ function getTrustedBoardAuthors(groupMembers: BEGroupMember[]): GroupStickyTrust
 export default function GroupDetailScreen() {
 const { id, tab: routeTab } = useLocalSearchParams<{
   id: string;
-  tab?: Tab;
+  tab?: string;
   highlightId?: string;
   calendarEventId?: string;
   memberNpub?: string;
@@ -536,7 +536,6 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   const [members, setMembers] = useState<BEGroupMember[]>([]);
   const [stickies, setStickies] = useState<GroupSticky[]>([]);
   const [spaceMarkViews, setSpaceMarkViews] = useState<LivingMarkView[]>([]);
-  const [livingSpaces, setLivingSpaces] = useState<LivingSpace[]>([]);
   const [galleryItems, setGalleryItems] = useState<SpaceGalleryItem[]>([]);
   const [chatMessageCount, setChatMessageCount] = useState(0);
   const [selectedGalleryImage, setSelectedGalleryImage] = useState<string | null>(null);
@@ -857,7 +856,6 @@ const { id, tab: routeTab } = useLocalSearchParams<{
     let spaces: LivingSpace[] = [];
     try {
       spaces = await syncLivingSpacesFromGroups();
-      setLivingSpaces(spaces);
       await loadSpaceMarks(id, spaces);
     } catch (error) {
       console.warn('[Space Detail] failed to sync Living Space mirror:', error);
@@ -4481,86 +4479,6 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     color: theme.bg,
     fontSize: 13,
     fontWeight: '900',
-  },
-  mantleShowcaseHero: {
-    minHeight: 190,
-    borderRadius: 24,
-    overflow: 'hidden',
-    marginBottom: 14,
-    borderWidth: 0.5,
-    borderColor: theme.border,
-    backgroundColor: theme.raised,
-  },
-  mantleShowcaseHeroSports: {
-    borderColor: theme.gold,
-  },
-  mantleShowcaseHeroGeneric: {
-    borderColor: theme.border,
-  },
-  mantleShowcaseImage: {
-    ...StyleSheet.absoluteFillObject,
-    width: '100%',
-    height: '100%',
-  },
-  mantleShowcaseFallback: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.goldDim,
-  },
-  mantleShowcaseFallbackText: {
-    color: theme.gold,
-    fontSize: 54,
-    fontWeight: '900',
-  },
-  mantleShowcaseShade: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.38)',
-  },
-  mantleShowcaseContent: {
-    flex: 1,
-    minHeight: 190,
-    justifyContent: 'flex-end',
-    padding: 18,
-  },
-  mantleHeroBadgeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-    marginBottom: 10,
-  },
-  mantleHeroBadge: {
-    maxWidth: '70%',
-    borderRadius: 999,
-    paddingHorizontal: 11,
-    paddingVertical: 7,
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    borderWidth: 0.5,
-    borderColor: 'rgba(255,255,255,0.34)',
-  },
-  mantleHeroBadgeText: {
-    color: '#fff',
-    fontSize: 11,
-    fontWeight: '900',
-  },
-  mantleHeroCount: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '900',
-  },
-  mantleHeroTitle: {
-    color: '#fff',
-    fontSize: 29,
-    lineHeight: 34,
-    fontWeight: '900',
-  },
-  mantleHeroSubtitle: {
-    color: 'rgba(255,255,255,0.84)',
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: '700',
-    marginTop: 6,
   },
   mantleFeatureCard: {
     borderRadius: 22,
