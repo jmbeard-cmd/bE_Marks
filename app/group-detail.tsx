@@ -621,15 +621,19 @@ const { id, tab: routeTab } = useLocalSearchParams<{
     );
   }, [profile, npub]);
 
+  const memberByNpub = useMemo(() => {
+    return new Map(members.map(member => [member.npub, member]));
+  }, [members]);
+
   const currentMember = useMemo(() => {
     if (!npub) return null;
 
-    return members.find(member => member.npub === npub) ?? null;
-  }, [members, npub]);
+    return memberByNpub.get(npub) ?? null;
+  }, [memberByNpub, npub]);
 
   const getSpaceMarkAuthorProfile = useCallback((mark: Milestone) => {
     const authorMember = mark.authorNpub
-      ? members.find(member => member.npub === mark.authorNpub)
+      ? memberByNpub.get(mark.authorNpub) ?? null
       : null;
     const isMine = !!mark.authorNpub && !!npub && mark.authorNpub === npub;
     const displayName =
@@ -646,7 +650,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
       avatarUrl,
       initials: getPersonInitials(displayName),
     };
-  }, [members, myDisplayName, npub, profile]);
+  }, [memberByNpub, myDisplayName, npub, profile]);
 
   const canLeaveGroup = useMemo(() => {
     return (
@@ -1872,7 +1876,7 @@ const openUnifiedMarkComposer = (returnTab: Tab = tab, calendarEvent?: GroupCale
 
 const getBoardItemAuthorLabel = (sticky: GroupSticky): string => {
   const authorMember = sticky.authorNpub
-    ? members.find(member => member.npub === sticky.authorNpub)
+    ? memberByNpub.get(sticky.authorNpub) ?? null
     : null;
 
   const displayName =
@@ -2409,9 +2413,17 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
       .sort((a, b) => getMantleMarkTimestamp(b) - getMantleMarkTimestamp(a));
   }, [spaceMarkViews]);
 
-  const leadLegacyView = legacyMarkViews[0] ?? null;
-  const supportingLegacyViews = legacyMarkViews.slice(1, 4);
-  const recapLegacyViews = legacyMarkViews.slice(4);
+  const {
+    leadLegacyView,
+    supportingLegacyViews,
+    recapLegacyViews,
+  } = useMemo(() => {
+    return {
+      leadLegacyView: legacyMarkViews[0] ?? null,
+      supportingLegacyViews: legacyMarkViews.slice(1, 4),
+      recapLegacyViews: legacyMarkViews.slice(4),
+    };
+  }, [legacyMarkViews]);
 
   if (!group) return (
     <SpaceDetailLoadingState theme={theme} />
