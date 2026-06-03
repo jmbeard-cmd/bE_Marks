@@ -16,6 +16,7 @@ import {
     type AccentPaletteKey,
 } from '../src/constants/theme';
 import { clearIdentity as clearStoredIdentity } from '../src/utils/nostr';
+import AccountTraySocialGraphCard from './AccountTraySocialGraphCard';
 
 type AccountTrayProps = {
   visible: boolean;
@@ -117,6 +118,11 @@ export default function AccountTray({ visible, onClose }: AccountTrayProps) {
 
               <Text style={[s.openText, { color: theme.gold }]}>Open</Text>
             </TouchableOpacity>
+
+            <AccountTraySocialGraphCard
+              theme={theme}
+              onPress={() => openRoute('/social-graph')}
+            />
 
             <View style={[s.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
               <View style={s.cardHeader}>
