@@ -20,6 +20,7 @@ import {
     Platform,
     StyleSheet,
     Text,
+    TextInput,
     TouchableOpacity,
     View,
 } from 'react-native';
@@ -73,6 +74,7 @@ export default function SocialGraphScreen() {
   const [relays, setRelays] = useState<string[]>([]);
   const [loadingCache, setLoadingCache] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [searchText, setSearchText] = useState('');
 
   const followingPeople = useMemo(() => {
     return peopleForPubkeys(cache.followingPubkeys, cache.peopleByPubkey);
@@ -85,6 +87,30 @@ export default function SocialGraphScreen() {
   const visiblePeople = useMemo(() => {
     return tab === 'following' ? followingPeople : followerPeople;
   }, [followerPeople, followingPeople, tab]);
+
+  const searchQuery = useMemo(() => {
+    return searchText.trim().toLowerCase();
+  }, [searchText]);
+
+  const hasSearchQuery = searchQuery.length > 0;
+
+  const filteredPeople = useMemo(() => {
+    if (!searchQuery) return visiblePeople;
+
+    return visiblePeople.filter(person => {
+      const searchableText = [
+        person.displayName,
+        person.npub,
+        person.pubkey,
+        person.about,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+
+      return searchableText.includes(searchQuery);
+    });
+  }, [searchQuery, visiblePeople]);
 
   const lastUpdatedLabel = useMemo(() => {
     return formatLastUpdated(cache);
@@ -147,6 +173,10 @@ export default function SocialGraphScreen() {
     setTab(current => (current === 'followers' ? current : 'followers'));
   }, []);
 
+  const handleClearSearch = useCallback(() => {
+    setSearchText('');
+  }, []);
+
   const keyExtractor = useCallback((item: SocialGraphPerson) => {
     return item.pubkey;
   }, []);
@@ -177,14 +207,20 @@ export default function SocialGraphScreen() {
           />
         </View>
         <Text style={s.emptyTitle}>
-          {tab === 'following' ? 'No following yet' : 'No followers yet'}
+          {hasSearchQuery
+            ? 'No matches'
+            : tab === 'following'
+              ? 'No following yet'
+              : 'No followers yet'}
         </Text>
         <Text style={s.emptyText}>
-          Pull to refresh your network.
+          {hasSearchQuery
+            ? 'Try a different name, npub, or keyword.'
+            : 'Pull to refresh your network.'}
         </Text>
       </View>
     );
-  }, [s, tab, theme.gold]);
+  }, [hasSearchQuery, s, tab, theme.gold]);
 
   const listHeaderComponent = useMemo(() => {
     return (
@@ -234,9 +270,38 @@ export default function SocialGraphScreen() {
           </TouchableOpacity>
         </View>
 
+        <View style={s.searchCard}>
+          <View style={s.searchInputWrap}>
+            <Ionicons name="search" size={17} color={theme.textSecondary ?? '#A3A3A3'} />
+            <TextInput
+              value={searchText}
+              onChangeText={setSearchText}
+              placeholder={tab === 'following' ? 'Search following' : 'Search followers'}
+              placeholderTextColor={theme.textSecondary ?? '#A3A3A3'}
+              autoCapitalize="none"
+              autoCorrect={false}
+              style={s.searchInput}
+            />
+
+            {hasSearchQuery && (
+              <TouchableOpacity
+                style={s.searchClearButton}
+                onPress={handleClearSearch}
+                activeOpacity={0.82}
+              >
+                <Ionicons name="close" size={16} color={theme.gold} />
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+
         <View style={s.sectionHeader}>
           <Text style={s.sectionTitle}>
-            {tab === 'following' ? 'Following' : 'Followers'}
+            {hasSearchQuery
+              ? `${filteredPeople.length} match${filteredPeople.length === 1 ? '' : 'es'}`
+              : tab === 'following'
+                ? 'Following'
+                : 'Followers'}
           </Text>
         </View>
       </View>
@@ -244,18 +309,21 @@ export default function SocialGraphScreen() {
   }, [
     cache.followerPubkeys.length,
     cache.followingPubkeys.length,
+    filteredPeople.length,
+    handleClearSearch,
     handleRefresh,
     handleShowFollowers,
     handleShowFollowing,
+    hasSearchQuery,
     lastUpdatedLabel,
     npub,
     relays,
     s,
+    searchText,
     syncing,
     tab,
     theme,
   ]);
-
   useEffect(() => {
     loadLocalSocialGraph();
   }, [loadLocalSocialGraph]);
@@ -280,7 +348,7 @@ export default function SocialGraphScreen() {
       <FlatList
         style={s.scroll}
         contentContainerStyle={s.content}
-        data={visiblePeople}
+        data={filteredPeople}
         keyExtractor={keyExtractor}
         renderItem={renderPerson}
         ListHeaderComponent={listHeaderComponent}
@@ -293,6 +361,7 @@ export default function SocialGraphScreen() {
         removeClippedSubviews={Platform.OS === 'android'}
         refreshing={syncing || loadingCache}
         onRefresh={handleRefresh}
+        keyboardShouldPersistTaps="handled"
       />
     </SafeAreaView>
   );
@@ -405,6 +474,40 @@ function createStyles(theme: any) {
     },
     tabTextActive: {
       color: bg,
+    },
+    searchCard: {
+      borderWidth: 1,
+      borderColor: border,
+      borderRadius: 18,
+      padding: 10,
+      backgroundColor: raised,
+    },
+    searchInputWrap: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      minHeight: 42,
+      borderRadius: 14,
+      paddingHorizontal: 12,
+      backgroundColor: bg,
+      borderWidth: 1,
+      borderColor: border,
+    },
+    searchInput: {
+      flex: 1,
+      minWidth: 0,
+      color: text,
+      fontSize: 14,
+      fontWeight: '800',
+      paddingVertical: 8,
+    },
+    searchClearButton: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: goldDim,
     },
     sectionHeader: {
       gap: 4,

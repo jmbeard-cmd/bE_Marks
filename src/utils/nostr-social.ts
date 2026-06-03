@@ -492,26 +492,25 @@ export async function fetchFollowerPubkeys(input: {
 
 export async function hydrateSocialPeopleProfiles(
   people: SocialGraphPerson[],
-  limit = 40
+  limit = 24
 ): Promise<SocialGraphPerson[]> {
   const targetPeople = people.slice(0, limit);
   const hydrated: SocialGraphPerson[] = [];
+  const batchSize = 6;
 
-  for (const person of targetPeople) {
+  async function hydrateOnePerson(person: SocialGraphPerson): Promise<SocialGraphPerson> {
     if (!person.npub) {
-      hydrated.push(person);
-      continue;
+      return person;
     }
 
     try {
       const profile = await fetchNostrProfile(person.npub);
 
       if (!profile) {
-        hydrated.push(person);
-        continue;
+        return person;
       }
 
-      hydrated.push({
+      return {
         ...person,
         displayName:
           profile.display_name ||
@@ -524,10 +523,17 @@ export async function hydrateSocialPeopleProfiles(
           profile.about ||
           person.about,
         updatedAt: nowSeconds(),
-      });
+      };
     } catch {
-      hydrated.push(person);
+      return person;
     }
+  }
+
+  for (let index = 0; index < targetPeople.length; index += batchSize) {
+    const batch = targetPeople.slice(index, index + batchSize);
+    const hydratedBatch = await Promise.all(batch.map(hydrateOnePerson));
+
+    hydrated.push(...hydratedBatch);
 
     await new Promise(resolve => setTimeout(resolve, 0));
   }
