@@ -576,6 +576,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   const [spaceKeyboardHeight, setSpaceKeyboardHeight] = useState(0);
 
   const [editingGroupRelay, setEditingGroupRelay] = useState(false);
+  const [savingGroupRelaySettings, setSavingGroupRelaySettings] = useState(false);
   const [groupRelayMode, setGroupRelayMode] = useState<GroupRelayMode>('default');
   const [groupRelayUrl, setGroupRelayUrl] = useState('');
   const [groupBackupRelayInput, setGroupBackupRelayInput] = useState('');
@@ -594,6 +595,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   const [savingBoardItem, setSavingBoardItem] = useState(false);
 
   const groupDetailLoadRunIdRef = useRef(0);
+  const savingGroupRelaySettingsRef = useRef(false);
 
   const spaceMarksViewabilityConfigRef = useRef({
     itemVisiblePercentThreshold: 35,
@@ -1528,6 +1530,8 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   };
 
   const saveGroupRelaySettings = async () => {
+    if (savingGroupRelaySettingsRef.current) return;
+
     if (!group) return;
     if (!isAdmin) {
       Alert.alert('Admin only', 'Only a Space owner or admin can save relay routing.');
@@ -1559,24 +1563,35 @@ const { id, tab: routeTab } = useLocalSearchParams<{
       return;
     }
 
-    const primaryRelayUrl = groupRelayMode === 'default' ? DEFAULT_RELAY : trimmedUrl;
-    const backupRelayUrls = normalizeRelayUrls([
-      ...(groupRelayMode === 'both' ? [DEFAULT_RELAY] : []),
-      ...rawBackupRelayUrls,
-    ]).filter(relayUrl => relayUrl !== primaryRelayUrl);
+    savingGroupRelaySettingsRef.current = true;
+    setSavingGroupRelaySettings(true);
 
-    await updateGroup(group.id, {
-      relayMode: groupRelayMode,
-      relayUrl: primaryRelayUrl,
-      backupRelayUrls,
-    });
-    await syncLivingSpacesFromGroups();
-    await publishCurrentGroupMetadata(group.id);
+    try {
+      const primaryRelayUrl = groupRelayMode === 'default' ? DEFAULT_RELAY : trimmedUrl;
+      const backupRelayUrls = normalizeRelayUrls([
+        ...(groupRelayMode === 'both' ? [DEFAULT_RELAY] : []),
+        ...rawBackupRelayUrls,
+      ]).filter(relayUrl => relayUrl !== primaryRelayUrl);
 
-    setEditingGroupRelay(false);
-    await load();
+      await updateGroup(group.id, {
+        relayMode: groupRelayMode,
+        relayUrl: primaryRelayUrl,
+        backupRelayUrls,
+      });
+      await syncLivingSpacesFromGroups();
+      await publishCurrentGroupMetadata(group.id);
 
-    Alert.alert('Saved', 'Space relay settings updated.');
+      setEditingGroupRelay(false);
+      await load();
+
+      Alert.alert('Saved', 'Space relay settings updated.');
+    } catch (error) {
+      console.warn('[Space Detail] relay settings save failed:', error);
+      Alert.alert('Save failed', 'Space relay settings could not be saved.');
+    } finally {
+      savingGroupRelaySettingsRef.current = false;
+      setSavingGroupRelaySettings(false);
+    }
   };
 
   const handleShareInvite = async () => {
@@ -2771,11 +2786,14 @@ const relaySettingsCard = spaceSettingsRelayOpen ? (
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={s.confirmBtn}
+            style={[s.confirmBtn, savingGroupRelaySettings && { opacity: 0.55 }]}
             onPress={saveGroupRelaySettings}
+            disabled={savingGroupRelaySettings}
             activeOpacity={0.85}
           >
-            <Text style={s.confirmText}>Save relay</Text>
+            <Text style={s.confirmText}>
+              {savingGroupRelaySettings ? 'Saving...' : 'Save relay'}
+            </Text>
           </TouchableOpacity>
         </View>
       </View>
