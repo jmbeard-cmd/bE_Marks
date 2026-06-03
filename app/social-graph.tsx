@@ -16,8 +16,8 @@ import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     Alert,
-    RefreshControl,
-    ScrollView,
+    FlatList,
+    Platform,
     StyleSheet,
     Text,
     TouchableOpacity,
@@ -82,7 +82,9 @@ export default function SocialGraphScreen() {
     return peopleForPubkeys(cache.followerPubkeys, cache.peopleByPubkey);
   }, [cache.followerPubkeys, cache.peopleByPubkey]);
 
-  const visiblePeople = tab === 'following' ? followingPeople : followerPeople;
+  const visiblePeople = useMemo(() => {
+    return tab === 'following' ? followingPeople : followerPeople;
+  }, [followerPeople, followingPeople, tab]);
 
   const lastUpdatedLabel = useMemo(() => {
     return formatLastUpdated(cache);
@@ -137,38 +139,56 @@ export default function SocialGraphScreen() {
     }
   }, [npub, syncing]);
 
-  useEffect(() => {
-    loadLocalSocialGraph();
-  }, [loadLocalSocialGraph]);
+  const handleShowFollowing = useCallback(() => {
+    setTab(current => (current === 'following' ? current : 'following'));
+  }, []);
 
-  return (
-    <SafeAreaView style={s.safe}>
-      <View style={s.header}>
-        <TouchableOpacity
-          style={s.backButton}
-          onPress={() => router.back()}
-          activeOpacity={0.82}
-        >
-          <Ionicons name="arrow-back" size={20} color={theme.text} />
-        </TouchableOpacity>
+  const handleShowFollowers = useCallback(() => {
+    setTab(current => (current === 'followers' ? current : 'followers'));
+  }, []);
 
-        <View style={s.headerTextWrap}>
-          <Text style={s.headerKicker}>Account</Text>
-          <Text style={s.headerTitle}>Social Graph</Text>
-        </View>
-      </View>
+  const keyExtractor = useCallback((item: SocialGraphPerson) => {
+    return item.pubkey;
+  }, []);
 
-      <ScrollView
-        style={s.scroll}
-        contentContainerStyle={s.content}
-        refreshControl={
-          <RefreshControl
-            refreshing={syncing || loadingCache}
-            onRefresh={handleRefresh}
-            tintColor={theme.gold}
+  const renderPerson = useCallback(({ item }: { item: SocialGraphPerson }) => {
+    return (
+      <SocialPersonCard
+        person={item}
+        theme={theme}
+        variant="compact"
+        label={tab === 'following' ? 'Following' : 'Follower'}
+      />
+    );
+  }, [tab, theme]);
+
+  const renderSeparator = useCallback(() => {
+    return <View style={s.personSeparator} />;
+  }, [s]);
+
+  const renderEmptyState = useCallback(() => {
+    return (
+      <View style={s.emptyCard}>
+        <View style={s.emptyIcon}>
+          <Ionicons
+            name={tab === 'following' ? 'person-add-outline' : 'people-outline'}
+            size={22}
+            color={theme.gold}
           />
-        }
-      >
+        </View>
+        <Text style={s.emptyTitle}>
+          {tab === 'following' ? 'No following yet' : 'No followers yet'}
+        </Text>
+        <Text style={s.emptyText}>
+          Pull to refresh your network.
+        </Text>
+      </View>
+    );
+  }, [s, tab, theme.gold]);
+
+  const listHeaderComponent = useMemo(() => {
+    return (
+      <View style={s.listHeader}>
         {!npub && (
           <View style={s.noticeCard}>
             <Text style={s.noticeTitle}>Identity needed</Text>
@@ -195,7 +215,7 @@ export default function SocialGraphScreen() {
         <View style={s.tabRow}>
           <TouchableOpacity
             style={[s.tabButton, tab === 'following' && s.tabButtonActive]}
-            onPress={() => setTab('following')}
+            onPress={handleShowFollowing}
             activeOpacity={0.86}
           >
             <Text style={[s.tabText, tab === 'following' && s.tabTextActive]}>
@@ -205,7 +225,7 @@ export default function SocialGraphScreen() {
 
           <TouchableOpacity
             style={[s.tabButton, tab === 'followers' && s.tabButtonActive]}
-            onPress={() => setTab('followers')}
+            onPress={handleShowFollowers}
             activeOpacity={0.86}
           >
             <Text style={[s.tabText, tab === 'followers' && s.tabTextActive]}>
@@ -216,46 +236,64 @@ export default function SocialGraphScreen() {
 
         <View style={s.sectionHeader}>
           <Text style={s.sectionTitle}>
-            {tab === 'following' ? 'People you follow' : 'Best-effort followers'}
-          </Text>
-          <Text style={s.sectionHint}>
-            {tab === 'following'
-              ? 'These people can feed Timeline > Following later.'
-              : 'Followers are discovered from connected relays and may be incomplete.'}
+            {tab === 'following' ? 'Following' : 'Followers'}
           </Text>
         </View>
+      </View>
+    );
+  }, [
+    cache.followerPubkeys.length,
+    cache.followingPubkeys.length,
+    handleRefresh,
+    handleShowFollowers,
+    handleShowFollowing,
+    lastUpdatedLabel,
+    npub,
+    relays,
+    s,
+    syncing,
+    tab,
+    theme,
+  ]);
 
-        {visiblePeople.length > 0 ? (
-          <View style={s.peopleList}>
-            {visiblePeople.map(person => (
-              <SocialPersonCard
-                key={person.pubkey}
-                person={person}
-                theme={theme}
-                label={tab === 'following' ? 'Following' : 'Follower'}
-              />
-            ))}
-          </View>
-        ) : (
-          <View style={s.emptyCard}>
-            <View style={s.emptyIcon}>
-              <Ionicons
-                name={tab === 'following' ? 'person-add-outline' : 'people-outline'}
-                size={22}
-                color={theme.gold}
-              />
-            </View>
-            <Text style={s.emptyTitle}>
-              {tab === 'following' ? 'No following found yet' : 'No followers found yet'}
-            </Text>
-            <Text style={s.emptyText}>
-              {tab === 'following'
-                ? 'Refresh to fetch your kind 3 follow list from your Account social relays.'
-                : 'Follower lookup is best-effort and depends on the relays searched.'}
-            </Text>
-          </View>
-        )}
-      </ScrollView>
+  useEffect(() => {
+    loadLocalSocialGraph();
+  }, [loadLocalSocialGraph]);
+
+  return (
+    <SafeAreaView style={s.safe}>
+      <View style={s.header}>
+        <TouchableOpacity
+          style={s.backButton}
+          onPress={() => router.back()}
+          activeOpacity={0.82}
+        >
+          <Ionicons name="arrow-back" size={20} color={theme.text} />
+        </TouchableOpacity>
+
+        <View style={s.headerTextWrap}>
+          <Text style={s.headerKicker}>Account</Text>
+          <Text style={s.headerTitle}>Network</Text>
+        </View>
+      </View>
+
+      <FlatList
+        style={s.scroll}
+        contentContainerStyle={s.content}
+        data={visiblePeople}
+        keyExtractor={keyExtractor}
+        renderItem={renderPerson}
+        ListHeaderComponent={listHeaderComponent}
+        ListEmptyComponent={renderEmptyState}
+        ItemSeparatorComponent={renderSeparator}
+        initialNumToRender={12}
+        maxToRenderPerBatch={8}
+        updateCellsBatchingPeriod={40}
+        windowSize={7}
+        removeClippedSubviews={Platform.OS === 'android'}
+        refreshing={syncing || loadingCache}
+        onRefresh={handleRefresh}
+      />
     </SafeAreaView>
   );
 }
@@ -317,7 +355,10 @@ function createStyles(theme: any) {
     content: {
       padding: 16,
       paddingBottom: 32,
+    },
+    listHeader: {
       gap: 14,
+      marginBottom: 14,
     },
     noticeCard: {
       borderWidth: 1,
@@ -379,8 +420,8 @@ function createStyles(theme: any) {
       lineHeight: 18,
       fontWeight: '700',
     },
-    peopleList: {
-      gap: 10,
+    personSeparator: {
+      height: 10,
     },
     emptyCard: {
       alignItems: 'center',
