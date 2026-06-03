@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -83,6 +84,7 @@ import { useIdentity } from '../_layout';
 
 type Sheet = 'none' | 'new' | 'new-group' | 'join-space' | 'edit-group';
 type SpaceFilter = 'all' | 'unread' | 'dms' | 'groups';
+type SpaceCardVariant = 'immersive' | 'compact';
 type SpaceInboxItem =
   | { id: string; type: 'dm'; updatedAt: number; unread: number; thread: DMThread }
   | { id: string; type: 'group'; updatedAt: number; unread: number; group: BEGroup };
@@ -94,6 +96,8 @@ type SpaceTypeOption = {
   value: LivingSpaceType;
   label: string;
 };
+
+const SPACE_CARD_VARIANT_STORAGE_KEY = 'be_spaces_card_variant_v1';
 
 function formatThreadTime(unixSecs: number): string {
   const date = new Date(unixSecs * 1000);
@@ -390,6 +394,7 @@ export default function MessagesScreen() {
   const router = useRouter();
 
   const [spaceFilter, setSpaceFilter] = useState<SpaceFilter>('groups');
+  const [spaceCardVariant, setSpaceCardVariant] = useState<SpaceCardVariant>('immersive');
   const [threads, setThreads] = useState<DMThread[]>([]);
   const [groups, setGroups] = useState<BEGroup[]>([]);
   const [livingSpaces, setLivingSpaces] = useState<LivingSpace[]>([]);
@@ -1144,6 +1149,26 @@ return (
     (npub ? `${npub.slice(0, 12)}…` : 'Member');
 
   useEffect(() => {
+    let cancelled = false;
+
+    AsyncStorage.getItem(SPACE_CARD_VARIANT_STORAGE_KEY)
+      .then(savedVariant => {
+        if (cancelled) return;
+
+        if (savedVariant === 'immersive' || savedVariant === 'compact') {
+          setSpaceCardVariant(savedVariant);
+        }
+      })
+      .catch(error => {
+        console.warn('[Spaces] failed to load Space card view preference:', error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     groupsSignatureRef.current = getGroupListSignature(groups);
   }, [groups]);
 
@@ -1696,7 +1721,7 @@ const result = await ImagePicker.launchImageLibraryAsync({
         <SpaceCard
           group={group}
           theme={theme}
-          variant="immersive"
+          variant={spaceCardVariant}
           preview={preview}
           updatedAt={item.updatedAt}
           unreadCount={item.unread}
@@ -1709,6 +1734,17 @@ const result = await ImagePicker.launchImageLibraryAsync({
     }
 
     return renderThread({ item: item.thread });
+  };
+
+  const toggleSpaceCardVariant = () => {
+    const nextVariant = spaceCardVariant === 'immersive' ? 'compact' : 'immersive';
+
+    setSpaceCardVariant(nextVariant);
+
+    AsyncStorage.setItem(SPACE_CARD_VARIANT_STORAGE_KEY, nextVariant)
+      .catch(error => {
+        console.warn('[Spaces] failed to save Space card view preference:', error);
+      });
   };
 
   const handleCompose = () => {
@@ -1800,6 +1836,25 @@ const result = await ImagePicker.launchImageLibraryAsync({
       </TouchableOpacity>
     );
   })}
+
+  <TouchableOpacity
+    style={[
+      s.cardViewToggle,
+      spaceCardVariant === 'immersive' && s.cardViewToggleActive,
+    ]}
+    onPress={toggleSpaceCardVariant}
+    activeOpacity={0.82}
+    accessibilityRole="button"
+    accessibilityLabel={
+      spaceCardVariant === 'immersive'
+        ? 'Switch to classic Space cards'
+        : 'Switch to immersive Space cards'
+    }
+  >
+    <Text style={s.cardViewToggleIcon}>
+      {spaceCardVariant === 'immersive' ? '▤' : '▦'}
+    </Text>
+  </TouchableOpacity>
 </View>
 
       <View style={s.searchWrap}>
@@ -2322,6 +2377,27 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     backgroundColor: theme.raised,
     borderWidth: 0.5,
     borderColor: theme.border,
+  },
+  cardViewToggle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    marginLeft: 'auto',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+  },
+  cardViewToggleActive: {
+    backgroundColor: theme.gold + '1F',
+    borderColor: theme.gold + '55',
+  },
+  cardViewToggleIcon: {
+    color: theme.gold,
+    fontSize: 17,
+    fontWeight: '900',
+    marginTop: -1,
   },
   filterPillActive: {
     backgroundColor: theme.gold + '1F',

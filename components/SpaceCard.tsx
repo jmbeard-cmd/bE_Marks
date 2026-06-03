@@ -64,19 +64,6 @@ function formatSpaceTime(unixSecs?: number): string {
   return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
-function getRelayLabel(group: BEGroup): {
-  text: string;
-  icon: string;
-  type: 'default' | 'custom' | 'both';
-} {
-  const mode = group.relayMode ?? 'default';
-
-  if (mode === 'custom') return { text: 'Private', icon: '◆', type: 'custom' };
-  if (mode === 'both') return { text: 'Both', icon: '↔', type: 'both' };
-
-  return { text: 'bE', icon: '●', type: 'default' };
-}
-
 export default function SpaceCard({
   group,
   theme,
@@ -90,7 +77,6 @@ export default function SpaceCard({
   onPress,
   onEdit,
 }: SpaceCardProps) {
-  const relay = getRelayLabel(group);
   const memberCount = group.memberCount ?? 0;
   const displayPreview =
     preview ||
@@ -139,6 +125,17 @@ export default function SpaceCard({
                   </Text>
                 </View>
               )}
+
+              {onEdit && (
+                <TouchableOpacity
+                  style={s.immersiveMoreBtn}
+                  onPress={onEdit}
+                  activeOpacity={0.78}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Text style={s.immersiveMoreText}>⋯</Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
 
@@ -178,6 +175,9 @@ export default function SpaceCard({
       activeOpacity={0.88}
       onPress={onPress}
     >
+      <View pointerEvents="none" style={[s.cardWash, { backgroundColor: theme.gold }]} />
+      <View pointerEvents="none" style={[s.cardGlow, { backgroundColor: theme.surface }]} />
+
       <View
         style={[
           s.avatar,
@@ -209,12 +209,6 @@ export default function SpaceCard({
           >
             {group.name}
           </Text>
-
-          {!!timeLabel && (
-            <Text style={[s.time, { color: theme.textMuted }]} numberOfLines={1}>
-              {timeLabel}
-            </Text>
-          )}
         </View>
 
         <Text style={[s.preview, { color: theme.textMuted }]} numberOfLines={1}>
@@ -244,36 +238,21 @@ export default function SpaceCard({
             </Text>
           )}
 
-          <Text
-            style={[
-              s.badge,
-              {
-                color: theme.textMuted,
-                backgroundColor: theme.surface,
-                borderColor: theme.border,
-              },
-            ]}
-          >
-            {group.memberCount ?? 0} member{(group.memberCount ?? 0) !== 1 ? 's' : ''}
-          </Text>
-
-          <View
-            style={[
-              s.relayBadge,
-              {
-                backgroundColor: theme.surface,
-                borderColor:
-                  relay.type === 'custom'
-                    ? `${theme.gold}88`
-                    : relay.type === 'both'
-                      ? `${theme.gold}66`
-                      : theme.border,
-              },
-            ]}
-          >
-            <Text style={[s.relayIcon, { color: theme.gold }]}>{relay.icon}</Text>
-            <Text style={[s.relayText, { color: theme.textMuted }]}>{relay.text}</Text>
-          </View>
+          {!!timeLabel && (
+            <Text
+              style={[
+                s.timeChip,
+                {
+                  color: theme.textMuted,
+                  backgroundColor: theme.surface,
+                  borderColor: theme.border,
+                },
+              ]}
+              numberOfLines={1}
+            >
+              {timeLabel}
+            </Text>
+          )}
 
           {unreadCount > 0 && (
             <View style={[s.unreadBadge, { backgroundColor: theme.gold }]}>
@@ -303,7 +282,7 @@ export default function SpaceCard({
       {onEdit && (
         <TouchableOpacity
           style={[
-            s.editBtn,
+            s.moreBtn,
             {
               backgroundColor: theme.surface,
               borderColor: theme.border,
@@ -311,8 +290,9 @@ export default function SpaceCard({
           ]}
           onPress={onEdit}
           activeOpacity={0.78}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <Text style={[s.editText, { color: theme.gold }]}>Edit</Text>
+          <Text style={[s.moreText, { color: theme.gold }]}>⋯</Text>
         </TouchableOpacity>
       )}
     </TouchableOpacity>
@@ -398,6 +378,22 @@ const s = StyleSheet.create({
     fontSize: 12,
     fontWeight: '900',
   },
+  immersiveMoreBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.34)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(255,255,255,0.18)',
+  },
+  immersiveMoreText: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: '900',
+    marginTop: -4,
+  },
   immersiveCardPreview: {
     color: 'rgba(255,255,255,0.88)',
     fontSize: 14,
@@ -433,27 +429,47 @@ const s = StyleSheet.create({
   },
   card: {
     minHeight: 94,
-    borderRadius: 18,
-    borderWidth: 0.6,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
+    borderRadius: 22,
+    borderWidth: 0.7,
+    paddingLeft: 14,
+    paddingRight: 54,
+    paddingVertical: 12,
     marginBottom: 12,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 9,
-    elevation: 3,
+    position: 'relative',
+    overflow: 'hidden',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.14,
+    shadowRadius: 14,
+    elevation: 5,
+  },
+  cardWash: {
+    position: 'absolute',
+    top: -38,
+    right: -44,
+    width: 148,
+    height: 148,
+    borderRadius: 74,
+    opacity: 0.13,
+  },
+  cardGlow: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 42,
+    opacity: 0.38,
   },
   cardArchived: {
     opacity: 0.72,
   },
   avatar: {
-    width: 58,
-    height: 58,
+    width: 56,
+    height: 56,
     borderRadius: 18,
-    borderWidth: 0.7,
+    borderWidth: 0.8,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
@@ -472,12 +488,12 @@ const s = StyleSheet.create({
   body: {
     flex: 1,
     minWidth: 0,
+    zIndex: 1,
   },
   topRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    marginBottom: 3,
+    marginBottom: 4,
   },
   name: {
     flex: 1,
@@ -486,20 +502,26 @@ const s = StyleSheet.create({
     fontWeight: '900',
     letterSpacing: -0.2,
   },
-  time: {
-    fontSize: 11,
-    fontWeight: '700',
+  timeChip: {
+    maxWidth: 72,
+    borderRadius: 999,
+    borderWidth: 0.5,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    fontSize: 10,
+    fontWeight: '900',
+    overflow: 'hidden',
   },
   preview: {
     fontSize: 12,
     lineHeight: 17,
-    fontWeight: '700',
-    marginBottom: 9,
+    fontWeight: '800',
+    marginBottom: 10,
   },
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    flexWrap: 'wrap',
+    flexWrap: 'nowrap',
     gap: 6,
   },
   categoryBadge: {
@@ -513,30 +535,14 @@ const s = StyleSheet.create({
     lineHeight: 24,
   },
   badge: {
-    maxWidth: 110,
+    maxWidth: 116,
     borderRadius: 999,
     borderWidth: 0.5,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    fontSize: 10,
-    fontWeight: '800',
-  },
-  relayBadge: {
-    minHeight: 24,
-    borderRadius: 999,
-    borderWidth: 0.5,
-    paddingHorizontal: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  relayIcon: {
-    fontSize: 9,
-    fontWeight: '900',
-  },
-  relayText: {
+    paddingHorizontal: 9,
+    paddingVertical: 5,
     fontSize: 10,
     fontWeight: '900',
+    overflow: 'hidden',
   },
   unreadBadge: {
     minWidth: 24,
@@ -550,16 +556,21 @@ const s = StyleSheet.create({
     fontSize: 10,
     fontWeight: '900',
   },
-  editBtn: {
-    minHeight: 34,
+  moreBtn: {
+    position: 'absolute',
+    top: 14,
+    right: 14,
+    width: 34,
+    height: 34,
     borderRadius: 17,
     borderWidth: 0.5,
-    paddingHorizontal: 11,
     alignItems: 'center',
     justifyContent: 'center',
+    zIndex: 4,
   },
-  editText: {
-    fontSize: 11,
+  moreText: {
+    fontSize: 20,
     fontWeight: '900',
+    marginTop: -4,
   },
 });
