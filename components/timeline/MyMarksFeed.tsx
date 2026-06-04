@@ -1,27 +1,27 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import {
-    FlatList,
-    Image,
-    Platform,
-    RefreshControl,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
-    type GestureResponderEvent,
-    type NativeScrollEvent,
-    type NativeSyntheticEvent,
-    type ViewabilityConfig,
-    type ViewToken,
+  FlatList,
+  Image,
+  Platform,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+  type GestureResponderEvent,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+  type ViewabilityConfig,
+  type ViewToken,
 } from 'react-native';
 import MarkActionRow from '../../components/MarkActionRow';
 import MediaCollage from '../../components/MediaCollage';
 import TimelineTextMarkCard from '../../components/TimelineTextMarkCard';
 import TimelineVoiceMarkCard from '../../components/TimelineVoiceMarkCard';
 import {
-    formatDate,
-    type Milestone,
+  formatDate,
+  type Milestone,
 } from '../../src/utils/storage';
 
 export type MyMarksFeedItem = {
@@ -155,11 +155,15 @@ export function buildMyMarksFeedItems({
   familyName,
 }: BuildMyMarksFeedItemsInput): MyMarksFeedItem[] {
   return milestones.map(milestone => {
-    const hasTitle = milestone.note?.includes('\n\n');
-    const title = hasTitle ? milestone.note.split('\n\n')[0] : null;
-    const body = hasTitle
-      ? milestone.note.split('\n\n').slice(1).join('\n\n')
-      : milestone.note;
+    const noteText = milestone.note ?? '';
+    const noteParts = noteText.split('\n\n');
+    const splitTitle = noteParts.length > 1 ? noteParts[0]?.trim() || null : null;
+    const splitBody = noteParts.length > 1
+      ? noteParts.slice(1).join('\n\n')
+      : noteText;
+    const savedTitle = milestone.title?.trim();
+    const title = savedTitle || splitTitle;
+    const body = splitBody;
     const mediaItems = getMyMarksFeedMediaItems(milestone);
     const hasVisualMedia = mediaItems.some(m => m.type === 'image' || m.type === 'video');
     const hasAudioOnly = !hasVisualMedia && mediaItems.some(m => m.type === 'audio');
@@ -210,6 +214,8 @@ export default function MyMarksFeed({
   viewabilityConfig,
   onViewableItemsChanged,
 }: MyMarksFeedProps) {
+  const [expandedTextIds, setExpandedTextIds] = useState<Record<string, boolean>>({});
+
   const themed = {
     goldText: { color: theme.gold },
     mutedText: { color: theme.textMuted },
@@ -220,12 +226,21 @@ export default function MyMarksFeed({
     raised: { backgroundColor: theme.raised },
   };
 
+  const toggleExpandedText = useCallback((itemId: string) => {
+    setExpandedTextIds(current => ({
+      ...current,
+      [itemId]: !current[itemId],
+    }));
+  }, []);
+
   const renderCard = useCallback((item: MyMarksFeedItem, shouldAutoPlayVideo: boolean) => {
     const milestone = item.milestone;
     const visibleTags = milestone.tags.slice(0, 2);
     const hiddenTagCount = Math.max(0, milestone.tags.length - visibleTags.length);
     const commentCount = getMyMarksCommentCount(milestone);
     const liftUpCount = getMyMarksLiftUpCount(milestone);
+    const isTextExpanded = expandedTextIds[item.id] === true;
+    const bodyCanExpand = item.body.trim().length > 90 || item.body.includes('\n');
 
     if (item.hasVisualMedia) {
       return (
@@ -272,48 +287,82 @@ export default function MyMarksFeed({
             </View>
 
             <View style={s.feedMarkOverlayBottom}>
-              <TouchableOpacity
-                style={s.feedMarkOverlayCopyTap}
-                onPress={() => onOpenDetail(item)}
-                activeOpacity={0.9}
-              >
-                {item.title ? (
-                  <Text style={s.feedMarkOverlayTitle} numberOfLines={2}>
-                    {item.title}
-                  </Text>
-                ) : null}
+              <View style={s.feedMarkCaptionShelfCap} />
 
-                {item.body ? (
-                  <Text style={s.feedMarkOverlayBody} numberOfLines={1}>
-                    {item.body}
-                  </Text>
-                ) : null}
+              <View style={s.feedMarkCaptionShelf}>
+                <View style={s.feedMarkCaptionCopy}>
+                  {item.title ? (
+                    <View style={[s.feedMarkTitlePlate, { borderLeftColor: theme.gold }]}>
+                      <Text style={s.feedMarkOverlayTitle} numberOfLines={isTextExpanded ? 3 : 2}>
+                        {item.title}
+                      </Text>
+                    </View>
+                  ) : null}
 
-                {(visibleTags.length > 0 || hiddenTagCount > 0) && (
-                  <View style={s.feedMarkOverlayTagRow}>
-                    <Text style={s.feedMarkOverlayTagText} numberOfLines={1}>
-                      {visibleTags.join(' · ')}
+                  {item.body ? (
+                    <Text
+                      style={s.feedMarkOverlayBody}
+                      numberOfLines={isTextExpanded ? 6 : 2}
+                    >
+                      {item.body}
                     </Text>
+                  ) : null}
 
-                    {hiddenTagCount > 0 && (
-                      <View style={s.feedMarkOverlayTagBadge}>
-                        <Text style={s.feedMarkOverlayTagBadgeText}>+{hiddenTagCount}</Text>
+                  <View style={s.feedMarkCaptionMetaRow}>
+                    <View style={s.feedMarkCaptionButtonRow}>
+                      {bodyCanExpand && (
+                        <TouchableOpacity
+                          activeOpacity={0.78}
+                          onPress={() => toggleExpandedText(item.id)}
+                          accessibilityRole="button"
+                          accessibilityLabel={isTextExpanded ? 'Show less Mark text' : 'Show more Mark text'}
+                        >
+                          <Text style={[s.feedMarkOverlayExpandText, { color: theme.gold }]}>
+                            {isTextExpanded ? 'Show less' : 'Show more'}
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+
+                      <TouchableOpacity
+                        style={[s.feedMarkReadButton, { borderColor: `${theme.gold}88` }]}
+                        onPress={() => onOpenDetail(item)}
+                        activeOpacity={0.82}
+                        accessibilityRole="button"
+                        accessibilityLabel="Read this Mark"
+                      >
+                        <Text style={[s.feedMarkReadButtonText, { color: theme.gold }]}>
+                          Read Mark
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {(visibleTags.length > 0 || hiddenTagCount > 0) && (
+                      <View style={s.feedMarkOverlayTagRow}>
+                        <Text style={s.feedMarkOverlayTagText} numberOfLines={1}>
+                          {visibleTags.join(' · ')}
+                        </Text>
+
+                        {hiddenTagCount > 0 && (
+                          <View style={s.feedMarkOverlayTagBadge}>
+                            <Text style={s.feedMarkOverlayTagBadgeText}>+{hiddenTagCount}</Text>
+                          </View>
+                        )}
                       </View>
                     )}
                   </View>
-                )}
-              </TouchableOpacity>
+                </View>
 
-              <MarkActionRow
-                variant="overlay"
-                theme={theme}
-                commentCount={commentCount}
-                liftUpCount={liftUpCount}
-                onComment={() => onComment(item)}
-                onLiftUp={(event) => onLiftUp(item, event)}
-                onShare={() => onShare(item)}
-                style={s.feedMarkOverlayActions}
-              />
+                <MarkActionRow
+                  variant="overlay"
+                  theme={theme}
+                  commentCount={commentCount}
+                  liftUpCount={liftUpCount}
+                  onComment={() => onComment(item)}
+                  onLiftUp={(event) => onLiftUp(item, event)}
+                  onShare={() => onShare(item)}
+                  style={s.feedMarkOverlayActions}
+                />
+              </View>
             </View>
           </View>
         </View>
@@ -446,6 +495,7 @@ export default function MyMarksFeed({
     );
   }, [
     currentNpub,
+    expandedTextIds,
     onComment,
     onLiftUp,
     onOpenDetail,
@@ -454,6 +504,7 @@ export default function MyMarksFeed({
     theme,
     themeMode,
     themed,
+    toggleExpandedText,
   ]);
 
   const renderItem = useCallback(({ item }: { item: MyMarksFeedItem }) => {
@@ -604,39 +655,90 @@ const s = StyleSheet.create({
     right: 0,
     bottom: 0,
     zIndex: 5,
-    paddingHorizontal: 13,
-    paddingTop: 10,
-    paddingBottom: 10,
-    backgroundColor: 'rgba(0,0,0,0.50)',
   },
-  feedMarkOverlayCopyTap: {
-    marginBottom: 8,
+  feedMarkCaptionShelfCap: {
+    alignSelf: 'center',
+    width: '62%',
+    height: 16,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    backgroundColor: 'rgba(0,0,0,0.46)',
+  },
+  feedMarkCaptionShelf: {
+    paddingHorizontal: 15,
+    paddingTop: 12,
+    paddingBottom: 11,
+    backgroundColor: 'rgba(0,0,0,0.76)',
+  },
+  feedMarkCaptionCopy: {
+    marginBottom: 10,
+  },
+  feedMarkTitlePlate: {
+    borderLeftWidth: 3,
+    paddingLeft: 9,
+    marginBottom: 6,
   },
   feedMarkOverlayTitle: {
     color: '#fff',
-    fontSize: 19,
-    lineHeight: 23,
+    fontSize: 21,
+    lineHeight: 25,
     fontWeight: '900',
-    letterSpacing: -0.2,
+    letterSpacing: -0.3,
   },
   feedMarkOverlayBody: {
-    color: 'rgba(255,255,255,0.78)',
-    fontSize: 12,
-    lineHeight: 16,
+    color: 'rgba(255,255,255,0.91)',
+    fontSize: 14,
+    lineHeight: 19,
     fontWeight: '700',
-    marginTop: 3,
+    marginTop: 2,
   },
-  feedMarkOverlayTagRow: {
-    marginTop: 8,
+  feedMarkCaptionMetaRow: {
+    marginTop: 9,
+    minHeight: 30,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    flexWrap: 'wrap',
+  },
+  feedMarkCaptionButtonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flexShrink: 0,
+  },
+  feedMarkReadButton: {
+    minHeight: 30,
+    borderRadius: 15,
+    borderWidth: 0.8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  feedMarkReadButtonText: {
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  feedMarkOverlayExpandText: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '900',
+  },
+  feedMarkOverlayTagRow: {
+    flex: 1,
+    minWidth: 92,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
     gap: 6,
   },
   feedMarkOverlayTagText: {
-    flex: 1,
-    color: 'rgba(255,255,255,0.78)',
+    flexShrink: 1,
+    color: 'rgba(255,255,255,0.70)',
     fontSize: 10,
     fontWeight: '800',
+    textAlign: 'right',
   },
   feedMarkOverlayTagBadge: {
     minWidth: 24,

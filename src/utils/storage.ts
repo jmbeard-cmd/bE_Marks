@@ -39,6 +39,7 @@ export type MilestoneLiftUp = {
 
 export interface Milestone {
   id: string;
+  title?: string;
   note: string;
   tags: string[];
   photoUri?: string; // old single-photo support

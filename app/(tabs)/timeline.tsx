@@ -224,18 +224,21 @@ export default function TimelineScreen() {
   useFocusEffect(useCallback(() => {
     let cancelled = false;
 
-    if (!hasLoadedTimelineOnceRef.current) {
-      Promise.resolve()
-        .then(load)
-        .then(() => {
-          if (!cancelled) {
-            hasLoadedTimelineOnceRef.current = true;
-          }
-        })
-        .catch(error => {
-          console.warn('[Timeline] initial load failed:', error);
-        });
-    }
+    Promise.resolve()
+      .then(load)
+      .then(() => {
+        if (!cancelled) {
+          hasLoadedTimelineOnceRef.current = true;
+        }
+      })
+      .catch(error => {
+        console.warn(
+          hasLoadedTimelineOnceRef.current
+            ? '[Timeline] focus reload failed:'
+            : '[Timeline] initial load failed:',
+          error
+        );
+      });
 
     return () => {
       cancelled = true;
@@ -696,7 +699,10 @@ export default function TimelineScreen() {
             shadowColor: theme.gold,
           },
         ]}
-        onPress={() => router.push('/(tabs)/log' as any)}
+        onPress={() => router.push({
+          pathname: '/(tabs)/log',
+          params: { returnToTimeline: '1' },
+        } as any)}
         activeOpacity={0.88}
         accessibilityRole="button"
         accessibilityLabel="Create a new Mark"

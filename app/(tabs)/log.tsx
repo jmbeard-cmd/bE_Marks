@@ -126,6 +126,7 @@ export default function LogScreen() {
     selectedSpaceId?: string;
     returnToGroupId?: string;
     returnToGroupTab?: string;
+    returnToTimeline?: string;
     calendarEventId?: string;
     calendarEventTitle?: string;
     savedToBook?: string;
@@ -134,6 +135,7 @@ export default function LogScreen() {
   const routeSelectedSpaceId = getRouteParam(params.selectedSpaceId);
   const returnToGroupId = getRouteParam(params.returnToGroupId);
   const routeReturnToGroupTab = getRouteParam(params.returnToGroupTab);
+  const routeReturnToTimeline = getRouteParam(params.returnToTimeline);
   const routeCalendarEventId = getRouteParam(params.calendarEventId);
   const routeCalendarEventTitle = getRouteParam(params.calendarEventTitle);
   const routeSavedToBook = getRouteParam(params.savedToBook);
@@ -192,12 +194,12 @@ export default function LogScreen() {
   const isLiftUpMark = markMode === 'lift-up';
 
   const titlePlaceholder = isLiftUpMark
-    ? 'Who or what should this Mark lift up?'
-    : 'Name this Mark...';
+    ? 'Who are you lifting up?'
+    : 'Give this Mark a title';
 
   const notePlaceholder = isLiftUpMark
-    ? 'What happened that should be remembered?'
-    : 'What happened? How did it feel?';
+    ? 'What did they do that should be remembered?'
+    : 'Tell the story behind this Mark...';
 
       useEffect(() => {
     DeviceEventEmitter.emit('be:floatingDock:setHidden', true);
@@ -571,6 +573,8 @@ export default function LogScreen() {
   };
 
   const returnGroupId = returnToGroupId?.trim() || undefined;
+  const shouldReturnToTimeline =
+    routeReturnToTimeline === '1' || routeReturnToTimeline === 'true';
 
   const navigateAfterLog = useCallback(() => {
     if (returnGroupId) {
@@ -584,8 +588,13 @@ export default function LogScreen() {
       return;
     }
 
+    if (shouldReturnToTimeline) {
+      router.replace('/(tabs)/timeline' as any);
+      return;
+    }
+
     router.replace('/(tabs)/messages' as any);
-  }, [returnGroupId, returnToGroupTab, router]);
+  }, [returnGroupId, returnToGroupTab, router, shouldReturnToTimeline]);
 
   useEffect(() => {
     if (!returnGroupId) return;
@@ -1006,6 +1015,7 @@ if (audioUri) {
       const shouldSaveAsFamilyMark = !!family && selectedIsFamilySpace;
 
       const savedMilestone = await saveMilestone({
+        title: title.trim() || undefined,
         note: fullNote,
         tags: finalTags,
         photoUri: uploadedPhoto,
@@ -1214,7 +1224,44 @@ setProgress(0);
         <BEHeader title="Mark" />
 
         {/* Composer */}
-        <View style={s.composerField}>
+        <View
+          style={[
+            s.composerField,
+            s.posterComposerCard,
+            {
+              backgroundColor: theme.surface,
+              borderColor: theme.border,
+            },
+          ]}
+        >
+          <Text style={[s.posterComposerEyebrow, { color: theme.textMuted }]}>
+            Title
+          </Text>
+
+          <TextInput
+            style={[
+              s.posterTitleInput,
+              {
+                color: theme.text,
+                borderBottomColor: theme.border,
+              },
+            ]}
+            placeholder={titlePlaceholder}
+            placeholderTextColor={theme.textMuted}
+            value={title}
+            onChangeText={setTitle}
+            maxLength={80}
+            returnKeyType="next"
+          />
+
+          <Text style={[s.posterTitleHint, { color: theme.textMuted }]}>
+            Optional headline for the card.
+          </Text>
+
+          <Text style={[s.posterComposerEyebrow, { color: theme.textMuted }]}>
+            Story
+          </Text>
+
           <TextInput
             style={[
               s.markComposerInput,
@@ -1224,12 +1271,12 @@ setProgress(0);
                 borderColor: theme.border,
               },
             ]}
-            placeholder={isLiftUpMark ? 'Who should this Mark lift up?' : "What's worth remembering?"}
+            placeholder={notePlaceholder}
             placeholderTextColor={theme.textMuted}
             value={note}
             onChangeText={setNote}
             multiline
-            numberOfLines={6}
+            numberOfLines={5}
             textAlignVertical="top"
           />
         </View>
@@ -1699,15 +1746,42 @@ const s = StyleSheet.create({
   photoActionText: { fontSize: 13, color: '#888' },
   field: { marginBottom: 22 },
   composerField: { marginBottom: 14 },
+  posterComposerCard: {
+    borderWidth: 0.5,
+    borderRadius: 22,
+    padding: 14,
+  },
+  posterComposerEyebrow: {
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
+  posterTitleInput: {
+    borderBottomWidth: 0.5,
+    paddingHorizontal: 0,
+    paddingBottom: 10,
+    marginBottom: 7,
+    fontSize: 22,
+    lineHeight: 28,
+    fontWeight: '900',
+  },
+  posterTitleHint: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '700',
+    marginBottom: 16,
+  },
   markComposerInput: {
     borderWidth: 0.5,
     borderRadius: 18,
     paddingHorizontal: 15,
     paddingTop: 14,
     paddingBottom: 14,
-    fontSize: 18,
-    minHeight: 190,
-    lineHeight: 25,
+    fontSize: 17,
+    minHeight: 150,
+    lineHeight: 24,
     fontWeight: '500',
   },
   markTypeRow: { flexDirection: 'row', gap: 10 },
