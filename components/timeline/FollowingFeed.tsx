@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   FlatList,
@@ -20,6 +21,11 @@ import { formatDate } from '../../src/utils/storage';
 type FollowingFeedProps = {
   theme: any;
 };
+
+type CopyFeedbackState = {
+  postId: string;
+  action: 'text' | 'author';
+} | null;
 
 let FOLLOWING_FEED_SESSION_CACHE: SocialPublicPost[] = [];
 let FOLLOWING_FEED_CACHE_UPDATED_AT = 0;
@@ -81,16 +87,33 @@ function buildFollowingShareMessage(post: SocialPublicPost): string {
     .join('\n\n');
 }
 
+function buildFollowingCopyText(post: SocialPublicPost): string {
+  const firstUrl = post.mediaUrls[0] || post.urlTags[0];
+
+  return [
+    post.content,
+    firstUrl,
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+function getFollowingAuthorIdentifier(post: SocialPublicPost): string {
+  return post.npub || post.pubkey || '';
+}
+
 export default function FollowingFeed({ theme }: FollowingFeedProps) {
   const [posts, setPosts] = useState<SocialPublicPost[]>(() => FOLLOWING_FEED_SESSION_CACHE);
   const [pendingPosts, setPendingPosts] = useState<SocialPublicPost[]>([]);
   const [loading, setLoading] = useState(() => FOLLOWING_FEED_SESSION_CACHE.length === 0);
   const [refreshing, setRefreshing] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
+  const [copyFeedback, setCopyFeedback] = useState<CopyFeedbackState>(null);
   const postsRef = useRef<SocialPublicPost[]>(FOLLOWING_FEED_SESSION_CACHE);
   const listRef = useRef<FlatList<SocialPublicPost> | null>(null);
   const checkingForNewPostsRef = useRef(false);
   const applyingPendingPostsRef = useRef(false);
+  const copyFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadFollowingPosts = useCallback(async (options?: {
     refreshing?: boolean;
@@ -153,6 +176,29 @@ export default function FollowingFeed({ theme }: FollowingFeedProps) {
   useEffect(() => {
     loadFollowingPosts({ allowFreshCache: true });
   }, [loadFollowingPosts]);
+
+  useEffect(() => {
+    return () => {
+      if (copyFeedbackTimerRef.current) {
+        clearTimeout(copyFeedbackTimerRef.current);
+        copyFeedbackTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  const showCopyFeedback = useCallback((postId: string, action: 'text' | 'author') => {
+    if (copyFeedbackTimerRef.current) {
+      clearTimeout(copyFeedbackTimerRef.current);
+      copyFeedbackTimerRef.current = null;
+    }
+
+    setCopyFeedback({ postId, action });
+
+    copyFeedbackTimerRef.current = setTimeout(() => {
+      setCopyFeedback(null);
+      copyFeedbackTimerRef.current = null;
+    }, 1300);
+  }, []);
 
   const checkForNewPosts = useCallback(async () => {
     if (checkingForNewPostsRef.current || applyingPendingPostsRef.current) return;
@@ -247,11 +293,39 @@ export default function FollowingFeed({ theme }: FollowingFeedProps) {
     }
   }, []);
 
+  const handleCopyPostText = useCallback(async (post: SocialPublicPost) => {
+    const text = buildFollowingCopyText(post);
+
+    if (!text.trim()) return;
+
+    try {
+      await Clipboard.setStringAsync(text);
+      showCopyFeedback(post.id, 'text');
+    } catch (error) {
+      console.warn('[FollowingFeed] copy text failed:', error);
+    }
+  }, [showCopyFeedback]);
+
+  const handleCopyAuthorId = useCallback(async (post: SocialPublicPost) => {
+    const authorIdentifier = getFollowingAuthorIdentifier(post);
+
+    if (!authorIdentifier.trim()) return;
+
+    try {
+      await Clipboard.setStringAsync(authorIdentifier);
+      showCopyFeedback(post.id, 'author');
+    } catch (error) {
+      console.warn('[FollowingFeed] copy author id failed:', error);
+    }
+  }, [showCopyFeedback]);
+
   const renderPost = useCallback(({ item }: { item: SocialPublicPost }) => {
     const authorName = getAuthorName(item);
     const authorInitials = getAuthorInitials(item);
     const firstImageUrl = item.imageUrls[0];
     const hasMedia = !!firstImageUrl;
+    const textCopied = copyFeedback?.postId === item.id && copyFeedback.action === 'text';
+    const authorCopied = copyFeedback?.postId === item.id && copyFeedback.action === 'author';
 
     return (
       <View style={[s.postCard, { backgroundColor: theme.raised, borderColor: theme.border }]}>
@@ -319,10 +393,44 @@ export default function FollowingFeed({ theme }: FollowingFeedProps) {
               Share
             </Text>
           </TouchableOpacity>
+
+          <TouchableOpacity
+            style={s.footerAction}
+            activeOpacity={0.75}
+            onPress={() => handleCopyPostText(item)}
+            accessibilityRole="button"
+            accessibilityLabel="Copy this Following post text"
+          >
+            <Ionicons
+              name={textCopied ? 'checkmark-circle-outline' : 'copy-outline'}
+              size={18}
+              color={textCopied ? theme.gold : theme.textMuted}
+            />
+            <Text style={[s.footerActionText, { color: textCopied ? theme.gold : theme.textMuted }]}>
+              {textCopied ? 'Copied' : 'Copy'}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={s.footerAction}
+            activeOpacity={0.75}
+            onPress={() => handleCopyAuthorId(item)}
+            accessibilityRole="button"
+            accessibilityLabel="Copy this Following post author id"
+          >
+            <Ionicons
+              name={authorCopied ? 'checkmark-circle-outline' : 'person-circle-outline'}
+              size={18}
+              color={authorCopied ? theme.gold : theme.textMuted}
+            />
+            <Text style={[s.footerActionText, { color: authorCopied ? theme.gold : theme.textMuted }]}>
+              {authorCopied ? 'Copied' : 'ID'}
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
     );
-  }, [handleSharePost, theme]);
+  }, [copyFeedback, handleCopyAuthorId, handleCopyPostText, handleSharePost, theme]);
 
   if (loading && posts.length === 0) {
     return (
@@ -528,6 +636,7 @@ const s = StyleSheet.create({
     minHeight: 42,
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
   },
   footerAction: {
     minHeight: 42,
