@@ -300,6 +300,11 @@ export default function TimelineScreen() {
     };
   }, [sheetComposer]);
 
+  useEffect(() => {
+    lastFeedScrollYRef.current = 0;
+    setFloatingDockHidden(false);
+  }, [feedKey, setFloatingDockHidden]);
+
   const myMilestones = milestones.filter(m => !m.familyId || m.authorNpub === npub);
   const source = feedKey === 'profile' ? myMilestones : [];
   const activeFeed = FEED_OPTIONS.find(option => option.key === feedKey) ?? FEED_OPTIONS[0];
@@ -888,7 +893,10 @@ export default function TimelineScreen() {
       )}
 
       {feedKey === 'follows' ? (
-        <FollowingFeed theme={theme} />
+        <FollowingFeed
+          theme={theme}
+          onScroll={handleFeedScroll}
+        />
       ) : feedKey === 'subscribed' ? (
         <BroadcastsFeed theme={theme} />
       ) : (

@@ -11,6 +11,8 @@ import {
   Text,
   TouchableOpacity,
   View,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from 'react-native';
 import {
   fetchFollowingPublicPosts,
@@ -20,6 +22,7 @@ import { formatDate } from '../../src/utils/storage';
 
 type FollowingFeedProps = {
   theme: any;
+  onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
 };
 
 type CopyFeedbackState = {
@@ -102,7 +105,7 @@ function getFollowingAuthorIdentifier(post: SocialPublicPost): string {
   return post.npub || post.pubkey || '';
 }
 
-export default function FollowingFeed({ theme }: FollowingFeedProps) {
+export default function FollowingFeed({ theme, onScroll }: FollowingFeedProps) {
   const [posts, setPosts] = useState<SocialPublicPost[]>(() => FOLLOWING_FEED_SESSION_CACHE);
   const [pendingPosts, setPendingPosts] = useState<SocialPublicPost[]>([]);
   const [loading, setLoading] = useState(() => FOLLOWING_FEED_SESSION_CACHE.length === 0);
@@ -485,6 +488,8 @@ export default function FollowingFeed({ theme }: FollowingFeedProps) {
         updateCellsBatchingPeriod={32}
         windowSize={7}
         removeClippedSubviews={Platform.OS === 'android'}
+        onScroll={onScroll}
+        scrollEventThrottle={16}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
