@@ -293,7 +293,7 @@ export default function MyMarksFeed({
                 <View style={s.feedMarkCaptionCopy}>
                   {item.title ? (
                     <View style={[s.feedMarkTitlePlate, { borderLeftColor: theme.gold }]}>
-                      <Text style={s.feedMarkOverlayTitle} numberOfLines={isTextExpanded ? 3 : 2}>
+                      <Text style={s.feedMarkOverlayTitle} numberOfLines={isTextExpanded ? 2 : 1}>
                         {item.title}
                       </Text>
                     </View>
@@ -302,7 +302,7 @@ export default function MyMarksFeed({
                   {item.body ? (
                     <Text
                       style={s.feedMarkOverlayBody}
-                      numberOfLines={isTextExpanded ? 6 : 2}
+                      numberOfLines={isTextExpanded ? 5 : 1}
                     >
                       {item.body}
                     </Text>
@@ -658,25 +658,25 @@ const s = StyleSheet.create({
   },
   feedMarkCaptionShelfCap: {
     alignSelf: 'center',
-    width: '62%',
-    height: 16,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    backgroundColor: 'rgba(0,0,0,0.46)',
+    width: '54%',
+    height: 11,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    backgroundColor: 'rgba(0,0,0,0.32)',
   },
   feedMarkCaptionShelf: {
-    paddingHorizontal: 15,
-    paddingTop: 12,
-    paddingBottom: 11,
-    backgroundColor: 'rgba(0,0,0,0.76)',
+    paddingHorizontal: 14,
+    paddingTop: 9,
+    paddingBottom: 8,
+    backgroundColor: 'rgba(0,0,0,0.58)',
   },
   feedMarkCaptionCopy: {
-    marginBottom: 10,
+    marginBottom: 6,
   },
   feedMarkTitlePlate: {
     borderLeftWidth: 3,
-    paddingLeft: 9,
-    marginBottom: 6,
+    paddingLeft: 8,
+    marginBottom: 4,
   },
   feedMarkOverlayTitle: {
     color: '#fff',
@@ -686,15 +686,15 @@ const s = StyleSheet.create({
     letterSpacing: -0.3,
   },
   feedMarkOverlayBody: {
-    color: 'rgba(255,255,255,0.91)',
-    fontSize: 14,
-    lineHeight: 19,
+    color: 'rgba(255,255,255,0.88)',
+    fontSize: 13,
+    lineHeight: 18,
     fontWeight: '700',
-    marginTop: 2,
+    marginTop: 1,
   },
   feedMarkCaptionMetaRow: {
-    marginTop: 9,
-    minHeight: 30,
+    marginTop: 7,
+    minHeight: 28,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -758,7 +758,7 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginTop: 10,
+    marginTop: 6,
   },
   socialCard: {
     borderRadius: 14,

@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   Image,
   Modal,
@@ -118,6 +119,11 @@ function buildFollowingAuthorShareMessage(post: SocialPublicPost): string {
 }
 
 export default function FollowingFeed({ theme, onScroll }: FollowingFeedProps) {
+  const bePatientLogo =
+    theme.bg === '#0D0F0E' || theme.bg === '#0d0f0e'
+      ? require('../../assets/images/bE_logo_light.png')
+      : require('../../assets/images/bE_logo_dark.png');
+
   const [posts, setPosts] = useState<SocialPublicPost[]>(() => FOLLOWING_FEED_SESSION_CACHE);
   const [pendingPosts, setPendingPosts] = useState<SocialPublicPost[]>([]);
   const [loading, setLoading] = useState(() => FOLLOWING_FEED_SESSION_CACHE.length === 0);
@@ -486,14 +492,34 @@ export default function FollowingFeed({ theme, onScroll }: FollowingFeedProps) {
 
   if (loading && posts.length === 0) {
     return (
-      <View style={s.empty}>
-        <Text style={[s.emptyIcon, { color: theme.textMuted }]}>⟳</Text>
-        <Text style={[s.emptyText, { color: theme.text }]}>
-          Loading Following…
-        </Text>
-        <Text style={[s.emptyHint, { color: theme.textMuted }]}>
-          Pulling public posts from people in your Network.
-        </Text>
+      <View style={s.fetchWrap}>
+        <View
+          style={[
+            s.fetchCard,
+            {
+              backgroundColor: theme.raised,
+              borderColor: theme.border,
+              shadowColor: theme.gold,
+            },
+          ]}
+        >
+          <Image source={bePatientLogo} style={s.fetchLogo} resizeMode="contain" />
+
+          <Text style={[s.fetchTitle, { color: theme.text }]}>
+            bE Patient
+          </Text>
+
+          <View style={s.fetchStatusRow}>
+            <ActivityIndicator size="small" color={theme.gold} />
+            <Text style={[s.fetchStatusText, { color: theme.text }]}>
+              Fetching relay posts…
+            </Text>
+          </View>
+
+          <Text style={[s.fetchHint, { color: theme.textMuted }]}>
+            Pulling recent public Marks from people you follow. Relays can take a moment.
+          </Text>
+        </View>
       </View>
     );
   }
@@ -688,6 +714,55 @@ const s = StyleSheet.create({
     marginTop: 6,
     textAlign: 'center',
     lineHeight: 18,
+  },
+  fetchWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+    paddingBottom: 80,
+  },
+  fetchCard: {
+    width: '100%',
+    maxWidth: 340,
+    borderRadius: 24,
+    borderWidth: 0.5,
+    paddingHorizontal: 22,
+    paddingVertical: 26,
+    alignItems: 'center',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.16,
+    shadowRadius: 14,
+    elevation: 5,
+  },
+  fetchLogo: {
+    width: 62,
+    height: 44,
+    marginBottom: 12,
+  },
+  fetchTitle: {
+    fontSize: 24,
+    fontWeight: '900',
+    letterSpacing: -0.3,
+    marginBottom: 12,
+  },
+  fetchStatusRow: {
+    minHeight: 28,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 9,
+    marginBottom: 10,
+  },
+  fetchStatusText: {
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  fetchHint: {
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   newPostBanner: {
     position: 'absolute',
