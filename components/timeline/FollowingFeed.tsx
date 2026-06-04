@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   FlatList,
   Image,
+  Modal,
   Platform,
   RefreshControl,
   Share,
@@ -105,6 +106,17 @@ function getFollowingAuthorIdentifier(post: SocialPublicPost): string {
   return post.npub || post.pubkey || '';
 }
 
+function buildFollowingAuthorShareMessage(post: SocialPublicPost): string {
+  const authorIdentifier = getFollowingAuthorIdentifier(post);
+
+  return [
+    getAuthorName(post),
+    authorIdentifier,
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+}
+
 export default function FollowingFeed({ theme, onScroll }: FollowingFeedProps) {
   const [posts, setPosts] = useState<SocialPublicPost[]>(() => FOLLOWING_FEED_SESSION_CACHE);
   const [pendingPosts, setPendingPosts] = useState<SocialPublicPost[]>([]);
@@ -112,6 +124,7 @@ export default function FollowingFeed({ theme, onScroll }: FollowingFeedProps) {
   const [refreshing, setRefreshing] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
   const [copyFeedback, setCopyFeedback] = useState<CopyFeedbackState>(null);
+  const [selectedAuthorPost, setSelectedAuthorPost] = useState<SocialPublicPost | null>(null);
   const postsRef = useRef<SocialPublicPost[]>(FOLLOWING_FEED_SESSION_CACHE);
   const listRef = useRef<FlatList<SocialPublicPost> | null>(null);
   const checkingForNewPostsRef = useRef(false);
@@ -322,6 +335,29 @@ export default function FollowingFeed({ theme, onScroll }: FollowingFeedProps) {
     }
   }, [showCopyFeedback]);
 
+  const handleOpenAuthorProfile = useCallback((post: SocialPublicPost) => {
+    setSelectedAuthorPost(post);
+  }, []);
+
+  const handleCloseAuthorProfile = useCallback(() => {
+    setSelectedAuthorPost(null);
+  }, []);
+
+  const handleShareAuthorProfile = useCallback(async (post: SocialPublicPost) => {
+    const message = buildFollowingAuthorShareMessage(post);
+
+    if (!message.trim()) return;
+
+    try {
+      await Share.share({
+        title: getAuthorName(post),
+        message,
+      });
+    } catch (error) {
+      console.warn('[FollowingFeed] share author failed:', error);
+    }
+  }, []);
+
   const renderPost = useCallback(({ item }: { item: SocialPublicPost }) => {
     const authorName = getAuthorName(item);
     const authorInitials = getAuthorInitials(item);
@@ -332,7 +368,13 @@ export default function FollowingFeed({ theme, onScroll }: FollowingFeedProps) {
 
     return (
       <View style={[s.postCard, { backgroundColor: theme.raised, borderColor: theme.border }]}>
-        <View style={s.postHeader}>
+        <TouchableOpacity
+          style={s.postHeader}
+          activeOpacity={0.82}
+          onPress={() => handleOpenAuthorProfile(item)}
+          accessibilityRole="button"
+          accessibilityLabel="Open Following author profile"
+        >
           <View style={[s.avatar, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             {item.authorAvatarUrl ? (
               <Image source={{ uri: item.authorAvatarUrl }} style={s.avatarImage} />
@@ -354,10 +396,10 @@ export default function FollowingFeed({ theme, onScroll }: FollowingFeedProps) {
 
           <View style={[s.sourcePill, { borderColor: theme.border, backgroundColor: theme.surface }]}>
             <Text style={[s.sourcePillText, { color: theme.textMuted }]}>
-              Nostr
+              Profile
             </Text>
           </View>
-        </View>
+        </TouchableOpacity>
 
         {hasMedia && (
           <Image
@@ -433,7 +475,14 @@ export default function FollowingFeed({ theme, onScroll }: FollowingFeedProps) {
         </View>
       </View>
     );
-  }, [copyFeedback, handleCopyAuthorId, handleCopyPostText, handleSharePost, theme]);
+  }, [
+    copyFeedback,
+    handleCopyAuthorId,
+    handleCopyPostText,
+    handleOpenAuthorProfile,
+    handleSharePost,
+    theme,
+  ]);
 
   if (loading && posts.length === 0) {
     return (
@@ -472,6 +521,97 @@ export default function FollowingFeed({ theme, onScroll }: FollowingFeedProps) {
               : `${pendingPosts.length} new posts`}
           </Text>
         </TouchableOpacity>
+      )}
+
+      {selectedAuthorPost && (
+        <Modal
+          visible
+          transparent
+          animationType="fade"
+          onRequestClose={handleCloseAuthorProfile}
+        >
+          <TouchableOpacity
+            style={s.profileModalBackdrop}
+            activeOpacity={1}
+            onPress={handleCloseAuthorProfile}
+          >
+            <TouchableOpacity
+              style={[
+                s.profileCard,
+                {
+                  backgroundColor: theme.raised,
+                  borderColor: theme.border,
+                },
+              ]}
+              activeOpacity={1}
+            >
+              <View style={s.profileHeader}>
+                <View style={[s.profileAvatar, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                  {selectedAuthorPost.authorAvatarUrl ? (
+                    <Image source={{ uri: selectedAuthorPost.authorAvatarUrl }} style={s.profileAvatarImage} />
+                  ) : (
+                    <Text style={[s.profileAvatarText, { color: theme.gold }]}>
+                      {getAuthorInitials(selectedAuthorPost)}
+                    </Text>
+                  )}
+                </View>
+
+                <View style={s.profileHeaderCopy}>
+                  <Text style={[s.profileName, { color: theme.text }]} numberOfLines={1}>
+                    {getAuthorName(selectedAuthorPost)}
+                  </Text>
+                  <Text style={[s.profileId, { color: theme.textMuted }]} numberOfLines={1}>
+                    {shortenIdentifier(getFollowingAuthorIdentifier(selectedAuthorPost))}
+                  </Text>
+                </View>
+              </View>
+
+              <Text style={[s.profileHint, { color: theme.textSecondary }]}>
+                Public Nostr profile from your Following feed.
+              </Text>
+
+              <View style={s.profileActions}>
+                <TouchableOpacity
+                  style={[s.profileActionButton, { borderColor: theme.border, backgroundColor: theme.surface }]}
+                  activeOpacity={0.78}
+                  onPress={() => handleCopyAuthorId(selectedAuthorPost)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Copy author id"
+                >
+                  <Ionicons name="person-circle-outline" size={18} color={theme.textMuted} />
+                  <Text style={[s.profileActionText, { color: theme.text }]}>
+                    Copy ID
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[s.profileActionButton, { borderColor: theme.border, backgroundColor: theme.surface }]}
+                  activeOpacity={0.78}
+                  onPress={() => handleShareAuthorProfile(selectedAuthorPost)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Share author profile"
+                >
+                  <Ionicons name="share-social-outline" size={18} color={theme.textMuted} />
+                  <Text style={[s.profileActionText, { color: theme.text }]}>
+                    Share
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <TouchableOpacity
+                style={[s.profileCloseButton, { backgroundColor: theme.gold }]}
+                activeOpacity={0.82}
+                onPress={handleCloseAuthorProfile}
+                accessibilityRole="button"
+                accessibilityLabel="Close author profile"
+              >
+                <Text style={[s.profileCloseText, { color: theme.bg }]}>
+                  Close
+                </Text>
+              </TouchableOpacity>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
       )}
 
       <FlatList
@@ -621,6 +761,90 @@ const s = StyleSheet.create({
   },
   sourcePillText: {
     fontSize: 10,
+    fontWeight: '900',
+  },
+  profileModalBackdrop: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.38)',
+  },
+  profileCard: {
+    marginHorizontal: 12,
+    marginBottom: 18,
+    borderRadius: 22,
+    borderWidth: 0.5,
+    padding: 18,
+  },
+  profileHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  profileAvatar: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    borderWidth: 0.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  profileAvatarImage: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+  },
+  profileAvatarText: {
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  profileHeaderCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  profileName: {
+    fontSize: 19,
+    fontWeight: '900',
+  },
+  profileId: {
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  profileHint: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+    marginTop: 14,
+  },
+  profileActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 16,
+  },
+  profileActionButton: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: 14,
+    borderWidth: 0.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 7,
+  },
+  profileActionText: {
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  profileCloseButton: {
+    minHeight: 44,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 14,
+  },
+  profileCloseText: {
+    fontSize: 14,
     fontWeight: '900',
   },
   postImage: {

@@ -142,9 +142,9 @@ export default function TimelineScreen() {
   }, [setFloatingDockHidden]);
 
   const router = useRouter();
-    const { npub, nsec, family, profile, relays, theme, themeMode } = useIdentity();
+  const { npub, nsec, family, profile, relays, theme, themeMode } = useIdentity();
 
-    const load = useCallback(async () => {
+  const load = useCallback(async () => {
     const all = await getMilestones();
     setMilestones(all);
 
@@ -158,10 +158,9 @@ export default function TimelineScreen() {
       console.warn('[Living Spaces] failed to load prompt card:', error);
       setLivingPromptCard(null);
     }
-
   }, [npub]);
 
-    const syncFamilyMilestones = useCallback(async () => {
+  const syncFamilyMilestones = useCallback(async () => {
     if (!family || !npub) return;
 
     setSyncing(true);
@@ -245,15 +244,15 @@ export default function TimelineScreen() {
   }, [load, setFloatingDockHidden]));
 
   const onRefresh = async () => {
-  setRefreshing(true);
+    setRefreshing(true);
 
-  if (family) {
-    await syncFamilyMilestones();
-  }
+    if (family) {
+      await syncFamilyMilestones();
+    }
 
-  await load();
-  setRefreshing(false);
-};
+    await load();
+    setRefreshing(false);
+  };
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -334,26 +333,26 @@ export default function TimelineScreen() {
   };
 
   function openViewerForMilestone(milestone: Milestone, startIndex: number) {
-  const mediaItems = getMyMarksFeedMediaItems(milestone).filter(
-    m => m.type === 'image' || m.type === 'video'
-  );
+    const mediaItems = getMyMarksFeedMediaItems(milestone).filter(
+      m => m.type === 'image' || m.type === 'video'
+    );
 
-  const images: ViewerImage[] = mediaItems.map((m, index) => {
-    const viewerType: 'image' | 'video' = m.type === 'video' ? 'video' : 'image';
+    const images: ViewerImage[] = mediaItems.map((m, index) => {
+      const viewerType: 'image' | 'video' = m.type === 'video' ? 'video' : 'image';
 
-    return {
-      id: `${milestone.id}_${index}`,
-      uri: m.uri,
-      type: viewerType,
-      thumbnailUrl: m.thumbnailUri || m.thumbnailUrl,
-    };
-  });
+      return {
+        id: `${milestone.id}_${index}`,
+        uri: m.uri,
+        type: viewerType,
+        thumbnailUrl: m.thumbnailUri || m.thumbnailUrl,
+      };
+    });
 
-  if (images.length === 0) return;
+    if (images.length === 0) return;
 
-  setViewerImages(images);
-  setSelectedViewerUri(images[startIndex]?.uri ?? null);
-}  
+    setViewerImages(images);
+    setSelectedViewerUri(images[startIndex]?.uri ?? null);
+  }
   
   const openMarkDetail = (item: TimelineFeedItem) => {
     router.push({ pathname: '/mark-detail', params: { id: item.milestone.id } } as any);
@@ -626,7 +625,7 @@ export default function TimelineScreen() {
     : Math.max(insets.bottom, 12) + 76;
 
   return (
-        <SafeAreaView style={[s.safe, themed.safe]}>
+    <SafeAreaView style={[s.safe, themed.safe]}>
       <View style={[s.feedHeader, themed.safe]}>
         <View style={s.feedHeaderSide}>
           <Image source={headerLogo} style={s.feedHeaderLogo} resizeMode="contain" />
@@ -744,7 +743,7 @@ export default function TimelineScreen() {
         onClose={() => setSelectedViewerUri(null)}
       />
 
-            {liftUpSheetItem && (
+      {liftUpSheetItem && (
         <View style={s.composerOverlay} pointerEvents="box-none">
           <EmojiReactionStrip
             choices={LIFT_UP_CHOICES.map(choice => ({
