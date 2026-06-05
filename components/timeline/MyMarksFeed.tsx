@@ -13,7 +13,7 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   type ViewabilityConfig,
-  type ViewToken,
+  type ViewToken
 } from 'react-native';
 import MarkActionRow from '../../components/MarkActionRow';
 import MediaCollage from '../../components/MediaCollage';
@@ -290,7 +290,13 @@ export default function MyMarksFeed({
               <View style={s.feedMarkCaptionShelfCap} />
 
               <View style={s.feedMarkCaptionShelf}>
-                <View style={s.feedMarkCaptionCopy}>
+                <TouchableOpacity
+                  style={s.feedMarkCaptionCopy}
+                  onPress={() => onOpenDetail(item)}
+                  activeOpacity={0.86}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open this Mark"
+                >
                   {item.title ? (
                     <View style={[s.feedMarkTitlePlate, { borderLeftColor: theme.gold }]}>
                       <Text style={s.feedMarkOverlayTitle} numberOfLines={isTextExpanded ? 2 : 1}>
@@ -307,49 +313,36 @@ export default function MyMarksFeed({
                       {item.body}
                     </Text>
                   ) : null}
+                </TouchableOpacity>
 
-                  <View style={s.feedMarkCaptionMetaRow}>
-                    <View style={s.feedMarkCaptionButtonRow}>
-                      {bodyCanExpand && (
-                        <TouchableOpacity
-                          activeOpacity={0.78}
-                          onPress={() => toggleExpandedText(item.id)}
-                          accessibilityRole="button"
-                          accessibilityLabel={isTextExpanded ? 'Show less Mark text' : 'Show more Mark text'}
-                        >
-                          <Text style={[s.feedMarkOverlayExpandText, { color: theme.gold }]}>
-                            {isTextExpanded ? 'Show less' : 'Show more'}
-                          </Text>
-                        </TouchableOpacity>
+                {bodyCanExpand && (
+                  <TouchableOpacity
+                    style={s.feedMarkShowMoreButton}
+                    activeOpacity={0.78}
+                    onPress={() => toggleExpandedText(item.id)}
+                    accessibilityRole="button"
+                    accessibilityLabel={isTextExpanded ? 'Show less Mark text' : 'Show more Mark text'}
+                  >
+                    <Text style={[s.feedMarkOverlayExpandText, { color: theme.gold }]}>
+                      {isTextExpanded ? 'Show less' : 'Show more'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+
+                <View style={s.feedMarkCaptionMetaRow}>
+                  {(visibleTags.length > 0 || hiddenTagCount > 0) && (
+                    <View style={s.feedMarkOverlayTagRow}>
+                      <Text style={s.feedMarkOverlayTagText} numberOfLines={1}>
+                        {visibleTags.join(' · ')}
+                      </Text>
+
+                      {hiddenTagCount > 0 && (
+                        <View style={s.feedMarkOverlayTagBadge}>
+                          <Text style={s.feedMarkOverlayTagBadgeText}>+{hiddenTagCount}</Text>
+                        </View>
                       )}
-
-                      <TouchableOpacity
-                        style={[s.feedMarkReadButton, { borderColor: `${theme.gold}88` }]}
-                        onPress={() => onOpenDetail(item)}
-                        activeOpacity={0.82}
-                        accessibilityRole="button"
-                        accessibilityLabel="Read this Mark"
-                      >
-                        <Text style={[s.feedMarkReadButtonText, { color: theme.gold }]}>
-                          Read Mark
-                        </Text>
-                      </TouchableOpacity>
                     </View>
-
-                    {(visibleTags.length > 0 || hiddenTagCount > 0) && (
-                      <View style={s.feedMarkOverlayTagRow}>
-                        <Text style={s.feedMarkOverlayTagText} numberOfLines={1}>
-                          {visibleTags.join(' · ')}
-                        </Text>
-
-                        {hiddenTagCount > 0 && (
-                          <View style={s.feedMarkOverlayTagBadge}>
-                            <Text style={s.feedMarkOverlayTagBadgeText}>+{hiddenTagCount}</Text>
-                          </View>
-                        )}
-                      </View>
-                    )}
-                  </View>
+                  )}
                 </View>
 
                 <MarkActionRow
@@ -658,107 +651,126 @@ const s = StyleSheet.create({
   },
   feedMarkCaptionShelfCap: {
     alignSelf: 'center',
-    width: '54%',
-    height: 11,
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
-    backgroundColor: 'rgba(0,0,0,0.32)',
+    width: 46,
+    height: 4,
+    borderRadius: 999,
+    marginBottom: 7,
+    backgroundColor: 'rgba(255,255,255,0.34)',
   },
   feedMarkCaptionShelf: {
-    paddingHorizontal: 14,
-    paddingTop: 9,
+    marginHorizontal: 10,
+    marginBottom: 10,
+    borderRadius: 18,
+    paddingHorizontal: 12,
+    paddingTop: 8,
     paddingBottom: 8,
-    backgroundColor: 'rgba(0,0,0,0.58)',
+    backgroundColor: 'rgba(0,0,0,0.44)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(255,255,255,0.16)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    elevation: 4,
   },
   feedMarkCaptionCopy: {
-    marginBottom: 6,
+    alignSelf: 'stretch',
+    marginBottom: 2,
   },
   feedMarkTitlePlate: {
-    borderLeftWidth: 3,
-    paddingLeft: 8,
-    marginBottom: 4,
+    borderLeftWidth: 2,
+    paddingLeft: 7,
+    marginBottom: 2,
   },
   feedMarkOverlayTitle: {
     color: '#fff',
-    fontSize: 21,
-    lineHeight: 25,
+    fontSize: 19,
+    lineHeight: 23,
     fontWeight: '900',
-    letterSpacing: -0.3,
+    letterSpacing: -0.25,
+    textAlign: 'left',
   },
   feedMarkOverlayBody: {
-    color: 'rgba(255,255,255,0.88)',
-    fontSize: 13,
-    lineHeight: 18,
+    alignSelf: 'stretch',
+    color: 'rgba(255,255,255,0.84)',
+    fontSize: 12,
+    lineHeight: 17,
     fontWeight: '700',
-    marginTop: 1,
+    marginTop: 0,
+    textAlign: 'left',
+  },
+  feedMarkShowMoreButton: {
+    alignSelf: 'flex-start',
+    marginTop: 3,
+    marginBottom: 2,
   },
   feedMarkCaptionMetaRow: {
-    marginTop: 7,
-    minHeight: 28,
+    marginTop: 2,
+    minHeight: 0,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
+    justifyContent: 'flex-start',
+    gap: 8,
     flexWrap: 'wrap',
   },
   feedMarkCaptionButtonRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
     flexShrink: 0,
   },
   feedMarkReadButton: {
-    minHeight: 30,
-    borderRadius: 15,
+    minHeight: 28,
+    borderRadius: 14,
     borderWidth: 0.8,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 12,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    paddingHorizontal: 11,
+    backgroundColor: 'rgba(255,255,255,0.07)',
   },
   feedMarkReadButtonText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '900',
   },
   feedMarkOverlayExpandText: {
-    fontSize: 12,
-    lineHeight: 16,
+    fontSize: 11,
+    lineHeight: 15,
     fontWeight: '900',
   },
   feedMarkOverlayTagRow: {
     flex: 1,
-    minWidth: 92,
+    minWidth: 86,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-end',
-    gap: 6,
+    gap: 5,
   },
   feedMarkOverlayTagText: {
     flexShrink: 1,
-    color: 'rgba(255,255,255,0.70)',
-    fontSize: 10,
+    color: 'rgba(255,255,255,0.62)',
+    fontSize: 9,
     fontWeight: '800',
     textAlign: 'right',
   },
   feedMarkOverlayTagBadge: {
-    minWidth: 24,
-    height: 20,
-    borderRadius: 10,
-    paddingHorizontal: 6,
+    minWidth: 22,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 5,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.16)',
+    backgroundColor: 'rgba(255,255,255,0.13)',
   },
   feedMarkOverlayTagBadgeText: {
     color: '#fff',
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '900',
   },
   feedMarkOverlayActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginTop: 6,
+    gap: 7,
+    marginTop: 4,
   },
   socialCard: {
     borderRadius: 14,

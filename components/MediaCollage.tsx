@@ -187,6 +187,12 @@ function MediaPreviewImage({
         resizeMode={resizeMode}
         onError={() => setFailed(true)}
       />
+
+      {type === 'video' && (
+        <View style={s.videoPosterBadge}>
+          <Text style={s.videoPosterBadgeIcon}>▶</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -515,12 +521,12 @@ export default function MediaCollage({
               style={[s.slide, { width: carouselWidth, height: mediaHeight }]}
               onPress={() => onPressMedia?.(index)}
             >
-              {autoPlayVideos && type === 'video' && !!mediaUri ? (
+              {shouldAutoPlayVideo && !!mediaUri ? (
                 <MediaPreviewVideo
                   uri={mediaUri}
                   thumbnailUri={previewUri}
                   fitMode={fitMode}
-                  shouldPlay={shouldAutoPlayVideo}
+                  shouldPlay
                   muted={videoMuted}
                   loop={videoLoop}
                   s={s}
@@ -671,6 +677,25 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
   },
   badgeText: {
     fontSize: 13,
+  },
+  videoPosterBadge: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.54)',
+    borderWidth: 0.5,
+    borderColor: 'rgba(255,255,255,0.22)',
+  },
+  videoPosterBadgeIcon: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '900',
+    marginLeft: 2,
   },
   mutedVideoBadge: {
     position: 'absolute',
