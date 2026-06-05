@@ -242,6 +242,40 @@ function sortMilestones(milestones: Milestone[]): Milestone[] {
   return [...milestones].sort((a, b) => b.createdAt - a.createdAt);
 }
 
+export function hasMilestoneOwner(milestone: Pick<Milestone, 'authorNpub'>): boolean {
+  return hasText(milestone.authorNpub);
+}
+
+export function isMilestoneOwnedByNpub(
+  milestone: Pick<Milestone, 'authorNpub'>,
+  npub?: string | null
+): boolean {
+  if (!hasText(npub)) return false;
+
+  return milestone.authorNpub === npub;
+}
+
+export function isOwnerlessLegacyMilestone(
+  milestone: Pick<Milestone, 'authorNpub'>
+): boolean {
+  return !hasMilestoneOwner(milestone);
+}
+
+export function filterMilestonesForOwner(
+  milestones: Milestone[],
+  npub?: string | null
+): Milestone[] {
+  return sortMilestones(
+    milestones.filter(milestone => isMilestoneOwnedByNpub(milestone, npub))
+  );
+}
+
+export function filterOwnerlessLegacyMilestones(milestones: Milestone[]): Milestone[] {
+  return sortMilestones(
+    milestones.filter(isOwnerlessLegacyMilestone)
+  );
+}
+
 export function auditMilestonesForCorruption(input: unknown): MilestoneIntegrityAudit {
   const audit: MilestoneIntegrityAudit = {
     total: Array.isArray(input) ? input.length : 0,

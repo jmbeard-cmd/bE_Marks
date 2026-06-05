@@ -32,6 +32,7 @@ import {
   getLivingMarkPromptCards,
 } from '../../src/utils/living-spaces-storage';
 import {
+  filterMilestonesForOwner,
   getMilestones,
   updateMilestone,
   type Milestone,
@@ -239,11 +240,7 @@ export default function TimelineScreen() {
     setFloatingDockHidden(false);
   }, [feedKey, setFloatingDockHidden]);
 
-  const myMilestones = milestones.filter(m => {
-    if (!npub) return false;
-
-    return m.authorNpub === npub;
-  });
+  const myMilestones = filterMilestonesForOwner(milestones, npub);
   const source = feedKey === 'profile' ? myMilestones : [];
   const activeFeed = FEED_OPTIONS.find(option => option.key === feedKey) ?? FEED_OPTIONS[0];
   const feedItems = buildMyMarksFeedItems({
