@@ -330,8 +330,8 @@ export function createDefaultLivingSpaces(input: LivingSpaceDefaultsInput = {}):
     createSystemSpace({
       id: SYSTEM_LIVING_SPACE_IDS.profile,
       type: 'personal',
-      name: 'Home',
-      description: 'Your personal world and private Marks.',
+      name: 'Personal',
+      description: 'Your personal Marks and private memories.',
       privacyDefault: 'private',
       now,
     }),

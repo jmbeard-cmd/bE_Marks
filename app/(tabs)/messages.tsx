@@ -267,7 +267,7 @@ const SPACE_TYPE_OPTIONS: SpaceTypeOption[] = [
 ];
 
 const SPACE_TYPE_LABELS: Partial<Record<LivingSpaceType, string>> = {
-  personal: 'Home',
+  personal: 'Personal',
   family: 'Family',
   school: 'School',
   classroom: 'Classroom',

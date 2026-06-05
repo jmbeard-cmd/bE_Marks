@@ -57,11 +57,9 @@ import {
 import { compressMediaForUpload } from '../../src/utils/media-compression';
 import {
   DEFAULT_RELAY,
-  publishFamilyMilestone,
   publishGroupMark,
   signAndPublish,
 } from '../../src/utils/nostr';
-import { notifyMarkEvent } from '../../src/utils/push-notifications';
 import { uploadMilestoneMedia } from '../../src/utils/r2';
 import {
   getAccountSafetySettings,
@@ -340,10 +338,6 @@ export default function LogScreen() {
     }
   }, [routeSavedToBook]);
 
-  const selectedIsFamilySpace =
-    selectedSpace?.id === SYSTEM_LIVING_SPACE_IDS.family ||
-    selectedSpace?.type === 'family';
-
   const selectedGroupSpaceId =
     selectedSpace?.source === 'group' ? selectedSpace.id : null;
 
@@ -488,7 +482,7 @@ export default function LogScreen() {
     setPeopleInput(current => current.replace(/@([^\s,]*)$/, '').trim());
   };
 
-  const selectedIsSharedSpace = selectedIsFamilySpace || !!selectedGroupSpaceId;
+  const selectedIsSharedSpace = !!selectedGroupSpaceId;
   const publicPostingLockedForChildGroup =
     accountSafety?.childUnder13 === true && !!selectedGroupSpaceId;
 
@@ -500,17 +494,13 @@ export default function LogScreen() {
 
   const publicPublishHint = publicPostingLockedForChildGroup
     ? 'This Mark will save inside the Space. Public posting is turned off for child accounts.'
-    : selectedIsFamilySpace
-      ? 'This Mark saves to Family Space by default. Turn this on only if it should also appear beyond Family.'
-      : selectedGroupSpaceId
-        ? 'This Mark saves to the Space by default. Turn this on only if it should also appear on your public timeline.'
-        : 'Optional. Turn this on only when you want this Mark visible on your public timeline.';
+    : selectedGroupSpaceId
+      ? 'This Mark saves to the Space by default. Turn this on only if it should also appear on your public timeline.'
+      : 'Optional. Turn this on only when you want this Mark visible on your public timeline.';
 
   const primarySaveLabel = selectedGroupSpaceId
     ? 'Save to Space'
-    : selectedIsFamilySpace
-      ? 'Save to Family Space'
-      : 'Save Mark';
+    : 'Save Mark';
 
   useEffect(() => {
     if (selectedIsSharedSpace || publicPostingLockedForChildGroup) {
@@ -658,8 +648,8 @@ export default function LogScreen() {
 const placementChipSpaces = livingSpaces
   .filter(space => !space.archivedAt)
   .filter(space => {
-    if (space.id === SYSTEM_LIVING_SPACE_IDS.profile) return true;
-    if (space.id === SYSTEM_LIVING_SPACE_IDS.family && !!family) return true;
+    if (space.id === SYSTEM_LIVING_SPACE_IDS.profile) return false;
+    if (space.id === SYSTEM_LIVING_SPACE_IDS.family) return false;
 
     if (space.source !== 'group') return false;
 
@@ -1012,7 +1002,7 @@ if (audioUri) {
       setSaveStatus('Saving Mark...');
       setProgress(85);
 
-      const shouldSaveAsFamilyMark = !!family && selectedIsFamilySpace;
+      const shouldSaveAsFamilyMark = false;
 
       const savedMilestone = await saveMilestone({
         title: title.trim() || undefined,
@@ -1024,7 +1014,6 @@ if (audioUri) {
         videoUri: uploadedVideo,
         nostrEventId,
         publishedToRelay: published,
-        familyId: shouldSaveAsFamilyMark ? family.id : undefined,
         authorNpub: npub ?? undefined,
         authorName: myDisplayName,
       });
@@ -1081,11 +1070,9 @@ if (audioUri) {
         visibleGroupIds.has(selectedGroupId);
 
       setSaveStatus(
-        shouldSaveAsFamilyMark
-          ? 'Sharing with Family Space...'
-          : shouldPublishGroupSpaceMark
-            ? 'Sharing with Space...'
-            : 'Finishing Mark...'
+        shouldPublishGroupSpaceMark
+          ? 'Sharing with Space...'
+          : 'Finishing Mark...'
       );
       setProgress(95);
 
@@ -1115,49 +1102,8 @@ if (audioUri) {
         }
       }
 
-      if (shouldSaveAsFamilyMark && family && nsec && npub) {
-        publishFamilyMilestone(
-          {
-            id: savedMilestone.id,
-            note: fullNote,
-            tags: finalTags,
-            photoUri: uploadedPhoto,
-            videoUri: uploadedVideo,
-            audioUri: uploadedAudio,
-            media: uploadedMedia,
-            createdAt: savedMilestone.createdAt,
-            familyId: family.id,
-            authorNpub: npub,
-            authorName: myDisplayName,
-          },
-          nsec,
-          relays
-        ).then(result => {
-          if (!result.success) console.warn('[Family Sync] Failed to publish:', result.error);
-          else console.log('[Family Sync] Published:', result.eventId);
-        });
-
-        getFamilyMembers(family.id)
-          .then(familyMembers => {
-            const recipientNpubs = familyMembers
-              .map(member => member.npub)
-              .filter(memberNpub => memberNpub !== npub);
-
-            return notifyMarkEvent({
-              recipientNpubs,
-              authorNpub: npub,
-              authorName: myDisplayName,
-              markId: savedMilestone.id,
-              title: title.trim() || undefined,
-              preview: note.trim() || fullNote,
-              eventId: nostrEventId,
-              familyId: family.id,
-            });
-          })
-          .catch(error => {
-            console.warn('[Mark Notification] failed:', error);
-          });
-      }
+      // Old Family Timeline publish/notify path intentionally removed.
+      // Family should be handled as a normal Space type through group/Space routing.
 
       // ── Reset form ──
       setTitle('');
@@ -1187,13 +1133,9 @@ if (audioUri) {
             ? 'Saved to Space and also published publicly.'
             : 'Saved to Space.'
           : 'Saved locally. Space sync did not finish.'
-        : selectedIsFamilySpace
-          ? published
-            ? 'Saved to Family Space and also published publicly.'
-            : 'Saved to Family Space.'
-          : published
-            ? 'Published publicly.'
-            : 'Saved privately.';
+        : published
+          ? 'Published publicly.'
+          : 'Saved privately.';
 
       Alert.alert(
         '✓ Saved',
@@ -1658,21 +1600,6 @@ setProgress(0);
             </TouchableOpacity>
           )}
         </View>
-
-        {selectedIsFamilySpace && family && (
-          <View style={[s.relayRow, { borderColor: theme.border }]}>
-            <View>
-              <Text style={[s.relayLabel, { color: theme.text }]}>Family Space selected</Text>
-              <Text style={[s.relayHint, { color: theme.textMuted }]}>
-                This Mark will be placed in {family.name}.
-              </Text>
-            </View>
-
-            <Text style={[s.relayHint, { color: theme.gold, fontWeight: '800' }]}>
-              Family
-            </Text>
-          </View>
-        )}
 
         {/* Save */}
 <TouchableOpacity

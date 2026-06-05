@@ -88,8 +88,23 @@ async function writeJson<T>(key: string, value: T): Promise<void> {
   }
 }
 
+function normalizeLivingSpaceForStorage(space: LivingSpace): LivingSpace {
+  if (space.id === SYSTEM_LIVING_SPACE_IDS.profile) {
+    return {
+      ...space,
+      name: space.name === 'Home' ? 'Personal' : space.name || 'Personal',
+      description:
+        space.description === 'Your personal world and private Marks.'
+          ? 'Your personal Marks and private memories.'
+          : space.description || 'Your personal Marks and private memories.',
+    };
+  }
+
+  return space;
+}
+
 function sortSpaces(spaces: LivingSpace[]): LivingSpace[] {
-  return [...spaces].sort((a, b) => {
+  return [...spaces].map(normalizeLivingSpaceForStorage).sort((a, b) => {
     if (!!a.archivedAt !== !!b.archivedAt) return a.archivedAt ? 1 : -1;
     if (a.type !== b.type) return a.type.localeCompare(b.type);
     return a.name.localeCompare(b.name);
