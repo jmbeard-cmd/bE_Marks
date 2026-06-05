@@ -31,12 +31,9 @@ import {
   applyLivingMarkPromptAction,
   getLivingMarkPromptCards,
 } from '../../src/utils/living-spaces-storage';
-import { DEFAULT_RELAY, fetchFamilyMembers, fetchFamilyMilestones, publishFamilyMilestone } from '../../src/utils/nostr';
 import {
   getMilestones,
-  saveRemoteMilestone,
   updateMilestone,
-  upsertFamilyMember,
   type Milestone,
   type MilestoneLiftUp,
 } from '../../src/utils/storage';
@@ -71,7 +68,7 @@ export default function TimelineScreen() {
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [livingPromptCard, setLivingPromptCard] = useState<LivingMarkPromptCard | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [syncing, setSyncing] = useState(false);
+  const syncing = false;
   const [feedKey, setFeedKey] = useState<FeedKey>('profile');
   const [showFeedMenu, setShowFeedMenu] = useState(false);
   const [viewerImages, setViewerImages] = useState<ViewerImage[]>([]);
@@ -142,7 +139,7 @@ export default function TimelineScreen() {
   }, [setFloatingDockHidden]);
 
   const router = useRouter();
-  const { npub, nsec, family, profile, relays, theme, themeMode } = useIdentity();
+  const { npub, family, profile, theme, themeMode } = useIdentity();
 
   const load = useCallback(async () => {
     const all = await getMilestones();
@@ -160,66 +157,9 @@ export default function TimelineScreen() {
     }
   }, [npub]);
 
-  const syncFamilyMilestones = useCallback(async () => {
-    if (!family || !npub) return;
-
-    setSyncing(true);
-
-    try {
-      const relayUrl = DEFAULT_RELAY;
-
-      const remoteMembers = await fetchFamilyMembers(family.id, relayUrl);
-
-      for (const member of remoteMembers) {
-        if (!member.memberNpub) continue;
-
-        await upsertFamilyMember({
-          familyId: family.id,
-          npub: member.memberNpub,
-          displayName: member.familyName || 'Member',
-          role: member.role === 'admin' ? 'admin' : 'member',
-          joinedAt: member.joinedAt,
-          status: 'active',
-        });
-      }
-
-      const remoteEvents = await fetchFamilyMilestones(family.id);
-      let addedCount = 0;
-
-      for (const event of remoteEvents) {
-        try {
-          const data = JSON.parse(event.content);
-
-          await saveRemoteMilestone({
-            id: data.id,
-            note: data.note ?? '',
-            tags: data.tags ?? [],
-            photoUri: data.photoUri,
-            videoUri: data.videoUri,
-            audioUri: data.audioUri,
-            media: Array.isArray(data.media) ? data.media : [],
-            reflections: Array.isArray(data.reflections) ? data.reflections : [],
-            createdAt: data.createdAt ?? event.created_at,
-            familyId: family.id,
-            authorNpub: data.authorNpub,
-            authorName: data.authorName,
-            publishedToRelay: true,
-            nostrEventId: event.id,
-          });
-
-          addedCount++;
-        } catch {}
-      }
-
-      if (addedCount > 0) {
-        await load();
-      }
-    } catch (e) {
-      console.warn('[Family Sync] Fetch error:', e);
-    }
-
-    setSyncing(false);
-  }, [family, npub, load]);
+  const refreshLocalTimeline = useCallback(async () => {
+    await load();
+  }, [load]);
 
   useFocusEffect(useCallback(() => {
     let cancelled = false;
@@ -249,12 +189,11 @@ export default function TimelineScreen() {
   const onRefresh = async () => {
     setRefreshing(true);
 
-    if (family) {
-      await syncFamilyMilestones();
+    try {
+      await refreshLocalTimeline();
+    } finally {
+      setRefreshing(false);
     }
-
-    await load();
-    setRefreshing(false);
   };
 
   useEffect(() => {
@@ -300,7 +239,11 @@ export default function TimelineScreen() {
     setFloatingDockHidden(false);
   }, [feedKey, setFloatingDockHidden]);
 
-  const myMilestones = milestones.filter(m => !m.familyId || m.authorNpub === npub);
+  const myMilestones = milestones.filter(m => {
+    if (!npub) return false;
+
+    return m.authorNpub === npub;
+  });
   const source = feedKey === 'profile' ? myMilestones : [];
   const activeFeed = FEED_OPTIONS.find(option => option.key === feedKey) ?? FEED_OPTIONS[0];
   const feedItems = buildMyMarksFeedItems({
@@ -590,32 +533,8 @@ export default function TimelineScreen() {
       composerTextRef.current = '';
       setComposerDraft('');
 
-      if (updatedMilestone.familyId && nsec && npub) {
-        publishFamilyMilestone(
-          {
-            id: updatedMilestone.id,
-            note: updatedMilestone.note,
-            tags: updatedMilestone.tags ?? [],
-            photoUri: updatedMilestone.photoUri,
-            videoUri: updatedMilestone.videoUri,
-            audioUri: updatedMilestone.audioUri,
-            media: updatedMilestone.media ?? [],
-            reflections: updatedReflections,
-            createdAt: updatedMilestone.createdAt,
-            familyId: updatedMilestone.familyId,
-            authorNpub: updatedMilestone.authorNpub ?? npub,
-            authorName: updatedMilestone.authorName,
-          },
-          nsec,
-          relays
-        ).then(result => {
-          if (!result.success) {
-            console.warn('[Family Reflection Sync] Failed:', result.error);
-          } else {
-            console.log('[Family Reflection Sync] Published:', result.eventId);
-          }
-        });
-      }
+      // Old Family Timeline reflection sync intentionally removed.
+      // Space-scoped reflection publishing should be handled by Space-specific screens/storage.
     } catch (error) {
       console.warn('[Timeline Sheet Composer] Save failed:', error);
     } finally {
