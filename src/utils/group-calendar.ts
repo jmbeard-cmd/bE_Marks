@@ -62,6 +62,7 @@ export type GroupCalendarEvent = {
   // Optional Space story metadata.
   // These are intentionally optional so existing stored/relay events remain valid.
   spaceEventType?: SpaceEventType;
+  teamName?: string;
   opponent?: string;
   homeAway?: GameHomeAway;
   ourScore?: number;
@@ -229,6 +230,7 @@ export async function createCalendarEvent(input: {
 
   // Optional Space story metadata.
   spaceEventType?: SpaceEventType;
+  teamName?: string;
   opponent?: string;
   homeAway?: GameHomeAway;
   ourScore?: number;
@@ -261,6 +263,7 @@ export async function createCalendarEvent(input: {
     eventType: input.eventType,
 
     spaceEventType: input.spaceEventType,
+    teamName: input.teamName?.trim(),
     opponent: input.opponent?.trim(),
     homeAway: input.homeAway,
     ourScore: input.ourScore,

@@ -352,6 +352,7 @@ export default function GroupCalendarTab({
   const [evStartTime, setEvStartTime]         = useState('');
   const [evEndTime, setEvEndTime]             = useState('');
   const [evSpaceEventType, setEvSpaceEventType] = useState<SpaceEventType>('event');
+  const [evTeamName, setEvTeamName]           = useState('');
   const [evOpponent, setEvOpponent]           = useState('');
   const [evHomeAway, setEvHomeAway]           = useState<GameHomeAway>('home');
   const [evLegacyEligible, setEvLegacyEligible] = useState(true);
@@ -679,6 +680,7 @@ export default function GroupCalendarTab({
     setEvEndTime(DEFAULT_EVENT_END_TIME);
     setEvIsAllDay(false);
     setEvSpaceEventType('event');
+    setEvTeamName('');
     setEvOpponent('');
     setEvHomeAway('home');
     setEvLegacyEligible(true);
@@ -717,6 +719,7 @@ export default function GroupCalendarTab({
           : DEFAULT_EVENT_END_TIME
     );
     setEvSpaceEventType(event.spaceEventType ?? 'event');
+    setEvTeamName(event.teamName ?? '');
     setEvOpponent(event.opponent ?? '');
     setEvHomeAway(event.homeAway ?? 'home');
     setEvLegacyEligible(event.legacyEligible ?? true);
@@ -1012,6 +1015,9 @@ export default function GroupCalendarTab({
         location:      evLocation.trim() || undefined,
         eventType:     evIsAllDay ? 'allday' : 'timed',
         spaceEventType: evSpaceEventType,
+        teamName:      evSpaceEventType === 'game' || evSpaceEventType === 'tournament'
+          ? evTeamName.trim() || undefined
+          : undefined,
         opponent:      evSpaceEventType === 'game' || evSpaceEventType === 'tournament'
           ? evOpponent.trim() || undefined
           : undefined,
@@ -1376,6 +1382,15 @@ export default function GroupCalendarTab({
 
               {(evSpaceEventType === 'game' || evSpaceEventType === 'tournament') && (
                 <>
+                  <Text style={s.inputLabel}>TEAM / LEVEL  (optional)</Text>
+                  <TextInput
+                    style={s.input}
+                    value={evTeamName}
+                    onChangeText={setEvTeamName}
+                    placeholder="HS Lady Warriors, JV Lady Warriors, 8th Lady Warriors…"
+                    placeholderTextColor={theme.textMuted}
+                  />
+
                   <Text style={s.inputLabel}>OPPONENT  (optional)</Text>
                   <TextInput
                     style={s.input}
@@ -1660,9 +1675,13 @@ export default function GroupCalendarTab({
                 <>
                   <Text style={s.scoreEventTitle}>{scoreEvent.title}</Text>
 
-                  {!!scoreEvent.opponent && (
+                  {(!!scoreEvent.teamName || !!scoreEvent.opponent) && (
                     <Text style={s.scoreEventSub}>
-                      vs. {scoreEvent.opponent}
+                      {scoreEvent.teamName && scoreEvent.opponent
+                        ? `${scoreEvent.teamName} vs ${scoreEvent.opponent}`
+                        : scoreEvent.opponent
+                          ? `vs. ${scoreEvent.opponent}`
+                          : scoreEvent.teamName}
                     </Text>
                   )}
 
@@ -1829,9 +1848,13 @@ function EventCard({
           <View style={s.gameMetaBox}>
             <View style={s.gameMetaTopRow}>
               <View style={{ flex: 1 }}>
-                {!!event.opponent && (
+                {(!!event.teamName || !!event.opponent) && (
                   <Text style={s.gameMetaText} numberOfLines={1}>
-                    vs. {event.opponent}
+                    {event.teamName && event.opponent
+                      ? `${event.teamName} vs ${event.opponent}`
+                      : event.opponent
+                        ? `vs. ${event.opponent}`
+                        : event.teamName}
                   </Text>
                 )}
 
