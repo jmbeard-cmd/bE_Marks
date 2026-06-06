@@ -139,7 +139,6 @@ import { GroupChatPanel } from './group-thread';
 type Tab = 'overview' | 'chat' | 'stickies' | 'board' | 'calendar' | 'gallery' | 'members' | 'legacy' | 'book';
 const GROUP_LOCAL_GALLERY_KEY = 'be_group_local_gallery_v1';
 const SPACE_GALLERY_CACHE_KEY_PREFIX = 'be_space_gallery_cache_v1:';
-const SPACE_FAVORITES_KEY = 'be_space_favorite_ids_v1';
 const SPACE_MARK_RELAY_SYNC_ENABLED = true;
 
 function buildCalendarEventTitleMap(events: GroupCalendarEvent[]): Record<string, string> {
@@ -583,7 +582,6 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   const [upcomingCount, setUpcomingCount] = useState(0);
   const [calendarEventTitles, setCalendarEventTitles] = useState<Record<string, string>>({});
   const [selectedMemberAction, setSelectedMemberAction] = useState<BEGroupMember | null>(null);
-  const [favoriteSpaceIds, setFavoriteSpaceIds] = useState<string[]>([]);
   const [activeSpaceVideoMarkId, setActiveSpaceVideoMarkId] = useState<string | null>(null);
 
   const [showBoardComposer, setShowBoardComposer] = useState(false);
@@ -1145,27 +1143,6 @@ const { id, tab: routeTab } = useLocalSearchParams<{
 
     return () => clearInterval(timer);
   }, [group, refreshMembersOnly]);
-
-  useEffect(() => {
-    let mounted = true;
-
-    AsyncStorage.getItem(SPACE_FAVORITES_KEY)
-      .then(raw => {
-        if (!mounted || !raw) return;
-
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          setFavoriteSpaceIds(parsed.filter(id => typeof id === 'string').slice(0, 5));
-        }
-      })
-      .catch(error => {
-        console.warn('[Space Detail] failed to load favorite Spaces:', error);
-      });
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
 
   useEffect(() => {
     if (!routeTab) return;
@@ -2615,23 +2592,6 @@ const openSpaceChat = () => {
   selectSpaceTab('chat');
 };
 
-const toggleFavoriteSpace = async () => {
-  if (!group?.id) return;
-
-  const isFavorite = favoriteSpaceIds.includes(group.id);
-  const nextFavoriteIds = isFavorite
-    ? favoriteSpaceIds.filter(spaceId => spaceId !== group.id)
-    : [group.id, ...favoriteSpaceIds.filter(spaceId => spaceId !== group.id)].slice(0, 5);
-
-  setFavoriteSpaceIds(nextFavoriteIds);
-
-  try {
-    await AsyncStorage.setItem(SPACE_FAVORITES_KEY, JSON.stringify(nextFavoriteIds));
-  } catch (error) {
-    console.warn('[Space Detail] failed to save favorite Space:', error);
-  }
-};
-
 const handleSpaceDetailBack = () => {
   if (editingGroupRelay) {
     setEditingGroupRelay(false);
@@ -2671,7 +2631,6 @@ const spaceHomeMeta = [
   `${members.length} ${members.length === 1 ? 'member' : 'members'}`,
   group.season,
 ].filter(Boolean).join(' • ');
-const isFavoriteSpace = favoriteSpaceIds.includes(group.id);
 const shouldLiftSpaceChatTray =
   spaceKeyboardHeight > 0 &&
   (
@@ -2840,19 +2799,7 @@ const relaySettingsCard = spaceSettingsRelayOpen ? (
             <Text style={s.spaceChromeText}>Back</Text>
           </TouchableOpacity>
 
-          <View style={s.spaceProfileTopRight}>
-            <TouchableOpacity
-              onPress={toggleFavoriteSpace}
-              style={[s.spaceChromeIconBtn, isFavoriteSpace && s.spaceChromeIconBtnActive]}
-              activeOpacity={0.82}
-            >
-              <Ionicons
-                name={isFavoriteSpace ? 'star' : 'star-outline'}
-                size={20}
-                color={isFavoriteSpace ? theme.bg : '#fff'}
-              />
-            </TouchableOpacity>
-          </View>
+          <View style={s.spaceProfileTopRight} />
         </View>
 
       </View>
