@@ -16,6 +16,7 @@ type SpaceTrayHeaderProps = {
   activeTab: string;
   theme: SpaceTrayHeaderTheme;
   showBook?: boolean;
+  counts?: Partial<Record<SpaceDetailTabKey, number>>;
   onOpenControls: () => void;
   onSelectTab: (tab: SpaceDetailTabKey) => void;
 };
@@ -26,6 +27,7 @@ export default function SpaceTrayHeader({
   activeTab,
   theme,
   showBook = true,
+  counts = {},
   onOpenControls,
   onSelectTab,
 }: SpaceTrayHeaderProps) {
@@ -51,6 +53,7 @@ export default function SpaceTrayHeader({
         activeTab={activeTab}
         theme={theme}
         showBook={showBook}
+        counts={counts}
         onSelect={onSelectTab}
       />
     </View>

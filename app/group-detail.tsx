@@ -139,7 +139,24 @@ import { GroupChatPanel } from './group-thread';
 type Tab = 'overview' | 'chat' | 'stickies' | 'board' | 'calendar' | 'gallery' | 'members' | 'legacy' | 'book';
 const GROUP_LOCAL_GALLERY_KEY = 'be_group_local_gallery_v1';
 const SPACE_GALLERY_CACHE_KEY_PREFIX = 'be_space_gallery_cache_v1:';
+const SPACE_TAB_SEEN_COUNTS_KEY_PREFIX = 'be_space_tab_seen_counts_v1:';
 const SPACE_MARK_RELAY_SYNC_ENABLED = true;
+
+const COUNTED_SPACE_TABS = [
+  'stickies',
+  'chat',
+  'board',
+  'calendar',
+  'gallery',
+  'legacy',
+] as const;
+
+type CountedSpaceTab = (typeof COUNTED_SPACE_TABS)[number];
+type SpaceTabCounts = Record<CountedSpaceTab, number>;
+
+function isCountedSpaceTab(value: Tab): value is CountedSpaceTab {
+  return COUNTED_SPACE_TABS.includes(value as CountedSpaceTab);
+}
 
 function buildCalendarEventTitleMap(events: GroupCalendarEvent[]): Record<string, string> {
   return events.reduce<Record<string, string>>((acc, event) => {
@@ -537,6 +554,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   const [spaceMarkViews, setSpaceMarkViews] = useState<LivingMarkView[]>([]);
   const [galleryItems, setGalleryItems] = useState<SpaceGalleryItem[]>([]);
   const [chatMessageCount, setChatMessageCount] = useState(0);
+  const [seenSpaceTabCounts, setSeenSpaceTabCounts] = useState<Partial<SpaceTabCounts>>({});
   const [selectedGalleryImage, setSelectedGalleryImage] = useState<string | null>(null);
   const [activeViewerImages, setActiveViewerImages] = useState<ViewerImage[]>([]);
   const [tab, setTab] = useState<Tab>(() => {
@@ -2484,6 +2502,96 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
     };
   }, [legacyMarkViews]);
 
+  const spaceTabTotalCounts = useMemo<SpaceTabCounts>(() => {
+    return {
+      stickies: spaceMarkViews.length,
+      chat: chatMessageCount,
+      board: stickies.length,
+      calendar: upcomingCount,
+      gallery: galleryItems.length,
+      legacy: legacyMarkViews.length,
+    };
+  }, [
+    chatMessageCount,
+    galleryItems.length,
+    legacyMarkViews.length,
+    spaceMarkViews.length,
+    stickies.length,
+    upcomingCount,
+  ]);
+
+  const spaceTabBadgeCounts = useMemo(() => {
+    return COUNTED_SPACE_TABS.reduce<Partial<SpaceTabCounts>>((acc, tabKey) => {
+      acc[tabKey] = Math.max(
+        0,
+        spaceTabTotalCounts[tabKey] - (seenSpaceTabCounts[tabKey] ?? 0)
+      );
+
+      return acc;
+    }, {});
+  }, [seenSpaceTabCounts, spaceTabTotalCounts]);
+
+  useEffect(() => {
+    if (!group?.id) {
+      setSeenSpaceTabCounts({});
+      return;
+    }
+
+    let cancelled = false;
+
+    AsyncStorage.getItem(`${SPACE_TAB_SEEN_COUNTS_KEY_PREFIX}${group.id}`)
+      .then(raw => {
+        if (cancelled) return;
+
+        const parsed = raw ? JSON.parse(raw) : {};
+
+        setSeenSpaceTabCounts({
+          stickies: typeof parsed?.stickies === 'number' ? parsed.stickies : 0,
+          chat: typeof parsed?.chat === 'number' ? parsed.chat : 0,
+          board: typeof parsed?.board === 'number' ? parsed.board : 0,
+          calendar: typeof parsed?.calendar === 'number' ? parsed.calendar : 0,
+          gallery: typeof parsed?.gallery === 'number' ? parsed.gallery : 0,
+          legacy: typeof parsed?.legacy === 'number' ? parsed.legacy : 0,
+        });
+      })
+      .catch(error => {
+        console.warn('[Space Tabs] seen counts load failed:', error);
+        setSeenSpaceTabCounts({});
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [group?.id]);
+
+  const markSpaceTabSeen = useCallback((targetTab: Tab) => {
+    if (!group?.id || !isCountedSpaceTab(targetTab)) return;
+
+    const nextSeenCount = spaceTabTotalCounts[targetTab];
+
+    setSeenSpaceTabCounts(current => {
+      if (current[targetTab] === nextSeenCount) return current;
+
+      const next = {
+        ...current,
+        [targetTab]: nextSeenCount,
+      };
+
+      AsyncStorage.setItem(
+        `${SPACE_TAB_SEEN_COUNTS_KEY_PREFIX}${group.id}`,
+        JSON.stringify(next)
+      ).catch(error => {
+        console.warn('[Space Tabs] seen counts save failed:', error);
+      });
+
+      return next;
+    });
+  }, [group?.id, spaceTabTotalCounts]);
+
+  useEffect(() => {
+    markSpaceTabSeen(tab);
+  }, [markSpaceTabSeen, tab]);
+
   const schoolConsentToggleOptions = useMemo(() => {
     return [
       { label: 'Under 13', active: childUnder13, onPress: () => setChildUnder13(prev => !prev) },
@@ -2862,6 +2970,7 @@ const relaySettingsCard = spaceSettingsRelayOpen ? (
           activeTab={tab}
           theme={theme}
           showBook={group.bookEnabled === true}
+          counts={spaceTabBadgeCounts}
           onOpenControls={openSpaceControlCenter}
           onSelectTab={nextTab => selectSpaceTab(nextTab)}
         />

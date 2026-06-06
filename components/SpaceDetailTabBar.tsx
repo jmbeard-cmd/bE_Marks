@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useMemo } from 'react';
 import {
   StyleSheet,
+  Text,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -23,6 +24,7 @@ type SpaceDetailTabBarProps = {
   theme: SpaceDetailTabBarTheme;
   onSelect: (tab: SpaceDetailTabKey) => void;
   showBook?: boolean;
+  counts?: Partial<Record<SpaceDetailTabKey, number>>;
 };
 
 const SPACE_DETAIL_TABS = [
@@ -68,6 +70,7 @@ export default function SpaceDetailTabBar({
   theme,
   onSelect,
   showBook = true,
+  counts = {},
 }: SpaceDetailTabBarProps) {
   const s = useMemo(() => createStyles(theme), [theme]);
 
@@ -75,6 +78,9 @@ export default function SpaceDetailTabBar({
     <View style={s.spaceHeaderDock}>
       {SPACE_DETAIL_TABS.filter(item => showBook || item.key !== 'book').map(item => {
         const active = activeTab === item.key;
+        const count = counts[item.key] ?? 0;
+        const showCount = count > 0;
+        const countLabel = count > 99 ? '99+' : String(count);
 
         return (
           <TouchableOpacity
@@ -88,6 +94,12 @@ export default function SpaceDetailTabBar({
               size={22}
               color={active ? theme.gold : theme.textSecondary}
             />
+
+            {showCount && (
+              <View style={s.spaceHeaderDockBadge}>
+                <Text style={s.spaceHeaderDockBadgeText}>{countLabel}</Text>
+              </View>
+            )}
           </TouchableOpacity>
         );
       })}
@@ -130,5 +142,25 @@ const createStyles = (theme: SpaceDetailTabBarTheme) => StyleSheet.create({
   spaceHeaderDockItemActive: {
     backgroundColor: theme.gold + '2E',
     borderColor: theme.gold + '7A',
+  },
+  spaceHeaderDockBadge: {
+    position: 'absolute',
+    top: -3,
+    right: -3,
+    minWidth: 17,
+    height: 17,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.gold,
+    borderWidth: 1,
+    borderColor: theme.bg,
+  },
+  spaceHeaderDockBadgeText: {
+    color: theme.bg,
+    fontSize: 9,
+    fontWeight: '900',
+    lineHeight: 11,
   },
 });
