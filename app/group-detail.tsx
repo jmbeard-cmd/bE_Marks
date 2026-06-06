@@ -665,6 +665,22 @@ const { id, tab: routeTab } = useLocalSearchParams<{
     );
   }, [group, npub, currentMember]);
 
+  const memberDirectoryCounts = useMemo(() => {
+    const activeMembers = members.filter(member => member.status === 'active');
+    const ownerCount = activeMembers.filter(member => member.role === 'owner').length;
+    const adminCount = activeMembers.filter(member => member.role === 'admin').length;
+    const memberCount = activeMembers.filter(member =>
+      member.role !== 'owner' && member.role !== 'admin'
+    ).length;
+
+    return {
+      active: activeMembers.length,
+      owners: ownerCount,
+      admins: adminCount,
+      members: memberCount,
+    };
+  }, [members]);
+
   const hydrateMemberProfiles = useCallback(async (groupId: string, groupMembers: BEGroupMember[]) => {
   const activeMembers = groupMembers.filter(member => member.status === 'active');
 
@@ -3751,6 +3767,7 @@ const relaySettingsCard = spaceSettingsRelayOpen ? (
               tintColor={theme.gold}
             />
           }
+
           renderItem={({ item }) => {
             const tileThumbnailUrl =
               item.thumbnailUrl ||
@@ -3922,6 +3939,46 @@ const relaySettingsCard = spaceSettingsRelayOpen ? (
               onRefresh={onRefresh}
               tintColor={theme.gold}
             />
+          }
+          ListHeaderComponent={
+            members.length > 0 ? (
+              <View style={s.memberDirectoryHeader}>
+                <View style={s.memberDirectoryTitleRow}>
+                  <View>
+                    <Text style={s.memberDirectoryEyebrow}>DIRECTORY</Text>
+                    <Text style={s.memberDirectoryTitle}>Space members</Text>
+                  </View>
+
+                  <View style={s.memberDirectoryTotalBadge}>
+                    <Text style={s.memberDirectoryTotalValue}>{memberDirectoryCounts.active}</Text>
+                    <Text style={s.memberDirectoryTotalLabel}>Active</Text>
+                  </View>
+                </View>
+
+                <View style={s.memberDirectoryStatsRow}>
+                  <View style={s.memberDirectoryStatCard}>
+                    <Text style={s.memberDirectoryStatValue}>{memberDirectoryCounts.owners}</Text>
+                    <Text style={s.memberDirectoryStatLabel}>
+                      {memberDirectoryCounts.owners === 1 ? 'Owner' : 'Owners'}
+                    </Text>
+                  </View>
+
+                  <View style={s.memberDirectoryStatCard}>
+                    <Text style={s.memberDirectoryStatValue}>{memberDirectoryCounts.admins}</Text>
+                    <Text style={s.memberDirectoryStatLabel}>
+                      {memberDirectoryCounts.admins === 1 ? 'Admin' : 'Admins'}
+                    </Text>
+                  </View>
+
+                  <View style={s.memberDirectoryStatCard}>
+                    <Text style={s.memberDirectoryStatValue}>{memberDirectoryCounts.members}</Text>
+                    <Text style={s.memberDirectoryStatLabel}>
+                      {memberDirectoryCounts.members === 1 ? 'Member' : 'Members'}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            ) : null
           }
           renderItem={({ item }) => {
             const displayName = item.displayName ?? `${item.npub.slice(0, 12)}…`;
@@ -6125,6 +6182,78 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     padding: 16,
     paddingBottom: 100,
     gap: 10,
+  },
+  memberDirectoryHeader: {
+    borderRadius: 22,
+    backgroundColor: theme.surface,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    padding: 16,
+    marginBottom: 4,
+    gap: 14,
+  },
+  memberDirectoryTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  memberDirectoryEyebrow: {
+    color: theme.textMuted,
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+  },
+  memberDirectoryTitle: {
+    color: theme.text,
+    fontSize: 20,
+    fontWeight: '900',
+    marginTop: 3,
+  },
+  memberDirectoryTotalBadge: {
+    minWidth: 70,
+    borderRadius: 18,
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    alignItems: 'center',
+  },
+  memberDirectoryTotalValue: {
+    color: theme.gold,
+    fontSize: 20,
+    fontWeight: '900',
+  },
+  memberDirectoryTotalLabel: {
+    color: theme.textMuted,
+    fontSize: 10,
+    fontWeight: '800',
+    marginTop: 1,
+  },
+  memberDirectoryStatsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  memberDirectoryStatCard: {
+    flex: 1,
+    borderRadius: 16,
+    backgroundColor: theme.raised,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  memberDirectoryStatValue: {
+    color: theme.text,
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  memberDirectoryStatLabel: {
+    color: theme.textMuted,
+    fontSize: 10,
+    fontWeight: '800',
+    marginTop: 2,
   },
   memberCard: {
     flexDirection: 'row',
