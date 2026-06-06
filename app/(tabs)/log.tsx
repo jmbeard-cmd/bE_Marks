@@ -1082,6 +1082,9 @@ if (audioUri) {
       const eventTitleForMark = selectedCalendarEventId
         ? selectedCalendarEventOption?.event.title || eventText || undefined
         : eventText || undefined;
+      const eventSpaceIdForMark = selectedCalendarEventOption?.spaceId;
+      const eventGroupIdForMark = selectedCalendarEventOption?.groupId;
+      const eventSpaceNameForMark = selectedCalendarEventOption?.spaceName;
 
       const livingMarkCapture = await persistLivingMarkCapture({
         milestone: savedMilestone,
@@ -1093,6 +1096,9 @@ if (audioUri) {
         lifeStage: lifeStage || undefined,
         eventId: eventIdForMark,
         eventTitle: eventTitleForMark,
+        eventSpaceId: eventSpaceIdForMark,
+        eventGroupId: eventGroupIdForMark,
+        eventSpaceName: eventSpaceNameForMark,
         savedToBook,
         captureSource: captureMetadata.captureSource,
         place: captureMetadata.place,

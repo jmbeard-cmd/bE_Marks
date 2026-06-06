@@ -201,6 +201,9 @@ export type LivingMarkMetadata = {
   lifeStage?: string;
   eventId?: string;
   eventTitle?: string;
+  eventSpaceId?: string;
+  eventGroupId?: string;
+  eventSpaceName?: string;
   mediaRoles?: LivingMarkMediaMetadata[];
   privacy: MarkPrivacy;
   markPermissions: LivingMarkPermissions;
@@ -333,6 +336,9 @@ export type LivingMarkCaptureInput = {
   lifeStage?: string;
   eventId?: string;
   eventTitle?: string;
+  eventSpaceId?: string;
+  eventGroupId?: string;
+  eventSpaceName?: string;
   relayTargets?: LivingRelayTarget[];
   savedToBook?: boolean;
   captureSource?: LivingMarkCaptureSource;

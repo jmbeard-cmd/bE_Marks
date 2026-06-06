@@ -55,6 +55,9 @@ type LivingMarkContextUpdateInput = {
   lifeStage?: string;
   eventId?: string;
   eventTitle?: string;
+  eventSpaceId?: string;
+  eventGroupId?: string;
+  eventSpaceName?: string;
   placeName?: string;
   selectedSpaceId?: string | null;
   spaceChanged?: boolean;
@@ -1100,6 +1103,9 @@ export async function persistLivingMarkCapture(input: LivingMarkCaptureInput): P
     lifeStage: input.lifeStage,
     eventId: input.eventId,
     eventTitle: input.eventTitle,
+    eventSpaceId: input.eventSpaceId,
+    eventGroupId: input.eventGroupId,
+    eventSpaceName: input.eventSpaceName,
     savedToBook: input.savedToBook,
     markPermissions: input.markPermissions,
     relayTargets: input.relayTargets,
@@ -1333,6 +1339,12 @@ export async function updateLivingMarkContext(input: LivingMarkContextUpdateInpu
     lifeStage: input.lifeStage !== undefined ? cleanOptionalText(input.lifeStage) : currentMetadata.lifeStage,
     eventId: input.eventId !== undefined ? cleanOptionalText(input.eventId) : currentMetadata.eventId,
     eventTitle: input.eventTitle !== undefined ? cleanOptionalText(input.eventTitle) : currentMetadata.eventTitle,
+    eventSpaceId:
+      input.eventSpaceId !== undefined ? cleanOptionalText(input.eventSpaceId) : currentMetadata.eventSpaceId,
+    eventGroupId:
+      input.eventGroupId !== undefined ? cleanOptionalText(input.eventGroupId) : currentMetadata.eventGroupId,
+    eventSpaceName:
+      input.eventSpaceName !== undefined ? cleanOptionalText(input.eventSpaceName) : currentMetadata.eventSpaceName,
     place:
       input.placeName !== undefined
         ? cleanOptionalText(input.placeName)

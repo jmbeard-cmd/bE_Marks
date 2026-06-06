@@ -396,6 +396,9 @@ export function createLivingMarkMetadata(
     lifeStage?: string;
     eventId?: string;
     eventTitle?: string;
+    eventSpaceId?: string;
+    eventGroupId?: string;
+    eventSpaceName?: string;
     relayTargets?: LivingRelayTarget[];
     savedToBook?: boolean;
     markPermissions?: LivingMarkPermissions;
@@ -442,6 +445,9 @@ export function createLivingMarkMetadata(
     lifeStage: cleanOptionalText(input.lifeStage),
     eventId: cleanOptionalText(input.eventId),
     eventTitle: cleanOptionalText(input.eventTitle),
+    eventSpaceId: cleanOptionalText(input.eventSpaceId),
+    eventGroupId: cleanOptionalText(input.eventGroupId),
+    eventSpaceName: cleanOptionalText(input.eventSpaceName),
     privacy,
     markPermissions: normalizeLivingMarkPermissions(input.markPermissions),
     relayTargets: input.relayTargets ?? [],
