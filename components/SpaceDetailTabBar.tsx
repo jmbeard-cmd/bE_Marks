@@ -1,9 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useMemo } from 'react';
 import {
-    StyleSheet,
-    TouchableOpacity,
-    View,
+  StyleSheet,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { Colors } from '../src/constants/theme';
 
@@ -22,6 +22,7 @@ type SpaceDetailTabBarProps = {
   activeTab: string;
   theme: SpaceDetailTabBarTheme;
   onSelect: (tab: SpaceDetailTabKey) => void;
+  showBook?: boolean;
 };
 
 const SPACE_DETAIL_TABS = [
@@ -66,12 +67,13 @@ export default function SpaceDetailTabBar({
   activeTab,
   theme,
   onSelect,
+  showBook = true,
 }: SpaceDetailTabBarProps) {
   const s = useMemo(() => createStyles(theme), [theme]);
 
   return (
     <View style={s.spaceHeaderDock}>
-      {SPACE_DETAIL_TABS.map(item => {
+      {SPACE_DETAIL_TABS.filter(item => showBook || item.key !== 'book').map(item => {
         const active = activeTab === item.key;
 
         return (

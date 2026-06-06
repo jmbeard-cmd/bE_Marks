@@ -1,9 +1,9 @@
 import { useMemo } from 'react';
 import {
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { Colors } from '../src/constants/theme';
 import SpaceDetailTabBar, { SpaceDetailTabKey } from './SpaceDetailTabBar';
@@ -15,6 +15,7 @@ type SpaceTrayHeaderProps = {
   meta: string;
   activeTab: string;
   theme: SpaceTrayHeaderTheme;
+  showBook?: boolean;
   onOpenControls: () => void;
   onSelectTab: (tab: SpaceDetailTabKey) => void;
 };
@@ -24,6 +25,7 @@ export default function SpaceTrayHeader({
   meta,
   activeTab,
   theme,
+  showBook = true,
   onOpenControls,
   onSelectTab,
 }: SpaceTrayHeaderProps) {
@@ -48,6 +50,7 @@ export default function SpaceTrayHeader({
       <SpaceDetailTabBar
         activeTab={activeTab}
         theme={theme}
+        showBook={showBook}
         onSelect={onSelectTab}
       />
     </View>

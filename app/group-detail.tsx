@@ -1152,6 +1152,11 @@ const { id, tab: routeTab } = useLocalSearchParams<{
       return;
     }
 
+    if (routeTab === 'book') {
+      setTab(group?.bookEnabled === true ? 'book' : 'stickies');
+      return;
+    }
+
     if (
       routeTab === 'chat' ||
       routeTab === 'stickies' ||
@@ -1159,16 +1164,20 @@ const { id, tab: routeTab } = useLocalSearchParams<{
       routeTab === 'calendar' ||
       routeTab === 'gallery' ||
       routeTab === 'members' ||
-      routeTab === 'legacy' ||
-      routeTab === 'book'
+      routeTab === 'legacy'
     ) {
       setTab(routeTab);
     }
-  }, [routeTab]);
+  }, [routeTab, group?.bookEnabled]);
 
   useEffect(() => {
+    if (tab === 'book' && group?.bookEnabled !== true) {
+      setTab('stickies');
+      return;
+    }
+
     tabRef.current = tab;
-  }, [tab]);
+  }, [tab, group?.bookEnabled]);
 
   useEffect(() => {
     if (tab === 'gallery') {
@@ -1232,6 +1241,38 @@ const { id, tab: routeTab } = useLocalSearchParams<{
       console.warn('[Book] group refresh failed:', error);
     }
   }, [group?.id]);
+
+  const toggleSpaceBookEnabled = async () => {
+    if (!group) return;
+
+    if (!isAdmin) {
+      Alert.alert('Admin only', 'Only a Space owner or admin can manage the Book / Ledger setting.');
+      return;
+    }
+
+    const nextBookEnabled = group.bookEnabled !== true;
+
+    try {
+      await updateGroup(group.id, {
+        bookEnabled: nextBookEnabled,
+      });
+
+      setGroup(current =>
+        current ? { ...current, bookEnabled: nextBookEnabled } : current
+      );
+
+      await syncLivingSpacesFromGroups();
+      await publishCurrentGroupMetadata(group.id);
+
+      if (!nextBookEnabled && tabRef.current === 'book') {
+        setTab('stickies');
+      }
+    } catch (error) {
+      console.warn('[Book] setting update failed:', error);
+      Alert.alert('Save failed', 'The Book / Ledger setting could not be updated.');
+    }
+  };
+
 
   const resetBoardComposer = () => {
     setBoardDisplayMode('pin');
@@ -1622,6 +1663,16 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   };
 
   const selectSpaceTab = (nextTab: Tab) => {
+    if (nextTab === 'book' && group?.bookEnabled !== true) {
+      closeSpacePanels();
+      setTab('stickies');
+      Alert.alert(
+        'Book / Ledger is off',
+        'Turn it on from Space Control Center before opening the Book / Ledger tool.'
+      );
+      return;
+    }
+
     closeSpacePanels();
     setTab(nextTab);
   };
@@ -2810,6 +2861,7 @@ const relaySettingsCard = spaceSettingsRelayOpen ? (
           meta={spaceHomeMeta}
           activeTab={tab}
           theme={theme}
+          showBook={group.bookEnabled === true}
           onOpenControls={openSpaceControlCenter}
           onSelectTab={nextTab => selectSpaceTab(nextTab)}
         />
@@ -3032,6 +3084,24 @@ const relaySettingsCard = spaceSettingsRelayOpen ? (
                 <Text style={s.spaceSettingsRowHint}>Open shared photos, videos, highlights, and Space media.</Text>
               </View>
               <Text style={s.spaceSettingsRowAction}>Open</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={s.spaceSettingsRow}
+              onPress={toggleSpaceBookEnabled}
+              activeOpacity={0.85}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={s.spaceSettingsRowTitle}>Book / Ledger</Text>
+                <Text style={s.spaceSettingsRowHint}>
+                  {isAdmin
+                    ? 'Turn the Book / Ledger tool on or off for this Space.'
+                    : 'Space admins choose whether this tool is available.'}
+                </Text>
+              </View>
+              <Text style={s.spaceSettingsRowAction}>
+                {group.bookEnabled === true ? 'On' : 'Off'}
+              </Text>
             </TouchableOpacity>
 
             {isAdmin && (
@@ -3860,7 +3930,7 @@ const relaySettingsCard = spaceSettingsRelayOpen ? (
       )}
 
       {/* Book tab */}
-      {tab === 'book' && (
+      {tab === 'book' && group.bookEnabled === true && (
         <View style={s.spaceTabPanel}>
         <GroupBookTab
           group={group}
