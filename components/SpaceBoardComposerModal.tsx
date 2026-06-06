@@ -1,12 +1,12 @@
 import { useMemo } from 'react';
 import {
-    Modal,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import type { GroupBoardDisplayMode } from '../src/utils/group-stickies';
 
@@ -67,6 +67,36 @@ export default function SpaceBoardComposerModal({
 }: SpaceBoardComposerModalProps) {
   const s = useMemo(() => createStyles(theme), [theme]);
   const saveDisabled = !title.trim() || !body.trim() || saving;
+  const composerTitle =
+    displayMode === 'alert'
+      ? 'New Space Alert'
+      : displayMode === 'announcement'
+        ? 'New Space Announcement'
+        : 'New Bulletin Board Pin';
+  const composerSubtitle =
+    displayMode === 'alert'
+      ? 'Use alerts for urgent, high-priority Space notices.'
+      : displayMode === 'announcement'
+        ? 'Use announcements as a Space-wide broadcast people should see.'
+        : 'Use pins for standing reminders, links, forms, and notes.';
+  const titlePlaceholder =
+    displayMode === 'alert'
+      ? 'Example: Game moved indoors'
+      : displayMode === 'announcement'
+        ? 'Example: Parent meeting this Thursday'
+        : 'Example: Practice schedule';
+  const bodyPlaceholder =
+    displayMode === 'alert'
+      ? 'Add what changed, who needs to know, and what they should do next.'
+      : displayMode === 'announcement'
+        ? 'Add the details people need for this Space-wide update.'
+        : 'Add the details people may need to reference later.';
+  const saveLabel =
+    displayMode === 'alert'
+      ? 'Post alert'
+      : displayMode === 'announcement'
+        ? 'Post announcement'
+        : 'Save pin';
 
   return (
     <Modal
@@ -80,7 +110,8 @@ export default function SpaceBoardComposerModal({
           contentContainerStyle={s.modalCard}
           keyboardShouldPersistTaps="handled"
         >
-          <Text style={s.modalTitle}>New Bulletin Board Item</Text>
+          <Text style={s.modalTitle}>{composerTitle}</Text>
+          <Text style={s.modalSubtitle}>{composerSubtitle}</Text>
 
           <Text style={s.inputLabel}>TYPE</Text>
           <View style={s.visibilityBox}>
@@ -95,7 +126,7 @@ export default function SpaceBoardComposerModal({
               <Text style={s.visibilityIcon}>📌</Text>
               <View style={{ flex: 1 }}>
                 <Text style={s.visibilityTitle}>Pin</Text>
-                <Text style={s.visibilityHint}>A standing notice or reminder.</Text>
+                <Text style={s.visibilityHint}>A standing board item people can find later.</Text>
               </View>
             </TouchableOpacity>
 
@@ -110,7 +141,7 @@ export default function SpaceBoardComposerModal({
               <Text style={s.visibilityIcon}>📣</Text>
               <View style={{ flex: 1 }}>
                 <Text style={s.visibilityTitle}>Announcement</Text>
-                <Text style={s.visibilityHint}>A Space-wide update people should see.</Text>
+                <Text style={s.visibilityHint}>A Space-wide broadcast people should see.</Text>
               </View>
             </TouchableOpacity>
 
@@ -125,7 +156,7 @@ export default function SpaceBoardComposerModal({
               <Text style={s.visibilityIcon}>⚠️</Text>
               <View style={{ flex: 1 }}>
                 <Text style={s.visibilityTitle}>Alert</Text>
-                <Text style={s.visibilityHint}>A high-priority item for the Space.</Text>
+                <Text style={s.visibilityHint}>An urgent, high-priority Space notice.</Text>
               </View>
             </TouchableOpacity>
           </View>
@@ -135,7 +166,7 @@ export default function SpaceBoardComposerModal({
             style={s.input}
             value={title}
             onChangeText={onChangeTitle}
-            placeholder="Example: Practice moved to 5:30"
+            placeholder={titlePlaceholder}
             placeholderTextColor={theme.textMuted}
             autoCapitalize="sentences"
           />
@@ -145,7 +176,7 @@ export default function SpaceBoardComposerModal({
             style={[s.input, s.inputMulti, { textAlignVertical: 'top' }]}
             value={body}
             onChangeText={onChangeBody}
-            placeholder="Add the details people need to know."
+            placeholder={bodyPlaceholder}
             placeholderTextColor={theme.textMuted}
             autoCapitalize="sentences"
             multiline
@@ -231,7 +262,7 @@ export default function SpaceBoardComposerModal({
               disabled={saveDisabled}
             >
               <Text style={s.confirmText}>
-                {saving ? 'Saving…' : 'Save'}
+                {saving ? 'Saving…' : saveLabel}
               </Text>
             </TouchableOpacity>
           </View>
@@ -260,6 +291,13 @@ const createStyles = (theme: SpaceBoardComposerTheme) => StyleSheet.create({
     color: theme.text,
     fontSize: 20,
     fontWeight: '900',
+    marginBottom: 4,
+  },
+  modalSubtitle: {
+    color: theme.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 17,
     marginBottom: 4,
   },
   inputLabel: {
