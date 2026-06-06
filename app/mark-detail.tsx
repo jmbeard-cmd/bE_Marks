@@ -52,7 +52,6 @@ import {
   updateLivingMarkContext,
 } from '../src/utils/living-spaces-storage';
 import {
-  fetchFamilyMilestones,
   fetchNostrProfile,
   type NostrProfile,
 } from '../src/utils/nostr';
@@ -60,7 +59,6 @@ import {
   formatDate,
   getFamilyMembers,
   getMilestones,
-  saveRemoteMilestone,
   updateMilestone,
   type Milestone,
 } from '../src/utils/storage';
@@ -147,7 +145,6 @@ export default function MilestoneDetail() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [detailMediaIndex, setDetailMediaIndex] = useState(0);
   const [reflectionProfiles, setReflectionProfiles] = useState<Record<string, NostrProfile>>({});
-  const [attemptedRemoteLookup, setAttemptedRemoteLookup] = useState(false);
   const [livingView, setLivingView] = useState<LivingMarkView | null>(null);
   const [livingSpaces, setLivingSpaces] = useState<LivingSpace[]>([]);
   const [isEditingContext, setIsEditingContext] = useState(false);
@@ -209,49 +206,6 @@ export default function MilestoneDetail() {
 
       if (found) {
         setMilestone(found);
-        return;
-      }
-
-      if (!family || attemptedRemoteLookup) {
-        return;
-      }
-
-      setAttemptedRemoteLookup(true);
-
-      try {
-        const remoteEvents = await fetchFamilyMilestones(family.id);
-
-        for (const event of remoteEvents) {
-          try {
-            const data = JSON.parse(event.content);
-
-            await saveRemoteMilestone({
-              id: data.id,
-              note: data.note ?? '',
-              tags: data.tags ?? [],
-              photoUri: data.photoUri,
-              videoUri: data.videoUri,
-              audioUri: data.audioUri,
-              media: Array.isArray(data.media) ? data.media : [],
-              reflections: Array.isArray(data.reflections) ? data.reflections : [],
-              createdAt: data.createdAt ?? event.created_at,
-              familyId: family.id,
-              authorNpub: data.authorNpub,
-              authorName: data.authorName,
-              publishedToRelay: true,
-              nostrEventId: event.id,
-            });
-          } catch {}
-        }
-
-        const refreshed = await getMilestones();
-        const refreshedFound = refreshed.find(m => m.id === id);
-
-        if (!cancelled && refreshedFound) {
-          setMilestone(refreshedFound);
-        }
-      } catch (error) {
-        console.warn('[Mark Detail] remote Mark lookup failed:', error);
       }
     }
 
@@ -260,7 +214,7 @@ export default function MilestoneDetail() {
     return () => {
       cancelled = true;
     };
-  }, [id, family, attemptedRemoteLookup]);
+  }, [id]);
 
   useEffect(() => {
     let cancelled = false;
