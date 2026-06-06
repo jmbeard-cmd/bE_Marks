@@ -85,6 +85,14 @@ type DraftMedia = {
   captureSource: Extract<LivingMarkCaptureSource, 'camera' | 'library'>;
 };
 
+type ComposerCalendarEventOption = {
+  key: string;
+  event: GroupCalendarEvent;
+  groupId: string;
+  spaceId: string;
+  spaceName: string;
+};
+
 function getCaptureMetadataForDraft(media: DraftMedia[], audioUri?: string): {
   place?: LivingMarkPlace;
   occurredAt?: number;
@@ -177,7 +185,7 @@ export default function LogScreen() {
   const [selectedPeople, setSelectedPeople] = useState<LivingMarkPerson[]>([]);
   const [lifeStage, setLifeStage] = useState('');
   const [eventInput, setEventInput] = useState('');
-  const [calendarEvents, setCalendarEvents] = useState<GroupCalendarEvent[]>([]);
+  const [calendarEventOptions, setCalendarEventOptions] = useState<ComposerCalendarEventOption[]>([]);
   const [selectedCalendarEventId, setSelectedCalendarEventId] = useState<string | null>(null);
   const [loadingCalendarEvents, setLoadingCalendarEvents] = useState(false);
   const [showCalendarPicker, setShowCalendarPicker] = useState(false);
@@ -600,9 +608,22 @@ export default function LogScreen() {
   useEffect(() => {
     let cancelled = false;
 
-    async function loadCalendarEventsForSelectedSpace() {
-      if (!selectedGroupId) {
-        setCalendarEvents([]);
+    async function loadCalendarEventOptions() {
+      const eligibleSpaces = livingSpaces
+        .filter(space => !space.archivedAt)
+        .filter(space => space.source === 'group')
+        .filter(space => {
+          const groupId = space.sourceId ?? space.id.replace(/^group:/, '');
+
+          if (selectedGroupId) {
+            return groupId === selectedGroupId;
+          }
+
+          return visibleGroupIds.has(groupId);
+        });
+
+      if (eligibleSpaces.length === 0) {
+        setCalendarEventOptions([]);
         setSelectedCalendarEventId(null);
         return;
       }
@@ -610,18 +631,36 @@ export default function LogScreen() {
       setLoadingCalendarEvents(true);
 
       try {
-        const loaded = await getCalendarEventsForGroup(selectedGroupId);
+        const loadedOptions = await Promise.all(
+          eligibleSpaces.map(async space => {
+            const groupId = space.sourceId ?? space.id.replace(/^group:/, '');
+            const events = await getCalendarEventsForGroup(groupId);
+
+            return events.slice(0, 12).map(event => ({
+              key: `${groupId}:${event.id}`,
+              event,
+              groupId,
+              spaceId: space.id,
+              spaceName: space.name,
+            }));
+          })
+        );
+
+        const flattenedOptions = loadedOptions
+          .flat()
+          .sort((a, b) => String(a.event.startDate).localeCompare(String(b.event.startDate)))
+          .slice(0, 20);
 
         if (!cancelled) {
-          setCalendarEvents(loaded.slice(0, 12));
+          setCalendarEventOptions(flattenedOptions);
 
           if (routeCalendarEventId && !routeCalendarEventAppliedRef.current) {
-            const routeEvent = loaded.find(event => event.id === routeCalendarEventId);
+            const routeOption = flattenedOptions.find(option => option.event.id === routeCalendarEventId);
 
-            if (routeEvent || routeCalendarEventTitle) {
+            if (routeOption || routeCalendarEventTitle) {
               routeCalendarEventAppliedRef.current = true;
               setSelectedCalendarEventId(routeCalendarEventId);
-              setEventInput(routeEvent?.title ?? routeCalendarEventTitle ?? '');
+              setEventInput(routeOption?.event.title ?? routeCalendarEventTitle ?? '');
             }
           }
         }
@@ -629,7 +668,7 @@ export default function LogScreen() {
         console.warn('[Log Calendar Events] failed to load:', error);
 
         if (!cancelled) {
-          setCalendarEvents([]);
+          setCalendarEventOptions([]);
         }
       } finally {
         if (!cancelled) {
@@ -638,12 +677,12 @@ export default function LogScreen() {
       }
     }
 
-    loadCalendarEventsForSelectedSpace();
+    loadCalendarEventOptions();
 
     return () => {
       cancelled = true;
     };
-  }, [routeCalendarEventId, routeCalendarEventTitle, selectedGroupId]);
+  }, [livingSpaces, routeCalendarEventId, routeCalendarEventTitle, selectedGroupId, visibleGroupIds]);
 
 const placementChipSpaces = livingSpaces
   .filter(space => !space.archivedAt)
@@ -804,8 +843,8 @@ setMedia(prev => [...prev, mediaItem]);
   }
 };
 
-const toggleCalendarEvent = (event: GroupCalendarEvent) => {
-  const active = selectedCalendarEventId === event.id;
+const toggleCalendarEvent = (option: ComposerCalendarEventOption) => {
+  const active = selectedCalendarEventId === option.event.id;
 
   if (active) {
     setSelectedCalendarEventId(null);
@@ -813,8 +852,8 @@ const toggleCalendarEvent = (event: GroupCalendarEvent) => {
     return;
   }
 
-  setSelectedCalendarEventId(event.id);
-  setEventInput(event.title);
+  setSelectedCalendarEventId(option.event.id);
+  setEventInput(option.event.title);
 };
 
 const extractHashTags = (value: string): string[] => {
@@ -1035,13 +1074,13 @@ if (audioUri) {
         selectedPeople,
         manualInput: peopleInput,
       });
-      const selectedCalendarEvent = selectedCalendarEventId
-        ? calendarEvents.find(event => event.id === selectedCalendarEventId)
+      const selectedCalendarEventOption = selectedCalendarEventId
+        ? calendarEventOptions.find(option => option.event.id === selectedCalendarEventId)
         : null;
       const eventText = eventInput.trim();
       const eventIdForMark = selectedCalendarEventId || eventText || undefined;
       const eventTitleForMark = selectedCalendarEventId
-        ? selectedCalendarEvent?.title || eventText || undefined
+        ? selectedCalendarEventOption?.event.title || eventText || undefined
         : eventText || undefined;
 
       const livingMarkCapture = await persistLivingMarkCapture({
@@ -1371,65 +1410,62 @@ setProgress(0);
                 </TouchableOpacity>
               </View>
 
-              {selectedGroupSpaceId ? (
-                loadingCalendarEvents ? (
-                  <View style={s.calendarEventLoadingRow}>
-                    <ActivityIndicator size="small" color={theme.gold} />
-                    <Text style={[s.calendarEventLoadingText, { color: theme.textMuted }]}>
-                      Loading events…
-                    </Text>
-                  </View>
-                ) : calendarEvents.length > 0 ? (
-                  <ScrollView
-                    style={s.calendarPickerList}
-                    nestedScrollEnabled
-                    showsVerticalScrollIndicator={false}
-                  >
-                    {calendarEvents.map(event => {
-                      const active = selectedCalendarEventId === event.id;
-
-                      return (
-                        <TouchableOpacity
-                          key={event.id}
-                          style={[
-                            s.calendarPickerEventRow,
-                            { borderColor: theme.border, backgroundColor: theme.raised },
-                            active && { borderColor: theme.gold, backgroundColor: theme.gold + '1F' },
-                          ]}
-                          onPress={() => toggleCalendarEvent(event)}
-                          activeOpacity={0.82}
-                        >
-                          <View style={s.calendarPickerEventText}>
-                            <Text
-                              style={[
-                                s.calendarPickerEventTitle,
-                                { color: active ? theme.gold : theme.text },
-                              ]}
-                              numberOfLines={1}
-                            >
-                              {event.title}
-                            </Text>
-
-                            <Text style={[s.calendarPickerEventMeta, { color: theme.textMuted }]} numberOfLines={1}>
-                              {formatEventDate(event)} • {formatEventTime(event)}
-                            </Text>
-                          </View>
-
-                          {active && (
-                            <Ionicons name="checkmark-circle" size={20} color={theme.gold} />
-                          )}
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </ScrollView>
-                ) : (
-                  <Text style={[s.calendarEventEmptyText, { color: theme.textMuted }]}>
-                    No events found for this Space yet.
+              {loadingCalendarEvents ? (
+                <View style={s.calendarEventLoadingRow}>
+                  <ActivityIndicator size="small" color={theme.gold} />
+                  <Text style={[s.calendarEventLoadingText, { color: theme.textMuted }]}>
+                    Loading events…
                   </Text>
-                )
+                </View>
+              ) : calendarEventOptions.length > 0 ? (
+                <ScrollView
+                  style={s.calendarPickerList}
+                  nestedScrollEnabled
+                  showsVerticalScrollIndicator={false}
+                >
+                  {calendarEventOptions.map(option => {
+                    const active = selectedCalendarEventId === option.event.id;
+
+                    return (
+                      <TouchableOpacity
+                        key={option.key}
+                        style={[
+                          s.calendarPickerEventRow,
+                          { borderColor: theme.border, backgroundColor: theme.raised },
+                          active && { borderColor: theme.gold, backgroundColor: theme.gold + '1F' },
+                        ]}
+                        onPress={() => toggleCalendarEvent(option)}
+                        activeOpacity={0.82}
+                      >
+                        <View style={s.calendarPickerEventText}>
+                          <Text
+                            style={[
+                              s.calendarPickerEventTitle,
+                              { color: active ? theme.gold : theme.text },
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {option.event.title}
+                          </Text>
+
+                          <Text style={[s.calendarPickerEventMeta, { color: theme.textMuted }]} numberOfLines={1}>
+                            {selectedGroupSpaceId ? '' : `${option.spaceName} • `}
+                            {formatEventDate(option.event)} • {formatEventTime(option.event)}
+                          </Text>
+                        </View>
+
+                        {active && (
+                          <Ionicons name="checkmark-circle" size={20} color={theme.gold} />
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
               ) : (
                 <Text style={[s.calendarEventEmptyText, { color: theme.textMuted }]}>
-                  Calendar events are available when making a Mark inside a Space.
+                  {selectedGroupSpaceId
+                    ? 'No events found for this Space yet.'
+                    : 'No upcoming Space events found yet.'}
                 </Text>
               )}
 
