@@ -54,7 +54,6 @@ import {
 import {
   fetchFamilyMilestones,
   fetchNostrProfile,
-  publishFamilyMilestone,
   type NostrProfile,
 } from '../src/utils/nostr';
 import {
@@ -134,7 +133,7 @@ export default function MilestoneDetail() {
     returnToGroupTab?: string;
   }>();
   const router = useRouter();
-  const { npub, nsec, relays, family, profile, theme } = useIdentity();
+  const { npub, family, profile, theme } = useIdentity();
   const [milestone, setMilestone] = useState<Milestone | null>(null);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
@@ -718,32 +717,8 @@ const getReflectionAuthorLabel = (authorNpub?: string) => {
   setReflectionText('');
   setIsAddingReflection(false);
 
-  if (updatedMilestone.familyId && nsec && npub) {
-    publishFamilyMilestone(
-      {
-        id: updatedMilestone.id,
-        note: updatedMilestone.note,
-        tags: updatedMilestone.tags ?? [],
-        photoUri: updatedMilestone.photoUri,
-        videoUri: updatedMilestone.videoUri,
-        audioUri: updatedMilestone.audioUri,
-        media: updatedMilestone.media ?? [],
-        reflections: updatedReflections,
-        createdAt: updatedMilestone.createdAt,
-        familyId: updatedMilestone.familyId,
-        authorNpub: updatedMilestone.authorNpub ?? npub,
-        authorName: updatedMilestone.authorName,
-      },
-      nsec,
-      relays
-    ).then(result => {
-      if (!result.success) {
-        console.warn('[Family Reflection Sync] Failed:', result.error);
-      } else {
-        console.log('[Family Reflection Sync] Published:', result.eventId);
-      }
-    });
-  }
+  // Old Family Timeline reflection relay sync intentionally removed.
+  // Space-scoped reflection publishing should be handled by Space-specific screens/storage.
 };
 
   const deleteReflection = async (index: number) => {
