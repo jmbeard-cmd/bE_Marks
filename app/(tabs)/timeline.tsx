@@ -547,8 +547,6 @@ export default function TimelineScreen() {
       composerTextRef.current = '';
       setComposerDraft('');
 
-      // Old Family Timeline reflection sync intentionally removed.
-      // Space-scoped reflection publishing should be handled by Space-specific screens/storage.
     } catch (error) {
       console.warn('[Timeline Sheet Composer] Save failed:', error);
     } finally {

@@ -339,7 +339,7 @@ export function createDefaultLivingSpaces(input: LivingSpaceDefaultsInput = {}):
       id: SYSTEM_LIVING_SPACE_IDS.family,
       type: 'family',
       name: input.family?.name || 'Family',
-      description: 'Family Marks and shared memories.',
+      description: 'Shared memories for this Family Space.',
       privacyDefault: 'family',
       now,
     }),
@@ -911,7 +911,7 @@ export function resolveLivingSpaceRoutes(input: {
       kind: 'family-relay',
       familyId: input.familyId,
       relayUrls: input.familyRelayUrl ? [input.familyRelayUrl] : defaultRelayUrls,
-      reason: 'Family Marks use the existing family milestone relay path.',
+      reason: 'Family Space sync uses the existing Space routing path.',
     });
   }
 
