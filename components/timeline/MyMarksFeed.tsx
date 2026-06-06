@@ -19,6 +19,7 @@ import MarkActionRow from '../../components/MarkActionRow';
 import MediaCollage from '../../components/MediaCollage';
 import TimelineTextMarkCard from '../../components/TimelineTextMarkCard';
 import TimelineVoiceMarkCard from '../../components/TimelineVoiceMarkCard';
+import type { LivingMarkMetadata } from '../../src/types/living-spaces';
 import {
   formatDate,
   type Milestone,
@@ -31,6 +32,7 @@ export type MyMarksFeedItem = {
   authorInitials: string;
   authorAvatar?: string;
   contextLabel: string;
+  eventContextLabel?: string;
   timeLabel: string;
   title: string | null;
   body: string;
@@ -44,6 +46,7 @@ type BuildMyMarksFeedItemsInput = {
   currentNpub: string | null;
   currentProfile?: any;
   familyName?: string;
+  metadataByMarkId?: Record<string, LivingMarkMetadata>;
 };
 
 type MyMarksFeedProps = {
@@ -120,6 +123,20 @@ function getMyMarksAuthorLabel(
   return null;
 }
 
+function getMyMarksEventContextLabel(metadata?: LivingMarkMetadata): string | undefined {
+  const eventTitle =
+    metadata?.eventTitle ||
+    (metadata?.eventId && !metadata.eventId.startsWith('cal_')
+      ? metadata.eventId
+      : undefined);
+
+  if (!eventTitle) return undefined;
+
+  return metadata?.eventSpaceName
+    ? `${eventTitle} · from ${metadata.eventSpaceName}`
+    : eventTitle;
+}
+
 export function getMyMarksCommentCount(milestone: Milestone): number {
   return Array.isArray(milestone.reflections) ? milestone.reflections.length : 0;
 }
@@ -153,6 +170,7 @@ export function buildMyMarksFeedItems({
   currentNpub,
   currentProfile,
   familyName,
+  metadataByMarkId,
 }: BuildMyMarksFeedItemsInput): MyMarksFeedItem[] {
   return milestones.map(milestone => {
     const noteText = milestone.note ?? '';
@@ -178,6 +196,8 @@ export function buildMyMarksFeedItems({
       : isMine
         ? 'My Marks'
         : 'Following';
+    const metadata = metadataByMarkId?.[milestone.id];
+    const eventContextLabel = getMyMarksEventContextLabel(metadata);
 
     return {
       id: milestone.id,
@@ -186,6 +206,7 @@ export function buildMyMarksFeedItems({
       authorInitials: getMyMarksInitials(authorName),
       authorAvatar: isMine ? currentProfile?.picture : undefined,
       contextLabel,
+      eventContextLabel,
       timeLabel: formatDate(milestone.createdAt),
       title,
       body,
@@ -311,6 +332,12 @@ export default function MyMarksFeed({
                       numberOfLines={isTextExpanded ? 5 : 1}
                     >
                       {item.body}
+                    </Text>
+                  ) : null}
+
+                  {item.eventContextLabel ? (
+                    <Text style={s.feedMarkOverlayEventText} numberOfLines={1}>
+                      {item.eventContextLabel}
                     </Text>
                   ) : null}
                 </TouchableOpacity>
@@ -698,6 +725,13 @@ const s = StyleSheet.create({
     fontWeight: '700',
     marginTop: 0,
     textAlign: 'left',
+  },
+  feedMarkOverlayEventText: {
+    color: 'rgba(255,255,255,0.74)',
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '900',
+    marginTop: 4,
   },
   feedMarkShowMoreButton: {
     alignSelf: 'flex-start',

@@ -26,9 +26,13 @@ import MyMarksFeed, {
   getMyMarksFeedMediaItems,
   type MyMarksFeedItem,
 } from '../../components/timeline/MyMarksFeed';
-import type { LivingMarkPromptCard } from '../../src/types/living-spaces';
+import type {
+  LivingMarkMetadata,
+  LivingMarkPromptCard,
+} from '../../src/types/living-spaces';
 import {
   applyLivingMarkPromptAction,
+  getLivingMarkMetadataItems,
   getLivingMarkPromptCards,
 } from '../../src/utils/living-spaces-storage';
 import {
@@ -67,6 +71,7 @@ const LIFT_UP_CHOICES: Pick<MilestoneLiftUp, 'type' | 'label' | 'emoji'>[] = [
 
 export default function TimelineScreen() {
   const [milestones, setMilestones] = useState<Milestone[]>([]);
+  const [livingMetadataByMarkId, setLivingMetadataByMarkId] = useState<Record<string, LivingMarkMetadata>>({});
   const [livingPromptCard, setLivingPromptCard] = useState<LivingMarkPromptCard | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const syncing = false;
@@ -145,6 +150,19 @@ export default function TimelineScreen() {
   const load = useCallback(async () => {
     const all = await getMilestones();
     setMilestones(all);
+
+    try {
+      const metadataItems = await getLivingMarkMetadataItems();
+      setLivingMetadataByMarkId(
+        metadataItems.reduce<Record<string, LivingMarkMetadata>>((acc, metadata) => {
+          acc[metadata.markId] = metadata;
+          return acc;
+        }, {})
+      );
+    } catch (error) {
+      console.warn('[Timeline] failed to load Living Mark metadata:', error);
+      setLivingMetadataByMarkId({});
+    }
 
     try {
       const promptCards = await getLivingMarkPromptCards({
@@ -248,6 +266,7 @@ export default function TimelineScreen() {
     currentNpub: npub,
     currentProfile: profile,
     familyName: family?.name,
+    metadataByMarkId: livingMetadataByMarkId,
   });
 
   const headerLogo =
