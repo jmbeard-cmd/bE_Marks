@@ -19,7 +19,6 @@ import EmojiReactionStrip from '../../components/EmojiReactionStrip';
 import ImageViewerModal, { ViewerImage } from '../../components/ImageViewerModal';
 import LivingPromptNudgeCard from '../../components/LivingPromptNudgeCard';
 import MarkCommentsSheet from '../../components/MarkCommentsSheet';
-import BroadcastsFeed from '../../components/timeline/BroadcastsFeed';
 import FollowingFeed from '../../components/timeline/FollowingFeed';
 import MyMarksFeed, {
   buildMyMarksFeedItems,
@@ -44,7 +43,7 @@ import {
 } from '../../src/utils/storage';
 import { useIdentity } from '../_layout';
 
-type FeedKey = 'profile' | 'follows' | 'subscribed';
+type FeedKey = 'profile' | 'follows';
 type ComposerMode = 'reflect' | 'comment';
 
 type TimelineFeedItem = MyMarksFeedItem;
@@ -57,7 +56,6 @@ type SheetComposerState = {
 const FEED_OPTIONS: { key: FeedKey; label: string; hint: string }[] = [
   { key: 'profile', label: 'My Marks', hint: 'Marks you created and saved' },
   { key: 'follows', label: 'Following', hint: 'Marks from people you follow' },
-  { key: 'subscribed', label: 'Broadcasts', hint: 'Community and public feeds you subscribe to' },
 ];
 
 const LIFT_UP_CHOICES: Pick<MilestoneLiftUp, 'type' | 'label' | 'emoji'>[] = [
@@ -599,8 +597,6 @@ export default function TimelineScreen() {
           theme={theme}
           onScroll={handleFeedScroll}
         />
-      ) : feedKey === 'subscribed' ? (
-        <BroadcastsFeed theme={theme} />
       ) : (
         <MyMarksFeed
           items={feedItems}
