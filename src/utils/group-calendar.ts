@@ -896,3 +896,28 @@ export function formatGameScore(event: GroupCalendarEvent): string {
 
   return `${resultLabel} ${score}`;
 }
+
+export function formatCompactCalendarEventMarkLabel(event: GroupCalendarEvent): string {
+  const title = event.title.trim();
+  const teamName = event.teamName?.trim();
+  const opponent = event.opponent?.trim();
+  const isGameEvent = event.spaceEventType === 'game' || event.spaceEventType === 'tournament';
+
+  const score =
+    typeof event.ourScore === 'number' && typeof event.opponentScore === 'number'
+      ? `${event.ourScore}–${event.opponentScore}`
+      : '';
+
+  if (isGameEvent && (teamName || opponent)) {
+    const matchup =
+      teamName && opponent
+        ? `${teamName} vs ${opponent}`
+        : opponent
+          ? `vs ${opponent}`
+          : teamName || title;
+
+    return [matchup, score].filter(Boolean).join(' · ');
+  }
+
+  return [title, score].filter(Boolean).join(' · ');
+}

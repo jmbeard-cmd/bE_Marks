@@ -30,6 +30,7 @@ import type {
 } from '../../src/types/living-spaces';
 import { getContacts } from '../../src/utils/contacts-storage';
 import {
+  formatCompactCalendarEventMarkLabel,
   formatEventDate,
   formatEventTime,
   getCalendarEventsForGroup,
@@ -1080,7 +1081,9 @@ if (audioUri) {
       const eventText = eventInput.trim();
       const eventIdForMark = selectedCalendarEventId || eventText || undefined;
       const eventTitleForMark = selectedCalendarEventId
-        ? selectedCalendarEventOption?.event.title || eventText || undefined
+        ? selectedCalendarEventOption
+          ? formatCompactCalendarEventMarkLabel(selectedCalendarEventOption.event)
+          : eventText || undefined
         : eventText || undefined;
       const eventSpaceIdForMark = selectedCalendarEventOption?.spaceId;
       const eventGroupIdForMark = selectedCalendarEventOption?.groupId;
