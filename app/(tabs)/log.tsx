@@ -1042,8 +1042,6 @@ if (audioUri) {
       setSaveStatus('Saving Mark...');
       setProgress(85);
 
-      const shouldSaveAsFamilyMark = false;
-
       const savedMilestone = await saveMilestone({
         title: title.trim() || undefined,
         note: fullNote,
@@ -1063,13 +1061,11 @@ if (audioUri) {
 
       const captureMetadata = getCaptureMetadataForDraft(media, audioUri);
       const privacyHint: MarkPrivacy | undefined =
-        shouldSaveAsFamilyMark
-          ? 'family'
-          : selectedGroupSpaceId
-            ? 'space'
-            : publishToNostr && published
-              ? 'public'
-              : undefined;
+        selectedGroupSpaceId
+          ? 'space'
+          : publishToNostr && published
+            ? 'public'
+            : undefined;
 
       const resolvedPeople = resolvePeopleSelection({
         selectedPeople,
@@ -1110,7 +1106,7 @@ if (audioUri) {
         privacy: privacyHint,
       });
 
-      // ── Step 5: Publish Space / Family relay snapshots when selected ──
+      // ── Step 5: Publish Space relay snapshot when selected ──
       const shouldPublishGroupSpaceMark =
         !!selectedGroupId &&
         !!selectedGroupSpaceId &&
@@ -1149,9 +1145,6 @@ if (audioUri) {
           });
         }
       }
-
-      // Old Family Timeline publish/notify path intentionally removed.
-      // Family should be handled as a normal Space type through group/Space routing.
 
       // ── Reset form ──
       setTitle('');
