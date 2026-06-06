@@ -842,6 +842,18 @@ const openMediaViewer = (uri: string) => {
     (livingView?.metadata.place?.latitude !== undefined && livingView?.metadata.place?.longitude !== undefined
       ? `${livingView.metadata.place.latitude.toFixed(3)}, ${livingView.metadata.place.longitude.toFixed(3)}`
       : undefined);
+  const eventTitleLabel =
+    livingView?.metadata.eventTitle ||
+    (livingView?.metadata.eventId && !livingView.metadata.eventId.startsWith('cal_')
+      ? livingView.metadata.eventId
+      : undefined);
+  const eventSourceSpaceLabel = livingView?.metadata.eventSpaceName;
+  const eventContextLabel = eventTitleLabel
+    ? [
+        eventTitleLabel,
+        eventSourceSpaceLabel ? `from ${eventSourceSpaceLabel}` : undefined,
+      ].filter(Boolean).join(' · ')
+    : undefined;
   const routeLabels = Array.from(
     new Set((livingView?.metadata.relayTargets ?? []).map(target => getRouteLabel(target.kind)))
   );
@@ -859,8 +871,8 @@ const openMediaViewer = (uri: string) => {
     ...(contextSpaceNames.length
       ? [{ label: 'Space', value: contextSpaceNames.join(', ') }]
       : []),
-    ...(livingView?.metadata.eventTitle || (livingView?.metadata.eventId && !livingView.metadata.eventId.startsWith('cal_'))
-      ? [{ label: 'Event', value: livingView.metadata.eventTitle || livingView.metadata.eventId }]
+    ...(eventContextLabel
+      ? [{ label: 'Event', value: eventContextLabel }]
       : []),
     ...(placeLabel ? [{ label: 'Place', value: placeLabel }] : []),
     ...(livingView?.metadata.savedToBook || livingView?.placement.spaceIds.includes(SYSTEM_LIVING_SPACE_IDS.livingBook)
