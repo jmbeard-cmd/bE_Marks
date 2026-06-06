@@ -270,7 +270,7 @@ useEffect(() => {
     const trimmedUrl = familyRelayUrl.trim();
 
     if ((familyRelayMode === 'custom' || familyRelayMode === 'both') && !trimmedUrl) {
-      Alert.alert('Relay required', 'Enter your family relay URL.');
+      Alert.alert('Relay required', 'Enter a custom relay URL for this Family Space.');
       return;
     }
 
@@ -286,7 +286,7 @@ useEffect(() => {
     });
 
     setEditingFamilyRelay(false);
-    Alert.alert('Saved', 'Family Space Relay settings updated.');
+    Alert.alert('Saved', 'Family Space sync settings updated.');
   };
 
   const handleBackupKey = () => {
@@ -796,9 +796,9 @@ const handleJoinFamily = async () => {
 >
                   <View style={s.familyRelayHeader}>
                     <View style={{ flex: 1 }}>
-                      <Text style={[s.familyRelayTitle, { color: theme.text }]}>Family Space Relay</Text>
+                      <Text style={[s.familyRelayTitle, { color: theme.text }]}>Family Space Sync</Text>
                       <Text style={[s.familyRelayHint, { color: theme.textMuted }]}>
-                        Choose where family-only Marks are saved and synced.
+                        Choose where this Family Space saves and syncs.
                       </Text>
                     </View>
 
@@ -816,7 +816,7 @@ const handleJoinFamily = async () => {
                         {(family.relayMode ?? 'default') === 'default'
                           ? 'bE Relay'
                           : family.relayMode === 'custom'
-                            ? 'My Family Relay'
+                            ? 'Custom Relay'
                             : 'Both'}
                       </Text>
 
@@ -829,7 +829,7 @@ const handleJoinFamily = async () => {
                   ) : (
                     <View style={s.editBlock}>
                       <Text style={[s.inputLabel, { color: theme.textMuted }]}>
-  WHERE SHOULD FAMILY MARKS SAVE?
+  WHERE SHOULD THIS FAMILY SPACE SYNC?
 </Text>
 
 <TouchableOpacity
@@ -860,8 +860,10 @@ const handleJoinFamily = async () => {
                         onPress={() => setFamilyRelayMode('custom')}
                         activeOpacity={0.85}
                       >
-                        <Text style={[s.familyRelayOptionTitle, { color: theme.text }]}>My Family Relay</Text>
-                        <Text style={s.familyRelayOptionHint}>Use your own private family relay.</Text>
+                        <Text style={[s.familyRelayOptionTitle, { color: theme.text }]}>Custom Relay</Text>
+                        <Text style={[s.familyRelayOptionHint, { color: theme.textMuted }]}>
+                          Use a private relay URL for this Family Space.
+                        </Text>
                       </TouchableOpacity>
 
                       <TouchableOpacity
@@ -875,20 +877,19 @@ const handleJoinFamily = async () => {
                         onPress={() => setFamilyRelayMode('both')}
                         activeOpacity={0.85}
                       >
-                        <Text style={[s.familyRelayOptionTitle, { color: theme.text }]}>Both</Text>
                         <Text style={[s.familyRelayOptionHint, { color: theme.textMuted }]}>
-  Save to bE and your family relay.
+  Save to bE Relay and your custom relay.
 </Text>
                       </TouchableOpacity>
 
                       {(familyRelayMode === 'custom' || familyRelayMode === 'both') && (
                         <>
-                          <Text style={[s.inputLabel, { marginTop: 12, color: theme.textMuted }]}>FAMILY RELAY URL</Text>
+                          <Text style={[s.inputLabel, { marginTop: 12, color: theme.textMuted }]}>CUSTOM RELAY URL</Text>
                           <TextInput
   style={[s.input, { backgroundColor: theme.surface, borderColor: theme.border, color: theme.text }]}
   value={familyRelayUrl}
                             onChangeText={setFamilyRelayUrl}
-                            placeholder="wss://relay.yourfamily.com"
+                            placeholder="wss://relay.example.com"
                             placeholderTextColor={theme.textMuted}
                             autoCapitalize="none"
                             keyboardType="url"

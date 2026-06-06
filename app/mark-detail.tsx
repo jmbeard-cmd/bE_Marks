@@ -69,7 +69,7 @@ const LIFT_UP_TAG = 'Lift Up';
 
 function getRouteLabel(kind: string): string {
   if (kind === 'local') return 'Local';
-  if (kind === 'family-relay') return 'Family relay';
+  if (kind === 'family-relay') return 'Family Space sync';
   if (kind === 'space-relay') return 'Space relay';
   if (kind === 'public-relay') return 'Public relay';
   return kind;
@@ -670,9 +670,6 @@ const getReflectionAuthorLabel = (authorNpub?: string) => {
   setMilestone(updatedMilestone);
   setReflectionText('');
   setIsAddingReflection(false);
-
-  // Old Family Timeline reflection relay sync intentionally removed.
-  // Space-scoped reflection publishing should be handled by Space-specific screens/storage.
 };
 
   const deleteReflection = async (index: number) => {
