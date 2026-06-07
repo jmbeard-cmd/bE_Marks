@@ -42,6 +42,7 @@ import { Colors } from '../src/constants/theme';
 import { getGroupMembers, type BEGroup } from '../src/utils/group-storage';
 import { getLivingMarkCountsForCalendarEvents } from '../src/utils/living-spaces-storage';
 import { subscribeToGroupCalendarEvents } from '../src/utils/nostr';
+import { openMapLocation } from '../src/utils/open-map-location';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1788,6 +1789,18 @@ function EventCard({
   const past = isPast || isEventPast(event);
   const invitedMembers = getRosterAttendees(event.invitedNpubs, memberRoster);
 
+  const handleOpenLocation = async () => {
+    if (!event.location) return;
+
+    await openMapLocation(
+      {
+        label: event.title,
+        address: event.location,
+      },
+      { source: 'Calendar event location' }
+    );
+  };
+
   return (
     <TouchableOpacity
       style={[s.card, past && s.cardPast]}
@@ -1840,7 +1853,14 @@ function EventCard({
         <View style={s.metaRow}>
           <Text style={s.metaText}>🕐 {formatEventTime(event)}</Text>
           {!!event.location && (
-            <Text style={s.metaText} numberOfLines={1}>📍 {event.location}</Text>
+            <TouchableOpacity
+              onPress={handleOpenLocation}
+              activeOpacity={0.75}
+            >
+              <Text style={s.metaText} numberOfLines={1}>
+                📍 {event.location} · Open Maps
+              </Text>
+            </TouchableOpacity>
           )}
         </View>
 
