@@ -1,15 +1,17 @@
 import {
-    Image,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
-    type GestureResponderEvent,
+  Image,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+  type GestureResponderEvent,
 } from 'react-native';
 import MarkActionRow from './MarkActionRow';
 
 type TimelineTextMarkTheme = {
   bg: string;
+  surface: string;
+  raised: string;
   text: string;
   textMuted: string;
   textSecondary: string;
@@ -60,10 +62,7 @@ export default function TimelineTextMarkCard({
       style={[
         s.textMarkCard,
         {
-          backgroundColor:
-            themeMode === 'dark'
-              ? 'rgba(8,22,16,0.96)'
-              : 'rgba(250,246,238,0.98)',
+          backgroundColor: theme.surface,
           borderColor: `${theme.gold}55`,
           shadowColor: theme.gold,
         },
@@ -81,7 +80,15 @@ export default function TimelineTextMarkCard({
         activeOpacity={0.9}
       >
         <View style={s.textMarkAuthorRow}>
-          <View style={[s.textMarkAvatar, { borderColor: `${theme.gold}44` }]}>
+          <View
+            style={[
+              s.textMarkAvatar,
+              {
+                borderColor: `${theme.gold}44`,
+                backgroundColor: `${theme.gold}14`,
+              },
+            ]}
+          >
             {item.authorAvatar ? (
               <Image source={{ uri: item.authorAvatar }} style={s.textMarkAvatarImage} />
             ) : (
@@ -227,7 +234,6 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
-    backgroundColor: 'rgba(0,0,0,0.12)',
   },
   textMarkAvatarImage: {
     width: '100%',

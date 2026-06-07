@@ -60,14 +60,14 @@ export const AccentPalettes: Record<
 
 const BaseColors = {
   dark: {
-    bg: '#0D0F0E',
-    surface: '#151A17',
-    raised: '#202822',
-    border: '#323A35',
+    bg: '#000000',
+    surface: '#070707',
+    raised: '#141414',
+    border: '#2A2622',
 
-    text: '#F7F2EA',
-    textSecondary: '#C7BBAA',
-    textMuted: '#7C7166',
+    text: '#FFFFFF',
+    textSecondary: '#D8D0C6',
+    textMuted: '#8F867C',
 
     success: '#36B06C',
     info: '#5F8DFF',
@@ -76,13 +76,13 @@ const BaseColors = {
   },
 
   light: {
-    bg: '#FFF9F1',
+    bg: '#FFFFFF',
     surface: '#FFFFFF',
-    raised: '#F3EBDD',
-    border: '#D8CCC0',
+    raised: '#F7F2EA',
+    border: '#E8DED2',
 
-    text: '#17120E',
-    textSecondary: '#5C5045',
+    text: '#111111',
+    textSecondary: '#51483F',
     textMuted: '#81766B',
 
     success: '#249B5A',

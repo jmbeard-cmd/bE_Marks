@@ -1,17 +1,19 @@
 import { Ionicons } from '@expo/vector-icons';
 import {
-    Image,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
-    type GestureResponderEvent,
+  Image,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+  type GestureResponderEvent,
 } from 'react-native';
 import MarkActionRow from './MarkActionRow';
 import MediaCollage from './MediaCollage';
 
 type TimelineVoiceMarkTheme = {
   bg: string;
+  surface: string;
+  raised: string;
   text: string;
   textMuted: string;
   textSecondary: string;
@@ -62,10 +64,7 @@ export default function TimelineVoiceMarkCard({
       style={[
         s.voiceMarkCard,
         {
-          backgroundColor:
-            themeMode === 'dark'
-              ? 'rgba(10,18,25,0.96)'
-              : 'rgba(246,249,252,0.98)',
+          backgroundColor: theme.surface,
           borderColor: `${theme.gold}55`,
           shadowColor: theme.gold,
         },
@@ -209,7 +208,6 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
-    backgroundColor: 'rgba(0,0,0,0.12)',
   },
   voiceMarkAvatarImage: {
     width: '100%',
@@ -241,7 +239,6 @@ const s = StyleSheet.create({
     borderWidth: 0.8,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.12)',
     marginBottom: 16,
   },
   voiceWaveRow: {
