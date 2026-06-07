@@ -28,7 +28,6 @@ import {
   Image,
   InteractionManager,
   Keyboard,
-  Linking,
   Modal,
   Platform,
   RefreshControl,
@@ -113,6 +112,7 @@ import {
   publishGroupMessage,
 } from '../src/utils/nostr';
 import { normalizeNostrIdentity } from '../src/utils/nostr-identity';
+import { openAttachment } from '../src/utils/open-attachment';
 import {
   notifyGroupEvent,
   registerGroupMemberForPush,
@@ -1988,25 +1988,16 @@ const getBoardItemAuthorLabel = (sticky: GroupSticky): string => {
   return `Signed by ${displayName} • ${roleLabel} • ${formatStickyDate(sticky.updatedAt || sticky.createdAt)}`;
 };
 
-const handleOpenHighlightFile = async (fileUrl?: string) => {
-  if (!fileUrl) {
-    Alert.alert('File unavailable', 'This file does not have a saved URL.');
-    return;
-  }
-
-  try {
-    const supported = await Linking.canOpenURL(fileUrl);
-
-    if (!supported) {
-      Alert.alert('Cannot open file', 'No app is available to open this file.');
-      return;
-    }
-
-    await Linking.openURL(fileUrl);
-  } catch (error) {
-    console.warn('[Highlight file open] failed:', error);
-    Alert.alert('File error', 'Could not open this attachment.');
-  }
+const handleOpenHighlightFile = async (
+  fileUrl?: string,
+  fileName?: string,
+  mimeType?: string
+) => {
+  await openAttachment(fileUrl, {
+    source: 'Space highlight file',
+    fileName,
+    mimeType,
+  });
 };
 
 const handleDeleteSticky = (sticky: GroupSticky) => {

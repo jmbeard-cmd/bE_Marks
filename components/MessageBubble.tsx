@@ -1,6 +1,7 @@
 import { memo } from 'react';
-import { ActivityIndicator, Image, Linking, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Image, Text, TouchableOpacity, View } from 'react-native';
 import { useIdentity } from '../app/_layout';
+import { openAttachment } from '../src/utils/open-attachment';
 
 type MessageMediaType = 'image' | 'video' | 'file';
 
@@ -24,20 +25,45 @@ type Props = {
   s: any;
 };
 
+function getMediaEntryUri(entry: any): string | undefined {
+  return entry?.uri || entry?.mediaUrl || entry?.url || entry?.fileUrl || entry?.downloadUrl;
+}
+
+function getFileDisplayName(file: MessageMediaItem, index: number): string {
+  return file.fileName || `Attachment ${index + 1}`;
+}
+
+function getFileMetaLabel(file: MessageMediaItem): string {
+  const mimeType = file.mimeType?.toLowerCase();
+
+  if (!mimeType) return 'Tap to open';
+  if (mimeType.includes('pdf')) return 'PDF document';
+  if (mimeType.includes('word')) return 'Word document';
+  if (mimeType.includes('spreadsheet') || mimeType.includes('excel')) return 'Spreadsheet';
+
+  return mimeType;
+}
+
 function getMessageMediaItems(item: any): MessageMediaItem[] {
   const media = Array.isArray(item?.media) ? item.media : [];
 
   if (media.length > 0) {
     return media
-      .filter((entry: any) => !!entry?.uri)
-      .map((entry: any, index: number) => ({
-        id: entry.id || `media_${index}_${entry.uri}`,
-        uri: entry.uri,
-        type: entry.type === 'video' || entry.type === 'file' ? entry.type : 'image',
-        thumbnailUrl: entry.thumbnailUrl,
-        fileName: entry.fileName || entry.name,
-        mimeType: entry.mimeType,
-      }));
+      .map((entry: any, index: number) => {
+        const uri = getMediaEntryUri(entry);
+
+        if (!uri) return null;
+
+        return {
+          id: entry.id || `media_${index}_${uri}`,
+          uri,
+          type: entry.type === 'video' || entry.type === 'file' ? entry.type : 'image',
+          thumbnailUrl: entry.thumbnailUrl,
+          fileName: entry.fileName || entry.name || entry.title,
+          mimeType: entry.mimeType || entry.contentType,
+        };
+      })
+      .filter(Boolean) as MessageMediaItem[];
   }
 
   const legacyUri = item?.mediaUrl || item?.imageUrl;
@@ -178,16 +204,12 @@ function hasPoll(item: any): boolean {
 }
 
 
-async function openFile(uri: string) {
-  try {
-    const supported = await Linking.canOpenURL(uri);
-
-    if (supported) {
-      await Linking.openURL(uri);
-    }
-  } catch (error) {
-    console.warn('[MessageBubble] failed to open file:', error);
-  }
+async function openFile(file: MessageMediaItem) {
+  await openAttachment(file.uri, {
+    source: 'MessageBubble',
+    fileName: file.fileName,
+    mimeType: file.mimeType,
+  });
 }
 
 function getMediaSignature(item: any): string {
@@ -799,7 +821,7 @@ function MessageBubble({
                 activeOpacity={0.85}
                 delayLongPress={260}
                 onLongPress={() => onLongPress?.(item)}
-                onPress={() => openFile(file.uri)}
+                onPress={() => openFile(file)}
                 style={{
                   width: 220,
                   flexDirection: 'row',
@@ -823,21 +845,19 @@ function MessageBubble({
                       fontWeight: '800',
                     }}
                   >
-                    {file.fileName || 'Attached file'}
+                    {getFileDisplayName(file, index)}
                   </Text>
 
-                  {!!file.mimeType && (
-                    <Text
-                      numberOfLines={1}
-                      style={{
-                        color: theme.textMuted,
-                        fontSize: 10,
-                        marginTop: 2,
-                      }}
-                    >
-                      {file.mimeType}
-                    </Text>
-                  )}
+                  <Text
+                    numberOfLines={1}
+                    style={{
+                      color: theme.textMuted,
+                      fontSize: 10,
+                      marginTop: 2,
+                    }}
+                  >
+                    {getFileMetaLabel(file)}
+                  </Text>
                 </View>
 
                 <Text

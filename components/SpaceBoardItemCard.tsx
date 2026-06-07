@@ -10,7 +10,7 @@ type SpaceBoardItemCardProps = {
   authorLabel: string;
   onDelete: () => void;
   onPressMedia: (index: number) => void;
-  onOpenFile: (fileUrl?: string) => void;
+  onOpenFile: (fileUrl?: string, fileName?: string, mimeType?: string) => void;
 };
 
 function getStickyMediaItems(sticky: GroupSticky): any[] {
@@ -35,6 +35,29 @@ function getStickyFileItems(sticky: GroupSticky): any[] {
 
     return mediaType === 'file';
   });
+}
+
+function getStickyFileUrl(file: any): string | undefined {
+  return file.mediaUrl || file.uri || file.url || file.fileUrl || file.downloadUrl;
+}
+
+function getStickyFileName(file: any, index: number): string {
+  return (
+    file.name ||
+    file.fileName ||
+    file.title ||
+    `Attachment ${index + 1}`
+  );
+}
+
+function getStickyFileMeta(file: any): string {
+  const mimeType = file.mimeType || file.contentType;
+
+  if (mimeType?.includes('pdf')) return 'PDF document';
+  if (mimeType?.includes('word')) return 'Word document';
+  if (mimeType?.includes('spreadsheet') || mimeType?.includes('excel')) return 'Spreadsheet';
+
+  return 'Tap to open';
 }
 
 function getBoardDisplayLabel(sticky: GroupSticky): string {
@@ -89,22 +112,28 @@ export default function SpaceBoardItemCard({
 
       {fileItems.length > 0 && (
         <View style={s.stickyFileList}>
-          {fileItems.map((file, index) => (
-            <TouchableOpacity
-              key={`${sticky.id}_file_${index}`}
-              style={s.stickyFileRow}
-              onPress={() => onOpenFile(file.mediaUrl || file.uri)}
-              activeOpacity={0.84}
-            >
-              <Text style={s.stickyFileIcon}>📎</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={s.stickyFileName} numberOfLines={1}>
-                  {file.name || `Attachment ${index + 1}`}
-                </Text>
-                <Text style={s.stickyFileMeta}>Tap to open</Text>
-              </View>
-            </TouchableOpacity>
-          ))}
+          {fileItems.map((file, index) => {
+            const fileUrl = getStickyFileUrl(file);
+            const fileName = getStickyFileName(file, index);
+            const mimeType = file.mimeType || file.contentType;
+
+            return (
+              <TouchableOpacity
+                key={`${sticky.id}_file_${index}`}
+                style={s.stickyFileRow}
+                onPress={() => onOpenFile(fileUrl, fileName, mimeType)}
+                activeOpacity={0.84}
+              >
+                <Text style={s.stickyFileIcon}>📎</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.stickyFileName} numberOfLines={1}>
+                    {fileName}
+                  </Text>
+                  <Text style={s.stickyFileMeta}>{getStickyFileMeta(file)}</Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
         </View>
       )}
     </View>
