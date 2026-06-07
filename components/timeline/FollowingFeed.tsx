@@ -118,6 +118,25 @@ function buildFollowingAuthorShareMessage(post: SocialPublicPost): string {
     .join('\n\n');
 }
 
+function formatFollowingFeedUpdatedAt(updatedAt: number): string {
+  if (!updatedAt) return 'Not refreshed yet';
+
+  const secondsAgo = Math.max(0, Math.floor((Date.now() - updatedAt) / 1000));
+
+  if (secondsAgo < 10) return 'Updated just now';
+  if (secondsAgo < 60) return `Updated ${secondsAgo}s ago`;
+
+  const minutesAgo = Math.floor(secondsAgo / 60);
+
+  if (minutesAgo < 60) {
+    return minutesAgo === 1 ? 'Updated 1 min ago' : `Updated ${minutesAgo} min ago`;
+  }
+
+  const hoursAgo = Math.floor(minutesAgo / 60);
+
+  return hoursAgo === 1 ? 'Updated 1 hour ago' : `Updated ${hoursAgo} hours ago`;
+}
+
 export default function FollowingFeed({ theme, onScroll }: FollowingFeedProps) {
   const bePatientLogo =
     theme.bg === '#0D0F0E' || theme.bg === '#0d0f0e'
@@ -129,8 +148,10 @@ export default function FollowingFeed({ theme, onScroll }: FollowingFeedProps) {
   const [loading, setLoading] = useState(() => FOLLOWING_FEED_SESSION_CACHE.length === 0);
   const [refreshing, setRefreshing] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState(FOLLOWING_FEED_CACHE_UPDATED_AT);
   const [copyFeedback, setCopyFeedback] = useState<CopyFeedbackState>(null);
   const [selectedAuthorPost, setSelectedAuthorPost] = useState<SocialPublicPost | null>(null);
+  const [selectedDetailPost, setSelectedDetailPost] = useState<SocialPublicPost | null>(null);
   const postsRef = useRef<SocialPublicPost[]>(FOLLOWING_FEED_SESSION_CACHE);
   const listRef = useRef<FlatList<SocialPublicPost> | null>(null);
   const checkingForNewPostsRef = useRef(false);
@@ -172,6 +193,7 @@ export default function FollowingFeed({ theme, onScroll }: FollowingFeedProps) {
       FOLLOWING_FEED_CACHE_UPDATED_AT = Date.now();
       postsRef.current = nextPosts;
 
+      setLastUpdatedAt(FOLLOWING_FEED_CACHE_UPDATED_AT);
       setPosts(nextPosts);
       setPendingPosts([]);
     } catch (error) {
@@ -349,6 +371,14 @@ export default function FollowingFeed({ theme, onScroll }: FollowingFeedProps) {
     setSelectedAuthorPost(null);
   }, []);
 
+  const handleOpenPostDetail = useCallback((post: SocialPublicPost) => {
+    setSelectedDetailPost(post);
+  }, []);
+
+  const handleClosePostDetail = useCallback(() => {
+    setSelectedDetailPost(null);
+  }, []);
+
   const handleShareAuthorProfile = useCallback(async (post: SocialPublicPost) => {
     const message = buildFollowingAuthorShareMessage(post);
 
@@ -370,7 +400,6 @@ export default function FollowingFeed({ theme, onScroll }: FollowingFeedProps) {
     const firstImageUrl = item.imageUrls[0];
     const hasMedia = !!firstImageUrl;
     const textCopied = copyFeedback?.postId === item.id && copyFeedback.action === 'text';
-    const authorCopied = copyFeedback?.postId === item.id && copyFeedback.action === 'author';
 
     return (
       <View style={[s.postCard, { backgroundColor: theme.raised, borderColor: theme.border }]}>
@@ -408,27 +437,44 @@ export default function FollowingFeed({ theme, onScroll }: FollowingFeedProps) {
         </TouchableOpacity>
 
         {hasMedia && (
-          <Image
-            source={{ uri: firstImageUrl }}
-            style={s.postImage}
-            resizeMode="cover"
-          />
+          <TouchableOpacity
+            activeOpacity={0.9}
+            onPress={() => handleOpenPostDetail(item)}
+            accessibilityRole="button"
+            accessibilityLabel="Open Following post"
+          >
+            <Image
+              source={{ uri: firstImageUrl }}
+              style={s.postImage}
+              resizeMode="cover"
+            />
+          </TouchableOpacity>
         )}
 
         {!!item.content && (
-          <Text style={[s.postContent, { color: theme.textSecondary }]} numberOfLines={8}>
-            {item.content}
-          </Text>
+          <TouchableOpacity
+            activeOpacity={0.86}
+            onPress={() => handleOpenPostDetail(item)}
+            accessibilityRole="button"
+            accessibilityLabel="Open Following post"
+          >
+            <Text style={[s.postContent, { color: theme.textSecondary }]} numberOfLines={8}>
+              {item.content}
+            </Text>
+          </TouchableOpacity>
         )}
 
         <View style={[s.postFooter, { borderTopColor: theme.border }]}>
           <TouchableOpacity
             style={s.footerAction}
             activeOpacity={0.75}
+            onPress={() => handleOpenPostDetail(item)}
+            accessibilityRole="button"
+            accessibilityLabel="Open Following post detail"
           >
-            <Ionicons name="eye-outline" size={18} color={theme.textMuted} />
+            <Ionicons name="open-outline" size={18} color={theme.textMuted} />
             <Text style={[s.footerActionText, { color: theme.textMuted }]}>
-              Public post
+              Open
             </Text>
           </TouchableOpacity>
 
@@ -461,23 +507,6 @@ export default function FollowingFeed({ theme, onScroll }: FollowingFeedProps) {
               {textCopied ? 'Copied' : 'Copy'}
             </Text>
           </TouchableOpacity>
-
-          <TouchableOpacity
-            style={s.footerAction}
-            activeOpacity={0.75}
-            onPress={() => handleCopyAuthorId(item)}
-            accessibilityRole="button"
-            accessibilityLabel="Copy this Following post author id"
-          >
-            <Ionicons
-              name={authorCopied ? 'checkmark-circle-outline' : 'person-circle-outline'}
-              size={18}
-              color={authorCopied ? theme.gold : theme.textMuted}
-            />
-            <Text style={[s.footerActionText, { color: authorCopied ? theme.gold : theme.textMuted }]}>
-              {authorCopied ? 'Copied' : 'ID'}
-            </Text>
-          </TouchableOpacity>
         </View>
       </View>
     );
@@ -486,6 +515,7 @@ export default function FollowingFeed({ theme, onScroll }: FollowingFeedProps) {
     handleCopyAuthorId,
     handleCopyPostText,
     handleOpenAuthorProfile,
+    handleOpenPostDetail,
     handleSharePost,
     theme,
   ]);
@@ -640,6 +670,108 @@ export default function FollowingFeed({ theme, onScroll }: FollowingFeedProps) {
         </Modal>
       )}
 
+      {selectedDetailPost && (
+        <Modal
+          visible
+          transparent
+          animationType="fade"
+          onRequestClose={handleClosePostDetail}
+        >
+          <TouchableOpacity
+            style={s.profileModalBackdrop}
+            activeOpacity={1}
+            onPress={handleClosePostDetail}
+          >
+            <TouchableOpacity
+              style={[
+                s.postDetailCard,
+                {
+                  backgroundColor: theme.surface,
+                  borderColor: theme.border,
+                },
+              ]}
+              activeOpacity={1}
+            >
+              <TouchableOpacity
+                style={s.postDetailAuthorRow}
+                activeOpacity={0.82}
+                onPress={() => {
+                  handleClosePostDetail();
+                  handleOpenAuthorProfile(selectedDetailPost);
+                }}
+              >
+                <View style={[s.profileAvatar, { backgroundColor: theme.raised, borderColor: theme.border }]}>
+                  {selectedDetailPost.authorAvatarUrl ? (
+                    <Image source={{ uri: selectedDetailPost.authorAvatarUrl }} style={s.profileAvatarImage} />
+                  ) : (
+                    <Text style={[s.profileAvatarText, { color: theme.gold }]}>
+                      {getAuthorInitials(selectedDetailPost)}
+                    </Text>
+                  )}
+                </View>
+
+                <View style={s.profileHeaderCopy}>
+                  <Text style={[s.profileName, { color: theme.text }]} numberOfLines={1}>
+                    {getAuthorName(selectedDetailPost)}
+                  </Text>
+                  <Text style={[s.profileId, { color: theme.textMuted }]} numberOfLines={1}>
+                    Following · {formatDate(selectedDetailPost.createdAt)}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              {!!selectedDetailPost.imageUrls[0] && (
+                <Image
+                  source={{ uri: selectedDetailPost.imageUrls[0] }}
+                  style={s.postDetailImage}
+                  resizeMode="cover"
+                />
+              )}
+
+              {!!selectedDetailPost.content && (
+                <Text style={[s.postDetailText, { color: theme.textSecondary }]}>
+                  {selectedDetailPost.content}
+                </Text>
+              )}
+
+              <View style={s.profileActions}>
+                <TouchableOpacity
+                  style={[s.profileActionButton, { borderColor: theme.border, backgroundColor: theme.raised }]}
+                  activeOpacity={0.78}
+                  onPress={() => handleCopyPostText(selectedDetailPost)}
+                >
+                  <Ionicons name="copy-outline" size={18} color={theme.textMuted} />
+                  <Text style={[s.profileActionText, { color: theme.text }]}>
+                    Copy
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[s.profileActionButton, { borderColor: theme.border, backgroundColor: theme.raised }]}
+                  activeOpacity={0.78}
+                  onPress={() => handleSharePost(selectedDetailPost)}
+                >
+                  <Ionicons name="share-social-outline" size={18} color={theme.textMuted} />
+                  <Text style={[s.profileActionText, { color: theme.text }]}>
+                    Share
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <TouchableOpacity
+                style={[s.profileCloseButton, { backgroundColor: theme.gold }]}
+                activeOpacity={0.82}
+                onPress={handleClosePostDetail}
+              >
+                <Text style={[s.profileCloseText, { color: theme.bg }]}>
+                  Done
+                </Text>
+              </TouchableOpacity>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
+      )}
+
       <FlatList
         ref={listRef}
         style={s.feedList}
@@ -662,6 +794,33 @@ export default function FollowingFeed({ theme, onScroll }: FollowingFeedProps) {
             onRefresh={() => loadFollowingPosts({ refreshing: true })}
             tintColor={theme.gold}
           />
+        }
+        ListHeaderComponent={
+          posts.length > 0 ? (
+            <View style={[s.feedStatusCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <View style={{ flex: 1 }}>
+                <Text style={[s.feedStatusTitle, { color: theme.text }]}>
+                  Following
+                </Text>
+                <Text style={[s.feedStatusMeta, { color: theme.textMuted }]}>
+                  {posts.length} {posts.length === 1 ? 'post' : 'posts'} · {formatFollowingFeedUpdatedAt(lastUpdatedAt)}
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                style={[s.feedStatusRefreshBtn, { borderColor: theme.border, backgroundColor: theme.raised }]}
+                activeOpacity={0.78}
+                onPress={() => loadFollowingPosts({ refreshing: true })}
+                accessibilityRole="button"
+                accessibilityLabel="Refresh Following feed"
+              >
+                <Ionicons name="refresh" size={16} color={theme.gold} />
+                <Text style={[s.feedStatusRefreshText, { color: theme.gold }]}>
+                  Refresh
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ) : null
         }
         ListEmptyComponent={
           <View style={s.empty}>
@@ -782,6 +941,40 @@ const s = StyleSheet.create({
   },
   newPostBannerText: {
     fontSize: 13,
+    fontWeight: '900',
+  },
+  feedStatusCard: {
+    minHeight: 62,
+    borderRadius: 18,
+    borderWidth: 0.5,
+    marginBottom: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  feedStatusTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+    letterSpacing: -0.2,
+  },
+  feedStatusMeta: {
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 3,
+  },
+  feedStatusRefreshBtn: {
+    minHeight: 34,
+    borderRadius: 999,
+    borderWidth: 0.5,
+    paddingHorizontal: 11,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  feedStatusRefreshText: {
+    fontSize: 12,
     fontWeight: '900',
   },
   postCard: {
@@ -922,10 +1115,36 @@ const s = StyleSheet.create({
     fontSize: 14,
     fontWeight: '900',
   },
+  postDetailCard: {
+    marginHorizontal: 12,
+    marginBottom: 18,
+    maxHeight: '86%',
+    borderRadius: 22,
+    borderWidth: 0.5,
+    padding: 16,
+  },
+  postDetailAuthorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 14,
+  },
+  postDetailImage: {
+    width: '100%',
+    height: 330,
+    borderRadius: 18,
+    backgroundColor: '#000000',
+    marginBottom: 14,
+  },
+  postDetailText: {
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: '600',
+  },
   postImage: {
     width: '100%',
     height: 320,
-    backgroundColor: '#000',
+    backgroundColor: '#000000',
   },
   postContent: {
     paddingHorizontal: 14,
