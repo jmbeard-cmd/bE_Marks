@@ -36,6 +36,7 @@ export type SpaceEventType =
   | 'game'
   | 'practice'
   | 'meeting'
+  | 'volunteer'
   | 'fundraiser'
   | 'banquet'
   | 'tournament'
@@ -809,9 +810,11 @@ export function getSpaceEventTypeLabel(type?: SpaceEventType): string {
     case 'game':
       return 'Game';
     case 'practice':
-      return 'Practice';
+      return '🏃';
     case 'meeting':
       return 'Meeting';
+    case 'volunteer':
+      return 'Volunteer';
     case 'fundraiser':
       return 'Fundraiser';
     case 'banquet':
@@ -837,6 +840,8 @@ export function getSpaceEventTypeIcon(type?: SpaceEventType): string {
       return ' whistle ';
     case 'meeting':
       return '🗓️';
+    case 'volunteer':
+      return '🤝';
     case 'fundraiser':
       return '💵';
     case 'banquet':

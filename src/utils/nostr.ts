@@ -3745,7 +3745,7 @@ export interface GroupCalendarEventRaw {
   description?: string;
   location?:    string;
   eventType:    'timed' | 'allday';
-  spaceEventType?: 'game' | 'practice' | 'meeting' | 'fundraiser' | 'banquet' | 'tournament' | 'deadline' | 'event' | 'other';
+  spaceEventType?: 'game' | 'practice' | 'meeting' | 'volunteer' | 'fundraiser' | 'banquet' | 'tournament' | 'deadline' | 'event' | 'other';
   opponent?: string;
   homeAway?: 'home' | 'away' | 'neutral';
   ourScore?: number;
@@ -3805,7 +3805,7 @@ export async function publishGroupCalendarEvent(input: {
   description?: string;
   location?:    string;
   eventType:    'timed' | 'allday';
-  spaceEventType?: 'game' | 'practice' | 'meeting' | 'fundraiser' | 'banquet' | 'tournament' | 'deadline' | 'event' | 'other';
+  spaceEventType?: 'game' | 'practice' | 'meeting' | 'volunteer' | 'fundraiser' | 'banquet' | 'tournament' | 'deadline' | 'event' | 'other';
   opponent?: string;
   homeAway?: 'home' | 'away' | 'neutral';
   ourScore?: number;

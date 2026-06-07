@@ -136,6 +136,7 @@ const SPACE_EVENT_TYPE_OPTIONS: SpaceEventType[] = [
   'practice',
   'tournament',
   'meeting',
+  'volunteer',
   'fundraiser',
   'banquet',
   'event',
