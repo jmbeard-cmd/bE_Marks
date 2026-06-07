@@ -140,6 +140,7 @@ type Tab = 'overview' | 'chat' | 'stickies' | 'board' | 'calendar' | 'gallery' |
 const GROUP_LOCAL_GALLERY_KEY = 'be_group_local_gallery_v1';
 const SPACE_GALLERY_CACHE_KEY_PREFIX = 'be_space_gallery_cache_v1:';
 const SPACE_TAB_SEEN_COUNTS_KEY_PREFIX = 'be_space_tab_seen_counts_v1:';
+const SPACE_MARKS_SCROLL_RESTORE_KEY_PREFIX = 'be_space_marks_scroll_restore_v2:';
 const SPACE_MARK_RELAY_SYNC_ENABLED = true;
 
 const COUNTED_SPACE_TABS = [
@@ -555,6 +556,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   const [galleryItems, setGalleryItems] = useState<SpaceGalleryItem[]>([]);
   const [chatMessageCount, setChatMessageCount] = useState(0);
   const [seenSpaceTabCounts, setSeenSpaceTabCounts] = useState<Partial<SpaceTabCounts>>({});
+  const [spaceTabSeenCountsLoaded, setSpaceTabSeenCountsLoaded] = useState(false);
   const [selectedGalleryImage, setSelectedGalleryImage] = useState<string | null>(null);
   const [activeViewerImages, setActiveViewerImages] = useState<ViewerImage[]>([]);
   const [tab, setTab] = useState<Tab>(() => {
@@ -601,6 +603,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   const [calendarEventTitles, setCalendarEventTitles] = useState<Record<string, string>>({});
   const [selectedMemberAction, setSelectedMemberAction] = useState<BEGroupMember | null>(null);
   const [activeSpaceVideoMarkId, setActiveSpaceVideoMarkId] = useState<string | null>(null);
+  const [spaceMarksScrollRestorePending, setSpaceMarksScrollRestorePending] = useState(false);
 
   const [showBoardComposer, setShowBoardComposer] = useState(false);
   const [boardDisplayMode, setBoardDisplayMode] = useState<GroupBoardDisplayMode>('pin');
@@ -612,6 +615,8 @@ const { id, tab: routeTab } = useLocalSearchParams<{
 
   const groupDetailLoadRunIdRef = useRef(0);
   const savingGroupRelaySettingsRef = useRef(false);
+  const spaceMarksListRef = useRef<FlatList<any> | null>(null);
+  const spaceMarksScrollOffsetRef = useRef(0);
 
   const spaceMarksViewabilityConfigRef = useRef({
     itemVisiblePercentThreshold: 35,
@@ -1934,6 +1939,18 @@ const openMarkDetail = (markId: string, returnToGroupTab: Tab = 'stickies') => {
 const openUnifiedMarkComposer = (returnTab: Tab = tab, calendarEvent?: GroupCalendarEvent) => {
   if (!group) return;
 
+  if (returnTab === 'stickies') {
+    AsyncStorage.setItem(
+      `${SPACE_MARKS_SCROLL_RESTORE_KEY_PREFIX}${group.id}`,
+      JSON.stringify({
+        offset: Math.max(0, spaceMarksScrollOffsetRef.current),
+        savedAt: Date.now(),
+      })
+    ).catch(error => {
+      console.warn('[Space Marks] scroll restore save failed:', error);
+    });
+  }
+
   router.push({
     pathname: '/(tabs)/log',
     params: {
@@ -2478,6 +2495,78 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
     }));
   }, [spaceMarkViews]);
 
+  useEffect(() => {
+    if (!group?.id || tab !== 'stickies' || spaceMarkListItems.length === 0) {
+      setSpaceMarksScrollRestorePending(false);
+      return;
+    }
+
+    let cancelled = false;
+    let revealTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const task = InteractionManager.runAfterInteractions(() => {
+      Promise.resolve().then(async () => {
+        const storageKey = `${SPACE_MARKS_SCROLL_RESTORE_KEY_PREFIX}${group.id}`;
+
+        try {
+          const raw = await AsyncStorage.getItem(storageKey);
+
+          if (cancelled || !raw) {
+            setSpaceMarksScrollRestorePending(false);
+            return;
+          }
+
+          const parsed = JSON.parse(raw);
+          const savedOffset = Number(parsed?.offset ?? 0);
+
+          if (!Number.isFinite(savedOffset) || savedOffset <= 0) {
+            await AsyncStorage.removeItem(storageKey);
+            setSpaceMarksScrollRestorePending(false);
+            return;
+          }
+
+          setSpaceMarksScrollRestorePending(true);
+          spaceMarksScrollOffsetRef.current = savedOffset;
+
+          requestAnimationFrame(() => {
+            if (cancelled) return;
+
+            spaceMarksListRef.current?.scrollToOffset({
+              offset: savedOffset,
+              animated: false,
+            });
+
+            revealTimer = setTimeout(() => {
+              if (cancelled) return;
+
+              spaceMarksListRef.current?.scrollToOffset({
+                offset: savedOffset,
+                animated: false,
+              });
+
+              setSpaceMarksScrollRestorePending(false);
+            }, 120);
+          });
+
+          await AsyncStorage.removeItem(storageKey);
+        } catch (error) {
+          console.warn('[Space Marks] scroll restore failed:', error);
+          setSpaceMarksScrollRestorePending(false);
+        }
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      task.cancel?.();
+
+      if (revealTimer) {
+        clearTimeout(revealTimer);
+      }
+    };
+  }, [group?.id, spaceMarkListItems.length, tab]);
+
+
   const legacyMarkViews = useMemo(() => {
     return spaceMarkViews
       .filter(view =>
@@ -2521,6 +2610,10 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
   ]);
 
   const spaceTabBadgeCounts = useMemo(() => {
+    if (!spaceTabSeenCountsLoaded) {
+      return {};
+    }
+
     return COUNTED_SPACE_TABS.reduce<Partial<SpaceTabCounts>>((acc, tabKey) => {
       acc[tabKey] = Math.max(
         0,
@@ -2529,15 +2622,18 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
 
       return acc;
     }, {});
-  }, [seenSpaceTabCounts, spaceTabTotalCounts]);
+  }, [seenSpaceTabCounts, spaceTabSeenCountsLoaded, spaceTabTotalCounts]);
 
   useEffect(() => {
     if (!group?.id) {
       setSeenSpaceTabCounts({});
+      setSpaceTabSeenCountsLoaded(false);
       return;
     }
 
     let cancelled = false;
+
+    setSpaceTabSeenCountsLoaded(false);
 
     AsyncStorage.getItem(`${SPACE_TAB_SEEN_COUNTS_KEY_PREFIX}${group.id}`)
       .then(raw => {
@@ -2553,10 +2649,12 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
           gallery: typeof parsed?.gallery === 'number' ? parsed.gallery : 0,
           legacy: typeof parsed?.legacy === 'number' ? parsed.legacy : 0,
         });
+        setSpaceTabSeenCountsLoaded(true);
       })
       .catch(error => {
         console.warn('[Space Tabs] seen counts load failed:', error);
         setSeenSpaceTabCounts({});
+        setSpaceTabSeenCountsLoaded(true);
       });
 
     return () => {
@@ -2565,7 +2663,7 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
   }, [group?.id]);
 
   const markSpaceTabSeen = useCallback((targetTab: Tab) => {
-    if (!group?.id || !isCountedSpaceTab(targetTab)) return;
+    if (!group?.id || !spaceTabSeenCountsLoaded || !isCountedSpaceTab(targetTab)) return;
 
     const nextSeenCount = spaceTabTotalCounts[targetTab];
 
@@ -2586,7 +2684,7 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
 
       return next;
     });
-  }, [group?.id, spaceTabTotalCounts]);
+  }, [group?.id, spaceTabSeenCountsLoaded, spaceTabTotalCounts]);
 
   useEffect(() => {
     markSpaceTabSeen(tab);
@@ -3539,10 +3637,18 @@ const relaySettingsCard = spaceSettingsRelayOpen ? (
       {tab === 'stickies' && (
         <View style={s.spaceTabPanel}>
           <FlatList<any>
-            style={s.spaceTabList}
+            ref={spaceMarksListRef}
+            style={[
+              s.spaceTabList,
+              spaceMarksScrollRestorePending && { opacity: 0 },
+            ]}
             data={spaceMarkListItems}
             keyExtractor={item => `${item.itemType}_${item.id}`}
             contentContainerStyle={s.timelineContainer}
+            onScroll={event => {
+              spaceMarksScrollOffsetRef.current = event.nativeEvent.contentOffset.y;
+            }}
+            scrollEventThrottle={16}
             refreshControl={
               <RefreshControl
                 refreshing={refreshing}
