@@ -49,6 +49,7 @@ function buildCalendarEventIcs(event: GroupCalendarEvent, group: BEGroup): strin
     description ? `DESCRIPTION:${escapeIcsText(description)}` : null,
     event.location ? `LOCATION:${escapeIcsText(event.location)}` : null,
     ...buildDateLines(event),
+    ...buildReminderLines(event),
     'END:VEVENT',
     'END:VCALENDAR',
   ].filter(Boolean) as string[];
@@ -76,6 +77,28 @@ function buildDateLines(event: GroupCalendarEvent): string[] {
   return [
     `DTSTART:${formatUtcDateTime(startTime)}`,
     `DTEND:${formatUtcDateTime(endTime)}`,
+  ];
+}
+
+function buildReminderLines(event: GroupCalendarEvent): string[] {
+  const reminderDescription = escapeIcsText(event.title || 'Space event reminder');
+
+  return [
+    'BEGIN:VALARM',
+    'ACTION:DISPLAY',
+    'TRIGGER:-PT1H',
+    `DESCRIPTION:${reminderDescription}`,
+    'END:VALARM',
+    'BEGIN:VALARM',
+    'ACTION:DISPLAY',
+    'TRIGGER:-P1D',
+    `DESCRIPTION:${reminderDescription}`,
+    'END:VALARM',
+    'BEGIN:VALARM',
+    'ACTION:DISPLAY',
+    'TRIGGER:-P1W',
+    `DESCRIPTION:${reminderDescription}`,
+    'END:VALARM',
   ];
 }
 
