@@ -1,26 +1,26 @@
 import {
-    finalizeEvent,
-    getPublicKey,
-    nip19,
-    type Event,
-    type UnsignedEvent,
+  finalizeEvent,
+  getPublicKey,
+  nip19,
+  type Event,
+  type UnsignedEvent,
 } from 'nostr-tools';
 import {
-    DEFAULT_RELAY,
-    FAST_RELAYS,
-    fetchNostrProfile,
-    publishToSpecificRelays,
-    type NostrProfile
+  DEFAULT_RELAY,
+  FAST_RELAYS,
+  fetchNostrProfile,
+  publishToSpecificRelays,
+  type NostrProfile
 } from './nostr';
 import {
-    DEFAULT_SOCIAL_RELAYS,
-    getSocialGraphCache,
-    getSocialRelays,
-    normalizeSocialRelayUrls,
-    saveFollowerPubkeys,
-    saveFollowingPubkeys,
-    upsertSocialGraphPeople,
-    type SocialGraphPerson,
+  DEFAULT_SOCIAL_RELAYS,
+  getSocialGraphCache,
+  getSocialRelays,
+  normalizeSocialRelayUrls,
+  saveFollowerPubkeys,
+  saveFollowingPubkeys,
+  upsertSocialGraphPeople,
+  type SocialGraphPerson,
 } from './social-graph-storage';
 
 export const NOSTR_TEXT_NOTE_KIND = 1;
@@ -43,6 +43,16 @@ export type SocialGraphSyncResult = {
   relaysUsed: string[];
 };
 
+export type SocialReplyPreview = {
+  id: string;
+  pubkey: string;
+  npub?: string;
+  authorName?: string;
+  authorAvatarUrl?: string;
+  content: string;
+  createdAt: number;
+};
+
 export type SocialPublicPost = {
   id: string;
   pubkey: string;
@@ -56,6 +66,11 @@ export type SocialPublicPost = {
   mediaUrls: string[];
   urlTags: string[];
   clientName?: string;
+  activityType: 'post' | 'reply';
+  replyEventIds: string[];
+  replyRootId?: string;
+  replyParentId?: string;
+  replyPreview?: SocialReplyPreview;
   source: 'following';
 };
 
@@ -111,6 +126,33 @@ function getEventPTagPubkeys(event: Event): string[] {
   );
 }
 
+function getSocialReplyThreadReferences(event: Event): Pick<
+  SocialPublicPost,
+  'replyEventIds' | 'replyRootId' | 'replyParentId'
+> {
+  const eventReferences = event.tags
+    .filter(tag => tag[0] === 'e' && typeof tag[1] === 'string')
+    .map(tag => ({
+      eventId: tag[1].trim(),
+      marker: typeof tag[3] === 'string' ? tag[3].trim() : undefined,
+    }))
+    .filter(reference => reference.eventId.length > 0);
+
+  const replyEventIds = uniqueStrings(eventReferences.map(reference => reference.eventId));
+  const markedRootId = eventReferences.find(reference => reference.marker === 'root')?.eventId;
+  const markedReplyId = eventReferences.find(reference => reference.marker === 'reply')?.eventId;
+
+  return {
+    replyEventIds,
+    replyRootId: markedRootId || replyEventIds[0],
+    replyParentId: markedReplyId || replyEventIds[replyEventIds.length - 1],
+  };
+}
+
+function getSocialPostActivityType(event: Event): SocialPublicPost['activityType'] {
+  return getSocialReplyThreadReferences(event).replyEventIds.length > 0 ? 'reply' : 'post';
+}
+
 function getEventTagValues(event: Event, tagName: string): string[] {
   return uniqueStrings(
     event.tags
@@ -148,9 +190,25 @@ function looksLikeVideoUrl(url: string): boolean {
   return /\.(mp4|mov|webm|m4v)(\?|#|$)/i.test(url);
 }
 
-function buildSocialPublicPost(
+function buildSocialReplyPreview(
   event: Event,
   person?: SocialGraphPerson
+): SocialReplyPreview {
+  return {
+    id: event.id,
+    pubkey: event.pubkey,
+    npub: person?.npub || pubkeyToNpub(event.pubkey),
+    authorName: person?.displayName,
+    authorAvatarUrl: person?.avatarUrl,
+    content: event.content || '',
+    createdAt: event.created_at,
+  };
+}
+
+function buildSocialPublicPost(
+  event: Event,
+  person?: SocialGraphPerson,
+  replyPreview?: SocialReplyPreview
 ): SocialPublicPost {
   const contentUrls = getContentUrls(event.content || '');
   const explicitUrlTags = getEventTagValues(event, 'url');
@@ -168,6 +226,8 @@ function buildSocialPublicPost(
     ...contentUrls.filter(looksLikeVideoUrl),
   ]);
 
+  const replyThreadReferences = getSocialReplyThreadReferences(event);
+
   return {
     id: event.id,
     pubkey: event.pubkey,
@@ -181,6 +241,11 @@ function buildSocialPublicPost(
     mediaUrls: uniqueStrings([...imageUrls, ...videoUrls]),
     urlTags: uniqueStrings([...explicitUrlTags, ...contentUrls]),
     clientName: getEventTagValues(event, 'client')[0],
+    activityType: getSocialPostActivityType(event),
+    replyEventIds: replyThreadReferences.replyEventIds,
+    replyRootId: replyThreadReferences.replyRootId,
+    replyParentId: replyThreadReferences.replyParentId,
+    replyPreview,
     source: 'following',
   };
 }
@@ -640,14 +705,64 @@ export async function fetchFollowingPublicPosts(input: {
     timeoutMs: input.timeoutMs ?? 6500,
   });
 
-  const posts = events
+  const sortedEvents = events
     .filter(event => followedPubkeys.includes(event.pubkey))
     .sort((a, b) => b.created_at - a.created_at)
-    .slice(0, input.limit ?? 120)
-    .map(event => buildSocialPublicPost(
-      event,
-      cache.peopleByPubkey[event.pubkey]
-    ));
+    .slice(0, input.limit ?? 120);
+
+  const initialPosts = sortedEvents.map(event => buildSocialPublicPost(
+    event,
+    cache.peopleByPubkey[event.pubkey]
+  ));
+
+  const currentEventIds = new Set(sortedEvents.map(event => event.id));
+  const replyPreviewIds = uniqueStrings(
+    initialPosts
+      .filter(post => post.activityType === 'reply')
+      .map(post => post.replyParentId || post.replyRootId || '')
+  )
+    .filter(eventId => !currentEventIds.has(eventId))
+    .slice(0, 40);
+
+  const fetchedPreviewEvents = replyPreviewIds.length > 0
+    ? await fetchEventsFromRelays({
+        relayUrls,
+        filter: {
+          ids: replyPreviewIds,
+          kinds: [NOSTR_TEXT_NOTE_KIND],
+          limit: replyPreviewIds.length,
+        },
+        timeoutMs: Math.min(input.timeoutMs ?? 6500, 3500),
+      })
+    : [];
+
+  const previewEventsById = new Map<string, Event>();
+
+  [...sortedEvents, ...fetchedPreviewEvents].forEach(event => {
+    if (!event?.id) return;
+
+    previewEventsById.set(event.id, event);
+  });
+
+  const posts = initialPosts.map(post => {
+    if (post.activityType !== 'reply') return post;
+
+    const previewEventId = post.replyParentId || post.replyRootId;
+
+    if (!previewEventId) return post;
+
+    const previewEvent = previewEventsById.get(previewEventId);
+
+    if (!previewEvent) return post;
+
+    return {
+      ...post,
+      replyPreview: buildSocialReplyPreview(
+        previewEvent,
+        cache.peopleByPubkey[previewEvent.pubkey]
+      ),
+    };
+  });
 
   return {
     posts,
