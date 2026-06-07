@@ -11,6 +11,7 @@ import {
   getDMThreads,
   saveProvisionalRemoteDMMessage,
 } from './dm-storage';
+import type { GroupCalendarEvent } from './group-calendar';
 import { getGroupById, getGroupMembers } from './group-storage';
 
 const PUSH_TOKEN_KEY = 'be_expo_push_token_v1';
@@ -25,6 +26,39 @@ const PUSH_MARK_URL = 'https://be-marks-push.jmbeard.workers.dev/push/mark';
 const PUSH_REMOVE_GROUP_MEMBER_URL = 'https://be-marks-push.jmbeard.workers.dev/push/remove-group-member';
 const PUSH_GROUP_MESSAGE_URL = 'https://be-marks-push.jmbeard.workers.dev/push/group-message';
 const handledNotificationResponseIds = new Set<string>();
+
+export type CalendarReminderOffset = 'one-hour' | 'one-day' | 'one-week';
+
+export type CalendarReminderScheduleResult = {
+  scheduledCount: number;
+  skippedCount: number;
+  offsets: CalendarReminderOffset[];
+};
+
+type StoredCalendarReminder = {
+  eventId: string;
+  groupId: string;
+  eventTitle: string;
+  eventStartTime: number;
+  offsets: CalendarReminderOffset[];
+  notificationIds: string[];
+  updatedAt: number;
+};
+
+const CALENDAR_REMINDERS_KEY = 'be_marks_calendar_reminders_v1';
+const CALENDAR_REMINDER_CHANNEL_ID = 'calendar-reminders';
+
+const CALENDAR_REMINDER_OFFSET_SECONDS: Record<CalendarReminderOffset, number> = {
+  'one-hour': 60 * 60,
+  'one-day': 24 * 60 * 60,
+  'one-week': 7 * 24 * 60 * 60,
+};
+
+const CALENDAR_REMINDER_OFFSET_LABELS: Record<CalendarReminderOffset, string> = {
+  'one-hour': '1 hour before',
+  'one-day': '1 day before',
+  'one-week': '1 week before',
+};
 
 export type BEGroupNotificationEventType =
   | 'chat_message'
@@ -112,6 +146,14 @@ async function ensureAndroidNotificationChannel() {
   await Notifications.setNotificationChannelAsync('messages', {
     name: 'Messages',
     importance: Notifications.AndroidImportance.MAX,
+    vibrationPattern: [0, 250, 250, 250],
+    lightColor: '#C9973A',
+    sound: 'default',
+  });
+
+  await Notifications.setNotificationChannelAsync(CALENDAR_REMINDER_CHANNEL_ID, {
+    name: 'Calendar reminders',
+    importance: Notifications.AndroidImportance.HIGH,
     vibrationPattern: [0, 250, 250, 250],
     lightColor: '#C9973A',
     sound: 'default',
@@ -817,6 +859,199 @@ export async function sendLocalGroupNotification(input: {
   } catch (error) {
     console.warn('[Push] local group notification failed:', error);
   }
+}
+
+async function readStoredCalendarReminders(): Promise<Record<string, StoredCalendarReminder>> {
+  try {
+    const raw = await AsyncStorage.getItem(CALENDAR_REMINDERS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch (error) {
+    console.warn('[Push] calendar reminders read failed:', error);
+    return {};
+  }
+}
+
+async function writeStoredCalendarReminders(
+  reminders: Record<string, StoredCalendarReminder>
+): Promise<void> {
+  try {
+    await AsyncStorage.setItem(CALENDAR_REMINDERS_KEY, JSON.stringify(reminders));
+  } catch (error) {
+    console.warn('[Push] calendar reminders write failed:', error);
+  }
+}
+
+async function ensureLocalNotificationPermission(): Promise<boolean> {
+  await ensureAndroidNotificationChannel();
+
+  const existingPermission = await Notifications.getPermissionsAsync();
+
+  if (existingPermission.granted) {
+    return true;
+  }
+
+  const requestedPermission = await Notifications.requestPermissionsAsync();
+
+  return requestedPermission.granted;
+}
+
+function getCalendarReminderTriggerDate(
+  event: GroupCalendarEvent,
+  offset: CalendarReminderOffset
+): Date | null {
+  const offsetSeconds = CALENDAR_REMINDER_OFFSET_SECONDS[offset];
+  const triggerSeconds = event.startTime - offsetSeconds;
+  const nowSeconds = Math.floor(Date.now() / 1000);
+
+  if (!Number.isFinite(triggerSeconds) || triggerSeconds <= nowSeconds) {
+    return null;
+  }
+
+  return new Date(triggerSeconds * 1000);
+}
+
+function getCalendarReminderTitle(event: GroupCalendarEvent): string {
+  return event.title?.trim() || 'Calendar event';
+}
+
+function getCalendarReminderBody(event: GroupCalendarEvent, offset: CalendarReminderOffset): string {
+  const label = CALENDAR_REMINDER_OFFSET_LABELS[offset];
+  const location = event.location?.trim();
+
+  if (location) {
+    return `${label} • ${location}`;
+  }
+
+  return label;
+}
+
+export function getCalendarReminderLabel(offset: CalendarReminderOffset): string {
+  return CALENDAR_REMINDER_OFFSET_LABELS[offset];
+}
+
+export function formatCalendarReminderSummary(offsets: CalendarReminderOffset[]): string {
+  if (offsets.length === 0) return 'No reminders set';
+
+  return offsets.map(offset => CALENDAR_REMINDER_OFFSET_LABELS[offset]).join(', ');
+}
+
+export async function getCalendarEventReminderOffsets(
+  eventId: string
+): Promise<CalendarReminderOffset[]> {
+  const reminders = await readStoredCalendarReminders();
+
+  return reminders[eventId]?.offsets ?? [];
+}
+
+export async function cancelCalendarEventReminders(eventId: string): Promise<void> {
+  const reminders = await readStoredCalendarReminders();
+  const current = reminders[eventId];
+
+  if (current?.notificationIds?.length) {
+    await Promise.all(
+      current.notificationIds.map(notificationId =>
+        Notifications.cancelScheduledNotificationAsync(notificationId).catch(error => {
+          console.warn('[Push] calendar reminder cancel failed:', error);
+        })
+      )
+    );
+  }
+
+  delete reminders[eventId];
+  await writeStoredCalendarReminders(reminders);
+}
+
+export async function scheduleCalendarEventReminders(
+  event: GroupCalendarEvent,
+  offsets: CalendarReminderOffset[]
+): Promise<CalendarReminderScheduleResult> {
+  const uniqueOffsets = Array.from(new Set(offsets));
+
+  if (!event.id || uniqueOffsets.length === 0) {
+    await cancelCalendarEventReminders(event.id);
+    return {
+      scheduledCount: 0,
+      skippedCount: 0,
+      offsets: [],
+    };
+  }
+
+  const hasPermission = await ensureLocalNotificationPermission();
+
+  if (!hasPermission) {
+    return {
+      scheduledCount: 0,
+      skippedCount: uniqueOffsets.length,
+      offsets: [],
+    };
+  }
+
+  await cancelCalendarEventReminders(event.id);
+
+  const group = await getGroupById(event.groupId);
+  const notificationIds: string[] = [];
+  const scheduledOffsets: CalendarReminderOffset[] = [];
+  let skippedCount = 0;
+
+  for (const offset of uniqueOffsets) {
+    const triggerDate = getCalendarReminderTriggerDate(event, offset);
+
+    if (!triggerDate) {
+      skippedCount += 1;
+      continue;
+    }
+
+    const notificationId = await Notifications.scheduleNotificationAsync({
+      content: {
+        title: getCalendarReminderTitle(event),
+        body: getCalendarReminderBody(event, offset),
+        sound: true,
+        badge: 1,
+        data: {
+          type: 'group',
+          groupId: event.groupId,
+          groupName: group?.name,
+          relayUrl: group?.relayUrl,
+          eventId: event.id,
+          calendarEventId: event.id,
+          routeTarget: 'group-detail',
+          groupTab: 'calendar',
+        } satisfies BENotificationData,
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.DATE,
+        date: triggerDate,
+        channelId: CALENDAR_REMINDER_CHANNEL_ID,
+      },
+    });
+
+    notificationIds.push(notificationId);
+    scheduledOffsets.push(offset);
+  }
+
+  const reminders = await readStoredCalendarReminders();
+
+  if (notificationIds.length > 0) {
+    reminders[event.id] = {
+      eventId: event.id,
+      groupId: event.groupId,
+      eventTitle: getCalendarReminderTitle(event),
+      eventStartTime: event.startTime,
+      offsets: scheduledOffsets,
+      notificationIds,
+      updatedAt: Math.floor(Date.now() / 1000),
+    };
+  } else {
+    delete reminders[event.id];
+  }
+
+  await writeStoredCalendarReminders(reminders);
+
+  return {
+    scheduledCount: notificationIds.length,
+    skippedCount,
+    offsets: scheduledOffsets,
+  };
 }
 
 async function getOrCreateThreadForNotification(input: {

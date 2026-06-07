@@ -43,6 +43,13 @@ import { getGroupMembers, type BEGroup } from '../src/utils/group-storage';
 import { getLivingMarkCountsForCalendarEvents } from '../src/utils/living-spaces-storage';
 import { subscribeToGroupCalendarEvents } from '../src/utils/nostr';
 import { openMapLocation } from '../src/utils/open-map-location';
+import {
+  cancelCalendarEventReminders,
+  formatCalendarReminderSummary,
+  getCalendarEventReminderOffsets,
+  scheduleCalendarEventReminders,
+  type CalendarReminderOffset,
+} from '../src/utils/push-notifications';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1789,6 +1796,101 @@ function EventCard({
 }: EventCardProps) {
   const past = isPast || isEventPast(event);
   const invitedMembers = getRosterAttendees(event.invitedNpubs, memberRoster);
+  const [reminderOffsets, setReminderOffsets] = useState<CalendarReminderOffset[]>([]);
+  const reminderSummary = formatCalendarReminderSummary(reminderOffsets);
+
+  const refreshReminderOffsets = useCallback(async () => {
+    const offsets = await getCalendarEventReminderOffsets(event.id);
+    setReminderOffsets(offsets);
+  }, [event.id]);
+
+  useEffect(() => {
+    refreshReminderOffsets().catch(error => {
+      console.warn('[Group Calendar] reminder hydrate failed:', error);
+    });
+  }, [refreshReminderOffsets, expanded]);
+
+  const handleSetReminderOffsets = async (offsets: CalendarReminderOffset[]) => {
+    try {
+      const result = await scheduleCalendarEventReminders(event, offsets);
+
+      await refreshReminderOffsets();
+
+      if (result.scheduledCount > 0) {
+        Alert.alert(
+          'Reminder set',
+          `This device will remind you: ${formatCalendarReminderSummary(result.offsets)}.`
+        );
+        return;
+      }
+
+      Alert.alert(
+        'Reminder not set',
+        'The selected reminder time has already passed for this event.'
+      );
+    } catch (error) {
+      console.warn('[Group Calendar] reminder schedule failed:', error);
+      Alert.alert('Reminder error', 'Could not set a reminder for this event.');
+    }
+  };
+
+  const handleClearReminders = async () => {
+    try {
+      await cancelCalendarEventReminders(event.id);
+      setReminderOffsets([]);
+
+      Alert.alert(
+        'Reminders cleared',
+        'This event will no longer remind you on this device.'
+      );
+    } catch (error) {
+      console.warn('[Group Calendar] reminder clear failed:', error);
+      Alert.alert('Reminder error', 'Could not clear reminders for this event.');
+    }
+  };
+
+  const handleChooseOneReminder = () => {
+    Alert.alert(
+      'Choose reminder',
+      'Set one reminder on this device.',
+      [
+        {
+          text: '1 hour before',
+          onPress: () => handleSetReminderOffsets(['one-hour']),
+        },
+        {
+          text: '1 day before',
+          onPress: () => handleSetReminderOffsets(['one-day']),
+        },
+        {
+          text: '1 week before',
+          onPress: () => handleSetReminderOffsets(['one-week']),
+        },
+      ]
+    );
+  };
+
+  const handleReminderPress = () => {
+    Alert.alert(
+      'Event reminders',
+      'Reminders are only set on this device.',
+      [
+        {
+          text: 'Set all',
+          onPress: () => handleSetReminderOffsets(['one-week', 'one-day', 'one-hour']),
+        },
+        {
+          text: 'Choose one',
+          onPress: handleChooseOneReminder,
+        },
+        {
+          text: 'Clear',
+          style: 'destructive',
+          onPress: handleClearReminders,
+        },
+      ]
+    );
+  };
 
   const handleOpenLocation = async () => {
     if (!event.location) return;
@@ -1954,6 +2056,18 @@ function EventCard({
               <Text style={s.adminActionText}>Export</Text>
             </TouchableOpacity>
 
+            {!past && (
+              <TouchableOpacity
+                style={s.adminActionBtn}
+                onPress={handleReminderPress}
+                activeOpacity={0.82}
+              >
+                <Text style={s.adminActionText}>
+                  {reminderOffsets.length > 0 ? 'Reminders set' : 'Remind me'}
+                </Text>
+              </TouchableOpacity>
+            )}
+
             {isAdmin && (
               <>
             <TouchableOpacity
@@ -1986,6 +2100,12 @@ function EventCard({
               </>
             )}
           </View>
+        )}
+
+        {expanded && !past && reminderOffsets.length > 0 && (
+          <Text style={s.legacyHint}>
+            🔔 Reminders: {reminderSummary}
+          </Text>
         )}
 
         {rsvp !== undefined && (rsvp.accepted + rsvp.declined + rsvp.tentative) > 0 && (
