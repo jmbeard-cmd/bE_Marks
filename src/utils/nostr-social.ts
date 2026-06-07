@@ -620,7 +620,10 @@ export async function syncFollowingGraph(input: {
 
   if (!input.hydrateProfiles) return result;
 
-  const people = await hydrateSocialPeopleProfiles(result.people);
+  const people = await hydrateSocialPeopleProfiles(
+    result.people,
+    result.people.length
+  );
 
   return {
     ...result,
@@ -640,12 +643,65 @@ export async function syncFollowerGraph(input: {
 
   if (!input.hydrateProfiles) return result;
 
-  const people = await hydrateSocialPeopleProfiles(result.people);
+  const people = await hydrateSocialPeopleProfiles(
+    result.people,
+    result.people.length
+  );
 
   return {
     ...result,
     people,
   };
+}
+
+const SOCIAL_GRAPH_BACKGROUND_SYNC_MAX_AGE_SECONDS = 12 * 60 * 60;
+
+function shouldRefreshSocialGraphTimestamp(
+  updatedAt: number | undefined,
+  maxAgeSeconds: number
+): boolean {
+  if (!updatedAt) return true;
+
+  return nowSeconds() - updatedAt >= maxAgeSeconds;
+}
+
+export async function syncSocialGraphInBackground(input: {
+  npub: string;
+  relayUrls?: string[];
+  maxAgeSeconds?: number;
+}): Promise<void> {
+  const maxAgeSeconds =
+    input.maxAgeSeconds ?? SOCIAL_GRAPH_BACKGROUND_SYNC_MAX_AGE_SECONDS;
+
+  const cache = await getSocialGraphCache();
+  const shouldSyncFollowing = shouldRefreshSocialGraphTimestamp(
+    cache.followingUpdatedAt,
+    maxAgeSeconds
+  );
+  const shouldSyncFollowers = shouldRefreshSocialGraphTimestamp(
+    cache.followersUpdatedAt,
+    maxAgeSeconds
+  );
+
+  if (!shouldSyncFollowing && !shouldSyncFollowers) {
+    return;
+  }
+
+  if (shouldSyncFollowing) {
+    await syncFollowingGraph({
+      npub: input.npub,
+      relayUrls: input.relayUrls,
+      hydrateProfiles: true,
+    });
+  }
+
+  if (shouldSyncFollowers) {
+    await syncFollowerGraph({
+      npub: input.npub,
+      relayUrls: input.relayUrls,
+      hydrateProfiles: true,
+    });
+  }
 }
 
 export async function fetchFollowingPublicPosts(input: {
@@ -709,6 +765,24 @@ export async function fetchFollowingPublicPosts(input: {
     .filter(event => followedPubkeys.includes(event.pubkey))
     .sort((a, b) => b.created_at - a.created_at)
     .slice(0, input.limit ?? 120);
+
+  const visibleAuthorPubkeys = uniqueStrings(sortedEvents.map(event => event.pubkey));
+  const missingVisibleAuthorProfiles = visibleAuthorPubkeys
+    .map(pubkey => cache.peopleByPubkey[pubkey] || {
+      pubkey,
+      npub: pubkeyToNpub(pubkey),
+    })
+    .filter(person => !person.displayName || !person.avatarUrl)
+    .slice(0, 36);
+
+  if (missingVisibleAuthorProfiles.length > 0) {
+    await hydrateSocialPeopleProfiles(
+      missingVisibleAuthorProfiles,
+      missingVisibleAuthorProfiles.length
+    );
+
+    cache = await getSocialGraphCache();
+  }
 
   const initialPosts = sortedEvents.map(event => buildSocialPublicPost(
     event,

@@ -627,33 +627,69 @@ export function fetchNostrProfile(npub: string): Promise<NostrProfile | null> {
       }
 
       const pubkeyHex = decoded.data as string;
-      const relaysToTry = [
+      const relaysToTry = Array.from(new Set([
         DEFAULT_RELAY,
         ...FAST_RELAYS,
         'wss://relay.nostr.band',
+        'wss://relay.primal.net',
         'wss://relay.snort.social',
-      ];
+      ]));
 
+      const profileCandidates: { profile: NostrProfile; createdAt: number }[] = [];
       let resolved = false;
       let completed = 0;
 
-      const finishNullIfDone = () => {
+      const resolveBestProfile = () => {
+        if (resolved) return;
+
+        resolved = true;
+
+        const usableCandidates = profileCandidates.filter(candidate => {
+          const profile = candidate.profile;
+
+          return !!(
+            profile.display_name?.trim() ||
+            profile.name?.trim() ||
+            profile.picture?.trim()
+          );
+        });
+
+        const candidatesToSort = usableCandidates.length > 0
+          ? usableCandidates
+          : profileCandidates;
+
+        const bestCandidate = [...candidatesToSort]
+          .sort((a, b) => b.createdAt - a.createdAt)[0];
+
+        resolve(bestCandidate?.profile ?? null);
+      };
+
+      const finishRelay = () => {
         completed += 1;
 
-        if (!resolved && completed >= relaysToTry.length) {
-          resolved = true;
-          resolve(null);
+        if (completed >= relaysToTry.length) {
+          resolveBestProfile();
         }
       };
 
       relaysToTry.forEach(relayUrl => {
         try {
           const ws = new WebSocket(relayUrl);
+          let relayFinished = false;
+
+          const finishThisRelay = () => {
+            if (relayFinished) return;
+
+            relayFinished = true;
+
+            try { ws.close(); } catch {}
+
+            finishRelay();
+          };
 
           const timeout = setTimeout(() => {
-            try { ws.close(); } catch {}
-            finishNullIfDone();
-          }, 3500);
+            finishThisRelay();
+          }, 4200);
 
           ws.onopen = () => {
             ws.send(JSON.stringify([
@@ -662,7 +698,7 @@ export function fetchNostrProfile(npub: string): Promise<NostrProfile | null> {
               {
                 kinds: [0],
                 authors: [pubkeyHex],
-                limit: 1,
+                limit: 5,
               }
             ]));
           };
@@ -672,32 +708,33 @@ export function fetchNostrProfile(npub: string): Promise<NostrProfile | null> {
               const data = JSON.parse(msg.data);
 
               if (data[0] === 'EVENT' && data[2]?.kind === 0) {
-                clearTimeout(timeout);
+                const event = data[2] as Event;
+                const profile = JSON.parse(event.content || '{}') as NostrProfile;
 
-                if (!resolved) {
-                  resolved = true;
-                  try { ws.close(); } catch {}
-                  resolve(JSON.parse(data[2].content) as NostrProfile);
-                }
-              } else if (data[0] === 'EOSE') {
+                profileCandidates.push({
+                  profile,
+                  createdAt: event.created_at || 0,
+                });
+
+                return;
+              }
+
+              if (data[0] === 'EOSE' || data[0] === 'CLOSED') {
                 clearTimeout(timeout);
-                try { ws.close(); } catch {}
-                finishNullIfDone();
+                finishThisRelay();
               }
             } catch {
               clearTimeout(timeout);
-              try { ws.close(); } catch {}
-              finishNullIfDone();
+              finishThisRelay();
             }
           };
 
           ws.onerror = () => {
             clearTimeout(timeout);
-            try { ws.close(); } catch {}
-            finishNullIfDone();
+            finishThisRelay();
           };
         } catch {
-          finishNullIfDone();
+          finishRelay();
         }
       });
     } catch {

@@ -14,6 +14,7 @@ import {
 import { startDMService, stopDMService } from '../src/utils/dm-service';
 import { clearDMStorage } from '../src/utils/dm-storage';
 import { fetchNostrProfile, getStoredIdentity, type NostrProfile } from '../src/utils/nostr';
+import { syncSocialGraphInBackground } from '../src/utils/nostr-social';
 import {
   installNotificationResponseHandler,
   registerForPushNotifications,
@@ -225,6 +226,17 @@ enqueueStartupJob({
   priority: 'idle',
   run: async () => {
     await registerForPushNotifications(id.npub);
+  },
+});
+
+enqueueStartupJob({
+  id: 'social-graph-background-sync',
+  label: 'Refresh social graph in background',
+  priority: 'idle',
+  run: async () => {
+    await syncSocialGraphInBackground({
+      npub: id.npub,
+    });
   },
 });
       }
