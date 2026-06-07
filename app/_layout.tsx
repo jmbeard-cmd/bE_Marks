@@ -19,6 +19,7 @@ import {
   installNotificationResponseHandler,
   registerForPushNotifications,
 } from '../src/utils/push-notifications';
+import { clearSocialGraphCache } from '../src/utils/social-graph-storage';
 import { clearStartupJobs, enqueueStartupJob, startStartupScheduler } from '../src/utils/startup-scheduler';
 import {
   getFamily,
@@ -314,8 +315,11 @@ enqueueStartupJob({
   // 🔥 CLEAR PROFILE (prevents cross-identity bleed)
   setProfile(null);
 
-  // 🔥 CLEAR DM CACHE (prevents cross-identity thread bleed)
-  clearDMStorage().then(() => {
+  // 🔥 CLEAR IDENTITY-SCOPED CACHES (prevents cross-identity bleed)
+  Promise.all([
+    clearDMStorage(),
+    clearSocialGraphCache(),
+  ]).then(() => {
     startStartupScheduler();
 
 enqueueStartupJob({
@@ -324,6 +328,18 @@ enqueueStartupJob({
   priority: 'idle',
   run: async () => {
     await registerForPushNotifications(p);
+  },
+});
+
+enqueueStartupJob({
+  id: 'social-graph-sync-after-identity',
+  label: 'Refresh social graph after identity change',
+  priority: 'idle',
+  run: async () => {
+    await syncSocialGraphInBackground({
+      npub: p,
+      maxAgeSeconds: 0,
+    });
   },
 });
 
@@ -353,6 +369,7 @@ enqueueStartupJob({
     setUseAmber(false);
     setProfile(null);
     clearStartupJobs();
+    clearSocialGraphCache();
     // Stop background listener on sign out
     stopDMService();
   };
