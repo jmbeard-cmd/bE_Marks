@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -13,7 +13,12 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { DEFAULT_RELAYS, RELAY_LABELS } from '../src/constants/relays';
+import { RELAY_LABELS } from '../src/constants/relays';
+import {
+  fetchRelayDirectory,
+  searchRelayDirectory,
+  type RelayDirectoryResult,
+} from '../src/utils/relay-directory';
 import {
   DEFAULT_RELAY,
   fetchRelayList,
@@ -59,6 +64,12 @@ function dedupeRelayUrls(relayUrls: string[]): string[] {
   );
 }
 
+function buildPersonalRelaySet(relayUrls: string[] = []): string[] {
+  const activeRelays = dedupeRelayUrls(relayUrls);
+
+  return activeRelays.length > 0 ? activeRelays : [DEFAULT_RELAY];
+}
+
 export default function RelayNetworkScreen() {
   const {
     npub,
@@ -72,27 +83,50 @@ export default function RelayNetworkScreen() {
   const [relaySearch, setRelaySearch] = useState('');
   const [newRelay, setNewRelay] = useState('');
   const [localRelays, setLocalRelays] = useState<string[]>(() => (
-    dedupeRelayUrls(relays.length > 0 ? relays : [DEFAULT_RELAY])
+    buildPersonalRelaySet(relays)
   ));
   const [loadingPublishedRelays, setLoadingPublishedRelays] = useState(false);
   const [savingRelays, setSavingRelays] = useState(false);
+  const [relayDirectory, setRelayDirectory] = useState<RelayDirectoryResult[]>([]);
+  const [loadingRelayDirectory, setLoadingRelayDirectory] = useState(false);
 
   const activeLaneDetails = RELAY_LANES.find(lane => lane.key === activeLane) ?? RELAY_LANES[0];
   const visibleLocalRelays = useMemo(() => dedupeRelayUrls(localRelays), [localRelays]);
   const relaySearchText = relaySearch.trim().toLowerCase();
+  const relayIdentityKey = useMemo(() => dedupeRelayUrls(relays).join('|'), [relays]);
 
   const discoveredRelayOptions = useMemo(() => (
-    DEFAULT_RELAYS.filter(relayUrl => {
-      if (!relaySearchText) return true;
+    searchRelayDirectory(relayDirectory, relaySearchText)
+  ), [relayDirectory, relaySearchText]);
 
-      const label = RELAY_LABELS[relayUrl] || '';
+  useEffect(() => {
+    let cancelled = false;
 
-      return (
-        relayUrl.toLowerCase().includes(relaySearchText) ||
-        label.toLowerCase().includes(relaySearchText)
-      );
-    })
-  ), [relaySearchText]);
+    setLoadingRelayDirectory(true);
+
+    fetchRelayDirectory()
+      .then(directory => {
+        if (cancelled) return;
+
+        setRelayDirectory(directory);
+      })
+      .catch(error => {
+        console.warn('[Relay Network] relay directory load failed:', error);
+      })
+      .finally(() => {
+        if (cancelled) return;
+
+        setLoadingRelayDirectory(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    setLocalRelays(buildPersonalRelaySet(relays));
+  }, [npub, relayIdentityKey]);
 
   const toggleRelay = (relayUrl: string) => {
     setLocalRelays(current => {
@@ -146,7 +180,11 @@ export default function RelayNetworkScreen() {
 
     try {
       const fetched = await fetchRelayList(npub);
-      setLocalRelays(dedupeRelayUrls(fetched.length > 0 ? fetched : [DEFAULT_RELAY]));
+      setLocalRelays(current => buildPersonalRelaySet([
+        ...current,
+        ...relays,
+        ...fetched,
+      ]));
     } catch (error) {
       console.warn('[Relay Network] failed to load published relay list:', error);
       Alert.alert('Relay discovery failed', 'Could not load your published relay list.');
@@ -161,7 +199,7 @@ export default function RelayNetworkScreen() {
       return;
     }
 
-    const relaysToSave = dedupeRelayUrls(localRelays);
+    const relaysToSave = buildPersonalRelaySet(localRelays);
 
     if (relaysToSave.length === 0) {
       Alert.alert('Relay required', 'Choose at least one relay.');
@@ -310,22 +348,34 @@ export default function RelayNetworkScreen() {
               autoCorrect={false}
             />
 
-            {discoveredRelayOptions.map(relayUrl => {
-              const selected = visibleLocalRelays.includes(relayUrl);
+            {loadingRelayDirectory && (
+              <View style={s.relayDirectoryLoadingRow}>
+                <ActivityIndicator size="small" color={theme.gold} />
+                <Text style={[s.relayDiscoveryEmpty, { color: theme.textMuted }]}>
+                  Loading relay directory…
+                </Text>
+              </View>
+            )}
+
+            {discoveredRelayOptions.map(relay => {
+              const selected = visibleLocalRelays.includes(relay.url);
 
               return (
                 <TouchableOpacity
-                  key={`${activeLane}_${relayUrl}`}
+                  key={`${activeLane}_${relay.url}`}
                   style={[s.relayPickerRow, { borderBottomColor: theme.border }]}
-                  onPress={() => toggleRelay(relayUrl)}
+                  onPress={() => toggleRelay(relay.url)}
                   activeOpacity={0.8}
                 >
                   <View style={{ flex: 1 }}>
                     <Text style={[s.relayPickerName, { color: theme.text }]}>
-                      {RELAY_LABELS[relayUrl] || relayUrl}
+                      {relay.label || RELAY_LABELS[relay.url] || relay.url}
                     </Text>
                     <Text style={[s.relayPickerUrl, { color: theme.textMuted }]} numberOfLines={1}>
-                      {relayUrl}
+                      {relay.url}
+                    </Text>
+                    <Text style={[s.relayPickerMeta, { color: theme.textMuted }]} numberOfLines={1}>
+                      {relay.source} · {relay.category}{relay.online === true ? ' · online' : ''}
                     </Text>
                   </View>
 
@@ -561,6 +611,17 @@ const s = StyleSheet.create({
   relayPickerUrl: {
     fontSize: 11,
     fontFamily: 'monospace',
+  },
+  relayPickerMeta: {
+    marginTop: 2,
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  relayDirectoryLoadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
   },
   relayPickerStatus: {
     fontSize: 12,
