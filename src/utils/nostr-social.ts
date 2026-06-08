@@ -893,6 +893,78 @@ export async function publishFollowList(input: {
   }
 }
 
+export async function publishFollowPubkey(input: {
+  nsec: string;
+  targetPubkey: string;
+  targetNpub?: string;
+  targetDisplayName?: string;
+  targetAvatarUrl?: string;
+  relayUrls?: string[];
+}): Promise<{
+  success: boolean;
+  eventId?: string;
+  followingPubkeys: string[];
+  error?: string;
+}> {
+  try {
+    const decoded = nip19.decode(input.nsec);
+
+    if (decoded.type !== 'nsec') {
+      throw new Error('Invalid nsec');
+    }
+
+    const sk = decoded.data as Uint8Array;
+    const myPubkey = getPublicKey(sk);
+
+    if (!myPubkey) {
+      throw new Error('Could not derive current pubkey.');
+    }
+
+    const targetPubkey = input.targetPubkey.trim();
+
+    if (!targetPubkey) {
+      throw new Error('Missing follow target.');
+    }
+
+    const cache = await getSocialGraphCache();
+    const followingPubkeys = uniqueStrings([
+      ...cache.followingPubkeys,
+      targetPubkey,
+    ]);
+
+    const result = await publishFollowList({
+      nsec: input.nsec,
+      followingPubkeys,
+      relayUrls: input.relayUrls,
+    });
+
+    if (result.success) {
+      await saveFollowingPubkeys(followingPubkeys, [
+        {
+          pubkey: targetPubkey,
+          npub: input.targetNpub || pubkeyToNpub(targetPubkey),
+          displayName: input.targetDisplayName,
+          avatarUrl: input.targetAvatarUrl,
+          followedAt: nowSeconds(),
+        },
+      ]);
+    }
+
+    return {
+      success: result.success,
+      eventId: result.eventId,
+      followingPubkeys,
+      error: result.error,
+    };
+  } catch (error: any) {
+    return {
+      success: false,
+      followingPubkeys: [],
+      error: error?.message || 'Could not publish follow',
+    };
+  }
+}
+
 export function npubOrPubkeyToPubkey(value: string): string | null {
   const clean = value.trim();
 

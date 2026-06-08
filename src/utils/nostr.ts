@@ -1352,35 +1352,71 @@ export async function publishToSpecificRelays(
     };
   }
 
-  const results = await Promise.all(
-    uniqueRelayUrls.map(async relayUrl => {
-      const result = await publishToSpecificRelay(event, relayUrl);
+  return new Promise(resolve => {
+    const successfulRelays: string[] = [];
+    const failedRelays: { relayUrl: string; error?: string }[] = [];
+    let completedRelays = 0;
+    let resolved = false;
 
-      return {
-        relayUrl,
-        ...result,
-      };
-    })
-  );
+    const resolveSuccess = () => {
+      if (resolved) return;
 
-  const successfulRelays = results
-    .filter(result => result.success)
-    .map(result => result.relayUrl);
+      resolved = true;
 
-  const failedRelays = results
-    .filter(result => !result.success)
-    .map(result => ({
-      relayUrl: result.relayUrl,
-      error: result.error,
-    }));
+      resolve({
+        success: true,
+        eventId: event.id,
+        successfulRelays: [...successfulRelays],
+        failedRelays: [...failedRelays],
+      });
+    };
 
-  return {
-    success: successfulRelays.length > 0,
-    eventId: event.id,
-    successfulRelays,
-    failedRelays,
-    error: successfulRelays.length > 0 ? undefined : 'All relays failed',
-  };
+    const resolveFailureIfComplete = () => {
+      if (resolved) return;
+
+      if (completedRelays < uniqueRelayUrls.length) return;
+
+      resolved = true;
+
+      resolve({
+        success: false,
+        eventId: event.id,
+        successfulRelays: [],
+        failedRelays: [...failedRelays],
+        error: 'All relays failed',
+      });
+    };
+
+    uniqueRelayUrls.forEach(relayUrl => {
+      publishToSpecificRelay(event, relayUrl)
+        .then(result => {
+          completedRelays += 1;
+
+          if (result.success) {
+            successfulRelays.push(relayUrl);
+            resolveSuccess();
+            return;
+          }
+
+          failedRelays.push({
+            relayUrl,
+            error: result.error,
+          });
+
+          resolveFailureIfComplete();
+        })
+        .catch(error => {
+          completedRelays += 1;
+
+          failedRelays.push({
+            relayUrl,
+            error: error?.message || 'Relay publish failed',
+          });
+
+          resolveFailureIfComplete();
+        });
+    });
+  });
 }
 
 // ─── Groups (kind 30080 / 30081) ─────────────────────────────────
