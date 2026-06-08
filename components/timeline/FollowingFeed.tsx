@@ -124,25 +124,6 @@ function buildFollowingAuthorShareMessage(post: SocialPublicPost): string {
     .join('\n\n');
 }
 
-function formatFollowingFeedUpdatedAt(updatedAt: number): string {
-  if (!updatedAt) return 'Not refreshed yet';
-
-  const secondsAgo = Math.max(0, Math.floor((Date.now() - updatedAt) / 1000));
-
-  if (secondsAgo < 10) return 'Updated just now';
-  if (secondsAgo < 60) return `Updated ${secondsAgo}s ago`;
-
-  const minutesAgo = Math.floor(secondsAgo / 60);
-
-  if (minutesAgo < 60) {
-    return minutesAgo === 1 ? 'Updated 1 min ago' : `Updated ${minutesAgo} min ago`;
-  }
-
-  const hoursAgo = Math.floor(minutesAgo / 60);
-
-  return hoursAgo === 1 ? 'Updated 1 hour ago' : `Updated ${hoursAgo} hours ago`;
-}
-
 function getFollowingActivityLabel(post: SocialPublicPost): string {
   return post.activityType === 'reply' ? 'Reply' : 'Following';
 }
@@ -219,7 +200,6 @@ export default function FollowingFeed({ theme, onScroll }: FollowingFeedProps) {
   const [loading, setLoading] = useState(() => FOLLOWING_FEED_SESSION_CACHE.length === 0);
   const [refreshing, setRefreshing] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
-  const [lastUpdatedAt, setLastUpdatedAt] = useState(FOLLOWING_FEED_CACHE_UPDATED_AT);
   const [copyFeedback, setCopyFeedback] = useState<CopyFeedbackState>(null);
   const [selectedAuthorPost, setSelectedAuthorPost] = useState<SocialPublicPost | null>(null);
   const [selectedDetailPost, setSelectedDetailPost] = useState<SocialPublicPost | null>(null);
@@ -278,7 +258,6 @@ export default function FollowingFeed({ theme, onScroll }: FollowingFeedProps) {
       FOLLOWING_FEED_CACHE_UPDATED_AT = Date.now();
       postsRef.current = nextPosts;
 
-      setLastUpdatedAt(FOLLOWING_FEED_CACHE_UPDATED_AT);
       setPosts(nextPosts);
       setPendingPosts([]);
     } catch (error) {
@@ -687,7 +666,6 @@ export default function FollowingFeed({ theme, onScroll }: FollowingFeedProps) {
     );
   }, [
     copyFeedback,
-    handleCopyAuthorId,
     handleCopyPostText,
     handleOpenAuthorProfile,
     handleOpenPostDetail,
@@ -798,7 +776,7 @@ export default function FollowingFeed({ theme, onScroll }: FollowingFeedProps) {
               </View>
 
               <Text style={[s.profileHint, { color: theme.textSecondary }]}>
-                Public Nostr profile from your Following feed.
+                Updates from this author in your Following feed.
               </Text>
 
               <View style={s.profileActions}>
@@ -1131,11 +1109,11 @@ export default function FollowingFeed({ theme, onScroll }: FollowingFeedProps) {
                 <Text style={[s.feedStatusTitle, { color: theme.text }]} numberOfLines={1}>
                   {authorFilterPost ? getAuthorName(authorFilterPost) : 'Following'}
                 </Text>
-                <Text style={[s.feedStatusMeta, { color: theme.textMuted }]} numberOfLines={1}>
-                  {authorFilterPost
-                    ? `${visiblePosts.length} ${visiblePosts.length === 1 ? 'update' : 'updates'} from this author`
-                    : `${posts.length} ${posts.length === 1 ? 'update' : 'updates'} · ${formatFollowingFeedUpdatedAt(lastUpdatedAt)}`}
-                </Text>
+<Text style={[s.feedStatusMeta, { color: theme.textMuted }]} numberOfLines={1}>
+  {authorFilterPost
+    ? `${visiblePosts.length} ${visiblePosts.length === 1 ? 'update' : 'updates'} from this author`
+    : `${posts.length} ${posts.length === 1 ? 'update' : 'updates'} from people you follow`}
+</Text>
               </View>
 
               {authorFilterPost ? (
@@ -1178,12 +1156,12 @@ export default function FollowingFeed({ theme, onScroll }: FollowingFeedProps) {
                   ? 'No updates from this author'
                   : 'No updates yet'}
             </Text>
-            <Text style={[s.emptyHint, { color: theme.textMuted }]}>
-              {errorText ||
-                (authorFilterPost
-                  ? 'Clear the filter to return to the full Following feed.'
-                  : 'Refresh Network first, then pull to refresh this feed.')}
-            </Text>
+<Text style={[s.emptyHint, { color: theme.textMuted }]}>
+  {errorText ||
+    (authorFilterPost
+      ? 'Clear the filter to return to the full Following feed.'
+      : 'Pull to refresh when you are ready.')}
+</Text>
           </View>
         }
       />
