@@ -811,7 +811,7 @@ export function fetchRelayList(npub: string): Promise<string[]> {
       const decoded = nip19.decode(npub);
 
       if (decoded.type !== 'npub') {
-        resolve(Array.from(new Set([DEFAULT_RELAY, ...FAST_RELAYS])));
+        resolve([]);
         return;
       }
 
@@ -837,18 +837,10 @@ export function fetchRelayList(npub: string): Promise<string[]> {
         settled = true;
 
         const latest = relayResults
+          .filter(result => result.relays.length > 0)
           .sort((a, b) => b.createdAt - a.createdAt)[0];
 
-        const fallbackRelays = Array.from(new Set([
-          DEFAULT_RELAY,
-          ...FAST_RELAYS,
-          'wss://relay.nostr.band',
-          'wss://relay.primal.net',
-          'wss://relay.snort.social',
-          'wss://nos.lol',
-        ]));
-
-        resolve(latest?.relays?.length ? latest.relays : fallbackRelays);
+        resolve(latest?.relays ?? []);
       };
 
       bootstrapRelays.forEach(relayUrl => {
@@ -922,7 +914,7 @@ export function fetchRelayList(npub: string): Promise<string[]> {
         }
       });
     } catch {
-      resolve(Array.from(new Set([DEFAULT_RELAY, ...FAST_RELAYS])));
+      resolve([]);
     }
   });
 }
@@ -941,28 +933,41 @@ export async function publishRelayList(
     const sk = decoded.data as Uint8Array;
     const pk = getPublicKey(sk);
 
-    const relayList = Array.from(
+    const selectedRelays = Array.from(
       new Set(
-        [
-          DEFAULT_RELAY,
-          ...FAST_RELAYS,
-          ...relays,
-        ]
+        relays
           .map(relay => relay.trim())
           .filter(relay => relay.startsWith('wss://') || relay.startsWith('ws://'))
       )
     );
 
+    if (selectedRelays.length === 0) {
+      return {
+        success: false,
+        error: 'Choose at least one relay before saving.',
+      };
+    }
+
+    const publishRelays = Array.from(new Set([
+      ...selectedRelays,
+      DEFAULT_RELAY,
+      ...FAST_RELAYS,
+      'wss://relay.nostr.band',
+      'wss://relay.primal.net',
+      'wss://relay.snort.social',
+      'wss://nos.lol',
+    ]));
+
     const unsigned: UnsignedEvent = {
       kind: 10002,
       created_at: Math.floor(Date.now() / 1000),
-      tags: relayList.map(relay => ['r', relay]),
+      tags: selectedRelays.map(relay => ['r', relay]),
       content: '',
       pubkey: pk,
     };
 
     const signed = finalizeEvent(unsigned, sk);
-    const result = await publishToSpecificRelays(signed, relayList);
+    const result = await publishToSpecificRelays(signed, publishRelays);
 
     return {
       success: result.success,

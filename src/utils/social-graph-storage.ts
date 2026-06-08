@@ -107,27 +107,20 @@ export async function getSocialRelays(): Promise<string[]> {
     const parsed = raw ? JSON.parse(raw) : null;
 
     if (!Array.isArray(parsed)) {
-      return DEFAULT_SOCIAL_RELAYS;
+      return [DEFAULT_RELAY];
     }
 
-    const relays = normalizeSocialRelayUrls([
-      ...DEFAULT_SOCIAL_RELAYS,
-      ...parsed,
-    ]);
+    const relays = normalizeSocialRelayUrls(parsed);
 
-    return relays.length > 0 ? relays : DEFAULT_SOCIAL_RELAYS;
+    return relays.length > 0 ? relays : [DEFAULT_RELAY];
   } catch {
-    return DEFAULT_SOCIAL_RELAYS;
+    return [DEFAULT_RELAY];
   }
 }
 
 export async function saveSocialRelays(relayUrls: string[]): Promise<string[]> {
-  const relays = normalizeSocialRelayUrls([
-    ...DEFAULT_SOCIAL_RELAYS,
-    ...relayUrls,
-  ]);
-
-  const nextRelays = relays.length > 0 ? relays : DEFAULT_SOCIAL_RELAYS;
+  const relays = normalizeSocialRelayUrls(relayUrls);
+  const nextRelays = relays.length > 0 ? relays : [DEFAULT_RELAY];
   const storageKey = await getScopedSocialRelaysKey();
 
   await AsyncStorage.setItem(storageKey, JSON.stringify(nextRelays));
@@ -137,10 +130,11 @@ export async function saveSocialRelays(relayUrls: string[]): Promise<string[]> {
 
 export async function resetSocialRelays(): Promise<string[]> {
   const storageKey = await getScopedSocialRelaysKey();
+  const nextRelays = [DEFAULT_RELAY];
 
-  await AsyncStorage.setItem(storageKey, JSON.stringify(DEFAULT_SOCIAL_RELAYS));
+  await AsyncStorage.setItem(storageKey, JSON.stringify(nextRelays));
 
-  return DEFAULT_SOCIAL_RELAYS;
+  return nextRelays;
 }
 
 export async function getSocialGraphCache(): Promise<SocialGraphCache> {

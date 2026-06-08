@@ -19,7 +19,11 @@ import {
   installNotificationResponseHandler,
   registerForPushNotifications,
 } from '../src/utils/push-notifications';
-import { clearSocialGraphCache } from '../src/utils/social-graph-storage';
+import {
+  clearSocialGraphCache,
+  getSocialRelays,
+  saveSocialRelays,
+} from '../src/utils/social-graph-storage';
 import { clearStartupJobs, enqueueStartupJob, startStartupScheduler } from '../src/utils/startup-scheduler';
 import {
   getFamily,
@@ -80,7 +84,7 @@ export default function RootLayout() {
   const [ready, setReady] = useState(false);
   const [family, setFamilyState] = useState<Family | null>(null);
   const [profile, setProfile] = useState<NostrProfile | null>(null);
-  const [relays, setRelays] = useState<string[]>(['wss://relay.beginningend.com']);
+  const [relays, setRelaysState] = useState<string[]>(['wss://relay.beginningend.com']);
   const router = useRouter() as any;
   const segments = useSegments() as any;
   const [themeMode, setThemeModeState] = useState<'dark' | 'light'>('dark');
@@ -182,6 +186,12 @@ useEffect(() => {
         console.log('[LAYOUT] identity found, deferring heavy DM restore');
         setNpub(id.npub);
         setNsec(id.nsec);
+
+        const savedRelays = await getSocialRelays();
+
+        if (!cancelled) {
+          setRelaysState(savedRelays);
+        }
 
         if (fam) {
           await upsertFamilyMember({
@@ -304,6 +314,18 @@ enqueueStartupJob({
     setAccentPaletteState(palette);
     await AsyncStorage.setItem(ACCENT_PALETTE_STORAGE_KEY, palette);
   };
+
+  const setRelays = (nextRelays: string[]) => {
+    setRelaysState(nextRelays);
+
+    saveSocialRelays(nextRelays)
+      .then(savedRelays => {
+        setRelaysState(savedRelays);
+      })
+      .catch(error => {
+        console.warn('[LAYOUT] failed to persist relays:', error);
+      });
+  };
   
  const setIdentity = (p: string, s: string) => {
   stopDMService();
@@ -314,12 +336,16 @@ enqueueStartupJob({
 
   // 🔥 CLEAR PROFILE (prevents cross-identity bleed)
   setProfile(null);
+  setRelaysState(['wss://relay.beginningend.com']);
 
   // 🔥 CLEAR IDENTITY-SCOPED CACHES (prevents cross-identity bleed)
   Promise.all([
     clearDMStorage(),
     clearSocialGraphCache(),
-  ]).then(() => {
+    getSocialRelays(),
+  ]).then(([, , savedRelays]) => {
+    setRelaysState(savedRelays);
+
     startStartupScheduler();
 
 enqueueStartupJob({
@@ -368,6 +394,7 @@ enqueueStartupJob({
     setNsec(null);
     setUseAmber(false);
     setProfile(null);
+    setRelaysState(['wss://relay.beginningend.com']);
     clearStartupJobs();
     clearSocialGraphCache();
     // Stop background listener on sign out
