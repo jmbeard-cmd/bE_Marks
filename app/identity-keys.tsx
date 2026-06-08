@@ -109,8 +109,8 @@ export default function IdentityKeysScreen() {
           <Text style={[s.heroTitle, { color: theme.text }]}>Your bE Marks identity</Text>
           <Text style={[s.heroText, { color: theme.textMuted }]}>
             {useAmber
-              ? 'Amber is connected as an external identity/profile signer. Full Space posting works best with a local bE Marks key or imported nsec on this device.'
-              : 'Your local key signs Marks, Space actions, messages, and profile updates on this device.'}
+              ? 'Amber is connected as your external signer. Your private key is managed outside bE Marks.'
+              : 'Your local key signs your Marks, Space actions, messages, and profile updates on this device.'}
           </Text>
         </View>
 
@@ -125,7 +125,7 @@ export default function IdentityKeysScreen() {
             <View style={{ flex: 1, paddingRight: 12 }}>
               <Text style={[s.rowTitle, { color: theme.text }]}>Public key</Text>
               <Text style={[s.rowHint, { color: theme.textMuted }]}>
-                Safe to share. People can use this to find your profile.
+                Safe to share. People can use this to find and follow you.
               </Text>
             </View>
 
@@ -139,8 +139,8 @@ export default function IdentityKeysScreen() {
               <Text style={[s.rowTitle, { color: theme.text }]}>Signer</Text>
               <Text style={[s.rowHint, { color: theme.textMuted }]}>
                 {useAmber
-                  ? 'External signer connected for identity and profile actions only.'
-                  : 'Local key active for full bE Marks posting.'}
+                  ? 'External signer connected. Your private key stays in Amber.'
+                  : 'Local key active on this device.'}
               </Text>
             </View>
 
@@ -160,7 +160,7 @@ export default function IdentityKeysScreen() {
           >
             <Text style={[s.backupTitle, { color: theme.gold }]}>Back up private key</Text>
             <Text style={[s.backupHint, { color: theme.textMuted }]}>
-              Store your key in a password manager. Never post it, text it, or send it to anyone.
+              Store your key in a password manager or another safe place. Never share it with anyone.
             </Text>
           </TouchableOpacity>
         </View>
@@ -173,9 +173,9 @@ export default function IdentityKeysScreen() {
             onPress={removeIdentityFromDevice}
             activeOpacity={0.85}
           >
-            <Text style={s.dangerTitle}>Remove identity from device</Text>
+            <Text style={s.dangerTitle}>Remove from this device</Text>
             <Text style={[s.dangerHint, { color: theme.textMuted }]}>
-              This does not delete relay events. It only removes this account key from this phone.
+              This does not delete your Marks, profile, or relay events. It only removes this account key from this phone.
             </Text>
           </TouchableOpacity>
         </View>

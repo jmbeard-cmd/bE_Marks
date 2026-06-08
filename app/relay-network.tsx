@@ -1,23 +1,23 @@
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { DEFAULT_RELAYS, RELAY_LABELS } from '../src/constants/relays';
 import {
-    DEFAULT_RELAY,
-    fetchRelayList,
-    publishRelayList,
+  DEFAULT_RELAY,
+  fetchRelayList,
+  publishRelayList,
 } from '../src/utils/nostr';
 import { useIdentity } from './_layout';
 
@@ -33,19 +33,19 @@ const RELAY_LANES: {
     key: 'personal',
     icon: '📡',
     title: 'Personal Relays',
-    hint: 'Used for your public Marks, profile, relay list, inbox/outbox, and personal feed.',
+    hint: 'Used for your public Marks, profile, Following feed, and relay list.',
   },
   {
     key: 'dm',
     icon: '💬',
-    title: 'Direct Messages',
-    hint: 'DM relay routing stays app-managed for now so messages do not interfere with Spaces.',
+    title: 'Messages',
+    hint: 'Message routing is handled automatically by bE Marks for now.',
   },
   {
     key: 'space',
     icon: '👥',
     title: 'Space Relays',
-    hint: 'Managed by Space admins inside each Space. Most members never need to change this.',
+    hint: 'Space relay settings are managed inside each Space by admins.',
   },
 ];
 
@@ -202,16 +202,16 @@ export default function RelayNetworkScreen() {
             <Text style={[s.backText, { color: theme.text }]}>Back</Text>
           </TouchableOpacity>
 
-<Text style={[s.screenTitle, { color: theme.text }]}>App Relay Network</Text>
+<Text style={[s.screenTitle, { color: theme.text }]}>Relay Network</Text>
 
           <View style={{ width: 44 }} />
         </View>
 
         <View style={[s.heroCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-<Text style={[s.heroTitle, { color: theme.text }]}>Personal relay routing</Text>
-<Text style={[s.heroText, { color: theme.textMuted }]}>
-  This controls the future personal feed, search, DM, inbox/outbox, and cache lanes. Space relays are managed inside each Space.
-</Text>
+          <Text style={[s.heroTitle, { color: theme.text }]}>Personal relays</Text>
+          <Text style={[s.heroText, { color: theme.textMuted }]}>
+            Choose the relays bE Marks uses for your public profile, Following feed, and personal Marks. Space relays are managed inside each Space.
+          </Text>
         </View>
 
         <View style={s.section}>
@@ -237,8 +237,8 @@ export default function RelayNetworkScreen() {
                   Alert.alert(
                     lane.title,
                     lane.key === 'dm'
-                      ? 'Direct-message relay routing will stay app-managed for now so normal users do not have to configure it.'
-                      : 'Space relays are managed by Space admins inside each Space. Most members never need to change them.'
+                      ? 'Message routing is handled automatically by bE Marks for now.'
+                      : 'Space relays are managed by Space admins inside each Space.'
                   );
                 }}
                 activeOpacity={0.85}
@@ -286,7 +286,7 @@ export default function RelayNetworkScreen() {
                 {loadingPublishedRelays ? (
                   <ActivityIndicator size="small" color={theme.gold} />
                 ) : (
-                  <Text style={[s.smallActionText, { color: theme.gold }]}>Sync</Text>
+                  <Text style={[s.smallActionText, { color: theme.gold }]}>Load Saved</Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -410,7 +410,7 @@ export default function RelayNetworkScreen() {
             </TouchableOpacity>
 
             <Text style={[s.editorFootnote, { color: theme.textMuted }]}>
-              This saves your personal relay list. Space-specific relays still live inside each Space.
+              This saves your personal relay list. Space relay settings stay inside each Space.
             </Text>
           </View>
         </View>
