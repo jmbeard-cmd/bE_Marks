@@ -96,7 +96,7 @@ export default function SettingsScreen() {
       <SafeAreaView style={[s.safe, { backgroundColor: theme.bg }]}>
         <ScrollView contentContainerStyle={s.container} keyboardShouldPersistTaps="handled">
 
-                    <View style={[s.header, { borderBottomColor: theme.border }]}>
+          <View style={[s.header, { borderBottomColor: theme.border }]}>
             <Image
               source={
                 themeMode === 'light'
@@ -106,9 +106,10 @@ export default function SettingsScreen() {
               style={s.logo}
               resizeMode="contain"
             />
+
             <View>
-              <Text style={[s.appName, { color: theme.text }]}>bE Marks</Text>
-              <Text style={[s.tagline, { color: theme.gold }]}>Spaces, Marks, Books</Text>
+              <Text style={[s.appName, { color: theme.text }]}>Account</Text>
+              <Text style={[s.tagline, { color: theme.gold }]}>Profile, identity, relays, and app settings</Text>
             </View>
           </View>
 
