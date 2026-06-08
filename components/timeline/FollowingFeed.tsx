@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -8,6 +8,7 @@ import {
   Modal,
   Platform,
   RefreshControl,
+  ScrollView,
   Share,
   StyleSheet,
   Text,
@@ -21,6 +22,7 @@ import {
   type SocialPublicPost,
 } from '../../src/utils/nostr-social';
 import { formatDate } from '../../src/utils/storage';
+import ImageViewerModal, { type ViewerImage } from '../ImageViewerModal';
 
 type FollowingFeedProps = {
   theme: any;
@@ -173,6 +175,39 @@ function getFollowingReplyPreviewText(post: SocialPublicPost): string | null {
   return content || null;
 }
 
+function buildFollowingViewerMedia(post: SocialPublicPost): ViewerImage[] {
+  const seenUris = new Set<string>();
+  const mediaItems: ViewerImage[] = [];
+
+  post.imageUrls.forEach((uri, index) => {
+    const cleanUri = uri.trim();
+
+    if (!cleanUri || seenUris.has(cleanUri)) return;
+
+    seenUris.add(cleanUri);
+    mediaItems.push({
+      id: `${post.id}-image-${index}`,
+      uri: cleanUri,
+      type: 'image',
+    });
+  });
+
+  post.videoUrls.forEach((uri, index) => {
+    const cleanUri = uri.trim();
+
+    if (!cleanUri || seenUris.has(cleanUri)) return;
+
+    seenUris.add(cleanUri);
+    mediaItems.push({
+      id: `${post.id}-video-${index}`,
+      uri: cleanUri,
+      type: 'video',
+    });
+  });
+
+  return mediaItems;
+}
+
 export default function FollowingFeed({ theme, onScroll }: FollowingFeedProps) {
   const bePatientLogo =
     theme.bg === '#0D0F0E' || theme.bg === '#0d0f0e'
@@ -188,12 +223,18 @@ export default function FollowingFeed({ theme, onScroll }: FollowingFeedProps) {
   const [copyFeedback, setCopyFeedback] = useState<CopyFeedbackState>(null);
   const [selectedAuthorPost, setSelectedAuthorPost] = useState<SocialPublicPost | null>(null);
   const [selectedDetailPost, setSelectedDetailPost] = useState<SocialPublicPost | null>(null);
+  const [selectedMediaPost, setSelectedMediaPost] = useState<SocialPublicPost | null>(null);
+  const [selectedMediaUri, setSelectedMediaUri] = useState<string | null>(null);
   const [authorFilterPost, setAuthorFilterPost] = useState<SocialPublicPost | null>(null);
   const postsRef = useRef<SocialPublicPost[]>(FOLLOWING_FEED_SESSION_CACHE);
   const listRef = useRef<FlatList<SocialPublicPost> | null>(null);
   const checkingForNewPostsRef = useRef(false);
   const applyingPendingPostsRef = useRef(false);
   const copyFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const selectedViewerMedia = useMemo(
+    () => selectedMediaPost ? buildFollowingViewerMedia(selectedMediaPost) : [],
+    [selectedMediaPost]
+  );
   const authorFilterKey = authorFilterPost ? getFollowingAuthorFilterKey(authorFilterPost) : '';
   const visiblePosts = authorFilterKey
     ? posts.filter(post => getFollowingAuthorFilterKey(post) === authorFilterKey)
@@ -429,6 +470,16 @@ export default function FollowingFeed({ theme, onScroll }: FollowingFeedProps) {
     setSelectedDetailPost(null);
   }, []);
 
+  const handleOpenMediaViewer = useCallback((post: SocialPublicPost, uri: string) => {
+    setSelectedMediaPost(post);
+    setSelectedMediaUri(uri);
+  }, []);
+
+  const handleCloseMediaViewer = useCallback(() => {
+    setSelectedMediaPost(null);
+    setSelectedMediaUri(null);
+  }, []);
+
   const handleShowAuthorPosts = useCallback((post: SocialPublicPost) => {
     setAuthorFilterPost(post);
     setSelectedAuthorPost(null);
@@ -471,8 +522,9 @@ export default function FollowingFeed({ theme, onScroll }: FollowingFeedProps) {
   const renderPost = useCallback(({ item }: { item: SocialPublicPost }) => {
     const authorName = getAuthorName(item);
     const authorInitials = getAuthorInitials(item);
-    const firstImageUrl = item.imageUrls[0];
-    const hasMedia = !!firstImageUrl;
+    const mediaItems = buildFollowingViewerMedia(item);
+    const firstMedia = mediaItems[0];
+    const hasMedia = mediaItems.length > 0;
     const textCopied = copyFeedback?.postId === item.id && copyFeedback.action === 'text';
 
     return (
@@ -540,11 +592,37 @@ export default function FollowingFeed({ theme, onScroll }: FollowingFeedProps) {
             accessibilityRole="button"
             accessibilityLabel="Open Following post"
           >
-            <Image
-              source={{ uri: firstImageUrl }}
-              style={s.postImage}
-              resizeMode="cover"
-            />
+            {firstMedia?.type === 'video' ? (
+              <View style={s.postVideoPreview}>
+                <Ionicons name="play-circle" size={42} color={theme.gold} />
+                <Text style={[s.postVideoPreviewText, { color: theme.text }]}>
+                  Video
+                </Text>
+              </View>
+            ) : (
+              <Image
+                source={{ uri: firstMedia?.uri || '' }}
+                style={s.postImage}
+                resizeMode="cover"
+              />
+            )}
+
+            {mediaItems.length > 1 && (
+              <View style={s.mediaDotsRow}>
+                {mediaItems.map((media, index) => (
+                  <View
+                    key={`${item.id}-feed-dot-${media.id}`}
+                    style={[
+                      s.mediaDot,
+                      {
+                        backgroundColor: index === 0 ? theme.gold : theme.textMuted,
+                        opacity: index === 0 ? 1 : 0.45,
+                      },
+                    ]}
+                  />
+                ))}
+              </View>
+            )}
           </TouchableOpacity>
         )}
 
@@ -854,45 +932,93 @@ export default function FollowingFeed({ theme, onScroll }: FollowingFeedProps) {
                 </View>
               </TouchableOpacity>
 
-              {!!getFollowingReplyContextLabel(selectedDetailPost) && (
-                <TouchableOpacity
-                  style={[s.postDetailReplyContextCard, { borderColor: theme.border, backgroundColor: theme.raised }]}
-                  activeOpacity={0.82}
-                  onPress={() => {
-                    handleClosePostDetail();
-                    handleOpenAuthorProfile(selectedDetailPost);
-                  }}
-                  accessibilityRole="button"
-                  accessibilityLabel="Open reply author profile"
-                >
-                  <View style={s.replyContextTitleRow}>
-                    <Ionicons name="chatbubble-ellipses-outline" size={14} color={theme.textMuted} />
-                    <Text style={[s.replyContextText, { color: theme.textMuted }]} numberOfLines={1}>
-                      {getFollowingReplyContextLabel(selectedDetailPost)}
-                    </Text>
-                  </View>
+              <ScrollView
+                style={s.postDetailScroll}
+                contentContainerStyle={s.postDetailScrollContent}
+                showsVerticalScrollIndicator={false}
+              >
+                {!!getFollowingReplyContextLabel(selectedDetailPost) && (
+                  <TouchableOpacity
+                    style={[s.postDetailReplyContextCard, { borderColor: theme.border, backgroundColor: theme.raised }]}
+                    activeOpacity={0.82}
+                    onPress={() => {
+                      handleClosePostDetail();
+                      handleOpenAuthorProfile(selectedDetailPost);
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Open reply author profile"
+                  >
+                    <View style={s.replyContextTitleRow}>
+                      <Ionicons name="chatbubble-ellipses-outline" size={14} color={theme.textMuted} />
+                      <Text style={[s.replyContextText, { color: theme.textMuted }]} numberOfLines={1}>
+                        {getFollowingReplyContextLabel(selectedDetailPost)}
+                      </Text>
+                    </View>
 
-                  {!!getFollowingReplyPreviewText(selectedDetailPost) && (
-                    <Text style={[s.replyPreviewText, { color: theme.textSecondary }]} numberOfLines={3}>
-                      {getFollowingReplyPreviewText(selectedDetailPost)}
-                    </Text>
-                  )}
-                </TouchableOpacity>
-              )}
+                    {!!getFollowingReplyPreviewText(selectedDetailPost) && (
+                      <Text style={[s.replyPreviewText, { color: theme.textSecondary }]} numberOfLines={3}>
+                        {getFollowingReplyPreviewText(selectedDetailPost)}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                )}
 
-              {!!selectedDetailPost.imageUrls[0] && (
-                <Image
-                  source={{ uri: selectedDetailPost.imageUrls[0] }}
-                  style={s.postDetailImage}
-                  resizeMode="cover"
-                />
-              )}
+                {(() => {
+                  const mediaItems = buildFollowingViewerMedia(selectedDetailPost);
+                  const firstMedia = mediaItems[0];
 
-              {!!selectedDetailPost.content && (
-                <Text style={[s.postDetailText, { color: theme.textSecondary }]}>
-                  {selectedDetailPost.content}
-                </Text>
-              )}
+                  if (!firstMedia) return null;
+
+                  return (
+                    <TouchableOpacity
+                      key={firstMedia.id}
+                      style={s.postDetailMediaItem}
+                      activeOpacity={0.9}
+                      onPress={() => handleOpenMediaViewer(selectedDetailPost, firstMedia.uri)}
+                      accessibilityRole="button"
+                      accessibilityLabel={firstMedia.type === 'video' ? 'Open video viewer' : 'Open image viewer'}
+                    >
+                      {firstMedia.type === 'video' ? (
+                        <View style={s.postDetailVideoPreview}>
+                          <Ionicons name="play-circle" size={46} color={theme.gold} />
+                          <Text style={[s.postDetailVideoText, { color: theme.text }]}>
+                            Video
+                          </Text>
+                        </View>
+                      ) : (
+                        <Image
+                          source={{ uri: firstMedia.uri }}
+                          style={s.postDetailImage}
+                          resizeMode="contain"
+                        />
+                      )}
+
+                      {mediaItems.length > 1 && (
+                        <View style={s.mediaDotsRow}>
+                          {mediaItems.map((dotMedia, dotIndex) => (
+                            <View
+                              key={`${selectedDetailPost.id}-detail-dot-${dotMedia.id}`}
+                              style={[
+                                s.mediaDot,
+                                {
+                                  backgroundColor: dotIndex === 0 ? theme.gold : theme.textMuted,
+                                  opacity: dotIndex === 0 ? 1 : 0.45,
+                                },
+                              ]}
+                            />
+                          ))}
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })()}
+
+                {!!selectedDetailPost.content && (
+                  <Text style={[s.postDetailText, { color: theme.textSecondary }]}>
+                    {selectedDetailPost.content}
+                  </Text>
+                )}
+              </ScrollView>
 
               <View style={s.profileActions}>
                 <TouchableOpacity
@@ -968,6 +1094,12 @@ export default function FollowingFeed({ theme, onScroll }: FollowingFeedProps) {
           </TouchableOpacity>
         </Modal>
       )}
+
+      <ImageViewerModal
+        images={selectedViewerMedia}
+        selectedUri={selectedMediaUri}
+        onClose={handleCloseMediaViewer}
+      />
 
       <FlatList
         ref={listRef}
@@ -1375,6 +1507,12 @@ const s = StyleSheet.create({
     gap: 12,
     marginBottom: 14,
   },
+  postDetailScroll: {
+    maxHeight: 520,
+  },
+  postDetailScrollContent: {
+    paddingBottom: 2,
+  },
   postDetailReplyContextCard: {
     marginBottom: 14,
     borderWidth: 0.5,
@@ -1383,12 +1521,40 @@ const s = StyleSheet.create({
     paddingVertical: 10,
     gap: 6,
   },
+  postDetailMediaItem: {
+    marginBottom: 14,
+  },
   postDetailImage: {
     width: '100%',
-    height: 330,
+    height: 360,
     borderRadius: 18,
     backgroundColor: '#000000',
-    marginBottom: 14,
+  },
+  postDetailVideoPreview: {
+    width: '100%',
+    height: 260,
+    borderRadius: 18,
+    backgroundColor: '#000000',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  postDetailVideoText: {
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  mediaDotsRow: {
+    minHeight: 18,
+    marginTop: 7,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  mediaDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   postDetailText: {
     fontSize: 15,
@@ -1399,6 +1565,18 @@ const s = StyleSheet.create({
     width: '100%',
     height: 320,
     backgroundColor: '#000000',
+  },
+  postVideoPreview: {
+    width: '100%',
+    height: 320,
+    backgroundColor: '#000000',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  postVideoPreviewText: {
+    fontSize: 13,
+    fontWeight: '900',
   },
   postContent: {
     paddingHorizontal: 14,
