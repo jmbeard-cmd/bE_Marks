@@ -1,8 +1,5 @@
 import * as Clipboard from 'expo-clipboard';
-import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
-import * as SecureStore from 'expo-secure-store';
-import { nip19 } from 'nostr-tools';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -11,7 +8,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -23,15 +19,11 @@ import {
   AccentPalettes,
   type AccentPaletteKey,
 } from '../../src/constants/theme';
-import { compressImageForUpload } from '../../src/utils/media-compression';
 import {
-  clearIdentity,
   DEFAULT_RELAY,
   fetchFamilyMembers,
-  publishFamilyMembership,
-  publishProfile,
+  publishFamilyMembership
 } from '../../src/utils/nostr';
-import { uploadToR2 } from '../../src/utils/r2';
 import {
   generateFamilyId,
   getAccountSafetySettings,
@@ -46,57 +38,26 @@ export default function SettingsScreen() {
     const {
     npub,
     nsec,
-    useAmber,
-    clearIdentity: clearCtx,
     family,
     setFamily,
     profile,
-    setProfile,
     relays,
-    setRelays,
     themeMode,
     setThemeMode,
     accentPalette,
     setAccentPalette,
     theme,
   } = useIdentity();
-useEffect(() => {
-  console.log('[SETTINGS] npub:', npub);
-
-  if (!npub) return;
-
-  try {
-    const decoded = nip19.decode(npub);
-
-    if (decoded.type === 'npub') {
-      console.log('[SETTINGS] hex pubkey:', String(decoded.data).slice(0, 16));
-    } else {
-      console.log('[SETTINGS] not an npub:', decoded.type);
-    }
-  } catch (e) {
-    console.log('[SETTINGS] npub decode failed:', e);
-  }
-}, [npub]);
 
   const [showCreateFamily, setShowCreateFamily] = useState(false);
   const [showJoinFamily, setShowJoinFamily] = useState(false);
   const [familyName, setFamilyName] = useState('');
   const [joinCode, setJoinCode] = useState('');
 
-  const [editingProfile, setEditingProfile] = useState(false);
-  const [editName, setEditName] = useState('');
-  const [editDisplayName, setEditDisplayName] = useState('');
-  const [editAbout, setEditAbout] = useState('');
-  const [editPicture, setEditPicture] = useState('');
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
-  const [savingProfile, setSavingProfile] = useState(false);
-
   const [editingFamilyRelay, setEditingFamilyRelay] = useState(false);
   const [familyRelayMode, setFamilyRelayMode] = useState<FamilyRelayMode>('default');
   const [familyRelayUrl, setFamilyRelayUrl] = useState('');
 
-  const [showNsec, setShowNsec] = useState(false);
-  const [nsecValue, setNsecValue] = useState('');
   const [accountSafety, setAccountSafety] = useState<AccountSafetySettings | null>(null);
   const [savingAccountSafety, setSavingAccountSafety] = useState(false);
   useEffect(() => {
@@ -139,123 +100,6 @@ useEffect(() => {
   const avatarUri = profile?.picture || null;
   const shortNpub = npub ? `${npub.slice(0, 12)}...${npub.slice(-8)}` : 'Amber signer';
 
-  const startEditProfile = () => {
-    setEditName(profile?.name || '');
-    setEditDisplayName(profile?.display_name || '');
-    setEditAbout(profile?.about || '');
-    setEditPicture(profile?.picture || '');
-    setEditingProfile(true);
-  };
-
-  const pickProfilePhoto = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-    if (status !== 'granted') {
-      Alert.alert('Permission needed', 'Allow photo access in settings.');
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.9,
-      allowsEditing: true,
-      aspect: [1, 1],
-    });
-
-    if (!result.canceled) {
-      setUploadingPhoto(true);
-
-      try {
-        const compressionResult = await compressImageForUpload({
-          uri: result.assets[0].uri,
-        });
-
-        const uploadUri = compressionResult.uri;
-        const url = await uploadToR2(uploadUri, 'photo');
-
-        if (url) {
-          setEditPicture(url);
-          Alert.alert('✓ Photo uploaded', 'Tap Publish to save your profile.');
-        } else {
-          Alert.alert('Upload failed', 'Could not upload photo. Check your connection.');
-        }
-      } catch (error) {
-        console.warn('[Profile Photo] library upload failed:', error);
-        Alert.alert('Upload failed', 'Could not upload photo. Check your connection.');
-      }
-
-      setUploadingPhoto(false);
-    }
-  };
-
-  const takeProfilePhoto = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-
-    if (status !== 'granted') {
-      Alert.alert('Permission needed', 'Allow camera access in settings.');
-      return;
-    }
-
-    const result = await ImagePicker.launchCameraAsync({
-      quality: 0.9,
-      allowsEditing: true,
-      aspect: [1, 1],
-    });
-
-    if (!result.canceled) {
-      setUploadingPhoto(true);
-
-      try {
-        const compressionResult = await compressImageForUpload({
-          uri: result.assets[0].uri,
-        });
-
-        const uploadUri = compressionResult.uri;
-        const url = await uploadToR2(uploadUri, 'photo');
-
-        if (url) {
-          setEditPicture(url);
-          Alert.alert('✓ Photo uploaded', 'Tap Publish to save your profile.');
-        } else {
-          Alert.alert('Upload failed', 'Could not upload photo. Check your connection.');
-        }
-      } catch (error) {
-        console.warn('[Profile Photo] camera upload failed:', error);
-        Alert.alert('Upload failed', 'Could not upload photo. Check your connection.');
-      }
-
-      setUploadingPhoto(false);
-    }
-  };
-
-  const handlePickPhoto = () => {
-    Alert.alert('Profile photo', 'Choose a photo', [
-      { text: 'Take photo', onPress: takeProfilePhoto },
-      { text: 'Choose from library', onPress: pickProfilePhoto },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
-  };
-
-  const saveProfileEdits = async () => {
-    if (!nsec) { Alert.alert('No key', 'Cannot publish without a private key.'); return; }
-    setSavingProfile(true);
-    const updated = {
-      name: editName.trim(),
-      display_name: editDisplayName.trim(),
-      about: editAbout.trim(),
-      picture: editPicture.trim(),
-    };
-    const result = await publishProfile(updated, nsec, relays);
-    if (result.success) {
-      setProfile(updated);
-      setEditingProfile(false);
-      Alert.alert('✓ Profile updated', 'Published to your relays.');
-    } else {
-      Alert.alert('Error', result.error || 'Could not publish profile.');
-    }
-    setSavingProfile(false);
-  };
-
   const openFamilyRelayEditor = () => {
     if (!family) return;
 
@@ -287,40 +131,6 @@ useEffect(() => {
 
     setEditingFamilyRelay(false);
     Alert.alert('Saved', 'Family Space sync settings updated.');
-  };
-
-  const handleBackupKey = () => {
-    Alert.alert(
-      'Back up your private key',
-      'Your private key (nsec) is the only way to recover your identity. Never share it with anyone. Store it in a password manager or write it down and keep it safe.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Show my key', onPress: async () => {
-            const stored = await SecureStore.getItemAsync('nostr_nsec');
-            if (stored) { setNsecValue(stored); setShowNsec(true); }
-          }
-        }
-      ]
-    );
-  };
-
-  const handleShareKey = async () => {
-    await Share.share({
-      message: `My Nostr private key (nsec) — keep this secret:\n\n${nsecValue}`,
-      title: 'bE Milestones — Private Key Backup',
-    });
-  };
-
-  const handleLogout = () => {
-    Alert.alert(
-      'Remove identity',
-      'This removes your private key from this device. Make sure you have it backed up.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Remove', style: 'destructive', onPress: async () => { await clearIdentity(); clearCtx(); } },
-      ]
-    );
   };
 
   const toggleChildUnder13 = () => {
@@ -520,50 +330,30 @@ const handleJoinFamily = async () => {
             </View>
           </View>
 
-          {/* ── IDENTITY ── */}
+          {/* ── ACCOUNT ── */}
           <View style={s.section}>
-            <Text style={[s.sectionLabel, { color: theme.textMuted }]}>SPACES</Text>
-
-            <View style={[s.spaceCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-              <Text style={[s.spaceCardTitle, { color: theme.text }]}>Spaces first</Text>
-              <Text style={[s.spaceCardHint, { color: theme.textMuted }]}>
-                The app opens to Spaces for family, teams, classes, and groups.
-              </Text>
-
-              <View style={[s.spaceCardRow, { borderBottomColor: theme.border }]}>
-                <Text style={[s.rowLabel, { color: theme.textSecondary }]}>Default landing</Text>
-                <Text style={[s.rowValue, { color: theme.gold }]}>Spaces</Text>
-              </View>
-
-              <TouchableOpacity
-                style={[s.spaceCardRow, { borderBottomColor: theme.border }]}
-                onPress={() => router.push('/(tabs)/timeline')}
-                activeOpacity={0.85}
-              >
-                <View style={{ flex: 1, paddingRight: 14 }}>
-                  <Text style={[s.rowLabel, { color: theme.textSecondary }]}>Personal profile</Text>
-                  <Text style={[s.rowHint, { color: theme.textMuted }]}>Your individual Marks and profile view.</Text>
-                </View>
-                <Text style={[s.rowValue, { color: theme.gold }]}>Open</Text>
-              </TouchableOpacity>
-            </View>
-
-            <Text style={[s.sectionLabel, { color: theme.textMuted, marginTop: 24 }]}>IDENTITY</Text>
+            <Text style={[s.sectionLabel, { color: theme.textMuted }]}>ACCOUNT</Text>
 
             <View style={[s.profileCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
               {avatarUri ? (
                 <Image source={{ uri: avatarUri }} style={s.avatar} />
               ) : (
                 <View style={[s.avatarPlaceholder, { backgroundColor: theme.raised }]}>
-  <Text style={[s.avatarInitial, { color: theme.gold }]}>
-    {displayName ? displayName[0].toUpperCase() : '?'}
-  </Text>
-</View>
+                  <Text style={[s.avatarInitial, { color: theme.gold }]}>
+                    {displayName ? displayName[0].toUpperCase() : '?'}
+                  </Text>
+                </View>
               )}
+
               <View style={s.profileInfo}>
-                <Text style={[s.profileName, { color: theme.text }]}>{displayName || 'No profile found'}</Text>
-<Text style={[s.profileNpub, { color: theme.textMuted }]} numberOfLines={1}>{shortNpub}</Text>
+                <Text style={[s.profileName, { color: theme.text }]}>
+                  {displayName || 'No profile found'}
+                </Text>
+                <Text style={[s.profileNpub, { color: theme.textMuted }]} numberOfLines={1}>
+                  {shortNpub}
+                </Text>
               </View>
+
               <TouchableOpacity
                 onPress={() => router.push('/profile' as any)}
                 style={[s.editProfileBtn, { borderColor: theme.gold }]}
@@ -573,91 +363,20 @@ const handleJoinFamily = async () => {
               </TouchableOpacity>
             </View>
 
-            {editingProfile && (
-              <View style={s.editBlock}>
-
-                {/* Profile photo picker */}
-                <Text style={[s.inputLabel, { color: theme.textMuted }]}>PROFILE PHOTO</Text>
-                <TouchableOpacity
-  style={[s.photoPicker, { backgroundColor: theme.surface, borderColor: theme.border }]}
-  onPress={handlePickPhoto}
-  disabled={uploadingPhoto}
->
-                  {uploadingPhoto ? (
-                    <ActivityIndicator color={theme.gold} />
-                  ) : editPicture ? (
-                    <View style={s.photoPickerPreview}>
-                      <Image source={{ uri: editPicture }} style={s.photoPickerImg} />
-                      <Text style={s.photoPickerChange}>Tap to change</Text>
-                    </View>
-                  ) : (
-                    <View style={s.photoPickerEmpty}>
-                      <Text style={s.photoPickerIcon}>📷</Text>
-                      <Text style={[s.photoPickerText, { color: theme.textMuted }]}>Add profile photo</Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-
-                <Text style={[s.inputLabel, { marginTop: 12, color: theme.textMuted }]}>NAME</Text>
-                <TextInput
-  style={[s.input, { backgroundColor: theme.surface, borderColor: theme.border, color: theme.text }]}
-  value={editName}
-  onChangeText={setEditName}
-  placeholder="username"
-  placeholderTextColor={theme.textMuted}
-  autoCapitalize="none"
-/>
-
-                <Text style={[s.inputLabel, { marginTop: 12, color: theme.textMuted }]}>DISPLAY NAME</Text>
-                <TextInput
-  style={[s.input, { backgroundColor: theme.surface, borderColor: theme.border, color: theme.text }]}
-  value={editDisplayName}
-  onChangeText={setEditDisplayName}
-  placeholder="Your full name"
-  placeholderTextColor={theme.textMuted}
-/>
-
-                <Text style={[s.inputLabel, { marginTop: 12, color: theme.textMuted }]}>BIO</Text>
-                <TextInput
-  style={[
-    s.input,
-    { minHeight: 80, backgroundColor: theme.surface, borderColor: theme.border, color: theme.text }
-  ]}
-  value={editAbout}
-  onChangeText={setEditAbout}
-  placeholder="Tell your story..."
-  placeholderTextColor={theme.textMuted}
-  multiline
-  textAlignVertical="top"
-/>
-
-                <View style={s.inputActions}>
-                  <TouchableOpacity style={[s.cancelBtn, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={() => setEditingProfile(false)}>
-                    <Text style={[s.cancelText, { color: theme.textMuted }]}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={[s.confirmBtn, { backgroundColor: theme.gold }]} onPress={saveProfileEdits} disabled={savingProfile || uploadingPhoto}>
-                    {savingProfile ? <ActivityIndicator color="#111" /> : <Text style={[s.confirmText, { color: theme.bg }]}>Publish</Text>}
-                  </TouchableOpacity>
-                </View>
+            <TouchableOpacity
+              style={[s.row, { borderBottomColor: theme.border }]}
+              onPress={() => router.push('/identity-keys' as any)}
+              activeOpacity={0.85}
+            >
+              <View style={{ flex: 1, paddingRight: 14 }}>
+                <Text style={[s.rowLabel, { color: theme.textSecondary }]}>Identity & Keys</Text>
+                <Text style={[s.rowHint, { color: theme.textMuted }]}>
+                  Public key, signer status, private-key backup, and device identity.
+                </Text>
               </View>
-            )}
 
-<View style={[s.row, { borderBottomColor: theme.border }]}>
-  <Text style={[s.rowLabel, { color: theme.textSecondary }]}>Public key (npub)</Text>
-  <TouchableOpacity onPress={async () => {
-    if (npub) {
-      await Clipboard.setStringAsync(npub);
-      Alert.alert('Copied', 'Your public key has been copied to clipboard. Share it freely — this is your public identity.');
-    }
-  }}>
-    <Text style={[s.rowValue, { color: theme.textMuted }]} numberOfLines={1}>{shortNpub}</Text>
-  </TouchableOpacity>
-</View>
-
-            <View style={[s.row, { borderBottomColor: theme.border }]}>
-              <Text style={[s.rowLabel, { color: theme.textSecondary }]}>Signer</Text>
-              <Text style={[s.rowValue, { color: theme.textMuted }]}>{useAmber ? 'Amber (NIP-55)' : 'Built-in'}</Text>
-            </View>
+              <Text style={[s.rowValue, { color: theme.gold }]}>Open</Text>
+            </TouchableOpacity>
 
             <View style={[s.row, { borderBottomColor: theme.border }]}>
               <View style={{ flex: 1, paddingRight: 14 }}>
@@ -696,46 +415,6 @@ const handleJoinFamily = async () => {
                 )}
               </TouchableOpacity>
             </View>
-
-            {!useAmber && (
-              <View style={s.backupBlock}>
-                {!showNsec ? (
-                  <TouchableOpacity
-  style={[
-    s.backupBtn,
-    {
-      backgroundColor: theme.surface,
-      borderColor: theme.gold,
-    },
-  ]}
-  onPress={handleBackupKey}
->
-                    <Text style={[s.backupBtnText, { color: theme.gold }]}>
-  🔑 Back up your private key
-</Text>
-                  </TouchableOpacity>
-                ) : (
-                  <View style={s.nsecBlock}>
-                    <Text style={s.nsecWarning}>⚠️ Never share this with anyone</Text>
-                    <Text style={s.nsecValue} selectable>{nsecValue}</Text>
-                    <View style={s.nsecActions}>
-                      <TouchableOpacity style={s.nsecCopyBtn} onPress={async () => {
-                        await Clipboard.setStringAsync(nsecValue);
-                        Alert.alert('Copied', 'Key copied to clipboard. Paste it into your password manager.');
-                      }}>
-                        <Text style={s.nsecCopyText}>Copy</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={s.nsecShareBtn} onPress={handleShareKey}>
-                        <Text style={s.nsecShareText}>Share</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={s.nsecHideBtn} onPress={() => { setShowNsec(false); setNsecValue(''); }}>
-                        <Text style={s.nsecHideText}>Hide</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                )}
-              </View>
-            )}
           </View>
 
           {/* ── RELAYS ── */}
@@ -1131,17 +810,6 @@ borderColor: '#7a1a1a',
   </View>
 </View>
 
-          <TouchableOpacity
-  style={[
-    s.dangerBtn,
-    { backgroundColor: theme.surface, borderColor: '#7a1a1a' }
-  ]} onPress={handleLogout}>
-            <Text style={[s.dangerText, { color: '#b33', fontWeight: '600' }]}>
-  Remove identity from device
-</Text>
-          </TouchableOpacity>
-
-
         </ScrollView>
       </SafeAreaView>
     </KeyboardAvoidingView>
@@ -1507,7 +1175,5 @@ familyRelayOption: {
   shareCodeText: { fontSize: 14, color: '#c9973a', fontWeight: '500' },
   leaveBtn: { padding: 12, borderRadius: 12, borderWidth: 0.5, borderColor: '#2a2a2a', alignItems: 'center' },
   leaveText: { fontSize: 14, color: '#555' },
-  dangerBtn: { borderWidth: 0.5, borderColor: '#3a1a1a', borderRadius: 12, padding: 14, alignItems: 'center', backgroundColor: '#1a0000', marginTop: 12 },
-  dangerText: { fontSize: 14, color: '#c00' },
   verse: { fontSize: 12, color: '#333', textAlign: 'center', marginTop: 32, letterSpacing: 1 },
 });
