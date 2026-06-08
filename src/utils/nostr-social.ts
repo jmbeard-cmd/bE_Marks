@@ -612,10 +612,12 @@ export async function syncFollowingGraph(input: {
   npub: string;
   relayUrls?: string[];
   hydrateProfiles?: boolean;
+  timeoutMs?: number;
 }): Promise<SocialGraphSyncResult> {
   const result = await fetchFollowingPubkeys({
     npub: input.npub,
     relayUrls: input.relayUrls,
+    timeoutMs: input.timeoutMs,
   });
 
   if (!input.hydrateProfiles) return result;
@@ -635,10 +637,12 @@ export async function syncFollowerGraph(input: {
   npub: string;
   relayUrls?: string[];
   hydrateProfiles?: boolean;
+  timeoutMs?: number;
 }): Promise<SocialGraphSyncResult> {
   const result = await fetchFollowerPubkeys({
     npub: input.npub,
     relayUrls: input.relayUrls,
+    timeoutMs: input.timeoutMs,
   });
 
   if (!input.hydrateProfiles) return result;
@@ -920,6 +924,7 @@ export async function publishFollowPubkey(input: {
       throw new Error('Could not derive current pubkey.');
     }
 
+    const myNpub = nip19.npubEncode(myPubkey);
     const targetPubkey = input.targetPubkey.trim();
 
     if (!targetPubkey) {
@@ -927,8 +932,46 @@ export async function publishFollowPubkey(input: {
     }
 
     const cache = await getSocialGraphCache();
+    const localFollowingPubkeys = uniqueStrings(cache.followingPubkeys);
+    let remoteFollowingPubkeys: string[] = [];
+
+    const localBaseLooksUnsafe = localFollowingPubkeys.length < 2;
+
+    if (localBaseLooksUnsafe) {
+      try {
+        const remoteResult = await fetchFollowingPubkeys({
+          npub: myNpub,
+          relayUrls: input.relayUrls,
+          timeoutMs: 6500,
+        });
+
+        remoteFollowingPubkeys = remoteResult.pubkeys;
+      } catch (remoteError) {
+        console.warn('[Social Follow] safe remote follow-list fetch failed:', remoteError);
+
+        return {
+          success: false,
+          followingPubkeys: localFollowingPubkeys,
+          error: 'Could not safely load your existing follow list. Follow was not published.',
+        };
+      }
+    }
+
+    const safeBasePubkeys = uniqueStrings([
+      ...remoteFollowingPubkeys,
+      ...localFollowingPubkeys,
+    ]);
+
+    if (safeBasePubkeys.length === 0) {
+      return {
+        success: false,
+        followingPubkeys: [],
+        error: 'Your follow list is not safely loaded yet. Refresh your Network before adding contacts.',
+      };
+    }
+
     const followingPubkeys = uniqueStrings([
-      ...cache.followingPubkeys,
+      ...safeBasePubkeys,
       targetPubkey,
     ]);
 
