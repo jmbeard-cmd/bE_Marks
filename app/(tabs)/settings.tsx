@@ -1,4 +1,3 @@
-import * as Clipboard from 'expo-clipboard';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
@@ -10,7 +9,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -20,26 +18,15 @@ import {
   type AccentPaletteKey,
 } from '../../src/constants/theme';
 import {
-  DEFAULT_RELAY,
-  fetchFamilyMembers,
-  publishFamilyMembership
-} from '../../src/utils/nostr';
-import {
-  generateFamilyId,
   getAccountSafetySettings,
   saveAccountSafetySettings,
-  upsertFamilyMember,
   type AccountSafetySettings,
-  type FamilyRelayMode,
 } from '../../src/utils/storage';
 import { useIdentity } from '../_layout';
 
 export default function SettingsScreen() {
     const {
     npub,
-    nsec,
-    family,
-    setFamily,
     profile,
     relays,
     themeMode,
@@ -48,15 +35,6 @@ export default function SettingsScreen() {
     setAccentPalette,
     theme,
   } = useIdentity();
-
-  const [showCreateFamily, setShowCreateFamily] = useState(false);
-  const [showJoinFamily, setShowJoinFamily] = useState(false);
-  const [familyName, setFamilyName] = useState('');
-  const [joinCode, setJoinCode] = useState('');
-
-  const [editingFamilyRelay, setEditingFamilyRelay] = useState(false);
-  const [familyRelayMode, setFamilyRelayMode] = useState<FamilyRelayMode>('default');
-  const [familyRelayUrl, setFamilyRelayUrl] = useState('');
 
   const [accountSafety, setAccountSafety] = useState<AccountSafetySettings | null>(null);
   const [savingAccountSafety, setSavingAccountSafety] = useState(false);
@@ -68,29 +46,6 @@ export default function SettingsScreen() {
       });
   }, []);
 
-  useEffect(() => {
-  const republishFamilyNameIfNeeded = async () => {
-    if (!family) return;
-    if (family.role !== 'admin') return;
-    if (!npub || !nsec) return;
-    if (!family.name?.trim()) return;
-
-    await publishFamilyMembership(
-      {
-        familyId: family.id,
-        familyName: family.name.trim(),
-        memberNpub: npub,
-        role: 'admin',
-        joinedAt: family.createdAt,
-      },
-      nsec,
-      relays
-    );
-  };
-
-  republishFamilyNameIfNeeded();
-}, [family?.id, family?.name, family?.role, npub, nsec]);
-
   const accentPaletteOptions = Object.entries(AccentPalettes) as [
     AccentPaletteKey,
     typeof AccentPalettes[AccentPaletteKey]
@@ -99,39 +54,6 @@ export default function SettingsScreen() {
   const displayName = profile?.display_name || profile?.name || null;
   const avatarUri = profile?.picture || null;
   const shortNpub = npub ? `${npub.slice(0, 12)}...${npub.slice(-8)}` : 'Amber signer';
-
-  const openFamilyRelayEditor = () => {
-    if (!family) return;
-
-    setFamilyRelayMode(family.relayMode ?? 'default');
-    setFamilyRelayUrl(family.relayUrl ?? '');
-    setEditingFamilyRelay(true);
-  };
-
-  const saveFamilyRelaySettings = async () => {
-    if (!family) return;
-
-    const trimmedUrl = familyRelayUrl.trim();
-
-    if ((familyRelayMode === 'custom' || familyRelayMode === 'both') && !trimmedUrl) {
-      Alert.alert('Relay required', 'Enter a custom relay URL for this Family Space.');
-      return;
-    }
-
-    if (trimmedUrl && !trimmedUrl.startsWith('wss://') && !trimmedUrl.startsWith('ws://')) {
-      Alert.alert('Invalid relay', 'Relay URL must start with wss:// or ws://');
-      return;
-    }
-
-    await setFamily({
-      ...family,
-      relayMode: familyRelayMode,
-      relayUrl: trimmedUrl || undefined,
-    });
-
-    setEditingFamilyRelay(false);
-    Alert.alert('Saved', 'Family Space sync settings updated.');
-  };
 
   const toggleChildUnder13 = () => {
     const nextChildUnder13 = accountSafety?.childUnder13 !== true;
@@ -167,146 +89,6 @@ export default function SettingsScreen() {
         },
       ]
     );
-  };
-
-  const handleCreateFamily = async () => {
-  if (!familyName.trim()) {
-    Alert.alert('Name required', 'Enter a family name.');
-    return;
-  }
-
-  if (!npub) {
-    Alert.alert('No identity', 'You need a Nostr identity first.');
-    return;
-  }
-
-  if (!nsec) {
-    Alert.alert('No private key', 'Cannot publish family membership without a private key.');
-    return;
-  }
-
-  const newFamily = {
-    id: generateFamilyId(),
-    name: familyName.trim(),
-    createdAt: Math.floor(Date.now() / 1000),
-    role: 'admin' as const,
-  };
-
-  const publishResult = await publishFamilyMembership(
-    {
-      familyId: newFamily.id,
-      familyName: newFamily.name,
-      memberNpub: npub,
-      role: 'admin',
-      joinedAt: newFamily.createdAt,
-    },
-    nsec,
-    relays
-  );
-
-  if (!publishResult.success) {
-    Alert.alert('Could not create family', publishResult.error || 'Membership event failed to publish.');
-    return;
-  }
-
-  await setFamily(newFamily);
-  setFamilyName('');
-  setShowCreateFamily(false);
-
-  Alert.alert(
-    'Family created!',
-    `Your family code is:\n\n${newFamily.id}\n\nShare this with family members so they can join.`
-  );
-};
-
-const handleJoinFamily = async () => {
-  const code = joinCode.trim().toUpperCase();
-
-  if (code.length !== 8) {
-    Alert.alert('Invalid code', 'Family codes are 8 characters.');
-    return;
-  }
-
-  if (!npub) {
-    Alert.alert('No identity', 'You need a Nostr identity first.');
-    return;
-  }
-
-  if (!nsec) {
-    Alert.alert('No private key', 'Cannot publish family membership without a private key.');
-    return;
-  }
-
-  // Fetch existing members from relay
-  const existingMembers = await fetchFamilyMembers(code, relays[0] || DEFAULT_RELAY);
-
-  const existingFamilyName =
-    existingMembers.find(m => m.familyName && m.familyName.trim())?.familyName?.trim() || 'Family';
-
-  const joined = {
-    id: code,
-    name: existingFamilyName,
-    createdAt: Math.floor(Date.now() / 1000),
-    role: 'member' as const,
-  };
-
-  // Publish your membership
-  const publishResult = await publishFamilyMembership(
-    {
-      familyId: joined.id,
-      familyName: joined.name,
-      memberNpub: npub,
-      role: 'member',
-      joinedAt: joined.createdAt,
-    },
-    nsec,
-    relays
-  );
-
-  if (!publishResult.success) {
-    Alert.alert('Could not join family', publishResult.error || 'Membership event failed to publish.');
-    return;
-  }
-
-  // ✅ SAVE ALL EXISTING MEMBERS LOCALLY
-  for (const member of existingMembers) {
-    if (!member.memberNpub) continue;
-
-    await upsertFamilyMember({
-      familyId: joined.id,
-      npub: member.memberNpub,
-            displayName: member.familyName || 'Member',
-      role: member.role === 'admin' ? 'admin' : 'member',
-      joinedAt: member.joinedAt,
-      status: 'active',
-    });
-  }
-
-  // ✅ ENSURE YOU ARE INCLUDED (critical)
-  await upsertFamilyMember({
-    familyId: joined.id,
-    npub,
-    displayName: profile?.name || 'You',
-    role: 'member',
-    status: 'active',
-  });
-
-  await setFamily(joined);
-
-  setJoinCode('');
-  setShowJoinFamily(false);
-
-  Alert.alert(
-    'Joined!',
-    `You've joined ${joined.name}. Your membership was saved and published.`
-  );
-};
-
-  const handleLeaveFamily = () => {
-    Alert.alert('Leave family', 'You will no longer see this family Space.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Leave', style: 'destructive', onPress: () => setFamily(null) },
-    ]);
   };
 
   return (
@@ -448,276 +230,6 @@ const handleJoinFamily = async () => {
                 Space relays are managed inside each Space by admins.
               </Text>
             </TouchableOpacity>
-          </View>
-
-                    {/* ── FAMILY ── */}
-          <View style={s.section}>
-            <Text style={[s.sectionLabel, { color: theme.textMuted }]}>FAMILY SPACE</Text>
-
-            {family ? (
-              <>
-                <View
-  style={[
-    s.familyCard,
-    { backgroundColor: theme.surface, borderColor: theme.gold + '33' }
-  ]}
->
-                  <Text style={[s.familyName, { color: theme.text }]}>{family.name}</Text>
-                  <Text style={[s.familyCode, { color: theme.gold }]}>Code: {family.id}</Text>
-                  <Text style={[s.familyRole, { color: theme.textMuted }]}>{family.role === 'admin' ? 'Admin' : 'Member'}</Text>
-                </View>
-
-                <View
-  style={[
-    s.familyRelayCard,
-    { backgroundColor: theme.surface, borderColor: theme.border }
-  ]}
->
-                  <View style={s.familyRelayHeader}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[s.familyRelayTitle, { color: theme.text }]}>Family Space Sync</Text>
-                      <Text style={[s.familyRelayHint, { color: theme.textMuted }]}>
-                        Choose where this Family Space saves and syncs.
-                      </Text>
-                    </View>
-
-                    {!editingFamilyRelay && (
-                      <TouchableOpacity onPress={openFamilyRelayEditor}>
-                        <Text style={[s.sectionAction, { color: theme.gold }]}>Manage</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-
-                  {!editingFamilyRelay ? (
-                    <View style={s.familyRelaySummary}>
-                      <Text style={[s.familyRelaySummaryLabel, { color: theme.textMuted }]}>Current setting</Text>
-                      <Text style={[s.familyRelaySummaryValue, { color: theme.gold }]}>
-                        {(family.relayMode ?? 'default') === 'default'
-                          ? 'bE Relay'
-                          : family.relayMode === 'custom'
-                            ? 'Custom Relay'
-                            : 'Both'}
-                      </Text>
-
-                      <Text style={[s.familyRelayUrlText, { color: theme.textMuted }]} numberOfLines={1}>
-                        {(family.relayMode ?? 'default') === 'default'
-                          ? DEFAULT_RELAY
-                          : family.relayUrl || DEFAULT_RELAY}
-                      </Text>
-                    </View>
-                  ) : (
-                    <View style={s.editBlock}>
-                      <Text style={[s.inputLabel, { color: theme.textMuted }]}>
-  WHERE SHOULD THIS FAMILY SPACE SYNC?
-</Text>
-
-<TouchableOpacity
-  style={[
-    s.familyRelayOption,
-    { backgroundColor: theme.surface, borderColor: theme.border },
-    familyRelayMode === 'default' && {
-      borderColor: theme.gold,
-    },
-  ]}
-  onPress={() => setFamilyRelayMode('default')}
-                        activeOpacity={0.85}
-                      >
-                        <Text style={[s.familyRelayOptionTitle, { color: theme.text }]}>bE Relay</Text>
-                        <Text style={[s.familyRelayOptionHint, { color: theme.textMuted }]}>
-  Easiest setup. Works automatically.
-</Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-  style={[
-    s.familyRelayOption,
-    { backgroundColor: theme.surface, borderColor: theme.border },
-    familyRelayMode === 'custom' && {
-      borderColor: theme.gold,
-    },
-  ]}
-                        onPress={() => setFamilyRelayMode('custom')}
-                        activeOpacity={0.85}
-                      >
-                        <Text style={[s.familyRelayOptionTitle, { color: theme.text }]}>Custom Relay</Text>
-                        <Text style={[s.familyRelayOptionHint, { color: theme.textMuted }]}>
-                          Use a private relay URL for this Family Space.
-                        </Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-  style={[
-    s.familyRelayOption,
-    { backgroundColor: theme.surface, borderColor: theme.border },
-    familyRelayMode === 'both' && {
-      borderColor: theme.gold,
-    },
-  ]}
-                        onPress={() => setFamilyRelayMode('both')}
-                        activeOpacity={0.85}
-                      >
-                        <Text style={[s.familyRelayOptionHint, { color: theme.textMuted }]}>
-  Save to bE Relay and your custom relay.
-</Text>
-                      </TouchableOpacity>
-
-                      {(familyRelayMode === 'custom' || familyRelayMode === 'both') && (
-                        <>
-                          <Text style={[s.inputLabel, { marginTop: 12, color: theme.textMuted }]}>CUSTOM RELAY URL</Text>
-                          <TextInput
-  style={[s.input, { backgroundColor: theme.surface, borderColor: theme.border, color: theme.text }]}
-  value={familyRelayUrl}
-                            onChangeText={setFamilyRelayUrl}
-                            placeholder="wss://relay.example.com"
-                            placeholderTextColor={theme.textMuted}
-                            autoCapitalize="none"
-                            keyboardType="url"
-                          />
-                        </>
-                      )}
-
-                      <View style={s.inputActions}>
-                        <TouchableOpacity
-                          style={s.cancelBtn}
-                          onPress={() => setEditingFamilyRelay(false)}
-                        >
-                          <Text style={[s.cancelText, { color: theme.textMuted }]}>Cancel</Text>
-                        </TouchableOpacity>
-
-                        <TouchableOpacity style={[s.confirmBtn, { backgroundColor: theme.gold }]} onPress={saveFamilyRelaySettings}>
-                          <Text style={[s.confirmText, { color: theme.bg }]}>Save</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  )}
-                </View>
-
-                {family.role === 'admin' && (
-                  <TouchableOpacity style={s.shareCodeBtn} onPress={async () => {
-                    await Clipboard.setStringAsync(family.id);
-                    Alert.alert('Copied!', `Family code ${family.id} copied to clipboard.`);
-                  }}>
-                    <Text style={s.shareCodeText}>Share family code</Text>
-                  </TouchableOpacity>
-                )}
-<TouchableOpacity
-  style={[
-    s.leaveBtn,
-    {
-      backgroundColor: theme.surface,
-borderColor: '#7a1a1a',
-    },
-  ]}
-  onPress={handleLeaveFamily}
->
-                  <Text style={[s.leaveText, { color: '#b33', fontWeight: '600' }]}>
-  Leave family
-</Text>
-                </TouchableOpacity>
-              </>
-            ) : (
-              <>
-                {!showCreateFamily && !showJoinFamily && (
-                  <View style={s.familyOptions}>
-  <TouchableOpacity
-    style={[
-      s.familyBtn,
-      { backgroundColor: theme.surface, borderColor: theme.border }
-    ]}
-    onPress={() => setShowCreateFamily(true)}
-  >
-  <Text style={s.familyBtnIcon}>👨‍👩‍👧‍👦</Text>
-
-<View style={{ flex: 1 }}>
-  <Text style={[s.familyBtnText, { color: theme.text }]}>
-    Create a family
-  </Text>
-  <Text style={[s.familyBtnHint, { color: theme.textMuted }]}>
-    Start a family Space
-  </Text>
-</View>
-  </TouchableOpacity>
-
-  <TouchableOpacity
-    style={[
-      s.familyBtn,
-      { backgroundColor: theme.surface, borderColor: theme.border }
-    ]}
-    onPress={() => setShowJoinFamily(true)}
-  >
-   <Text style={s.familyBtnIcon}>🔗</Text>
-
-<View style={{ flex: 1 }}>
-  <Text style={[s.familyBtnText, { color: theme.text }]}>
-    Join a family
-  </Text>
-  <Text style={[s.familyBtnHint, { color: theme.textMuted }]}>
-    Enter an invite code
-  </Text>
-</View>
-  </TouchableOpacity>
-</View>
-                )}
-                {showCreateFamily && (
-                  <View style={s.editBlock}>
-                    <Text style={[s.inputLabel, { color: theme.textMuted }]}>FAMILY NAME</Text>
-                    <TextInput
-                      style={[
-                        s.input,
-                        {
-                          backgroundColor: theme.surface,
-                          borderColor: theme.border,
-                          color: theme.text,
-                        },
-                      ]}
-                      value={familyName}
-                      onChangeText={setFamilyName}
-                      placeholder="e.g. The Smith Family"
-                      placeholderTextColor={theme.textMuted}
-                      autoFocus
-                    />
-                    <View style={s.inputActions}>
-                      <TouchableOpacity style={[s.cancelBtn, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={() => { setShowCreateFamily(false); setFamilyName(''); }}>
-                        <Text style={[s.cancelText, { color: theme.textMuted }]}>Cancel</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={[s.confirmBtn, { backgroundColor: theme.gold }]} onPress={handleCreateFamily}>
-                        <Text style={[s.confirmText, { color: theme.bg }]}>Create</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                )}
-                {showJoinFamily && (
-                  <View style={s.editBlock}>
-                    <Text style={[s.inputLabel, { color: theme.textMuted }]}>FAMILY CODE</Text>
-                    <TextInput
-                      style={[
-                        s.input,
-                        {
-                          backgroundColor: theme.surface,
-                          borderColor: theme.border,
-                          color: theme.text,
-                        },
-                      ]}
-                      value={joinCode}
-                      onChangeText={setJoinCode}
-                      placeholder="8-character code"
-                      placeholderTextColor={theme.textMuted}
-                      autoCapitalize="characters"
-                      maxLength={8}
-                      autoFocus
-                    />
-                    <View style={s.inputActions}>
-                      <TouchableOpacity style={[s.cancelBtn, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={() => { setShowJoinFamily(false); setJoinCode(''); }}>
-                        <Text style={[s.cancelText, { color: theme.textMuted }]}>Cancel</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={[s.confirmBtn, { backgroundColor: theme.gold }]} onPress={handleJoinFamily}>
-                        <Text style={[s.confirmText, { color: theme.bg }]}>Join</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                )}
-              </>
-            )}
           </View>
 
           {/* ── APP ── */}
