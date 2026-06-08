@@ -2,27 +2,27 @@ import SocialGraphSummaryCard from '@/components/SocialGraphSummaryCard';
 import SocialPersonCard from '@/components/SocialPersonCard';
 import SocialRelayInfoCard from '@/components/SocialRelayInfoCard';
 import {
-    syncFollowerGraph,
-    syncFollowingGraph,
+  syncFollowerGraph,
+  syncFollowingGraph,
 } from '@/src/utils/nostr-social';
 import {
-    getSocialGraphCache,
-    getSocialRelays,
-    type SocialGraphCache,
-    type SocialGraphPerson,
+  getSocialGraphCache,
+  getSocialRelays,
+  type SocialGraphCache,
+  type SocialGraphPerson,
 } from '@/src/utils/social-graph-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-    Alert,
-    FlatList,
-    Platform,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  FlatList,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useIdentity } from './_layout';
@@ -140,15 +140,25 @@ export default function SocialGraphScreen() {
     setSyncing(true);
 
     try {
-      await syncFollowingGraph({
-        npub,
-        hydrateProfiles: true,
-      });
+      const [cachedBeforeSync, relaysBeforeSync] = await Promise.all([
+        getSocialGraphCache(),
+        getSocialRelays(),
+      ]);
 
-      await syncFollowerGraph({
-        npub,
-        hydrateProfiles: true,
-      });
+      setCache(cachedBeforeSync);
+      setRelays(relaysBeforeSync);
+
+      if (tab === 'followers') {
+        await syncFollowerGraph({
+          npub,
+          hydrateProfiles: false,
+        });
+      } else {
+        await syncFollowingGraph({
+          npub,
+          hydrateProfiles: false,
+        });
+      }
 
       const [nextCache, nextRelays] = await Promise.all([
         getSocialGraphCache(),
@@ -157,13 +167,65 @@ export default function SocialGraphScreen() {
 
       setCache(nextCache);
       setRelays(nextRelays);
+
+      void (async () => {
+        try {
+          if (tab === 'followers') {
+            await syncFollowerGraph({
+              npub,
+              hydrateProfiles: true,
+            });
+
+            const [hydratedFollowerCache, hydratedFollowerRelays] = await Promise.all([
+              getSocialGraphCache(),
+              getSocialRelays(),
+            ]);
+
+            setCache(hydratedFollowerCache);
+            setRelays(hydratedFollowerRelays);
+
+            await syncFollowingGraph({
+              npub,
+              hydrateProfiles: true,
+            });
+          } else {
+            await syncFollowingGraph({
+              npub,
+              hydrateProfiles: true,
+            });
+
+            const [hydratedFollowingCache, hydratedFollowingRelays] = await Promise.all([
+              getSocialGraphCache(),
+              getSocialRelays(),
+            ]);
+
+            setCache(hydratedFollowingCache);
+            setRelays(hydratedFollowingRelays);
+
+            await syncFollowerGraph({
+              npub,
+              hydrateProfiles: true,
+            });
+          }
+
+          const [backgroundCache, backgroundRelays] = await Promise.all([
+            getSocialGraphCache(),
+            getSocialRelays(),
+          ]);
+
+          setCache(backgroundCache);
+          setRelays(backgroundRelays);
+        } catch (backgroundError) {
+          console.warn('[Social Graph] background refresh failed:', backgroundError);
+        }
+      })();
     } catch (error) {
       console.warn('[Social Graph] refresh failed:', error);
       Alert.alert('Sync failed', 'Could not refresh your social graph from connected relays.');
     } finally {
       setSyncing(false);
     }
-  }, [npub, syncing]);
+  }, [npub, syncing, tab]);
 
   const handleShowFollowing = useCallback(() => {
     setTab(current => (current === 'following' ? current : 'following'));
