@@ -809,36 +809,121 @@ export function fetchRelayList(npub: string): Promise<string[]> {
   return new Promise(resolve => {
     try {
       const decoded = nip19.decode(npub);
-      if (decoded.type !== 'npub') { resolve([DEFAULT_RELAY]); return; }
+
+      if (decoded.type !== 'npub') {
+        resolve(Array.from(new Set([DEFAULT_RELAY, ...FAST_RELAYS])));
+        return;
+      }
+
       const pubkeyHex = decoded.data as string;
-      const ws = new WebSocket(DEFAULT_RELAY);
-      const timeout = setTimeout(() => { ws.close(); resolve([DEFAULT_RELAY]); }, 6000);
-      ws.onopen = () => {
-        ws.send(JSON.stringify(['REQ', 'relay-fetch', {
-          kinds: [10002],
-          authors: [pubkeyHex],
-          limit: 1,
-        }]));
+      const bootstrapRelays = Array.from(new Set([
+        DEFAULT_RELAY,
+        ...FAST_RELAYS,
+        'wss://relay.nostr.band',
+        'wss://relay.primal.net',
+        'wss://relay.snort.social',
+        'wss://nos.lol',
+      ]));
+
+      const relayResults: { relays: string[]; createdAt: number }[] = [];
+      let completed = 0;
+      let settled = false;
+
+      const finishRelay = () => {
+        completed += 1;
+
+        if (completed < bootstrapRelays.length || settled) return;
+
+        settled = true;
+
+        const latest = relayResults
+          .sort((a, b) => b.createdAt - a.createdAt)[0];
+
+        const fallbackRelays = Array.from(new Set([
+          DEFAULT_RELAY,
+          ...FAST_RELAYS,
+          'wss://relay.nostr.band',
+          'wss://relay.primal.net',
+          'wss://relay.snort.social',
+          'wss://nos.lol',
+        ]));
+
+        resolve(latest?.relays?.length ? latest.relays : fallbackRelays);
       };
-      ws.onmessage = (msg) => {
+
+      bootstrapRelays.forEach(relayUrl => {
         try {
-          const data = JSON.parse(msg.data);
-          if (data[0] === 'EVENT' && data[2]?.kind === 10002) {
+          const ws = new WebSocket(relayUrl);
+          let relayFinished = false;
+
+          const finishThisRelay = () => {
+            if (relayFinished) return;
+
+            relayFinished = true;
+
+            try {
+              ws.close();
+            } catch {}
+
+            finishRelay();
+          };
+
+          const timeout = setTimeout(() => {
+            finishThisRelay();
+          }, 4500);
+
+          ws.onopen = () => {
+            ws.send(JSON.stringify([
+              'REQ',
+              `relay-fetch-${pubkeyHex.slice(0, 8)}-${Date.now()}`,
+              {
+                kinds: [10002],
+                authors: [pubkeyHex],
+                limit: 5,
+              },
+            ]));
+          };
+
+          ws.onmessage = msg => {
+            try {
+              const data = JSON.parse(String(msg.data));
+
+              if (data[0] === 'EVENT' && data[2]?.kind === 10002) {
+                const event = data[2] as Event;
+                const relays = (event.tags as string[][])
+                  .filter(tag => tag[0] === 'r' && typeof tag[1] === 'string')
+                  .map(tag => tag[1].trim())
+                  .filter(relay => relay.startsWith('wss://') || relay.startsWith('ws://'));
+
+                relayResults.push({
+                  relays: Array.from(new Set(relays)),
+                  createdAt: event.created_at || 0,
+                });
+
+                return;
+              }
+
+              if (data[0] === 'EOSE' || data[0] === 'CLOSED') {
+                clearTimeout(timeout);
+                finishThisRelay();
+              }
+            } catch {
+              clearTimeout(timeout);
+              finishThisRelay();
+            }
+          };
+
+          ws.onerror = () => {
             clearTimeout(timeout);
-            ws.close();
-            const relays = (data[2].tags as string[][])
-              .filter(t => t[0] === 'r')
-              .map(t => t[1]);
-            resolve(relays.length > 0 ? relays : [DEFAULT_RELAY]);
-          } else if (data[0] === 'EOSE') {
-            clearTimeout(timeout);
-            ws.close();
-            resolve([DEFAULT_RELAY]);
-          }
-        } catch { resolve([DEFAULT_RELAY]); }
-      };
-      ws.onerror = () => { clearTimeout(timeout); resolve([DEFAULT_RELAY]); };
-    } catch { resolve([DEFAULT_RELAY]); }
+            finishThisRelay();
+          };
+        } catch {
+          finishRelay();
+        }
+      });
+    } catch {
+      resolve(Array.from(new Set([DEFAULT_RELAY, ...FAST_RELAYS])));
+    }
   });
 }
 
@@ -848,20 +933,43 @@ export async function publishRelayList(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const decoded = nip19.decode(nsec);
-    if (decoded.type !== 'nsec') throw new Error('Invalid nsec');
+
+    if (decoded.type !== 'nsec') {
+      throw new Error('Invalid nsec');
+    }
+
     const sk = decoded.data as Uint8Array;
     const pk = getPublicKey(sk);
+
+    const relayList = Array.from(
+      new Set(
+        [
+          DEFAULT_RELAY,
+          ...FAST_RELAYS,
+          ...relays,
+        ]
+          .map(relay => relay.trim())
+          .filter(relay => relay.startsWith('wss://') || relay.startsWith('ws://'))
+      )
+    );
+
     const unsigned: UnsignedEvent = {
       kind: 10002,
       created_at: Math.floor(Date.now() / 1000),
-      tags: relays.map(r => ['r', r]),
+      tags: relayList.map(relay => ['r', relay]),
       content: '',
       pubkey: pk,
     };
+
     const signed = finalizeEvent(unsigned, sk);
-    return await publishToSpecificRelay(signed, DEFAULT_RELAY);
+    const result = await publishToSpecificRelays(signed, relayList);
+
+    return {
+      success: result.success,
+      error: result.success ? undefined : result.error || 'Could not publish relay list',
+    };
   } catch (e: any) {
-    return { success: false, error: e.message };
+    return { success: false, error: e?.message || 'Could not publish relay list' };
   }
 }
 
