@@ -785,7 +785,7 @@ export default function FollowingFeed({ theme, onScroll }: FollowingFeedProps) {
                   activeOpacity={0.78}
                   onPress={() => handleCopyAuthorId(selectedAuthorPost)}
                   accessibilityRole="button"
-                  accessibilityLabel="Copy author id"
+                  accessibilityLabel="Copy author profile"
                 >
                   <Ionicons
                     name={
@@ -813,7 +813,7 @@ export default function FollowingFeed({ theme, onScroll }: FollowingFeedProps) {
                   >
                     {copyFeedback?.postId === selectedAuthorPost.id && copyFeedback.action === 'author'
                       ? 'Copied'
-                      : 'Copy ID'}
+                      : 'Copy Profile'}
                   </Text>
                 </TouchableOpacity>
 
