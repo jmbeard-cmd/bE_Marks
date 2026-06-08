@@ -222,90 +222,90 @@ export default function SettingsScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* ── APP ── */}
-<View style={s.section}>
-  <Text style={[s.sectionLabel, { color: theme.textMuted }]}>APP</Text>
+          {/* ── APPEARANCE ── */}
+          <View style={s.section}>
+            <Text style={[s.sectionLabel, { color: theme.textMuted }]}>APPEARANCE</Text>
 
-  <View style={[s.row, { borderBottomColor: theme.border }]}>
-    <View>
-      <Text style={[s.rowLabel, { color: theme.textSecondary }]}>Appearance</Text>
-      <Text style={[s.rowHint, { color: theme.textMuted }]}>Switch between dark and light mode</Text>
-    </View>
+            <View style={[s.row, { borderBottomColor: theme.border }]}>
+              <View>
+                <Text style={[s.rowLabel, { color: theme.textSecondary }]}>Theme</Text>
+                <Text style={[s.rowHint, { color: theme.textMuted }]}>Switch between dark and light mode</Text>
+              </View>
 
-    <TouchableOpacity
-      style={[
-        s.themeToggle,
-        { borderColor: theme.border, backgroundColor: theme.surface },
-        themeMode === 'light' && { borderColor: theme.gold, backgroundColor: theme.gold },
-      ]}
-      onPress={() => setThemeMode(themeMode === 'dark' ? 'light' : 'dark')}
-      activeOpacity={0.85}
-    >
-      <Text
-        style={[
-          s.themeToggleText,
-          { color: theme.gold },
-          themeMode === 'light' && { color: theme.bg },
-        ]}
-      >
-        {themeMode === 'dark' ? 'Dark' : 'Light'}
-      </Text>
-    </TouchableOpacity>
-  </View>
-
-  <View style={[s.paletteBlock, { borderBottomColor: theme.border }]}>
-    <View style={s.paletteHeader}>
-      <View>
-        <Text style={[s.rowLabel, { color: theme.textSecondary }]}>Accent Palette</Text>
-        <Text style={[s.rowHint, { color: theme.textMuted }]}>Choose the app’s highlight color</Text>
-      </View>
-
-      <Text style={[s.paletteCurrent, { color: theme.gold }]}>
-        {AccentPalettes[accentPalette]?.label ?? 'Classic Gold'}
-      </Text>
-    </View>
-
-    <View style={s.paletteGrid}>
-      {accentPaletteOptions.map(([key, palette]) => {
-        const selected = accentPalette === key;
-
-        return (
-          <TouchableOpacity
-            key={key}
-            style={[
-              s.paletteOption,
-              {
-                borderColor: selected ? palette.gold : theme.border,
-                backgroundColor: theme.surface,
-              },
-            ]}
-            activeOpacity={0.85}
-            onPress={() => setAccentPalette(key)}
-          >
-            <View style={s.paletteSwatches}>
-              <View style={[s.paletteSwatch, { backgroundColor: palette.gold }]} />
-              <View style={[s.paletteSwatch, { backgroundColor: palette.goldLight }]} />
-              <View style={[s.paletteSwatch, { backgroundColor: palette.goldDim }]} />
+              <TouchableOpacity
+                style={[
+                  s.themeToggle,
+                  { borderColor: theme.border, backgroundColor: theme.surface },
+                  themeMode === 'light' && { borderColor: theme.gold, backgroundColor: theme.gold },
+                ]}
+                onPress={() => setThemeMode(themeMode === 'dark' ? 'light' : 'dark')}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[
+                    s.themeToggleText,
+                    { color: theme.gold },
+                    themeMode === 'light' && { color: theme.bg },
+                  ]}
+                >
+                  {themeMode === 'dark' ? 'Dark' : 'Light'}
+                </Text>
+              </TouchableOpacity>
             </View>
 
-            <Text style={[s.paletteName, { color: selected ? palette.gold : theme.textSecondary }]}>
-              {palette.label}
-            </Text>
+            <View style={[s.paletteBlock, { borderBottomColor: theme.border }]}>
+              <View style={s.paletteHeader}>
+                <View>
+                  <Text style={[s.rowLabel, { color: theme.textSecondary }]}>Accent Color</Text>
+                  <Text style={[s.rowHint, { color: theme.textMuted }]}>Choose the app’s highlight color</Text>
+                </View>
 
-            <Text style={[s.paletteStatus, { color: selected ? palette.gold : theme.textMuted }]}>
-              {selected ? 'Selected' : 'Tap to use'}
-            </Text>
-          </TouchableOpacity>
-        );
-      })}
-    </View>
-  </View>
+                <Text style={[s.paletteCurrent, { color: theme.gold }]}>
+                  {AccentPalettes[accentPalette]?.label ?? 'Classic Gold'}
+                </Text>
+              </View>
 
-  <View style={[s.row, { borderBottomColor: theme.border }]}>
-    <Text style={[s.rowLabel, { color: theme.textSecondary }]}>Version</Text>
-    <Text style={[s.rowValue, { color: theme.textMuted }]}>1.3.0</Text>
-  </View>
-</View>
+              <View style={s.paletteGrid}>
+                {accentPaletteOptions.map(([key, palette]) => {
+                  const selected = accentPalette === key;
+
+                  return (
+                    <TouchableOpacity
+                      key={key}
+                      style={[
+                        s.paletteOption,
+                        {
+                          borderColor: selected ? palette.gold : theme.border,
+                          backgroundColor: theme.surface,
+                        },
+                      ]}
+                      activeOpacity={0.85}
+                      onPress={() => setAccentPalette(key)}
+                    >
+                      <View style={s.paletteSwatches}>
+                        <View style={[s.paletteSwatch, { backgroundColor: palette.gold }]} />
+                        <View style={[s.paletteSwatch, { backgroundColor: palette.goldLight }]} />
+                        <View style={[s.paletteSwatch, { backgroundColor: palette.goldDim }]} />
+                      </View>
+
+                      <Text style={[s.paletteName, { color: selected ? palette.gold : theme.textSecondary }]}>
+                        {palette.label}
+                      </Text>
+
+                      <Text style={[s.paletteStatus, { color: selected ? palette.gold : theme.textMuted }]}>
+                        {selected ? 'Selected' : 'Tap to use'}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            <View style={[s.row, { borderBottomColor: theme.border }]}>
+              <Text style={[s.rowLabel, { color: theme.textSecondary }]}>Version</Text>
+              <Text style={[s.rowValue, { color: theme.textMuted }]}>1.3.0</Text>
+            </View>
+          </View>
 
         </ScrollView>
       </SafeAreaView>
