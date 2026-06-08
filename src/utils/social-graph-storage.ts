@@ -1,8 +1,29 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { DEFAULT_RELAY, FAST_RELAYS } from './nostr';
+import { DEFAULT_RELAY, FAST_RELAYS, getStoredIdentity } from './nostr';
 
 const SOCIAL_GRAPH_CACHE_KEY = 'be_social_graph_cache_v1';
 const SOCIAL_RELAYS_KEY = 'be_social_relays_v1';
+
+async function getScopedStorageKey(baseKey: string): Promise<string> {
+  try {
+    const identity = await getStoredIdentity();
+    const npub = identity?.npub?.trim();
+
+    if (!npub) return baseKey;
+
+    return `${baseKey}:${npub}`;
+  } catch {
+    return baseKey;
+  }
+}
+
+async function getScopedSocialGraphCacheKey(): Promise<string> {
+  return getScopedStorageKey(SOCIAL_GRAPH_CACHE_KEY);
+}
+
+async function getScopedSocialRelaysKey(): Promise<string> {
+  return getScopedStorageKey(SOCIAL_RELAYS_KEY);
+}
 
 export type SocialGraphPerson = {
   pubkey: string;
@@ -81,14 +102,18 @@ function mergeUniquePubkeys(pubkeys: string[]): string[] {
 
 export async function getSocialRelays(): Promise<string[]> {
   try {
-    const raw = await AsyncStorage.getItem(SOCIAL_RELAYS_KEY);
+    const storageKey = await getScopedSocialRelaysKey();
+    const raw = await AsyncStorage.getItem(storageKey);
     const parsed = raw ? JSON.parse(raw) : null;
 
     if (!Array.isArray(parsed)) {
       return DEFAULT_SOCIAL_RELAYS;
     }
 
-    const relays = normalizeSocialRelayUrls(parsed);
+    const relays = normalizeSocialRelayUrls([
+      ...DEFAULT_SOCIAL_RELAYS,
+      ...parsed,
+    ]);
 
     return relays.length > 0 ? relays : DEFAULT_SOCIAL_RELAYS;
   } catch {
@@ -97,24 +122,31 @@ export async function getSocialRelays(): Promise<string[]> {
 }
 
 export async function saveSocialRelays(relayUrls: string[]): Promise<string[]> {
-  const relays = normalizeSocialRelayUrls(relayUrls);
+  const relays = normalizeSocialRelayUrls([
+    ...DEFAULT_SOCIAL_RELAYS,
+    ...relayUrls,
+  ]);
 
   const nextRelays = relays.length > 0 ? relays : DEFAULT_SOCIAL_RELAYS;
+  const storageKey = await getScopedSocialRelaysKey();
 
-  await AsyncStorage.setItem(SOCIAL_RELAYS_KEY, JSON.stringify(nextRelays));
+  await AsyncStorage.setItem(storageKey, JSON.stringify(nextRelays));
 
   return nextRelays;
 }
 
 export async function resetSocialRelays(): Promise<string[]> {
-  await AsyncStorage.setItem(SOCIAL_RELAYS_KEY, JSON.stringify(DEFAULT_SOCIAL_RELAYS));
+  const storageKey = await getScopedSocialRelaysKey();
+
+  await AsyncStorage.setItem(storageKey, JSON.stringify(DEFAULT_SOCIAL_RELAYS));
 
   return DEFAULT_SOCIAL_RELAYS;
 }
 
 export async function getSocialGraphCache(): Promise<SocialGraphCache> {
   try {
-    const raw = await AsyncStorage.getItem(SOCIAL_GRAPH_CACHE_KEY);
+    const storageKey = await getScopedSocialGraphCacheKey();
+    const raw = await AsyncStorage.getItem(storageKey);
     const parsed = raw ? JSON.parse(raw) : null;
 
     if (!parsed || typeof parsed !== 'object') {
@@ -155,7 +187,9 @@ export async function saveSocialGraphCache(cache: SocialGraphCache): Promise<voi
     followersUpdatedAt: cache.followersUpdatedAt,
   };
 
-  await AsyncStorage.setItem(SOCIAL_GRAPH_CACHE_KEY, JSON.stringify(safeCache));
+  const storageKey = await getScopedSocialGraphCacheKey();
+
+  await AsyncStorage.setItem(storageKey, JSON.stringify(safeCache));
 }
 
 export async function saveFollowingPubkeys(
@@ -297,5 +331,7 @@ export async function isFollowingPubkey(pubkey: string): Promise<boolean> {
 }
 
 export async function clearSocialGraphCache(): Promise<void> {
-  await AsyncStorage.removeItem(SOCIAL_GRAPH_CACHE_KEY);
+  const storageKey = await getScopedSocialGraphCacheKey();
+
+  await AsyncStorage.removeItem(storageKey);
 }
