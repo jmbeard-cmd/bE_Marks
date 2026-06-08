@@ -12,30 +12,6 @@ export const STARTER_RELAY_DIRECTORY: RelayDirectoryItem[] = [
     category: 'recommended',
     description: 'bE Marks home relay.',
   },
-  {
-    url: 'wss://relay.damus.io',
-    label: 'Damus',
-    category: 'public',
-    description: 'Popular public Nostr relay.',
-  },
-  {
-    url: 'wss://nos.lol',
-    label: 'nos.lol',
-    category: 'public',
-    description: 'Popular public Nostr relay.',
-  },
-  {
-    url: 'wss://relay.snort.social',
-    label: 'Snort',
-    category: 'public',
-    description: 'Public Nostr relay used by Snort/Iris-style clients.',
-  },
-  {
-    url: 'wss://relay.nostr.band',
-    label: 'Nostr.band',
-    category: 'search',
-    description: 'Search-focused relay.',
-  },
 ];
 
 export const DEFAULT_RELAYS = STARTER_RELAY_DIRECTORY.map(relay => relay.url);

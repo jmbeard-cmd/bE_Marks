@@ -105,9 +105,14 @@ export default function RelayNetworkScreen() {
     searchRelayDirectory(relayDirectory, relaySearchText)
   ), [relayDirectory, relaySearchText]);
 
-  const selectedRelayIsActive = selectedRelay
-    ? visibleLocalRelays.includes(selectedRelay.url)
-    : false;
+  const selectedRelayUrl = selectedRelay?.url ?? null;
+  const relaySearchQuery = relaySearch.trim().replace(/^wss?:\/\//i, '');
+  const relaySearchIsShort = relaySearchQuery.length > 0 && relaySearchQuery.length < 3;
+  const relayDiscoveryHint = relaySearchIsShort
+    ? 'Type at least 3 characters from a relay URL to search the directory.'
+    : relaySearchQuery
+      ? 'Searching relay URLs only. Results are capped to keep this screen clean.'
+      : 'Showing featured relays. Search by relay URL when you need more.';
 
   useEffect(() => {
     let cancelled = false;
@@ -379,11 +384,15 @@ export default function RelayNetworkScreen() {
               ]}
               value={relaySearch}
               onChangeText={setRelaySearch}
-              placeholder="Search relays by name or URL"
+              placeholder="Search relay URL, ex: damus or purple"
               placeholderTextColor={theme.textMuted}
               autoCapitalize="none"
               autoCorrect={false}
             />
+
+            <Text style={[s.relayDiscoveryHint, { color: theme.textMuted }]}>
+              {relayDiscoveryHint}
+            </Text>
 
             {loadingRelayDirectory && (
               <View style={s.relayDirectoryLoadingRow}>
@@ -396,36 +405,160 @@ export default function RelayNetworkScreen() {
 
             {discoveredRelayOptions.map(relay => {
               const selected = visibleLocalRelays.includes(relay.url);
+              const expanded = selectedRelayUrl === relay.url;
 
               return (
-                <TouchableOpacity
-                  key={`${activeLane}_${relay.url}`}
-                  style={[s.relayPickerRow, { borderBottomColor: theme.border }]}
-                  onPress={() => openRelayDetails(relay)}
-                  activeOpacity={0.8}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text style={[s.relayPickerName, { color: theme.text }]}>
-                      {relay.label || RELAY_LABELS[relay.url] || relay.url}
-                    </Text>
-                    <Text style={[s.relayPickerUrl, { color: theme.textMuted }]} numberOfLines={1}>
-                      {relay.url}
-                    </Text>
-                    <Text style={[s.relayPickerMeta, { color: theme.textMuted }]} numberOfLines={1}>
-                      {relay.source} · {relay.category}{relay.online === true ? ' · online' : ''}
-                    </Text>
-                  </View>
-
-                  <Text
+                <View key={`${activeLane}_${relay.url}`}>
+                  <TouchableOpacity
                     style={[
-                      s.relayPickerStatus,
-                      { color: theme.textMuted },
-                      selected && { color: theme.gold },
+                      s.relayPickerRow,
+                      { borderBottomColor: expanded ? 'transparent' : theme.border },
                     ]}
+                    onPress={() => {
+                      if (expanded) {
+                        relayInfoRequestId.current += 1;
+                        setSelectedRelay(null);
+                        setSelectedRelayInfo(null);
+                        setLoadingRelayInfo(false);
+                        return;
+                      }
+
+                      openRelayDetails(relay);
+                    }}
+                    activeOpacity={0.8}
                   >
-                    {selected ? 'ON' : 'OFF'}
-                  </Text>
-                </TouchableOpacity>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[s.relayPickerName, { color: theme.text }]}>
+                        {relay.label || RELAY_LABELS[relay.url] || relay.url}
+                      </Text>
+                      <Text style={[s.relayPickerUrl, { color: theme.textMuted }]} numberOfLines={1}>
+                        {relay.url}
+                      </Text>
+                      <Text style={[s.relayPickerMeta, { color: theme.textMuted }]} numberOfLines={1}>
+                        {relay.source} · {relay.category}{relay.online === true ? ' · online' : ''}
+                      </Text>
+                    </View>
+
+                    <View style={s.relayPickerRight}>
+                      <Text
+                        style={[
+                          s.relayPickerStatus,
+                          { color: theme.textMuted },
+                          selected && { color: theme.gold },
+                        ]}
+                      >
+                        {selected ? 'ON' : 'OFF'}
+                      </Text>
+                      <Text style={[s.relayPickerChevron, { color: theme.textMuted }]}>
+                        {expanded ? '⌃' : '⌄'}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  {expanded && (
+                    <View style={[s.relayInfoCard, { backgroundColor: theme.raised, borderColor: theme.border }]}>
+                      <View style={s.relayInfoHeader}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[s.relayInfoTitle, { color: theme.text }]}>
+                            {selectedRelayInfo?.name || relay.label || RELAY_LABELS[relay.url] || relay.url}
+                          </Text>
+                          <Text style={[s.relayInfoUrl, { color: theme.textMuted }]} numberOfLines={1}>
+                            {relay.url}
+                          </Text>
+                        </View>
+
+                        <TouchableOpacity
+                          onPress={() => {
+                            relayInfoRequestId.current += 1;
+                            setSelectedRelay(null);
+                            setSelectedRelayInfo(null);
+                            setLoadingRelayInfo(false);
+                          }}
+                          activeOpacity={0.82}
+                        >
+                          <Text style={[s.relayInfoClose, { color: theme.textMuted }]}>✕</Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      {loadingRelayInfo ? (
+                        <View style={s.relayDirectoryLoadingRow}>
+                          <ActivityIndicator size="small" color={theme.gold} />
+                          <Text style={[s.relayDiscoveryEmpty, { color: theme.textMuted }]}>
+                            Loading relay information…
+                          </Text>
+                        </View>
+                      ) : (
+                        <>
+                          <Text style={[s.relayInfoDescription, { color: theme.textSecondary }]}>
+                            {selectedRelayInfo?.description ||
+                              relay.description ||
+                              'No relay description was provided by this relay.'}
+                          </Text>
+
+                          <View style={s.relayInfoGrid}>
+                            <Text style={[s.relayInfoMeta, { color: theme.textMuted }]}>
+                              Source: {relay.source}
+                            </Text>
+
+                            <Text style={[s.relayInfoMeta, { color: theme.textMuted }]}>
+                              Category: {relay.category}
+                            </Text>
+
+                            <Text style={[s.relayInfoMeta, { color: theme.textMuted }]}>
+                              Status: {relay.online === true ? 'Online' : 'Not verified'}
+                            </Text>
+
+                            <Text style={[s.relayInfoMeta, { color: theme.textMuted }]}>
+                              Software: {selectedRelayInfo?.software || 'Not listed'}
+                              {selectedRelayInfo?.version ? ` ${selectedRelayInfo.version}` : ''}
+                            </Text>
+
+                            <Text style={[s.relayInfoMeta, { color: theme.textMuted }]}>
+                              NIPs: {selectedRelayInfo?.supported_nips?.join(', ') || 'Not listed'}
+                            </Text>
+
+                            <Text style={[s.relayInfoMeta, { color: theme.textMuted }]}>
+                              Contact: {selectedRelayInfo?.contact || 'Not listed'}
+                            </Text>
+
+                            <Text style={[s.relayInfoMeta, { color: theme.textMuted }]}>
+                              Countries: {selectedRelayInfo?.relay_countries?.join(', ') || 'Not listed'}
+                            </Text>
+
+                            <Text style={[s.relayInfoMeta, { color: theme.textMuted }]}>
+                              Tags: {selectedRelayInfo?.tags?.join(', ') || 'Not listed'}
+                            </Text>
+                          </View>
+                        </>
+                      )}
+
+                      <TouchableOpacity
+                        style={[
+                          s.relayInfoActionBtn,
+                          { backgroundColor: selected ? theme.surface : theme.gold },
+                        ]}
+                        onPress={() => {
+                          if (selected) {
+                            removeRelay(relay.url);
+                            return;
+                          }
+
+                          toggleRelay(relay.url);
+                        }}
+                        activeOpacity={0.86}
+                      >
+                        <Text
+                          style={[
+                            s.relayInfoActionText,
+                            { color: selected ? theme.text : theme.bg },
+                          ]}
+                        >
+                          {selected ? 'Remove from Active Relays' : 'Add to Active Relays'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
               );
             })}
 
@@ -433,109 +566,6 @@ export default function RelayNetworkScreen() {
               <Text style={[s.relayDiscoveryEmpty, { color: theme.textMuted }]}>
                 No matching relays yet. Add a custom relay below.
               </Text>
-            )}
-
-            {selectedRelay && (
-              <View style={[s.relayInfoCard, { backgroundColor: theme.raised, borderColor: theme.border }]}>
-                <View style={s.relayInfoHeader}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[s.relayInfoTitle, { color: theme.text }]}>
-                      {selectedRelayInfo?.name || selectedRelay.label || RELAY_LABELS[selectedRelay.url] || selectedRelay.url}
-                    </Text>
-                    <Text style={[s.relayInfoUrl, { color: theme.textMuted }]} numberOfLines={1}>
-                      {selectedRelay.url}
-                    </Text>
-                  </View>
-
-                  <TouchableOpacity
-                    onPress={() => {
-                      setSelectedRelay(null);
-                      setSelectedRelayInfo(null);
-                      setLoadingRelayInfo(false);
-                    }}
-                    activeOpacity={0.82}
-                  >
-                    <Text style={[s.relayInfoClose, { color: theme.textMuted }]}>✕</Text>
-                  </TouchableOpacity>
-                </View>
-
-                {loadingRelayInfo ? (
-                  <View style={s.relayDirectoryLoadingRow}>
-                    <ActivityIndicator size="small" color={theme.gold} />
-                    <Text style={[s.relayDiscoveryEmpty, { color: theme.textMuted }]}>
-                      Loading relay information…
-                    </Text>
-                  </View>
-                ) : (
-                  <>
-                    <Text style={[s.relayInfoDescription, { color: theme.textSecondary }]}>
-                      {selectedRelayInfo?.description ||
-                        selectedRelay.description ||
-                        'No relay description was provided by this relay.'}
-                    </Text>
-
-                    <View style={s.relayInfoGrid}>
-                      <Text style={[s.relayInfoMeta, { color: theme.textMuted }]}>
-                        Source: {selectedRelay.source}
-                      </Text>
-
-                      <Text style={[s.relayInfoMeta, { color: theme.textMuted }]}>
-                        Category: {selectedRelay.category}
-                      </Text>
-
-                      <Text style={[s.relayInfoMeta, { color: theme.textMuted }]}>
-                        Status: {selectedRelay.online === true ? 'Online' : 'Not verified'}
-                      </Text>
-
-                      <Text style={[s.relayInfoMeta, { color: theme.textMuted }]}>
-                        Software: {selectedRelayInfo?.software || 'Not listed'}
-                        {selectedRelayInfo?.version ? ` ${selectedRelayInfo.version}` : ''}
-                      </Text>
-
-                      <Text style={[s.relayInfoMeta, { color: theme.textMuted }]}>
-                        NIPs: {selectedRelayInfo?.supported_nips?.join(', ') || 'Not listed'}
-                      </Text>
-
-                      <Text style={[s.relayInfoMeta, { color: theme.textMuted }]}>
-                        Contact: {selectedRelayInfo?.contact || 'Not listed'}
-                      </Text>
-
-                      <Text style={[s.relayInfoMeta, { color: theme.textMuted }]}>
-                        Countries: {selectedRelayInfo?.relay_countries?.join(', ') || 'Not listed'}
-                      </Text>
-
-                      <Text style={[s.relayInfoMeta, { color: theme.textMuted }]}>
-                        Tags: {selectedRelayInfo?.tags?.join(', ') || 'Not listed'}
-                      </Text>
-                    </View>
-                  </>
-                )}
-
-                <TouchableOpacity
-                  style={[
-                    s.relayInfoActionBtn,
-                    { backgroundColor: selectedRelayIsActive ? theme.surface : theme.gold },
-                  ]}
-                  onPress={() => {
-                    if (selectedRelayIsActive) {
-                      removeRelay(selectedRelay.url);
-                      return;
-                    }
-
-                    toggleRelay(selectedRelay.url);
-                  }}
-                  activeOpacity={0.86}
-                >
-                  <Text
-                    style={[
-                      s.relayInfoActionText,
-                      { color: selectedRelayIsActive ? theme.text : theme.bg },
-                    ]}
-                  >
-                    {selectedRelayIsActive ? 'Remove from Active Relays' : 'Add to Active Relays'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
             )}
 
             <Text style={[s.inputLabel, { marginTop: 16, color: theme.textMuted }]}>ACTIVE RELAYS</Text>
@@ -734,6 +764,11 @@ const s = StyleSheet.create({
     paddingVertical: 11,
     fontSize: 14,
     fontWeight: '700',
+    marginBottom: 6,
+  },
+  relayDiscoveryHint: {
+    fontSize: 11,
+    lineHeight: 16,
     marginBottom: 8,
   },
   relayPickerRow: {
@@ -813,10 +848,18 @@ const s = StyleSheet.create({
     fontSize: 13,
     fontWeight: '900',
   },
+  relayPickerRight: {
+    alignItems: 'flex-end',
+    marginLeft: 12,
+    gap: 2,
+  },
   relayPickerStatus: {
     fontSize: 12,
     fontWeight: '900',
-    marginLeft: 12,
+  },
+  relayPickerChevron: {
+    fontSize: 14,
+    fontWeight: '900',
   },
   relayDiscoveryEmpty: {
     fontSize: 12,

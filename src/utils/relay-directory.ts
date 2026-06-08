@@ -1,10 +1,20 @@
 import { DEFAULT_RELAYS, RELAY_LABELS, type RelayDirectoryItem } from '@/src/constants/relays';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-export type RelayDirectorySource = 'starter' | 'nostr-watch-online' | 'nostr-watch-public' | 'custom';
+export type RelayDirectorySource =
+  | 'starter'
+  | 'be-relay-directory'
+  | 'nostr-watch-online'
+  | 'nostr-watch-public'
+  | 'nostr-watch-paid'
+  | 'nostr-watch-nip11'
+  | 'nostr-watch-nip42'
+  | 'custom';
 
 export type RelayDirectoryResult = RelayDirectoryItem & {
   source: RelayDirectorySource;
   online?: boolean;
+  paid?: boolean;
 };
 
 export type RelayInformationDocument = {
@@ -26,8 +36,42 @@ export type RelayInformationDocument = {
   icon?: string;
 };
 
-const NOSTR_WATCH_ONLINE_RELAYS_URL = 'https://api.nostr.watch/v1/online';
-const NOSTR_WATCH_PUBLIC_RELAYS_URL = 'https://api.nostr.watch/v1/public';
+const BE_RELAY_DIRECTORY_ENDPOINT =
+  'https://relay-directory.beginningend.com/.well-known/be-marks-relays.json';
+
+const RELAY_DIRECTORY_CACHE_KEY = 'be_relay_directory_cache_v1';
+const RELAY_DIRECTORY_CACHE_MAX_AGE_MS = 1000 * 60 * 60 * 24;
+
+const NOSTR_WATCH_ENDPOINTS: {
+  url: string;
+  source: RelayDirectorySource;
+  online?: boolean;
+  paid?: boolean;
+}[] = [
+  {
+    url: 'https://api.nostr.watch/v1/online',
+    source: 'nostr-watch-online',
+    online: true,
+  },
+  {
+    url: 'https://api.nostr.watch/v1/public',
+    source: 'nostr-watch-public',
+    online: true,
+  },
+  {
+    url: 'https://api.nostr.watch/v1/paid',
+    source: 'nostr-watch-paid',
+    paid: true,
+  },
+  {
+    url: 'https://api.nostr.watch/v1/nip/11',
+    source: 'nostr-watch-nip11',
+  },
+  {
+    url: 'https://api.nostr.watch/v1/nip/42',
+    source: 'nostr-watch-nip42',
+  },
+];
 
 function isValidRelayUrl(value: string): boolean {
   const trimmed = value.trim();
@@ -40,7 +84,7 @@ function normalizeRelayUrl(value: string): string | null {
 
   if (!isValidRelayUrl(trimmed)) return null;
 
-  return trimmed;
+  return trimmed.replace(/\/$/, '');
 }
 
 function relayLabelFromUrl(relayUrl: string): string {
@@ -53,10 +97,24 @@ function relayLabelFromUrl(relayUrl: string): string {
     .replace(/\/$/, '');
 }
 
+function relayCategoryFromSource(
+  source: RelayDirectorySource,
+  paid?: boolean
+): RelayDirectoryItem['category'] {
+  if (source === 'starter') return 'recommended';
+  if (paid || source === 'nostr-watch-paid') return 'paid';
+  if (source === 'nostr-watch-nip11' || source === 'nostr-watch-nip42') return 'specialized';
+
+  return 'public';
+}
+
 function relayDirectoryItemFromUrl(
   relayUrl: string,
   source: RelayDirectorySource,
-  online?: boolean
+  options: {
+    online?: boolean;
+    paid?: boolean;
+  } = {}
 ): RelayDirectoryResult | null {
   const normalized = normalizeRelayUrl(relayUrl);
 
@@ -65,9 +123,10 @@ function relayDirectoryItemFromUrl(
   return {
     url: normalized,
     label: relayLabelFromUrl(normalized),
-    category: source === 'starter' ? 'recommended' : 'public',
+    category: relayCategoryFromSource(source, options.paid),
     source,
-    online,
+    online: options.online,
+    paid: options.paid,
   };
 }
 
@@ -87,7 +146,10 @@ function mergeRelayDirectoryItems(items: RelayDirectoryResult[]): RelayDirectory
       url: normalized,
       label: existing?.label || item.label || relayLabelFromUrl(normalized),
       description: existing?.description || item.description,
-      online: existing?.online ?? item.online,
+      source: existing?.source === 'starter' ? existing.source : item.source,
+      category: existing?.category === 'recommended' ? existing.category : item.category,
+      online: existing?.online === true || item.online === true ? true : existing?.online ?? item.online,
+      paid: existing?.paid === true || item.paid === true ? true : existing?.paid ?? item.paid,
     });
   });
 
@@ -97,13 +159,135 @@ function mergeRelayDirectoryItems(items: RelayDirectoryResult[]): RelayDirectory
 
     if (aStarter !== bStarter) return aStarter - bStarter;
 
+    const aOnline = a.online === true ? 0 : 1;
+    const bOnline = b.online === true ? 0 : 1;
+
+    if (aOnline !== bOnline) return aOnline - bOnline;
+
     return a.label.localeCompare(b.label);
   });
 }
 
+function relayUrlsFromDirectoryJson(value: unknown): string[] {
+  if (typeof value === 'string') {
+    return isValidRelayUrl(value) ? [value] : [];
+  }
+
+  if (Array.isArray(value)) {
+    return value.flatMap(item => relayUrlsFromDirectoryJson(item));
+  }
+
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const urls: string[] = [];
+
+    Object.entries(record).forEach(([key, entry]) => {
+      if (isValidRelayUrl(key)) {
+        urls.push(key);
+      }
+
+      if (
+        key === 'url' ||
+        key === 'relay' ||
+        key === 'relayUrl' ||
+        key === 'uri' ||
+        key === 'address'
+      ) {
+        if (typeof entry === 'string' && isValidRelayUrl(entry)) {
+          urls.push(entry);
+        }
+
+        return;
+      }
+
+      urls.push(...relayUrlsFromDirectoryJson(entry));
+    });
+
+    return Array.from(new Set(urls));
+  }
+
+  return [];
+}
+
+function relayCategoryFromValue(value: unknown): RelayDirectoryItem['category'] | null {
+  if (
+    value === 'recommended' ||
+    value === 'public' ||
+    value === 'search' ||
+    value === 'specialized' ||
+    value === 'paid'
+  ) {
+    return value;
+  }
+
+  return null;
+}
+
+function relayDirectoryResultFromWorkerItem(value: unknown): RelayDirectoryResult | null {
+  if (!value || typeof value !== 'object') return null;
+
+  const record = value as Record<string, unknown>;
+  const relayUrl = typeof record.url === 'string' ? record.url : '';
+  const normalized = normalizeRelayUrl(relayUrl);
+
+  if (!normalized) return null;
+
+  const category =
+    relayCategoryFromValue(record.category) ||
+    relayCategoryFromSource('be-relay-directory');
+
+  return {
+    url: normalized,
+    label: typeof record.label === 'string' ? record.label : relayLabelFromUrl(normalized),
+    category,
+    description: typeof record.description === 'string' ? record.description : undefined,
+    source: 'be-relay-directory',
+    online: true,
+    paid: category === 'paid',
+  };
+}
+
+async function fetchRelayDirectoryFromBeWorker(): Promise<RelayDirectoryResult[]> {
+  try {
+    const response = await fetch(BE_RELAY_DIRECTORY_ENDPOINT);
+
+    if (!response.ok) return [];
+
+    const parsed = await response.json();
+    const record = parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : null;
+
+    if (record && Array.isArray(record.relays)) {
+      const workerRelays = record.relays
+        .map(relayDirectoryResultFromWorkerItem)
+        .filter((item): item is RelayDirectoryResult => item !== null);
+
+      if (workerRelays.length > 0) {
+        return workerRelays;
+      }
+    }
+
+    const relayUrls = relayUrlsFromDirectoryJson(parsed);
+
+    return relayUrls
+      .map(relayUrl =>
+        relayDirectoryItemFromUrl(relayUrl, 'be-relay-directory', {
+          online: true,
+        })
+      )
+      .filter((item): item is RelayDirectoryResult => item !== null);
+  } catch (error) {
+    console.warn('[Relay Directory] bE Worker fetch failed:', error);
+    return [];
+  }
+}
+
 async function fetchRelayUrlsFromJsonEndpoint(
   url: string,
-  source: RelayDirectorySource
+  source: RelayDirectorySource,
+  options: {
+    online?: boolean;
+    paid?: boolean;
+  } = {}
 ): Promise<RelayDirectoryResult[]> {
   try {
     const response = await fetch(url);
@@ -111,12 +295,10 @@ async function fetchRelayUrlsFromJsonEndpoint(
     if (!response.ok) return [];
 
     const parsed = await response.json();
+    const relayUrls = relayUrlsFromDirectoryJson(parsed);
 
-    if (!Array.isArray(parsed)) return [];
-
-    return parsed
-      .filter((value): value is string => typeof value === 'string')
-      .map(relayUrl => relayDirectoryItemFromUrl(relayUrl, source, true))
+    return relayUrls
+      .map(relayUrl => relayDirectoryItemFromUrl(relayUrl, source, options))
       .filter((item): item is RelayDirectoryResult => item !== null);
   } catch (error) {
     console.warn('[Relay Directory] fetch failed:', source, error);
@@ -124,61 +306,175 @@ async function fetchRelayUrlsFromJsonEndpoint(
   }
 }
 
+async function readCachedRelayDirectory(): Promise<RelayDirectoryResult[]> {
+  try {
+    const raw = await AsyncStorage.getItem(RELAY_DIRECTORY_CACHE_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+
+    if (!parsed || typeof parsed !== 'object') return [];
+
+    const record = parsed as Record<string, unknown>;
+    const cachedAt = typeof record.cachedAt === 'number' ? record.cachedAt : 0;
+
+    if (Date.now() - cachedAt > RELAY_DIRECTORY_CACHE_MAX_AGE_MS) {
+      return [];
+    }
+
+    if (!Array.isArray(record.relays)) return [];
+
+    return record.relays
+      .map(item => {
+        if (!item || typeof item !== 'object') return null;
+
+        const relay = item as Partial<RelayDirectoryResult>;
+        const normalized = typeof relay.url === 'string' ? normalizeRelayUrl(relay.url) : null;
+
+        if (!normalized) return null;
+
+        return {
+          url: normalized,
+          label: typeof relay.label === 'string' ? relay.label : relayLabelFromUrl(normalized),
+          category: relay.category || 'public',
+          description: typeof relay.description === 'string' ? relay.description : undefined,
+          source: relay.source || 'custom',
+          online: relay.online,
+          paid: relay.paid,
+        } as RelayDirectoryResult;
+      })
+      .filter((item): item is RelayDirectoryResult => item !== null);
+  } catch {
+    return [];
+  }
+}
+
+async function writeCachedRelayDirectory(relays: RelayDirectoryResult[]): Promise<void> {
+  try {
+    await AsyncStorage.setItem(
+      RELAY_DIRECTORY_CACHE_KEY,
+      JSON.stringify({
+        cachedAt: Date.now(),
+        relays,
+      })
+    );
+  } catch (error) {
+    console.warn('[Relay Directory] cache write failed:', error);
+  }
+}
+
 export async function fetchRelayDirectory(): Promise<RelayDirectoryResult[]> {
   const starterRelays = DEFAULT_RELAYS
-    .map(relayUrl => relayDirectoryItemFromUrl(relayUrl, 'starter', undefined))
+    .map(relayUrl => relayDirectoryItemFromUrl(relayUrl, 'starter', { online: true }))
     .filter((item): item is RelayDirectoryResult => item !== null);
 
-  const [onlineRelays, publicRelays] = await Promise.all([
-    fetchRelayUrlsFromJsonEndpoint(NOSTR_WATCH_ONLINE_RELAYS_URL, 'nostr-watch-online'),
-    fetchRelayUrlsFromJsonEndpoint(NOSTR_WATCH_PUBLIC_RELAYS_URL, 'nostr-watch-public'),
+  const cachedRelays = await readCachedRelayDirectory();
+  const beDirectoryRelays = await fetchRelayDirectoryFromBeWorker();
+
+  let directFallbackRelays: RelayDirectoryResult[] = [];
+
+  if (beDirectoryRelays.length === 0) {
+    const endpointResults = await Promise.all(
+      NOSTR_WATCH_ENDPOINTS.map(endpoint =>
+        fetchRelayUrlsFromJsonEndpoint(endpoint.url, endpoint.source, {
+          online: endpoint.online,
+          paid: endpoint.paid,
+        })
+      )
+    );
+
+    directFallbackRelays = endpointResults.flat();
+  }
+
+  const fetchedRelays = [
+    ...beDirectoryRelays,
+    ...directFallbackRelays,
+  ];
+
+  console.log('[Relay Directory] loaded relays:', {
+    starter: starterRelays.length,
+    cached: cachedRelays.length,
+    beDirectory: beDirectoryRelays.length,
+    directFallback: directFallbackRelays.length,
+    fetched: fetchedRelays.length,
+    totalBeforeMerge: starterRelays.length + cachedRelays.length + fetchedRelays.length,
+  });
+
+  const mergedRelays = mergeRelayDirectoryItems([
+    ...starterRelays,
+    ...cachedRelays,
+    ...fetchedRelays,
   ]);
 
-  return mergeRelayDirectoryItems([
-    ...starterRelays,
-    ...onlineRelays,
-    ...publicRelays,
-  ]);
+  if (fetchedRelays.length > 0) {
+    await writeCachedRelayDirectory(mergedRelays);
+  }
+
+  return mergedRelays;
 }
 
 export function searchRelayDirectory(
   relays: RelayDirectoryResult[],
   searchText: string
 ): RelayDirectoryResult[] {
-  const query = searchText.trim().toLowerCase();
+  const query = searchText
+    .trim()
+    .toLowerCase()
+    .replace(/^wss?:\/\//i, '');
 
-  if (!query) return relays;
+  const featuredLimit = 10;
+  const minimumSearchLength = 3;
+  const searchLimit = 30;
+
+  const featuredRelays = relays.filter(relay => (
+    relay.source === 'starter' ||
+    relay.category === 'recommended' ||
+    relay.category === 'search'
+  ));
+
+  const featuredUrls = new Set(featuredRelays.map(relay => relay.url));
+  const fillRelays = relays.filter(relay => !featuredUrls.has(relay.url));
+
+  if (!query || query.length < minimumSearchLength) {
+    return [
+      ...featuredRelays,
+      ...fillRelays,
+    ].slice(0, featuredLimit);
+  }
 
   return relays
     .filter(relay => {
-      const searchableText = [
-        relay.url,
-        relay.label,
-        relay.category,
-        relay.description,
-        relay.source,
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
+      const relayUrl = relay.url.toLowerCase();
+      const relayHost = relayUrl.replace(/^wss?:\/\//i, '');
 
-      return searchableText.includes(query);
+      return relayUrl.includes(query) || relayHost.includes(query);
     })
     .sort((a, b) => {
       const aUrl = a.url.toLowerCase();
       const bUrl = b.url.toLowerCase();
-      const aLabel = a.label.toLowerCase();
-      const bLabel = b.label.toLowerCase();
+      const aHost = aUrl.replace(/^wss?:\/\//i, '');
+      const bHost = bUrl.replace(/^wss?:\/\//i, '');
 
-      const aStartsWithQuery = aUrl.startsWith(query) || aLabel.startsWith(query);
-      const bStartsWithQuery = bUrl.startsWith(query) || bLabel.startsWith(query);
+      const aHostStartsWithQuery = aHost.startsWith(query);
+      const bHostStartsWithQuery = bHost.startsWith(query);
 
-      if (aStartsWithQuery !== bStartsWithQuery) {
-        return aStartsWithQuery ? -1 : 1;
+      if (aHostStartsWithQuery !== bHostStartsWithQuery) {
+        return aHostStartsWithQuery ? -1 : 1;
       }
 
-      return a.label.localeCompare(b.label);
-    });
+      const aUrlStartsWithQuery = aUrl.startsWith(query);
+      const bUrlStartsWithQuery = bUrl.startsWith(query);
+
+      if (aUrlStartsWithQuery !== bUrlStartsWithQuery) {
+        return aUrlStartsWithQuery ? -1 : 1;
+      }
+
+      const aOnline = a.online === true ? 0 : 1;
+      const bOnline = b.online === true ? 0 : 1;
+
+      if (aOnline !== bOnline) return aOnline - bOnline;
+
+      return aHost.localeCompare(bHost);
+    })
+    .slice(0, searchLimit);
 }
 
 export function relayInformationUrlFromRelayUrl(relayUrl: string): string | null {
@@ -188,8 +484,7 @@ export function relayInformationUrlFromRelayUrl(relayUrl: string): string | null
 
   return normalized
     .replace(/^wss:\/\//i, 'https://')
-    .replace(/^ws:\/\//i, 'http://')
-    .replace(/\/$/, '');
+    .replace(/^ws:\/\//i, 'http://');
 }
 
 function stringArrayFromValue(value: unknown): string[] | undefined {
@@ -267,8 +562,7 @@ export async function fetchRelayInformation(
     const parsed = await response.json();
 
     return relayInformationFromJson(parsed);
-  } catch (error) {
-    console.warn('[Relay Directory] relay info fetch failed:', relayUrl, error);
+  } catch {
     return null;
   }
 }
