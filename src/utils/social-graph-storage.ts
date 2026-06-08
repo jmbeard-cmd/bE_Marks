@@ -25,6 +25,14 @@ async function getScopedSocialRelaysKey(): Promise<string> {
   return getScopedStorageKey(SOCIAL_RELAYS_KEY);
 }
 
+function getSocialRelaysKeyForNpub(npub?: string | null): string {
+  const cleanNpub = npub?.trim();
+
+  if (!cleanNpub) return SOCIAL_RELAYS_KEY;
+
+  return `${SOCIAL_RELAYS_KEY}:${cleanNpub}`;
+}
+
 export type SocialGraphPerson = {
   pubkey: string;
   npub?: string;
@@ -98,6 +106,46 @@ function mergeUniquePubkeys(pubkeys: string[]): string[] {
   });
 
   return merged;
+}
+
+export async function getSocialRelaysForNpub(npub?: string | null): Promise<string[]> {
+  try {
+    const storageKey = getSocialRelaysKeyForNpub(npub);
+    const raw = await AsyncStorage.getItem(storageKey);
+    const parsed = raw ? JSON.parse(raw) : null;
+
+    if (!Array.isArray(parsed)) {
+      return [DEFAULT_RELAY];
+    }
+
+    const relays = normalizeSocialRelayUrls(parsed);
+
+    return relays.length > 0 ? relays : [DEFAULT_RELAY];
+  } catch {
+    return [DEFAULT_RELAY];
+  }
+}
+
+export async function saveSocialRelaysForNpub(
+  npub: string | null | undefined,
+  relayUrls: string[]
+): Promise<string[]> {
+  const relays = normalizeSocialRelayUrls(relayUrls);
+  const nextRelays = relays.length > 0 ? relays : [DEFAULT_RELAY];
+  const storageKey = getSocialRelaysKeyForNpub(npub);
+
+  await AsyncStorage.setItem(storageKey, JSON.stringify(nextRelays));
+
+  return nextRelays;
+}
+
+export async function resetSocialRelaysForNpub(npub?: string | null): Promise<string[]> {
+  const storageKey = getSocialRelaysKeyForNpub(npub);
+  const nextRelays = [DEFAULT_RELAY];
+
+  await AsyncStorage.setItem(storageKey, JSON.stringify(nextRelays));
+
+  return nextRelays;
 }
 
 export async function getSocialRelays(): Promise<string[]> {

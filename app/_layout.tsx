@@ -21,8 +21,8 @@ import {
 } from '../src/utils/push-notifications';
 import {
   clearSocialGraphCache,
-  getSocialRelays,
-  saveSocialRelays,
+  getSocialRelaysForNpub,
+  saveSocialRelaysForNpub,
 } from '../src/utils/social-graph-storage';
 import { clearStartupJobs, enqueueStartupJob, startStartupScheduler } from '../src/utils/startup-scheduler';
 import {
@@ -187,7 +187,7 @@ useEffect(() => {
         setNpub(id.npub);
         setNsec(id.nsec);
 
-        const savedRelays = await getSocialRelays();
+        const savedRelays = await getSocialRelaysForNpub(id.npub);
 
         if (!cancelled) {
           setRelaysState(savedRelays);
@@ -318,7 +318,12 @@ enqueueStartupJob({
   const setRelays = (nextRelays: string[]) => {
     setRelaysState(nextRelays);
 
-    saveSocialRelays(nextRelays)
+    if (!npub) {
+      console.warn('[LAYOUT] skipped relay persistence; no active npub');
+      return;
+    }
+
+    saveSocialRelaysForNpub(npub, nextRelays)
       .then(savedRelays => {
         setRelaysState(savedRelays);
       })
@@ -342,7 +347,7 @@ enqueueStartupJob({
   Promise.all([
     clearDMStorage(),
     clearSocialGraphCache(),
-    getSocialRelays(),
+    getSocialRelaysForNpub(p),
   ]).then(([, , savedRelays]) => {
     setRelaysState(savedRelays);
 
