@@ -1054,32 +1054,24 @@ export async function publishFollowPubkey(input: {
 
     const cache = await getSocialGraphCache();
     const localFollowingPubkeys = uniqueStrings(cache.followingPubkeys);
-    let remoteFollowingPubkeys: string[] = [];
 
-    const localBaseLooksUnsafe = localFollowingPubkeys.length < 2;
+    let snapshot: SocialFollowListSnapshot | null = null;
 
-    if (localBaseLooksUnsafe) {
-      try {
-        const remoteResult = await fetchFollowingPubkeys({
-          npub: myNpub,
-          relayUrls: input.relayUrls,
-          timeoutMs: 6500,
-        });
-
-        remoteFollowingPubkeys = remoteResult.pubkeys;
-      } catch (remoteError) {
-        console.warn('[Social Follow] safe remote follow-list fetch failed:', remoteError);
-
-        return {
-          success: false,
-          followingPubkeys: localFollowingPubkeys,
-          error: 'Could not safely load your existing follow list. Follow was not published.',
-        };
-      }
+    try {
+      snapshot = await fetchLatestFollowListSnapshot({
+        npub: myNpub,
+        relayUrls: input.relayUrls,
+        timeoutMs: 6500,
+      });
+    } catch (snapshotError) {
+      console.warn('[Social Follow] safe follow-list snapshot fetch failed:', snapshotError);
     }
 
+    const snapshotPubkeys = snapshot?.pubkeys ?? [];
+    const snapshotPTags = snapshot?.pTags ?? [];
+
     const safeBasePubkeys = uniqueStrings([
-      ...remoteFollowingPubkeys,
+      ...snapshotPubkeys,
       ...localFollowingPubkeys,
     ]);
 
@@ -1091,14 +1083,45 @@ export async function publishFollowPubkey(input: {
       };
     }
 
+    const seenPTags = new Set<string>();
+    const followingPTags: string[][] = [];
+
+    snapshotPTags.forEach(tag => {
+      if (tag[0] !== 'p' || typeof tag[1] !== 'string') return;
+
+      const followedPubkey = tag[1].trim();
+
+      if (!followedPubkey || seenPTags.has(followedPubkey)) return;
+
+      seenPTags.add(followedPubkey);
+      followingPTags.push([
+        'p',
+        followedPubkey,
+        ...tag.slice(2).filter(value => typeof value === 'string'),
+      ]);
+    });
+
+    safeBasePubkeys.forEach(followedPubkey => {
+      if (seenPTags.has(followedPubkey)) return;
+
+      seenPTags.add(followedPubkey);
+      followingPTags.push(['p', followedPubkey]);
+    });
+
+    if (!seenPTags.has(targetPubkey)) {
+      seenPTags.add(targetPubkey);
+      followingPTags.push(['p', targetPubkey]);
+    }
+
     const followingPubkeys = uniqueStrings([
-      ...safeBasePubkeys,
+      ...followingPTags.map(tag => tag[1]),
       targetPubkey,
     ]);
 
     const result = await publishFollowList({
       nsec: input.nsec,
       followingPubkeys,
+      followingPTags,
       relayUrls: input.relayUrls,
     });
 
