@@ -250,6 +250,46 @@ export async function upsertSocialGraphPeople(
   return nextCache;
 }
 
+export async function addFollowingPerson(
+  person: SocialGraphPerson
+): Promise<SocialGraphCache> {
+  const current = await getSocialGraphCache();
+  const now = Math.floor(Date.now() / 1000);
+
+  const cleanPubkey = person.pubkey.trim();
+
+  if (!cleanPubkey) {
+    return current;
+  }
+
+  const existingPerson = current.peopleByPubkey[cleanPubkey];
+
+  const nextPerson: SocialGraphPerson = {
+    ...existingPerson,
+    ...person,
+    pubkey: cleanPubkey,
+    followedAt: existingPerson?.followedAt ?? person.followedAt ?? now,
+    updatedAt: now,
+  };
+
+  const nextCache: SocialGraphCache = {
+    ...current,
+    followingPubkeys: mergeUniquePubkeys([
+      ...current.followingPubkeys,
+      cleanPubkey,
+    ]),
+    peopleByPubkey: {
+      ...current.peopleByPubkey,
+      [cleanPubkey]: nextPerson,
+    },
+    followingUpdatedAt: now,
+  };
+
+  await saveSocialGraphCache(nextCache);
+
+  return nextCache;
+}
+
 export async function isFollowingPubkey(pubkey: string): Promise<boolean> {
   const cache = await getSocialGraphCache();
 

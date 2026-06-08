@@ -111,7 +111,12 @@ import {
   publishGroupMembership,
   publishGroupMessage,
 } from '../src/utils/nostr';
-import { normalizeNostrIdentity } from '../src/utils/nostr-identity';
+import {
+  normalizeNostrIdentity
+} from '../src/utils/nostr-identity';
+import {
+  publishFollowPubkey,
+} from '../src/utils/nostr-social';
 import { openAttachment } from '../src/utils/open-attachment';
 import {
   notifyGroupEvent,
@@ -2078,24 +2083,54 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
     const displayName = member.displayName || `${member.npub.slice(0, 12)}…`;
 
     try {
-      const existing = await getContactByNpub(member.npub);
-
-      if (existing) {
-        Alert.alert('Already saved', `${displayName} is already in your contacts.`);
+      if (!nsec) {
+        Alert.alert(
+          'Follow not published',
+          'A local bE Marks key is required to publish this follow to relays.'
+        );
         return;
       }
 
       const normalized = normalizeNostrIdentity(member.npub);
+      const contactNpub = normalized.npub || member.npub;
+      const contactPubkey = normalized.pubkey;
 
-      await saveContact({
-        name: displayName,
-        npub: normalized.npub,
-        pubkeyHex: normalized.pubkey,
-        nostrName: member.displayName,
-        nostrAvatar: member.avatarUrl,
+      if (!contactNpub || !contactPubkey) {
+        throw new Error('Could not read this member identity.');
+      }
+
+      const followResult = await publishFollowPubkey({
+        nsec,
+        targetPubkey: contactPubkey,
+        targetNpub: contactNpub,
+        targetDisplayName: displayName,
+        targetAvatarUrl: member.avatarUrl,
       });
 
-      Alert.alert('Contact saved', `${displayName} was added to your contacts.`);
+      if (!followResult.success) {
+        Alert.alert(
+          'Follow not published',
+          followResult.error || 'Could not publish this follow to relays.'
+        );
+        return;
+      }
+
+      const existing = await getContactByNpub(contactNpub);
+
+      if (!existing) {
+        await saveContact({
+          name: displayName,
+          npub: contactNpub,
+          pubkeyHex: contactPubkey,
+          nostrName: member.displayName,
+          nostrAvatar: member.avatarUrl,
+        });
+      }
+
+      Alert.alert(
+        existing ? 'Following updated' : 'Contact saved',
+        `${displayName} is now in your contacts and Following.`
+      );
     } catch (error: any) {
       console.warn('[Group Members] add contact failed:', error);
       Alert.alert('Contact failed', error?.message || 'Could not add this member to contacts.');
