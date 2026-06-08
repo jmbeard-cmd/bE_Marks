@@ -2,12 +2,12 @@ import * as Clipboard from 'expo-clipboard';
 import { router } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
 import {
-    Alert,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { clearIdentity as clearStoredIdentity } from '../src/utils/nostr';
