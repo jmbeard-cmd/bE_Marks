@@ -43,6 +43,16 @@ export type SocialGraphSyncResult = {
   relaysUsed: string[];
 };
 
+export type SocialFollowListSnapshot = {
+  eventId?: string;
+  pubkey: string;
+  npub?: string;
+  createdAt?: number;
+  pubkeys: string[];
+  pTags: string[][];
+  relaysUsed: string[];
+};
+
 export type SocialReplyPreview = {
   id: string;
   pubkey: string;
@@ -124,6 +134,28 @@ function getEventPTagPubkeys(event: Event): string[] {
       .filter(tag => tag[0] === 'p' && typeof tag[1] === 'string')
       .map(tag => tag[1])
   );
+}
+
+function getEventPTags(event: Event): string[][] {
+  const seen = new Set<string>();
+  const pTags: string[][] = [];
+
+  event.tags.forEach(tag => {
+    if (tag[0] !== 'p' || typeof tag[1] !== 'string') return;
+
+    const pubkey = tag[1].trim();
+
+    if (!pubkey || seen.has(pubkey)) return;
+
+    seen.add(pubkey);
+    pTags.push([...tag]);
+  });
+
+  return pTags;
+}
+
+function buildPTagsFromPubkeys(pubkeys: string[]): string[][] {
+  return uniqueStrings(pubkeys).map(pubkey => ['p', pubkey]);
 }
 
 function getSocialReplyThreadReferences(event: Event): Pick<
@@ -433,6 +465,65 @@ export async function fetchSocialRelayHints(input: {
   const hints = getRelayHintsFromRelayListEvent(latest);
 
   return normalizeSocialRelayUrls(hints.map(hint => hint.relayUrl));
+}
+
+export async function fetchLatestFollowListSnapshot(input: {
+  npub: string;
+  relayUrls?: string[];
+  timeoutMs?: number;
+}): Promise<SocialFollowListSnapshot | null> {
+  const pubkey = decodeNpubToPubkey(input.npub);
+
+  if (!pubkey) return null;
+
+  const savedRelays = input.relayUrls && input.relayUrls.length > 0
+    ? input.relayUrls
+    : await getSocialRelays();
+
+  const relayHints = await fetchSocialRelayHints({
+    npub: input.npub,
+    relayUrls: savedRelays,
+    timeoutMs: input.timeoutMs,
+  });
+
+  const relayUrls = normalizeSocialRelayUrls([
+    ...savedRelays,
+    ...relayHints,
+  ]);
+
+  const events = await fetchEventsFromRelays({
+    relayUrls,
+    filter: {
+      kinds: [NOSTR_FOLLOW_LIST_KIND],
+      authors: [pubkey],
+      limit: 10,
+    },
+    timeoutMs: input.timeoutMs ?? 5000,
+  });
+
+  const latest = pickLatestEvent(events);
+
+  if (!latest) {
+    return {
+      pubkey,
+      npub: input.npub,
+      pubkeys: [],
+      pTags: [],
+      relaysUsed: relayUrls,
+    };
+  }
+
+  const pTags = getEventPTags(latest);
+
+  return {
+    eventId: latest.id,
+    pubkey,
+    npub: input.npub,
+    createdAt: latest.created_at,
+    pubkeys: uniqueStrings(pTags.map(tag => tag[1])),
+    pTags,
+    relaysUsed: relayUrls,
+  };
 }
 
 export async function fetchFollowingPubkeys(input: {
@@ -852,6 +943,7 @@ export async function fetchFollowingPublicPosts(input: {
 export async function publishFollowList(input: {
   nsec: string;
   followingPubkeys: string[];
+  followingPTags?: string[][];
   relayUrls?: string[];
 }): Promise<{ success: boolean; eventId?: string; error?: string }> {
   try {
@@ -864,13 +956,42 @@ export async function publishFollowList(input: {
     const sk = decoded.data as Uint8Array;
     const pubkey = getPublicKey(sk);
     const relayUrls = normalizeSocialFetchRelays(input.relayUrls);
-    const followingPubkeys = uniqueStrings(input.followingPubkeys);
+    const requestedPubkeys = uniqueStrings(input.followingPubkeys);
+    const seenPTags = new Set<string>();
+    const preservedPTags: string[][] = [];
+
+    (input.followingPTags ?? []).forEach(tag => {
+      if (tag[0] !== 'p' || typeof tag[1] !== 'string') return;
+
+      const followedPubkey = tag[1].trim();
+
+      if (!followedPubkey || seenPTags.has(followedPubkey)) return;
+
+      seenPTags.add(followedPubkey);
+      preservedPTags.push([
+        'p',
+        followedPubkey,
+        ...tag.slice(2).filter(value => typeof value === 'string'),
+      ]);
+    });
+
+    const followingPubkeys = uniqueStrings([
+      ...preservedPTags.map(tag => tag[1]),
+      ...requestedPubkeys,
+    ]);
+
+    const pTags = [
+      ...preservedPTags,
+      ...followingPubkeys
+        .filter(followedPubkey => !seenPTags.has(followedPubkey))
+        .map(followedPubkey => ['p', followedPubkey]),
+    ];
 
     const unsigned: UnsignedEvent = {
       kind: NOSTR_FOLLOW_LIST_KIND,
       created_at: nowSeconds(),
       tags: [
-        ...followingPubkeys.map(followedPubkey => ['p', followedPubkey]),
+        ...pTags,
         ['client', 'bE-Marks'],
       ],
       content: '',
