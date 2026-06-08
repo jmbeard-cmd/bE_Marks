@@ -205,30 +205,19 @@ export default function SettingsScreen() {
             <Text style={[s.sectionLabel, { color: theme.textMuted }]}>RELAY NETWORK</Text>
 
             <TouchableOpacity
-              style={[
-                s.spaceCard,
-                { backgroundColor: theme.surface, borderColor: theme.border },
-              ]}
+              style={[s.row, { borderBottomColor: theme.border }]}
               onPress={() => router.push('/relay-network' as any)}
               activeOpacity={0.85}
             >
-              <Text style={[s.spaceCardTitle, { color: theme.text }]}>
-                Personal relay setup
-              </Text>
-
-              <Text style={[s.spaceCardHint, { color: theme.textMuted }]}>
-                Search, select, and save the relays used for public Marks, profile publishing, and your personal feed.
-              </Text>
-
-              <View style={[s.spaceCardRow, { borderBottomColor: theme.border }]}>
-                <Text style={[s.rowLabel, { color: theme.textSecondary }]}>Active relays</Text>
-                <Text style={[s.rowValue, { color: theme.gold }]}>
-                  {Array.from(new Set(relays)).length}
+              <View style={{ flex: 1, paddingRight: 14 }}>
+                <Text style={[s.rowLabel, { color: theme.textSecondary }]}>Relay Network</Text>
+                <Text style={[s.rowHint, { color: theme.textMuted }]}>
+                  Manage personal relays for public Marks, profile publishing, and Following.
                 </Text>
               </View>
 
-              <Text style={[s.rowHint, { color: theme.textMuted, marginTop: 10 }]}>
-                Space relays are managed inside each Space by admins.
+              <Text style={[s.rowValue, { color: theme.gold }]}>
+                {Array.from(new Set(relays)).length} active
               </Text>
             </TouchableOpacity>
           </View>
@@ -341,29 +330,6 @@ sectionLabel: {
   fontWeight: '600',
   letterSpacing: 1,
   marginBottom: 10,
-},
-spaceCard: {
-  borderWidth: 0.5,
-  borderRadius: 14,
-  padding: 14,
-  marginBottom: 10,
-},
-spaceCardTitle: {
-  fontSize: 18,
-  fontWeight: '800',
-  marginBottom: 4,
-},
-spaceCardHint: {
-  fontSize: 12,
-  lineHeight: 17,
-  marginBottom: 8,
-},
-spaceCardRow: {
-  flexDirection: 'row',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  paddingVertical: 12,
-  borderBottomWidth: 0.5,
 },
 rowLabel: {
   fontSize: 14,
