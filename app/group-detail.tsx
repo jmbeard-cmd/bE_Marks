@@ -525,7 +525,7 @@ function getGroupLivingSpaceId(groupId: string): string {
 
 function getGroupPublishRelayUrls(group: BEGroup): string[] {
   return normalizeRelayUrls([
-    group.relayUrl || DEFAULT_RELAY,
+    ...(group.relayUrl ? [group.relayUrl] : []),
     ...(group.backupRelayUrls ?? []),
   ]);
 }
@@ -806,16 +806,19 @@ const { id, tab: routeTab } = useLocalSearchParams<{
     return filteredViews;
   }, [npub]);
 
-  const publishSpaceMarkSnapshot = useCallback(async (
+const publishSpaceMarkSnapshot = useCallback(async (
     targetGroup: BEGroup,
     view: LivingMarkView
   ) => {
     if (!SPACE_MARK_RELAY_SYNC_ENABLED || !nsec) return;
 
-    const relayUrls = normalizeRelayUrls([
-      targetGroup.relayUrl || DEFAULT_RELAY,
-      ...(targetGroup.backupRelayUrls ?? []),
-    ]);
+    const relayUrls = getGroupPublishRelayUrls(targetGroup);
+    const primaryRelayUrl = relayUrls[0];
+
+    if (!primaryRelayUrl) {
+      console.warn('[Space Marks] publish skipped: no valid Space relay configured.');
+      return;
+    }
 
     const result = await publishGroupMark({
       groupId: targetGroup.id,
@@ -823,8 +826,8 @@ const { id, tab: routeTab } = useLocalSearchParams<{
       metadata: view.metadata,
       placement: view.placement,
       nsec,
-      relayUrl: targetGroup.relayUrl || DEFAULT_RELAY,
-      relayUrls: relayUrls.length > 0 ? relayUrls : [targetGroup.relayUrl || DEFAULT_RELAY],
+      relayUrl: primaryRelayUrl,
+      relayUrls,
     });
 
     if (!result.success) {
@@ -848,7 +851,15 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   ) => {
     if (!SPACE_MARK_RELAY_SYNC_ENABLED) return [] as LivingMarkView[];
 
-    const snapshots = await fetchGroupMarks(targetGroup.id, targetGroup.relayUrl || DEFAULT_RELAY);
+    const relayUrls = getGroupPublishRelayUrls(targetGroup);
+    const primaryRelayUrl = relayUrls[0];
+
+    if (!primaryRelayUrl) {
+      console.warn('[Space Marks] sync skipped: no valid Space relay configured.');
+      return [] as LivingMarkView[];
+    }
+
+    const snapshots = await fetchGroupMarks(targetGroup.id, primaryRelayUrl);
     if (snapshots.length === 0) return [] as LivingMarkView[];
 
     for (const snapshot of snapshots) {
@@ -954,23 +965,27 @@ const { id, tab: routeTab } = useLocalSearchParams<{
         let relayGroup = g;
 
         try {
-          const refreshedGroup = await refreshGroupMetadataFromRelay(
-            id,
-            g.relayUrl || DEFAULT_RELAY
-          );
-
-          if (groupDetailLoadRunIdRef.current !== runId) return;
-
-          if (refreshedGroup) {
-            relayGroup = refreshedGroup;
-            setGroup(current => current
-              ? {
-                  ...current,
-                  ...refreshedGroup,
-                  memberCount: Math.max(current.memberCount ?? 0, refreshedGroup.memberCount ?? 0),
-                }
-              : refreshedGroup
+          if (!g.relayUrl) {
+            console.warn('[Space Detail] metadata refresh skipped: no valid Space relay configured.');
+          } else {
+            const refreshedGroup = await refreshGroupMetadataFromRelay(
+              id,
+              g.relayUrl
             );
+
+            if (groupDetailLoadRunIdRef.current !== runId) return;
+
+            if (refreshedGroup) {
+              relayGroup = refreshedGroup;
+              setGroup(current => current
+                ? {
+                    ...current,
+                    ...refreshedGroup,
+                    memberCount: Math.max(current.memberCount ?? 0, refreshedGroup.memberCount ?? 0),
+                  }
+                : refreshedGroup
+              );
+            }
           }
         } catch (error) {
           console.warn('[Space Detail] metadata refresh failed:', error);
