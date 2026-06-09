@@ -42,36 +42,109 @@ const BE_RELAY_DIRECTORY_ENDPOINT =
 const RELAY_DIRECTORY_CACHE_KEY = 'be_relay_directory_cache_v1';
 const RELAY_DIRECTORY_CACHE_MAX_AGE_MS = 1000 * 60 * 60 * 24;
 
-const NOSTR_WATCH_ENDPOINTS: {
-  url: string;
-  source: RelayDirectorySource;
-  online?: boolean;
-  paid?: boolean;
-}[] = [
-  {
-    url: 'https://api.nostr.watch/v1/online',
-    source: 'nostr-watch-online',
-    online: true,
-  },
-  {
-    url: 'https://api.nostr.watch/v1/public',
-    source: 'nostr-watch-public',
-    online: true,
-  },
-  {
-    url: 'https://api.nostr.watch/v1/paid',
-    source: 'nostr-watch-paid',
-    paid: true,
-  },
-  {
-    url: 'https://api.nostr.watch/v1/nip/11',
-    source: 'nostr-watch-nip11',
-  },
-  {
-    url: 'https://api.nostr.watch/v1/nip/42',
-    source: 'nostr-watch-nip42',
-  },
-];
+const BLOCKED_RELAY_HOSTS = new Set([
+  'localhost',
+  '127.0.0.1',
+  '0.0.0.0',
+]);
+
+function isPrivateRelayHostname(hostname: string): boolean {
+  const normalized = hostname.trim().toLowerCase();
+
+  if (!normalized) return true;
+  if (BLOCKED_RELAY_HOSTS.has(normalized)) return true;
+
+  if (
+    normalized.startsWith('10.') ||
+    normalized.startsWith('192.168.') ||
+    normalized.startsWith('172.16.') ||
+    normalized.startsWith('172.17.') ||
+    normalized.startsWith('172.18.') ||
+    normalized.startsWith('172.19.') ||
+    normalized.startsWith('172.20.') ||
+    normalized.startsWith('172.21.') ||
+    normalized.startsWith('172.22.') ||
+    normalized.startsWith('172.23.') ||
+    normalized.startsWith('172.24.') ||
+    normalized.startsWith('172.25.') ||
+    normalized.startsWith('172.26.') ||
+    normalized.startsWith('172.27.') ||
+    normalized.startsWith('172.28.') ||
+    normalized.startsWith('172.29.') ||
+    normalized.startsWith('172.30.') ||
+    normalized.startsWith('172.31.') ||
+    normalized.startsWith('100.64.') ||
+    normalized.startsWith('100.65.') ||
+    normalized.startsWith('100.66.') ||
+    normalized.startsWith('100.67.') ||
+    normalized.startsWith('100.68.') ||
+    normalized.startsWith('100.69.') ||
+    normalized.startsWith('100.70.') ||
+    normalized.startsWith('100.71.') ||
+    normalized.startsWith('100.72.') ||
+    normalized.startsWith('100.73.') ||
+    normalized.startsWith('100.74.') ||
+    normalized.startsWith('100.75.') ||
+    normalized.startsWith('100.76.') ||
+    normalized.startsWith('100.77.') ||
+    normalized.startsWith('100.78.') ||
+    normalized.startsWith('100.79.') ||
+    normalized.startsWith('100.80.') ||
+    normalized.startsWith('100.81.') ||
+    normalized.startsWith('100.82.') ||
+    normalized.startsWith('100.83.') ||
+    normalized.startsWith('100.84.') ||
+    normalized.startsWith('100.85.') ||
+    normalized.startsWith('100.86.') ||
+    normalized.startsWith('100.87.') ||
+    normalized.startsWith('100.88.') ||
+    normalized.startsWith('100.89.') ||
+    normalized.startsWith('100.90.') ||
+    normalized.startsWith('100.91.') ||
+    normalized.startsWith('100.92.') ||
+    normalized.startsWith('100.93.') ||
+    normalized.startsWith('100.94.') ||
+    normalized.startsWith('100.95.') ||
+    normalized.startsWith('100.96.') ||
+    normalized.startsWith('100.97.') ||
+    normalized.startsWith('100.98.') ||
+    normalized.startsWith('100.99.') ||
+    normalized.startsWith('100.100.') ||
+    normalized.startsWith('100.101.') ||
+    normalized.startsWith('100.102.') ||
+    normalized.startsWith('100.103.') ||
+    normalized.startsWith('100.104.') ||
+    normalized.startsWith('100.105.') ||
+    normalized.startsWith('100.106.') ||
+    normalized.startsWith('100.107.') ||
+    normalized.startsWith('100.108.') ||
+    normalized.startsWith('100.109.') ||
+    normalized.startsWith('100.110.') ||
+    normalized.startsWith('100.111.') ||
+    normalized.startsWith('100.112.') ||
+    normalized.startsWith('100.113.') ||
+    normalized.startsWith('100.114.') ||
+    normalized.startsWith('100.115.') ||
+    normalized.startsWith('100.116.') ||
+    normalized.startsWith('100.117.') ||
+    normalized.startsWith('100.118.') ||
+    normalized.startsWith('100.119.') ||
+    normalized.startsWith('100.120.') ||
+    normalized.startsWith('100.121.') ||
+    normalized.startsWith('100.122.') ||
+    normalized.startsWith('100.123.') ||
+    normalized.startsWith('100.124.') ||
+    normalized.startsWith('100.125.') ||
+    normalized.startsWith('100.126.') ||
+    normalized.startsWith('100.127.') ||
+    normalized.endsWith('.local') ||
+    normalized.endsWith('.lan')
+  ) {
+    return true;
+  }
+
+  return false;
+}
 
 function isValidRelayUrl(value: string): boolean {
   const trimmed = value.trim();
@@ -84,7 +157,23 @@ function normalizeRelayUrl(value: string): string | null {
 
   if (!isValidRelayUrl(trimmed)) return null;
 
-  return trimmed.replace(/\/$/, '');
+  const withoutTrailingSlash = trimmed.replace(/\/$/, '');
+
+  try {
+    const parsed = new URL(withoutTrailingSlash);
+
+    if (parsed.protocol !== 'wss:') return null;
+    if (isPrivateRelayHostname(parsed.hostname)) return null;
+
+    parsed.hash = '';
+    parsed.search = '';
+
+    const path = parsed.pathname && parsed.pathname !== '/' ? parsed.pathname.replace(/\/$/, '') : '';
+
+    return `${parsed.protocol}//${parsed.host.toLowerCase()}${path}`;
+  } catch {
+    return null;
+  }
 }
 
 function relayLabelFromUrl(relayUrl: string): string {
@@ -281,31 +370,6 @@ async function fetchRelayDirectoryFromBeWorker(): Promise<RelayDirectoryResult[]
   }
 }
 
-async function fetchRelayUrlsFromJsonEndpoint(
-  url: string,
-  source: RelayDirectorySource,
-  options: {
-    online?: boolean;
-    paid?: boolean;
-  } = {}
-): Promise<RelayDirectoryResult[]> {
-  try {
-    const response = await fetch(url);
-
-    if (!response.ok) return [];
-
-    const parsed = await response.json();
-    const relayUrls = relayUrlsFromDirectoryJson(parsed);
-
-    return relayUrls
-      .map(relayUrl => relayDirectoryItemFromUrl(relayUrl, source, options))
-      .filter((item): item is RelayDirectoryResult => item !== null);
-  } catch (error) {
-    console.warn('[Relay Directory] fetch failed:', source, error);
-    return [];
-  }
-}
-
 async function readCachedRelayDirectory(): Promise<RelayDirectoryResult[]> {
   try {
     const raw = await AsyncStorage.getItem(RELAY_DIRECTORY_CACHE_KEY);
@@ -369,31 +433,12 @@ export async function fetchRelayDirectory(): Promise<RelayDirectoryResult[]> {
   const cachedRelays = await readCachedRelayDirectory();
   const beDirectoryRelays = await fetchRelayDirectoryFromBeWorker();
 
-  let directFallbackRelays: RelayDirectoryResult[] = [];
-
-  if (beDirectoryRelays.length === 0) {
-    const endpointResults = await Promise.all(
-      NOSTR_WATCH_ENDPOINTS.map(endpoint =>
-        fetchRelayUrlsFromJsonEndpoint(endpoint.url, endpoint.source, {
-          online: endpoint.online,
-          paid: endpoint.paid,
-        })
-      )
-    );
-
-    directFallbackRelays = endpointResults.flat();
-  }
-
-  const fetchedRelays = [
-    ...beDirectoryRelays,
-    ...directFallbackRelays,
-  ];
+  const fetchedRelays = beDirectoryRelays;
 
   console.log('[Relay Directory] loaded relays:', {
     starter: starterRelays.length,
     cached: cachedRelays.length,
     beDirectory: beDirectoryRelays.length,
-    directFallback: directFallbackRelays.length,
     fetched: fetchedRelays.length,
     totalBeforeMerge: starterRelays.length + cachedRelays.length + fetchedRelays.length,
   });
