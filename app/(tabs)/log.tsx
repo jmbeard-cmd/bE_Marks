@@ -57,7 +57,6 @@ import {
 } from '../../src/utils/living-spaces-storage';
 import { compressMediaForUpload } from '../../src/utils/media-compression';
 import {
-  DEFAULT_RELAY,
   publishGroupMark,
   signAndPublish,
 } from '../../src/utils/nostr';
@@ -75,6 +74,7 @@ const LIFT_UP_TAG = 'Lift Up';
 const PRESET_TAGS = ['Family', 'Faith', 'Career', 'School', 'Travel', 'Health', 'Achievement', 'Personal'];
 
 type MarkMode = 'memory' | 'lift-up';
+type PublishLane = 'personal' | 'space' | 'both';
 
 type DraftMedia = {
   id: string;
@@ -124,6 +124,28 @@ function getCaptureMetadataForDraft(media: DraftMedia[], audioUri?: string): {
 
 function getRouteParam(value?: string | string[]): string | undefined {
   return Array.isArray(value) ? value[0] : value;
+}
+
+function normalizeComposerRelayUrl(value?: string | null): string | null {
+  const trimmed = value?.trim();
+
+  if (!trimmed) return null;
+  if (!trimmed.startsWith('wss://') && !trimmed.startsWith('ws://')) return null;
+
+  return trimmed.replace(/\/$/, '');
+}
+
+function getComposerSpaceRelayUrls(
+  primaryRelayUrl?: string | null,
+  backupRelayUrls: string[] = []
+): string[] {
+  return Array.from(
+    new Set(
+      [primaryRelayUrl, ...backupRelayUrls]
+        .map(relayUrl => normalizeComposerRelayUrl(relayUrl))
+        .filter((relayUrl): relayUrl is string => !!relayUrl)
+    )
+  );
 }
 
 export default function LogScreen() {
@@ -275,14 +297,10 @@ export default function LogScreen() {
 
         if (!cancelled) {
           const relayUrlsByGroupId = groups.reduce<Record<string, string[]>>((acc, group) => {
-            const relayUrls = [
-              group.relayUrl || DEFAULT_RELAY,
-              ...(group.backupRelayUrls ?? []),
-            ]
-              .map(relayUrl => relayUrl.trim())
-              .filter(relayUrl => relayUrl.startsWith('wss://') || relayUrl.startsWith('ws://'));
-
-            acc[group.id] = Array.from(new Set(relayUrls));
+            acc[group.id] = getComposerSpaceRelayUrls(
+              group.relayUrl,
+              group.backupRelayUrls ?? []
+            );
 
             return acc;
           }, {});
@@ -355,15 +373,12 @@ export default function LogScreen() {
       ? selectedSpace.sourceId ?? selectedSpace.id.replace(/^group:/, '')
       : null;
 
-  const selectedGroupRelayUrl =
-    selectedSpace?.source === 'group'
-      ? selectedSpace.relayUrl || DEFAULT_RELAY
-      : undefined;
-
   const selectedGroupRelayUrls =
     selectedGroupId
-      ? groupRelayUrlsById[selectedGroupId] ?? [selectedGroupRelayUrl || DEFAULT_RELAY]
+      ? groupRelayUrlsById[selectedGroupId] ?? getComposerSpaceRelayUrls(selectedSpace?.relayUrl)
       : [];
+
+  const selectedGroupRelayUrl = selectedGroupRelayUrls[0];
 
   const contextPeopleLabel = isLiftUpMark
     ? 'Who are you lifting up?'
@@ -494,6 +509,12 @@ export default function LogScreen() {
   const selectedIsSharedSpace = !!selectedGroupSpaceId;
   const publicPostingLockedForChildGroup =
     accountSafety?.childUnder13 === true && !!selectedGroupSpaceId;
+
+  const publishLane: PublishLane = selectedGroupSpaceId
+    ? publishToNostr && !publicPostingLockedForChildGroup
+      ? 'both'
+      : 'space'
+    : 'personal';
 
   const publicPublishLabel = publicPostingLockedForChildGroup
     ? 'Space-safe Mark'
@@ -894,6 +915,14 @@ if (selectedGroupId && !visibleGroupIds.has(selectedGroupId)) {
   return;
 }
 
+if (selectedGroupSpaceId && selectedGroupRelayUrls.length === 0) {
+  Alert.alert(
+    'Space relay missing',
+    'This Space does not have a valid relay configured. This Mark was not saved or published because bE Marks will not fall back to your personal relays for Space posts.'
+  );
+  return;
+}
+
     setSaving(true);
 setProgress(0);
 setSaveStatus('Preparing your Mark...');
@@ -1016,8 +1045,13 @@ if (audioUri) {
       let nostrEventId: string | undefined;
       let published = false;
 
+      const shouldPublishToPersonalRelays =
+        publishToNostr &&
+        !publicPostingLockedForChildGroup &&
+        (publishLane === 'personal' || publishLane === 'both');
+
       setProgress(70);
-      if (publishToNostr && nsec && !publicPostingLockedForChildGroup) {
+      if (shouldPublishToPersonalRelays && nsec) {
         setSaveStatus(selectedIsSharedSpace ? 'Publishing beyond this Space...' : 'Publishing publicly...');
 
         const result = await signAndPublish({
@@ -1108,9 +1142,11 @@ if (audioUri) {
 
       // ── Step 5: Publish Space relay snapshot when selected ──
       const shouldPublishGroupSpaceMark =
+        (publishLane === 'space' || publishLane === 'both') &&
         !!selectedGroupId &&
         !!selectedGroupSpaceId &&
         !!nsec &&
+        selectedGroupRelayUrls.length > 0 &&
         visibleGroupIds.has(selectedGroupId);
 
       setSaveStatus(
@@ -1122,14 +1158,14 @@ if (audioUri) {
 
       let groupSpacePublished = false;
 
-      if (shouldPublishGroupSpaceMark && selectedGroupId && nsec) {
+      if (shouldPublishGroupSpaceMark && selectedGroupId && nsec && selectedGroupRelayUrl) {
         const groupMarkResult = await publishGroupMark({
           groupId: selectedGroupId,
           milestone: savedMilestone,
           metadata: livingMarkCapture.metadata,
           placement: livingMarkCapture.placement,
           nsec,
-          relayUrl: selectedGroupRelayUrl || DEFAULT_RELAY,
+          relayUrl: selectedGroupRelayUrl,
           relayUrls: selectedGroupRelayUrls,
         });
 
