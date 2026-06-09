@@ -423,63 +423,109 @@ export function GroupChatPanel({
 
   const visibleMessages = useMemo<VisibleGroupMessage[]>(
     () => {
+      const currentNpub = npub?.trim();
       const myAvatarUrl =
         (profile as any)?.picture ||
         (profile as any)?.avatarUrl ||
         undefined;
 
-const sortedMessages = [...messages, ...pendingUploads].sort(
-  (a, b) => a.createdAt - b.createdAt
-);
+      const sortedMessages = [...messages, ...pendingUploads].sort(
+        (a, b) => a.createdAt - b.createdAt
+      );
 
-const dedupedMessages = sortedMessages.reduce<(GroupMessage | PendingUploadMessage)[]>(
-  (acc, message) => {
-    const noticeText = getSystemNoticeText(message);
-    const previous = acc[acc.length - 1];
-    const previousNoticeText = previous ? getSystemNoticeText(previous) : null;
+      const dedupedMessages = sortedMessages.reduce<(GroupMessage | PendingUploadMessage)[]>(
+        (acc, message) => {
+          const noticeText = getSystemNoticeText(message);
+          const previous = acc[acc.length - 1];
+          const previousNoticeText = previous ? getSystemNoticeText(previous) : null;
 
-    if (noticeText && previousNoticeText && noticeText === previousNoticeText) {
-      return acc;
-    }
+          if (noticeText && previousNoticeText && noticeText === previousNoticeText) {
+            return acc;
+          }
 
-    acc.push(message);
-    return acc;
-  },
-  []
-);
+          acc.push(message);
+          return acc;
+        },
+        []
+      );
 
-const getDisplaySenderName = (message: GroupMessage | PendingUploadMessage) => {
-  if (message.mine) return message.senderName;
+      const getSenderNpub = (message: GroupMessage | PendingUploadMessage): string | undefined => {
+        const senderNpub = (message as any).senderNpub?.trim();
 
-  const senderNpub = (message as any).senderNpub;
-  const storedName = message.senderName?.trim();
-  const memberName = senderNpub ? memberDisplayNameMap[senderNpub] : undefined;
+        return senderNpub || undefined;
+      };
 
-  return storedName && storedName !== 'Member'
-    ? storedName
-    : memberName;
-};
+      const getMessageIsMineForCurrentIdentity = (
+        message: GroupMessage | PendingUploadMessage
+      ): boolean => {
+        const senderNpub = getSenderNpub(message);
 
-return dedupedMessages.map((message, index) => {
+        if (currentNpub && senderNpub) {
+          return senderNpub === currentNpub;
+        }
+
+        return !!message.mine && !senderNpub;
+      };
+
+      const getDisplaySenderName = (message: GroupMessage | PendingUploadMessage) => {
+        const senderNpub = getSenderNpub(message);
+        const messageIsMine = getMessageIsMineForCurrentIdentity(message);
+
+        if (messageIsMine) return message.senderName;
+
+        const storedName = message.senderName?.trim();
+        const memberName = senderNpub ? memberDisplayNameMap[senderNpub] : undefined;
+
+        return storedName && storedName !== 'Member'
+          ? storedName
+          : memberName;
+      };
+
+      return dedupedMessages.map((message, index) => {
         const previousMessage = index > 0 ? dedupedMessages[index - 1] : null;
-        const senderNpub = (message as any).senderNpub;
+        const previousComparableMessage =
+          previousMessage && !isSystemNoticeMessage(previousMessage)
+            ? previousMessage
+            : null;
+
+        const senderNpub = getSenderNpub(message);
+        const previousSenderNpub = previousComparableMessage
+          ? getSenderNpub(previousComparableMessage)
+          : undefined;
+
+        const messageIsMine = getMessageIsMineForCurrentIdentity(message);
         const displaySenderName = getDisplaySenderName(message);
-        const displayMessage =
-          displaySenderName && displaySenderName !== message.senderName
-            ? { ...message, senderName: displaySenderName }
-            : message;
+        const previousDisplaySenderName = previousComparableMessage
+          ? getDisplaySenderName(previousComparableMessage)
+          : undefined;
+
+        const sameSenderAsPrevious =
+          !!previousComparableMessage &&
+          (
+            !!senderNpub && !!previousSenderNpub
+              ? senderNpub === previousSenderNpub
+              : previousDisplaySenderName === displaySenderName
+          );
+
+        const displayMessage = {
+          ...message,
+          mine: messageIsMine,
+          ...(displaySenderName && displaySenderName !== message.senderName
+            ? { senderName: displaySenderName }
+            : {}),
+        } as GroupMessage | PendingUploadMessage;
 
         const avatarUrl =
-          message.mine
+          messageIsMine
             ? myAvatarUrl
             : senderNpub
               ? memberAvatarMap[senderNpub]
               : undefined;
 
-const showName =
-  !isSystemNoticeMessage(message) &&
-  !message.mine &&
-  (!previousMessage || getDisplaySenderName(previousMessage) !== displaySenderName);
+        const showName =
+          !isSystemNoticeMessage(message) &&
+          !messageIsMine &&
+          !sameSenderAsPrevious;
 
         return {
           id: message.id,
@@ -489,7 +535,7 @@ const showName =
         };
       });
     },
-    [messages, pendingUploads, memberAvatarMap, memberDisplayNameMap, profile]
+    [messages, pendingUploads, memberAvatarMap, memberDisplayNameMap, profile, npub]
   );
 
   const chatMessages = useMemo(
