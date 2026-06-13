@@ -3090,7 +3090,7 @@ export function fetchGroupMessages(
               clientMessageId,
               groupId: parsed.groupId || groupId,
               senderPubkey: evt.pubkey,
-              senderNpub: parsed.senderNpub,
+              senderNpub: nip19.npubEncode(evt.pubkey),
               senderName: parsed.senderName,
               text: parsed.text,
               kind: (parsed as any).kind,
@@ -3178,7 +3178,7 @@ export async function subscribeToGroupMessages(input: {
               clientMessageId,
               groupId: parsed.groupId || input.groupId,
               senderPubkey: evt.pubkey,
-              senderNpub: parsed.senderNpub,
+              senderNpub: nip19.npubEncode(evt.pubkey),
               senderName: parsed.senderName,
               text: parsed.text,
 

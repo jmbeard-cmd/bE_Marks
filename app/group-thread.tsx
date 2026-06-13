@@ -3,6 +3,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as VideoThumbnails from 'expo-video-thumbnails';
+import { nip19 } from 'nostr-tools';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -93,6 +94,38 @@ function getMemberFallbackName(npub?: string): string | undefined {
   const clean = npub?.trim();
   if (!clean) return undefined;
   return `${clean.slice(0, 12)}...`;
+}
+
+function normalizeLooseNostrId(value?: string | null): string {
+  const clean = value?.trim().toLowerCase() || '';
+
+  if (!clean) return '';
+
+  if (/^[0-9a-f]{64}$/.test(clean)) {
+    return clean;
+  }
+
+  if (clean.startsWith('npub1')) {
+    try {
+      const decoded = nip19.decode(clean);
+
+      if (decoded.type === 'npub' && typeof decoded.data === 'string') {
+        return decoded.data.toLowerCase();
+      }
+    } catch {}
+  }
+
+  return clean;
+}
+
+function isGroupMessageMineForCurrentUser(
+  currentNpub: string | undefined | null,
+  message: { senderNpub?: string; senderPubkey?: string }
+): boolean {
+  const readerId = normalizeLooseNostrId(currentNpub);
+  const senderId = normalizeLooseNostrId(message.senderPubkey || message.senderNpub);
+
+  return !!readerId && !!senderId && readerId === senderId;
 }
 
 type PendingUploadMessage = {
@@ -313,6 +346,7 @@ export function GroupChatPanel({
   const remoteSyncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const catchUpInFlightRef = useRef(false);
   const memberDisplayNameMapRef = useRef<Record<string, string | undefined>>({});
+  const loadedGroupContextRef = useRef<{ groupId: string; relayUrl: string } | null>(null);
 
   const myDisplayName =
     profile?.display_name ||
@@ -852,16 +886,23 @@ export function GroupChatPanel({
   const loadGroup = useCallback(async () => {
     if (!groupId) return;
 
+    loadedGroupContextRef.current = null;
     setGroupLoaded(false);
 
     const group = await getGroupById(groupId);
 
     if (group) {
+      const nextRelayUrl = group.relayUrl;
+
       setGroupName(group.name);
       setGroupIcon(getGroupIcon(group));
       setGroupImageUri(group.coverImage ?? null);
-      setRelayUrl(group.relayUrl);
+      setRelayUrl(nextRelayUrl);
       setRelayUrls(getGroupRelayUrls(group));
+      loadedGroupContextRef.current = {
+        groupId,
+        relayUrl: nextRelayUrl,
+      };
     }
 
     if (npub) {
@@ -921,7 +962,7 @@ export function GroupChatPanel({
           .then(async remoteMessages => {
             if (remoteSyncRunIdRef.current !== runId) return;
         for (const msg of remoteMessages) {
-          const mine = !!npub && msg.senderNpub === npub;
+          const mine = isGroupMessageMineForCurrentUser(npub, msg);
 
           await saveRemoteGroupMessage({
             id: `nostr_group_${msg.id}`,
@@ -1070,7 +1111,7 @@ export function GroupChatPanel({
     if (remoteSyncRunIdRef.current !== runId) return;
 
     for (const msg of remoteMessages) {
-      const mine = !!npub && msg.senderNpub === npub;
+      const mine = isGroupMessageMineForCurrentUser(npub, msg);
 
       await saveRemoteGroupMessage({
         id: `nostr_group_${msg.id}`,
@@ -1179,21 +1220,68 @@ export function GroupChatPanel({
 }, [groupId, groupLoaded, relayUrl, catchUpGroupMessages]);
 
   useEffect(() => {
-    if (!groupId || !relayUrl) return;
+    if (!groupId || !groupLoaded || !relayUrl) return;
 
+    const loadedGroupContext = loadedGroupContextRef.current;
+
+    if (
+      !loadedGroupContext ||
+      loadedGroupContext.groupId !== groupId ||
+      loadedGroupContext.relayUrl !== relayUrl
+    ) {
+      return;
+    }
+
+    let cancelled = false;
     let unsubscribeMessages: (() => void) | undefined;
     let unsubscribeDeletes: (() => void) | undefined;
     let unsubscribeReactions: (() => void) | undefined;
     let unsubscribeEdits: (() => void) | undefined;
     let unsubscribePollVotes: (() => void) | undefined;
 
+    const safelyUnsubscribe = (
+      unsubscribe: (() => void) | undefined,
+      label: string
+    ) => {
+      if (!unsubscribe) return;
+
+      try {
+        unsubscribe();
+      } catch (error) {
+        console.warn(`[Groups] failed to unsubscribe ${label}:`, error);
+      }
+    };
+
+    const stopLiveGroupSync = () => {
+      safelyUnsubscribe(unsubscribeMessages, 'messages');
+      safelyUnsubscribe(unsubscribeDeletes, 'deletes');
+      safelyUnsubscribe(unsubscribeReactions, 'reactions');
+      safelyUnsubscribe(unsubscribeEdits, 'edits');
+      safelyUnsubscribe(unsubscribePollVotes, 'poll votes');
+
+      unsubscribeMessages = undefined;
+      unsubscribeDeletes = undefined;
+      unsubscribeReactions = undefined;
+      unsubscribeEdits = undefined;
+      unsubscribePollVotes = undefined;
+    };
+
+    const closeIfCancelled = (
+      unsubscribe: (() => void) | undefined,
+      label: string
+    ) => {
+      if (!cancelled) return false;
+
+      safelyUnsubscribe(unsubscribe, label);
+      return true;
+    };
 
     async function startLiveGroupSync() {
       unsubscribeMessages = await subscribeToGroupMessages({
         groupId,
         relayUrl,
         onMessage: async (msg) => {
-          const mine = !!npub && msg.senderNpub === npub;
+          const mine = isGroupMessageMineForCurrentUser(npub, msg);
 
           await saveRemoteGroupMessage({
             id: `nostr_group_${msg.id}`,
@@ -1268,6 +1356,8 @@ export function GroupChatPanel({
         },
       });
 
+      if (closeIfCancelled(unsubscribeMessages, 'messages')) return;
+
       unsubscribeDeletes = await subscribeToGroupMessageDeletes({
         groupId,
         relayUrl,
@@ -1293,6 +1383,8 @@ export function GroupChatPanel({
           onMediaMessagesChanged?.();
         },
       });
+
+      if (closeIfCancelled(unsubscribeDeletes, 'deletes')) return;
 
       unsubscribeReactions = await subscribeToGroupMessageReactions({
         groupId,
@@ -1323,6 +1415,8 @@ export function GroupChatPanel({
         },
       });
 
+      if (closeIfCancelled(unsubscribeReactions, 'reactions')) return;
+
       unsubscribeEdits = await subscribeToGroupMessageEdits({
         groupId,
         relayUrl,
@@ -1347,6 +1441,8 @@ export function GroupChatPanel({
           setMessages(next);
         },
       });
+
+      if (closeIfCancelled(unsubscribeEdits, 'edits')) return;
 
       unsubscribePollVotes = await subscribeToGroupPollVotes({
         groupId,
@@ -1376,18 +1472,21 @@ export function GroupChatPanel({
           setMessages(next);
         },
       });
+
+      closeIfCancelled(unsubscribePollVotes, 'poll votes');
     }
 
-    startLiveGroupSync();
+    startLiveGroupSync().catch(error => {
+      if (!cancelled) {
+        console.warn('[Groups] live group sync failed to start:', error);
+      }
+    });
 
     return () => {
-      if (unsubscribeMessages) unsubscribeMessages();
-      if (unsubscribeDeletes) unsubscribeDeletes();
-      if (unsubscribeReactions) unsubscribeReactions();
-      if (unsubscribeEdits) unsubscribeEdits();
-      if (unsubscribePollVotes) unsubscribePollVotes();
+      cancelled = true;
+      stopLiveGroupSync();
     };
-}, [getRemoteSenderName, groupId, markVisibleMessagesRead, relayUrl, npub, scrollToBottomIfAppropriate, getNotificationPreviewText, onMediaMessagesChanged]);
+}, [getRemoteSenderName, groupId, groupLoaded, markVisibleMessagesRead, relayUrl, npub, scrollToBottomIfAppropriate, getNotificationPreviewText, onMediaMessagesChanged]);
 
   const handleSend = async () => {
     const text = draft.trim();
