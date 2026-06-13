@@ -447,6 +447,12 @@ function getSpaceGalleryCacheKey(groupId: string): string {
   return `${SPACE_GALLERY_CACHE_KEY_PREFIX}${groupId}`;
 }
 
+function getSpaceTabSeenCountsKey(groupId: string, readerNpub?: string | null): string {
+  const normalizedReader = readerNpub?.trim().toLowerCase() || 'signed-out';
+
+  return `${SPACE_TAB_SEEN_COUNTS_KEY_PREFIX}${normalizedReader}:${groupId}`;
+}
+
 async function readCachedSpaceGalleryItems(groupId: string): Promise<SpaceGalleryItem[]> {
   try {
     const raw = await AsyncStorage.getItem(getSpaceGalleryCacheKey(groupId));
@@ -1185,7 +1191,7 @@ const publishSpaceMarkSnapshot = useCallback(async (
         };
 
         AsyncStorage.setItem(
-          `${SPACE_TAB_SEEN_COUNTS_KEY_PREFIX}${group.id}`,
+          getSpaceTabSeenCountsKey(group.id, npub),
           JSON.stringify(next)
         ).catch(error => {
           console.warn('[Space Tabs] chat seen count save failed:', error);
@@ -1196,7 +1202,7 @@ const publishSpaceMarkSnapshot = useCallback(async (
     } catch (error) {
       console.warn('[Space Tabs] chat seen count refresh failed:', error);
     }
-  }, [group?.id, spaceTabSeenCountsLoaded]);
+  }, [group?.id, npub, spaceTabSeenCountsLoaded]);
 
   useEffect(() => {
     load();
@@ -2722,34 +2728,86 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
 
     let cancelled = false;
 
-    setSpaceTabSeenCountsLoaded(false);
+    const normalizeSeenCounts = (parsed: any): Partial<SpaceTabCounts> => ({
+      stickies: typeof parsed?.stickies === 'number' ? parsed.stickies : 0,
+      chat: typeof parsed?.chat === 'number' ? parsed.chat : 0,
+      board: typeof parsed?.board === 'number' ? parsed.board : 0,
+      calendar: typeof parsed?.calendar === 'number' ? parsed.calendar : 0,
+      gallery: typeof parsed?.gallery === 'number' ? parsed.gallery : 0,
+      legacy: typeof parsed?.legacy === 'number' ? parsed.legacy : 0,
+    });
 
-    AsyncStorage.getItem(`${SPACE_TAB_SEEN_COUNTS_KEY_PREFIX}${group.id}`)
-      .then(raw => {
+    const loadSeenCounts = async () => {
+      setSpaceTabSeenCountsLoaded(false);
+
+      const scopedKey = getSpaceTabSeenCountsKey(group.id, npub);
+      const legacyKey = `${SPACE_TAB_SEEN_COUNTS_KEY_PREFIX}${group.id}`;
+
+      try {
+        const scopedRaw = await AsyncStorage.getItem(scopedKey);
+
         if (cancelled) return;
 
-        const parsed = raw ? JSON.parse(raw) : {};
+        if (scopedRaw) {
+          setSeenSpaceTabCounts(normalizeSeenCounts(JSON.parse(scopedRaw)));
+          setSpaceTabSeenCountsLoaded(true);
+          return;
+        }
 
-        setSeenSpaceTabCounts({
-          stickies: typeof parsed?.stickies === 'number' ? parsed.stickies : 0,
-          chat: typeof parsed?.chat === 'number' ? parsed.chat : 0,
-          board: typeof parsed?.board === 'number' ? parsed.board : 0,
-          calendar: typeof parsed?.calendar === 'number' ? parsed.calendar : 0,
-          gallery: typeof parsed?.gallery === 'number' ? parsed.gallery : 0,
-          legacy: typeof parsed?.legacy === 'number' ? parsed.legacy : 0,
-        });
+        const legacyRaw = await AsyncStorage.getItem(legacyKey);
+
+        if (cancelled) return;
+
+        if (legacyRaw) {
+          const migratedCounts = normalizeSeenCounts(JSON.parse(legacyRaw));
+
+          setSeenSpaceTabCounts(migratedCounts);
+          setSpaceTabSeenCountsLoaded(true);
+
+          AsyncStorage.setItem(scopedKey, JSON.stringify(migratedCounts))
+            .catch(error => {
+              console.warn('[Space Tabs] seen counts migration save failed:', error);
+            });
+
+          return;
+        }
+
+        const hasAnyLoadedTotals = Object.values(spaceTabTotalCounts)
+          .some(count => count > 0);
+
+        const baselineCounts = hasAnyLoadedTotals
+          ? spaceTabTotalCounts
+          : {
+              stickies: 0,
+              chat: 0,
+              board: 0,
+              calendar: 0,
+              gallery: 0,
+              legacy: 0,
+            };
+
+        setSeenSpaceTabCounts(baselineCounts);
         setSpaceTabSeenCountsLoaded(true);
-      })
-      .catch(error => {
+
+        if (hasAnyLoadedTotals) {
+          AsyncStorage.setItem(scopedKey, JSON.stringify(baselineCounts))
+            .catch(error => {
+              console.warn('[Space Tabs] seen counts baseline save failed:', error);
+            });
+        }
+      } catch (error) {
         console.warn('[Space Tabs] seen counts load failed:', error);
         setSeenSpaceTabCounts({});
         setSpaceTabSeenCountsLoaded(true);
-      });
+      }
+    };
+
+    loadSeenCounts();
 
     return () => {
       cancelled = true;
     };
-  }, [group?.id]);
+  }, [group?.id, npub, spaceTabTotalCounts]);
 
   const markSpaceTabSeen = useCallback((targetTab: Tab) => {
     if (!group?.id || !spaceTabSeenCountsLoaded || !isCountedSpaceTab(targetTab)) return;
@@ -2765,7 +2823,7 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
       };
 
       AsyncStorage.setItem(
-        `${SPACE_TAB_SEEN_COUNTS_KEY_PREFIX}${group.id}`,
+        getSpaceTabSeenCountsKey(group.id, npub),
         JSON.stringify(next)
       ).catch(error => {
         console.warn('[Space Tabs] seen counts save failed:', error);
@@ -2773,7 +2831,7 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
 
       return next;
     });
-  }, [group?.id, spaceTabSeenCountsLoaded, spaceTabTotalCounts]);
+  }, [group?.id, npub, spaceTabSeenCountsLoaded, spaceTabTotalCounts]);
 
   useEffect(() => {
     markSpaceTabSeen(tab);
