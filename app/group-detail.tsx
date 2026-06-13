@@ -1658,9 +1658,21 @@ const publishSpaceMarkSnapshot = useCallback(async (
   const saveGroupRelaySettings = async () => {
     if (savingGroupRelaySettingsRef.current) return;
 
-    if (!group) return;
+    const targetGroup = group;
+
+    if (!targetGroup) return;
+
     if (!isAdmin) {
       Alert.alert('Admin only', 'Only a Space owner or admin can save relay routing.');
+      return;
+    }
+
+    if (
+      groupRelayMode !== 'default' &&
+      groupRelayMode !== 'custom' &&
+      groupRelayMode !== 'both'
+    ) {
+      Alert.alert('Invalid relay mode', 'Choose bE Relay, Space / School Relay, or Both before saving.');
       return;
     }
 
@@ -1699,13 +1711,13 @@ const publishSpaceMarkSnapshot = useCallback(async (
         ...rawBackupRelayUrls,
       ]).filter(relayUrl => relayUrl !== primaryRelayUrl);
 
-      await updateGroup(group.id, {
+      await updateGroup(targetGroup.id, {
         relayMode: groupRelayMode,
         relayUrl: primaryRelayUrl,
         backupRelayUrls,
       });
       await syncLivingSpacesFromGroups();
-      await publishCurrentGroupMetadata(group.id);
+      await publishCurrentGroupMetadata(targetGroup.id);
 
       setEditingGroupRelay(false);
       await load();
