@@ -1058,8 +1058,8 @@ const publishSpaceMarkSnapshot = useCallback(async (
       if (groupDetailLoadRunIdRef.current !== runId) return;
 
       try {
-        if (g.relayUrl) {
-          await syncCalendarEventsFromRelay(id, g.relayUrl);
+        if (relayGroup.relayUrl) {
+          await syncCalendarEventsFromRelay(id, relayGroup.relayUrl);
         }
 
         const [upcoming, calendarEvents] = await Promise.all([
@@ -1082,10 +1082,10 @@ const publishSpaceMarkSnapshot = useCallback(async (
         let relayChatMediaItems: any[] = [];
         const shouldFetchRelayGallery = tabRef.current === 'gallery';
 
-        if (g.relayUrl && shouldFetchRelayGallery) {
+        if (relayGroup.relayUrl && shouldFetchRelayGallery) {
           const [events, deleteEvents] = await Promise.all([
-            fetchGroupMessages(id, g.relayUrl),
-            fetchGroupMessageDeletes(id, g.relayUrl),
+            fetchGroupMessages(id, relayGroup.relayUrl),
+            fetchGroupMessageDeletes(id, relayGroup.relayUrl),
           ]);
 
           const deletedMessageIds = new Set<string>();
@@ -2989,6 +2989,25 @@ const liftedSpaceChatTrayStyle = shouldLiftSpaceChatTray
       bottom: Math.max(spaceKeyboardHeight + (Platform.OS === 'ios' ? 10 : 6), 6),
     }
   : null;
+const pendingRelayUrl = groupRelayUrl.trim();
+const pendingBackupRelayUrls = groupBackupRelayInput
+  .split(/[\s,]+/)
+  .map(relayUrl => relayUrl.trim())
+  .filter(Boolean);
+const pendingPrimaryRelayUrl =
+  groupRelayMode === 'default'
+    ? DEFAULT_RELAY
+    : pendingRelayUrl || 'Missing Space relay URL';
+const pendingMirrorRelayUrls = normalizeRelayUrls([
+  ...(groupRelayMode === 'both' ? [DEFAULT_RELAY] : []),
+  ...pendingBackupRelayUrls,
+]).filter(relayUrl => relayUrl !== pendingPrimaryRelayUrl);
+const pendingRelayModeLabel =
+  groupRelayMode === 'default'
+    ? 'bE Relay only'
+    : groupRelayMode === 'custom'
+      ? 'Space / School relay only'
+      : 'Both bE + Space relay';
 const relaySettingsCard = spaceSettingsRelayOpen ? (
   <View style={s.groupRelayCard}>
     <View style={s.groupRelayHeader}>
@@ -3044,7 +3063,9 @@ const relaySettingsCard = spaceSettingsRelayOpen ? (
           activeOpacity={0.85}
         >
           <Text style={s.groupRelayOptionTitle}>bE Relay</Text>
-          <Text style={s.groupRelayOptionHint}>Easiest setup. Works automatically.</Text>
+          <Text style={s.groupRelayOptionHint}>
+            Easiest setup. Uses the bE default relay for this Space.
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -3055,8 +3076,10 @@ const relaySettingsCard = spaceSettingsRelayOpen ? (
           onPress={() => setGroupRelayMode('custom')}
           activeOpacity={0.85}
         >
-          <Text style={s.groupRelayOptionTitle}>Space / School Relay</Text>
-          <Text style={s.groupRelayOptionHint}>Use a private relay for this Space.</Text>
+          <Text style={s.groupRelayOptionTitle}>Space / School Relay Only</Text>
+          <Text style={s.groupRelayOptionHint}>
+            Private route. The bE default relay is not used unless you add it as a backup.
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -3068,7 +3091,9 @@ const relaySettingsCard = spaceSettingsRelayOpen ? (
           activeOpacity={0.85}
         >
           <Text style={s.groupRelayOptionTitle}>Both</Text>
-          <Text style={s.groupRelayOptionHint}>Save to bE and the Space relay.</Text>
+          <Text style={s.groupRelayOptionHint}>
+            Safer mirror route. Saves to the Space relay and keeps bE relay included.
+          </Text>
         </TouchableOpacity>
 
         {(groupRelayMode === 'custom' || groupRelayMode === 'both') && (
@@ -3083,6 +3108,24 @@ const relaySettingsCard = spaceSettingsRelayOpen ? (
               autoCapitalize="none"
               keyboardType="url"
             />
+
+            {groupRelayMode === 'custom' && (
+              <Text style={[s.groupRelayHint, { marginTop: 6 }]}>
+                Guardrail: Space / School Relay Only means this Space depends on that relay being online and reachable by members.
+              </Text>
+            )}
+
+            {groupRelayMode === 'both' && (
+              <Text style={[s.groupRelayHint, { marginTop: 6 }]}>
+                Guardrail: Both keeps the bE relay included while also saving to the Space relay.
+              </Text>
+            )}
+
+            {groupRelayUrl.trim().toLowerCase().startsWith('ws://') && (
+              <Text style={[s.groupRelayHint, { marginTop: 6, color: '#c06b00' }]}>
+                Local/dev warning: ws:// relays usually only work on trusted local networks. Use wss:// for production Spaces.
+              </Text>
+            )}
           </>
         )}
 
@@ -3100,6 +3143,25 @@ const relaySettingsCard = spaceSettingsRelayOpen ? (
         <Text style={s.groupRelayHint}>
           Add one relay per line. Space metadata will be mirrored to these relays for redundancy.
         </Text>
+
+        <View style={[s.groupRelaySummary, { marginTop: 12, marginBottom: 12 }]}>
+          <Text style={s.groupRelaySummaryLabel}>Save preview</Text>
+          <Text style={s.groupRelaySummaryValue}>{pendingRelayModeLabel}</Text>
+
+          <Text style={s.groupRelaySummaryLabel}>Primary relay</Text>
+          <Text style={s.groupRelayUrlText} numberOfLines={1}>
+            {pendingPrimaryRelayUrl}
+          </Text>
+
+          <Text style={[s.groupRelaySummaryLabel, { marginTop: 10 }]}>
+            Mirrors / backups
+          </Text>
+          <Text style={s.groupRelayUrlText} numberOfLines={3}>
+            {pendingMirrorRelayUrls.length > 0
+              ? pendingMirrorRelayUrls.join('\n')
+              : 'None'}
+          </Text>
+        </View>
 
         <View style={s.modalActions}>
           <TouchableOpacity style={s.cancelBtn} onPress={() => setEditingGroupRelay(false)}>
