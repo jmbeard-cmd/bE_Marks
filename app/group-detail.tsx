@@ -1167,6 +1167,37 @@ const publishSpaceMarkSnapshot = useCallback(async (
     }
   }, [id]);
 
+  const refreshChatTabSeenFromLocalMessages = useCallback(async () => {
+    if (!group?.id || !spaceTabSeenCountsLoaded) return;
+
+    try {
+      const localMessages = await getMessagesForGroup(group.id);
+      const nextChatCount = localMessages.filter(message => !message.isDeleted).length;
+
+      setChatMessageCount(nextChatCount);
+
+      setSeenSpaceTabCounts(current => {
+        if (current.chat === nextChatCount) return current;
+
+        const next = {
+          ...current,
+          chat: nextChatCount,
+        };
+
+        AsyncStorage.setItem(
+          `${SPACE_TAB_SEEN_COUNTS_KEY_PREFIX}${group.id}`,
+          JSON.stringify(next)
+        ).catch(error => {
+          console.warn('[Space Tabs] chat seen count save failed:', error);
+        });
+
+        return next;
+      });
+    } catch (error) {
+      console.warn('[Space Tabs] chat seen count refresh failed:', error);
+    }
+  }, [group?.id, spaceTabSeenCountsLoaded]);
+
   useEffect(() => {
     load();
 
@@ -1227,6 +1258,18 @@ const publishSpaceMarkSnapshot = useCallback(async (
       refreshLocalGalleryFromCache();
     }
   }, [tab, refreshLocalGalleryFromCache]);
+
+  useEffect(() => {
+    if (tab !== 'chat') return;
+
+    refreshChatTabSeenFromLocalMessages();
+
+    const timer = setInterval(() => {
+      refreshChatTabSeenFromLocalMessages();
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [refreshChatTabSeenFromLocalMessages, tab]);
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -2656,6 +2699,11 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
     }
 
     return COUNTED_SPACE_TABS.reduce<Partial<SpaceTabCounts>>((acc, tabKey) => {
+      if (tabKey === tab) {
+        acc[tabKey] = 0;
+        return acc;
+      }
+
       acc[tabKey] = Math.max(
         0,
         spaceTabTotalCounts[tabKey] - (seenSpaceTabCounts[tabKey] ?? 0)
@@ -2663,7 +2711,7 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
 
       return acc;
     }, {});
-  }, [seenSpaceTabCounts, spaceTabSeenCountsLoaded, spaceTabTotalCounts]);
+  }, [seenSpaceTabCounts, spaceTabSeenCountsLoaded, spaceTabTotalCounts, tab]);
 
   useEffect(() => {
     if (!group?.id) {
