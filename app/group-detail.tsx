@@ -909,6 +909,11 @@ const publishSpaceMarkSnapshot = useCallback(async (
     const runId = groupDetailLoadRunIdRef.current + 1;
     groupDetailLoadRunIdRef.current = runId;
 
+    setIsAdmin(false);
+    setIsMember(false);
+    setSchoolConsentSummary(null);
+    setSelectedMemberAction(null);
+
     const g = await getGroupById(id);
 
     if (!g) return;
@@ -957,8 +962,13 @@ const publishSpaceMarkSnapshot = useCallback(async (
           isGroupMember(id, npub),
         ]);
 
+        if (groupDetailLoadRunIdRef.current !== runId) return;
+
         setIsAdmin(admin);
         setIsMember(member);
+      } else {
+        setIsAdmin(false);
+        setIsMember(false);
       }
     } catch (error) {
       console.warn('[Group Detail] local cache load failed:', error);
