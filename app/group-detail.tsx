@@ -538,6 +538,12 @@ function getGroupPublishRelayUrls(group: BEGroup): string[] {
   ]);
 }
 
+function getGroupRestoreRelayUrls(group: BEGroup): string[] {
+  const relayUrls = getGroupPublishRelayUrls(group);
+
+  return relayUrls.length > 0 ? relayUrls : [DEFAULT_RELAY];
+}
+
 function getTrustedBoardAuthors(groupMembers: BEGroupMember[]): GroupStickyTrustedAuthor[] {
   return groupMembers
     .filter(member =>
@@ -1096,10 +1102,39 @@ const publishSpaceMarkSnapshot = useCallback(async (
 
       try {
         const trustedBoardAuthors = getTrustedBoardAuthors(await getGroupMembers(id));
+        const restoreRelayUrls = getGroupRestoreRelayUrls(relayGroup);
+        const stickyCandidates: GroupSticky[] = [];
 
-        const syncedStickies = relayGroup.relayUrl
-          ? await syncGroupStickiesFromRelay(id, relayGroup.relayUrl, trustedBoardAuthors)
-          : await getStickiesForGroup(id);
+        for (const restoreRelayUrl of restoreRelayUrls) {
+          try {
+            const relayStickies = await syncGroupStickiesFromRelay(
+              id,
+              restoreRelayUrl,
+              trustedBoardAuthors
+            );
+
+            stickyCandidates.push(...relayStickies);
+          } catch (error) {
+            console.warn('[Group Detail] board sync failed for relay:', restoreRelayUrl, error);
+          }
+        }
+
+        const localStickies = await getStickiesForGroup(id);
+        const stickyMap = new Map<string, GroupSticky>();
+
+        [...localStickies, ...stickyCandidates].forEach(sticky => {
+          const existing = stickyMap.get(sticky.id);
+          const stickyUpdatedAt = sticky.updatedAt || sticky.createdAt || 0;
+          const existingUpdatedAt = existing?.updatedAt || existing?.createdAt || 0;
+
+          if (!existing || stickyUpdatedAt >= existingUpdatedAt) {
+            stickyMap.set(sticky.id, sticky);
+          }
+        });
+
+        const syncedStickies = Array.from(stickyMap.values()).sort(
+          (a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0)
+        );
 
         setStickies(syncedStickies);
         const syncedSpaces = spaces.length > 0 ? spaces : await syncLivingSpacesFromGroups();
@@ -1123,8 +1158,14 @@ const publishSpaceMarkSnapshot = useCallback(async (
       if (groupDetailLoadRunIdRef.current !== runId) return;
 
       try {
-        if (relayGroup.relayUrl) {
-          await syncCalendarEventsFromRelay(id, relayGroup.relayUrl);
+        const restoreRelayUrls = getGroupRestoreRelayUrls(relayGroup);
+
+        for (const restoreRelayUrl of restoreRelayUrls) {
+          try {
+            await syncCalendarEventsFromRelay(id, restoreRelayUrl);
+          } catch (error) {
+            console.warn('[Group Detail] calendar sync failed for relay:', restoreRelayUrl, error);
+          }
         }
 
         const [upcoming, calendarEvents] = await Promise.all([
