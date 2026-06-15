@@ -383,6 +383,176 @@ export function GroupChatPanel({
     }
   }, [groupId, npub]);
 
+    const getEffectiveGroupRelayUrls = useCallback(() => {
+    const urls = Array.from(
+      new Set(
+        [relayUrl, ...relayUrls]
+          .map(url => url?.trim())
+          .filter((url): url is string => !!url)
+      )
+    );
+
+    return urls.length > 0 ? urls : ['wss://relay.beginningend.com'];
+  }, [relayUrl, relayUrls]);
+
+  const fetchRemoteGroupMessagesFromRelays = useCallback(async () => {
+    if (!groupId) return [];
+
+    const results = await Promise.all(
+      getEffectiveGroupRelayUrls().map(async currentRelayUrl => {
+        try {
+          return await fetchGroupMessages(groupId, currentRelayUrl);
+        } catch (error) {
+          console.warn('[Groups] remote message fetch failed for relay:', currentRelayUrl, error);
+          return [];
+        }
+      })
+    );
+
+    const messageMap = new Map<string, any>();
+
+    results.flat().forEach(message => {
+      const key = message.clientMessageId || message.id;
+
+      if (!key) return;
+
+      messageMap.set(key, message);
+    });
+
+    return Array.from(messageMap.values()).sort(
+      (a, b) => (a.createdAt || 0) - (b.createdAt || 0)
+    );
+  }, [getEffectiveGroupRelayUrls, groupId]);
+
+  const fetchRemoteGroupMessageDeletesFromRelays = useCallback(async () => {
+    if (!groupId) return [];
+
+    const results = await Promise.all(
+      getEffectiveGroupRelayUrls().map(async currentRelayUrl => {
+        try {
+          return await fetchGroupMessageDeletes(groupId, currentRelayUrl);
+        } catch (error) {
+          console.warn('[Groups] remote delete fetch failed for relay:', currentRelayUrl, error);
+          return [];
+        }
+      })
+    );
+
+    const eventMap = new Map<string, any>();
+
+    results.flat().forEach(event => {
+      const key = [
+        event.messageId,
+        event.clientMessageId,
+        event.deletedAt,
+        event.deletedByNpub,
+      ].filter(Boolean).join(':');
+
+      if (!key) return;
+
+      eventMap.set(key, event);
+    });
+
+    return Array.from(eventMap.values());
+  }, [getEffectiveGroupRelayUrls, groupId]);
+
+  const fetchRemoteGroupMessageReactionsFromRelays = useCallback(async () => {
+    if (!groupId) return [];
+
+    const results = await Promise.all(
+      getEffectiveGroupRelayUrls().map(async currentRelayUrl => {
+        try {
+          return await fetchGroupMessageReactions(groupId, currentRelayUrl);
+        } catch (error) {
+          console.warn('[Groups] remote reaction fetch failed for relay:', currentRelayUrl, error);
+          return [];
+        }
+      })
+    );
+
+    const eventMap = new Map<string, any>();
+
+    results.flat().forEach(event => {
+      const key = [
+        event.messageId,
+        event.clientMessageId,
+        event.reactorNpub,
+        event.reaction,
+        event.createdAt,
+      ].filter(Boolean).join(':');
+
+      if (!key) return;
+
+      eventMap.set(key, event);
+    });
+
+    return Array.from(eventMap.values());
+  }, [getEffectiveGroupRelayUrls, groupId]);
+
+  const fetchRemoteGroupMessageEditsFromRelays = useCallback(async () => {
+    if (!groupId) return [];
+
+    const results = await Promise.all(
+      getEffectiveGroupRelayUrls().map(async currentRelayUrl => {
+        try {
+          return await fetchGroupMessageEdits(groupId, currentRelayUrl);
+        } catch (error) {
+          console.warn('[Groups] remote edit fetch failed for relay:', currentRelayUrl, error);
+          return [];
+        }
+      })
+    );
+
+    const eventMap = new Map<string, any>();
+
+    results.flat().forEach(event => {
+      const key = [
+        event.messageId,
+        event.clientMessageId,
+        event.editedAt,
+      ].filter(Boolean).join(':');
+
+      if (!key) return;
+
+      eventMap.set(key, event);
+    });
+
+    return Array.from(eventMap.values());
+  }, [getEffectiveGroupRelayUrls, groupId]);
+
+  const fetchRemoteGroupPollVotesFromRelays = useCallback(async () => {
+    if (!groupId) return [];
+
+    const results = await Promise.all(
+      getEffectiveGroupRelayUrls().map(async currentRelayUrl => {
+        try {
+          return await fetchGroupPollVotes(groupId, currentRelayUrl);
+        } catch (error) {
+          console.warn('[Groups] remote poll vote fetch failed for relay:', currentRelayUrl, error);
+          return [];
+        }
+      })
+    );
+
+    const eventMap = new Map<string, any>();
+
+    results.flat().forEach(event => {
+      const key = [
+        event.messageId,
+        event.clientMessageId,
+        event.optionId,
+        event.voterNpub,
+        event.createdAt,
+      ].filter(Boolean).join(':');
+
+      if (!key) return;
+
+      eventMap.set(key, event);
+    });
+
+    return Array.from(eventMap.values());
+  }, [getEffectiveGroupRelayUrls, groupId]);
+
   const guardCanPost = useCallback(() => {
     if (canPostToGroup) return true;
 
@@ -958,7 +1128,7 @@ export function GroupChatPanel({
 
     InteractionManager.runAfterInteractions(() => {
       remoteSyncTimeoutRef.current = setTimeout(() => {
-        fetchGroupMessages(groupId, relayUrl)
+        fetchRemoteGroupMessagesFromRelays()
           .then(async remoteMessages => {
             if (remoteSyncRunIdRef.current !== runId) return;
         for (const msg of remoteMessages) {
@@ -989,10 +1159,10 @@ export function GroupChatPanel({
         }
 
         const [deleteEvents, reactionEvents, editEvents, pollVoteEvents] = await Promise.all([
-          fetchGroupMessageDeletes(groupId, relayUrl),
-          fetchGroupMessageReactions(groupId, relayUrl),
-          fetchGroupMessageEdits(groupId, relayUrl),
-          fetchGroupPollVotes(groupId, relayUrl),
+          fetchRemoteGroupMessageDeletesFromRelays(),
+          fetchRemoteGroupMessageReactionsFromRelays(),
+          fetchRemoteGroupMessageEditsFromRelays(),
+          fetchRemoteGroupPollVotesFromRelays(),
         ]);
 
         for (const pollVoteEvent of pollVoteEvents) {
@@ -1096,7 +1266,19 @@ export function GroupChatPanel({
           });
       }, 250);
     });
-  }, [getRemoteSenderName, groupId, groupLoaded, markVisibleMessagesRead, relayUrl, npub, onMediaMessagesChanged]);
+  }, [
+    fetchRemoteGroupMessageDeletesFromRelays,
+    fetchRemoteGroupMessageEditsFromRelays,
+    fetchRemoteGroupMessageReactionsFromRelays,
+    fetchRemoteGroupMessagesFromRelays,
+    fetchRemoteGroupPollVotesFromRelays,
+    getRemoteSenderName,
+    groupId,
+    groupLoaded,
+    markVisibleMessagesRead,
+    npub,
+    onMediaMessagesChanged,
+  ]);
 
   const catchUpGroupMessages = useCallback(async () => {
   if (!groupId || !groupLoaded || !relayUrl) return;
@@ -1106,7 +1288,7 @@ export function GroupChatPanel({
 
   try {
     const runId = remoteSyncRunIdRef.current;
-    const remoteMessages = await fetchGroupMessages(groupId, relayUrl);
+    const remoteMessages = await fetchRemoteGroupMessagesFromRelays();
 
     if (remoteSyncRunIdRef.current !== runId) return;
 
@@ -1153,7 +1335,15 @@ export function GroupChatPanel({
   } finally {
     catchUpInFlightRef.current = false;
   }
-}, [getRemoteSenderName, groupId, groupLoaded, markVisibleMessagesRead, relayUrl, npub, onMediaMessagesChanged]);
+}, [
+  fetchRemoteGroupMessagesFromRelays,
+  getRemoteSenderName,
+  groupId,
+  groupLoaded,
+  markVisibleMessagesRead,
+  npub,
+  onMediaMessagesChanged,
+]);
 
   useEffect(() => {
     loadGroup();
@@ -1217,7 +1407,7 @@ export function GroupChatPanel({
     clearTimeout(initialCatchUpTimer);
     clearInterval(interval);
   };
-}, [groupId, groupLoaded, relayUrl, catchUpGroupMessages]);
+}, [groupId, groupLoaded, catchUpGroupMessages]);
 
   useEffect(() => {
     if (!groupId || !groupLoaded || !relayUrl) return;

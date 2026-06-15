@@ -252,6 +252,25 @@ export function getGroupRelayUrls(
   ]);
 }
 
+function normalizeMemberNpub(npub?: string | null): string {
+  return npub?.trim().toLowerCase() ?? '';
+}
+
+async function fetchGroupByIdFromRelays(
+  groupId: string,
+  relayUrls: string[]
+): Promise<NostrGroupPayload | null> {
+  const relaysToUse = normalizeRelayUrls(relayUrls);
+
+  for (const relayUrl of relaysToUse.length > 0 ? relaysToUse : [DEFAULT_RELAY]) {
+    const group = await fetchGroupById(groupId, relayUrl);
+
+    if (group) return group;
+  }
+
+  return null;
+}
+
 // ─── Group CRUD ───────────────────────────────────────────────────
 
 export async function getGroups(): Promise<BEGroup[]> {
@@ -267,15 +286,25 @@ export async function syncGroupMembersFromRelay(
   groupId: string,
   relayUrls: string[],
 ): Promise<BEGroupMember[]> {
-  const relaysToUse = relayUrls.length > 0 ? relayUrls : ['wss://relay.beginningend.com'];
-  const membershipEvents = await fetchGroupMemberships(groupId, relaysToUse);
+  const localGroupForRelays = await getGroupById(groupId);
+  const relaysToUse = normalizeRelayUrls([
+    ...relayUrls,
+    ...(localGroupForRelays ? getGroupRelayUrls(localGroupForRelays) : []),
+  ]);
+
+  const effectiveRelays = relaysToUse.length > 0 ? relaysToUse : [DEFAULT_RELAY];
+  const membershipEvents = await fetchGroupMemberships(groupId, effectiveRelays);
   const allMembers = await readMembers();
   const existingGroupMembers = allMembers.filter(m => m.groupId === groupId);
 
   const memberMap = new Map<string, BEGroupMember>();
 
   for (const member of existingGroupMembers) {
-    memberMap.set(member.npub, member);
+    const memberKey = normalizeMemberNpub(member.npub);
+
+    if (memberKey) {
+      memberMap.set(memberKey, member);
+    }
   }
 
   const sortedMembershipEvents = [...membershipEvents].sort(
@@ -283,15 +312,6 @@ export async function syncGroupMembersFromRelay(
   );
 
   for (const event of sortedMembershipEvents) {
-    const npubTag = event.tags.find(tag => tag[0] === 'npub');
-    const roleTag = event.tags.find(tag => tag[0] === 'role');
-    const actionTag = event.tags.find(tag => tag[0] === 'action');
-    const statusTag = event.tags.find(tag => tag[0] === 'status');
-    const pTag = event.tags.find(tag => tag[0] === 'p');
-
-    const memberNpub = npubTag?.[1];
-    if (!memberNpub) continue;
-
     let content: any = null;
 
     try {
@@ -299,6 +319,22 @@ export async function syncGroupMembersFromRelay(
     } catch {
       content = null;
     }
+
+    const npubTag = event.tags.find(tag => tag[0] === 'npub');
+    const memberTag = event.tags.find(tag => tag[0] === 'member');
+    const roleTag = event.tags.find(tag => tag[0] === 'role');
+    const actionTag = event.tags.find(tag => tag[0] === 'action');
+    const statusTag = event.tags.find(tag => tag[0] === 'status');
+    const pTag = event.tags.find(tag => tag[0] === 'p');
+
+    const memberNpub =
+      npubTag?.[1]?.trim() ||
+      memberTag?.[1]?.trim() ||
+      content?.memberNpub?.trim();
+
+    const memberKey = normalizeMemberNpub(memberNpub);
+
+    if (!memberNpub || !memberKey) continue;
 
     const rawRole =
       roleTag?.[1] ||
@@ -311,9 +347,11 @@ export async function syncGroupMembersFromRelay(
     const rawStatus =
       statusTag?.[1] ||
       content?.status;
+
     const displayName =
       content?.displayName ||
       event.tags.find(tag => tag[0] === 'name')?.[1];
+
     const avatarUrl =
       content?.avatarUrl ||
       event.tags.find(tag => tag[0] === 'picture')?.[1];
@@ -329,7 +367,7 @@ export async function syncGroupMembersFromRelay(
         ? rawRole
         : 'member';
 
-    const existing = memberMap.get(memberNpub);
+    const existing = memberMap.get(memberKey);
 
     const resolvedRole: MemberRole =
       existing?.role === 'owner'
@@ -338,11 +376,11 @@ export async function syncGroupMembersFromRelay(
           ? 'owner'
           : relayRole;
 
-    memberMap.set(memberNpub, {
+    memberMap.set(memberKey, {
       id: existing?.id ?? `member_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       groupId,
-      npub: memberNpub,
-      pubkeyHex: existing?.pubkeyHex ?? pTag?.[1] ?? event.pubkey,
+      npub: existing?.npub ?? memberNpub,
+      pubkeyHex: pTag?.[1] ?? content?.memberPubkeyHex ?? existing?.pubkeyHex ?? event.pubkey,
       displayName: displayName ?? existing?.displayName,
       avatarUrl: avatarUrl ?? existing?.avatarUrl,
       role: resolvedRole,
@@ -354,12 +392,13 @@ export async function syncGroupMembersFromRelay(
   }
 
   try {
-    const localGroup = await getGroupById(groupId);
-    const remoteGroup = await fetchGroupById(groupId, localGroup?.relayUrl || relaysToUse[0]);
+    const localGroup = localGroupForRelays ?? await getGroupById(groupId);
+    const remoteGroup = await fetchGroupByIdFromRelays(groupId, effectiveRelays);
     const ownerNpub = localGroup?.ownerNpub || remoteGroup?.ownerNpub;
+    const ownerKey = normalizeMemberNpub(ownerNpub);
 
-    if (ownerNpub) {
-      const existingOwner = memberMap.get(ownerNpub);
+    if (ownerNpub && ownerKey) {
+      const existingOwner = memberMap.get(ownerKey);
 
       let ownerPubkeyHex = existingOwner?.pubkeyHex;
 
@@ -371,16 +410,18 @@ export async function syncGroupMembersFromRelay(
         }
       }
 
-      memberMap.set(ownerNpub, {
+      memberMap.set(ownerKey, {
         id: existingOwner?.id ?? `member_owner_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         groupId,
-        npub: ownerNpub,
+        npub: existingOwner?.npub ?? ownerNpub,
         pubkeyHex: ownerPubkeyHex,
         displayName: existingOwner?.displayName,
         avatarUrl: existingOwner?.avatarUrl,
         role: 'owner',
         status: 'active',
         joinedAt: existingOwner?.joinedAt ?? remoteGroup?.createdAt ?? localGroup?.createdAt ?? Math.floor(Date.now() / 1000),
+        removedAt: undefined,
+        removedBy: undefined,
       });
 
       if (localGroup && !localGroup.ownerNpub) {
@@ -945,6 +986,12 @@ export async function joinGroupByCode(input: {
 
   const existing = await getMemberByNpub(group.id, input.npub);
   if (existing?.status === 'active') {
+    try {
+      await syncGroupMembersFromRelay(group.id, getGroupRelayUrls(group));
+    } catch (memberSyncError) {
+      console.warn('[Groups] member sync after existing join failed:', memberSyncError);
+    }
+
     return { success: true, group };
   }
 
@@ -958,7 +1005,7 @@ export async function joinGroupByCode(input: {
   });
 
   if (input.nsec) {
-    publishGroupMembership({
+    const membershipResult = await publishGroupMembership({
       groupId: group.id,
       memberNpub: input.npub,
       memberPubkeyHex: input.pubkeyHex,
@@ -968,7 +1015,18 @@ export async function joinGroupByCode(input: {
       avatarUrl: input.avatarUrl,
       nsec: input.nsec,
       relayUrl: group.relayUrl,
-    }).catch(e => console.warn('[Groups] Failed to publish membership:', e));
+      relayUrls: getGroupRelayUrls(group),
+    });
+
+    if (!membershipResult.success) {
+      console.warn('[Groups] Failed to publish membership:', membershipResult.error);
+    }
+  }
+
+  try {
+    await syncGroupMembersFromRelay(group.id, getGroupRelayUrls(group));
+  } catch (memberSyncError) {
+    console.warn('[Groups] member sync after join failed:', memberSyncError);
   }
 
   return { success: true, group };
@@ -1025,7 +1083,8 @@ export async function restoreGroupsFromRelay(input: {
 
     for (const event of membershipEvents) {
       const dTag = event.tags.find(tag => tag[0] === 'd');
-      const groupId = dTag?.[1];
+      const groupTag = event.tags.find(tag => tag[0] === 'group');
+      const groupId = dTag?.[1] || groupTag?.[1];
 
       if (groupId) {
         groupIds.add(groupId);
@@ -1034,16 +1093,17 @@ export async function restoreGroupsFromRelay(input: {
 
     console.log('[Groups] unique groupIds:', Array.from(groupIds));
 
-    const existingGroups = await readGroups();
+    let existingGroups = await readGroups();
+
     for (const groupId of groupIds) {
-      const groupEvent = await fetchGroupById(groupId);
+      const groupEvent = await fetchGroupByIdFromRelays(groupId, input.relayUrls);
 
       if (!groupEvent) {
         console.warn('[Groups] group not found on relay:', groupId);
         continue;
       }
 
-      const alreadyExists = existingGroups.find(g => g.id === groupId);
+      const alreadyExists = existingGroups.find(group => group.id === groupId);
 
       if (!alreadyExists) {
         existingGroups.push(groupFromNostrPayload(groupEvent, null));
@@ -1051,10 +1111,11 @@ export async function restoreGroupsFromRelay(input: {
         Object.assign(alreadyExists, groupFromNostrPayload(groupEvent, alreadyExists));
       }
 
+      await writeGroups(existingGroups);
       await syncGroupMembersFromRelay(groupId, input.relayUrls);
-    }
 
-    await writeGroups(existingGroups);
+      existingGroups = await readGroups();
+    }
 
     console.log('[Groups] restore complete');
   } catch (error) {
