@@ -145,6 +145,7 @@ type Tab = 'overview' | 'chat' | 'stickies' | 'board' | 'calendar' | 'gallery' |
 const GROUP_LOCAL_GALLERY_KEY = 'be_group_local_gallery_v1';
 const SPACE_GALLERY_CACHE_KEY_PREFIX = 'be_space_gallery_cache_v1:';
 const SPACE_TAB_SEEN_COUNTS_KEY_PREFIX = 'be_space_tab_seen_counts_v1:';
+const SPACE_NOTIFICATIONS_ENABLED_KEY_PREFIX = 'be_space_notifications_enabled_v1:';
 const SPACE_MARKS_SCROLL_RESTORE_KEY_PREFIX = 'be_space_marks_scroll_restore_v2:';
 const SPACE_MARK_RELAY_SYNC_ENABLED = true;
 
@@ -453,6 +454,12 @@ function getSpaceTabSeenCountsKey(groupId: string, readerNpub?: string | null): 
   return `${SPACE_TAB_SEEN_COUNTS_KEY_PREFIX}${normalizedReader}:${groupId}`;
 }
 
+function getSpaceNotificationsEnabledKey(groupId: string, readerNpub?: string | null): string {
+  const normalizedReader = readerNpub?.trim().toLowerCase() || 'signed-out';
+
+  return `${SPACE_NOTIFICATIONS_ENABLED_KEY_PREFIX}${normalizedReader}:${groupId}`;
+}
+
 async function readCachedSpaceGalleryItems(groupId: string): Promise<SpaceGalleryItem[]> {
   try {
     const raw = await AsyncStorage.getItem(getSpaceGalleryCacheKey(groupId));
@@ -594,6 +601,8 @@ const { id, tab: routeTab } = useLocalSearchParams<{
   const [spaceSettingsRelayOpen, setSpaceSettingsRelayOpen] = useState(false);
   const [spaceSettingsConsentOpen, setSpaceSettingsConsentOpen] = useState(false);
   const [schoolConsentSummary, setSchoolConsentSummary] = useState<SchoolConsentSummary | null>(null);
+  const [spaceNotificationsEnabled, setSpaceNotificationsEnabled] = useState(true);
+  const [savingSpaceNotifications, setSavingSpaceNotifications] = useState(false);
   const [childNameInput, setChildNameInput] = useState('');
   const [childGradeInput, setChildGradeInput] = useState('');
   const [childUnder13, setChildUnder13] = useState(true);
@@ -626,6 +635,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
 
   const groupDetailLoadRunIdRef = useRef(0);
   const savingGroupRelaySettingsRef = useRef(false);
+  const spaceNotificationsEnabledRef = useRef(true);
   const spaceMarksListRef = useRef<FlatList<any> | null>(null);
   const spaceMarksScrollOffsetRef = useRef(0);
 
@@ -664,6 +674,10 @@ const { id, tab: routeTab } = useLocalSearchParams<{
 
     return memberByNpub.get(npub) ?? null;
   }, [memberByNpub, npub]);
+
+  useEffect(() => {
+    spaceNotificationsEnabledRef.current = spaceNotificationsEnabled;
+  }, [spaceNotificationsEnabled]);
 
   const getSpaceMarkAuthorProfile = useCallback((mark: Milestone) => {
     const authorMember = mark.authorNpub
@@ -1021,7 +1035,14 @@ const publishSpaceMarkSnapshot = useCallback(async (
             : current
           );
           syncedMembers
-            .filter(member => member.status === 'active')
+            .filter(member =>
+              member.status === 'active' &&
+              (
+                !npub ||
+                member.npub !== npub ||
+                spaceNotificationsEnabledRef.current
+              )
+            )
             .forEach(member => {
               registerGroupMemberForPush({
                 groupId: relayGroup.id,
@@ -1223,6 +1244,38 @@ const publishSpaceMarkSnapshot = useCallback(async (
   }, [load]);
 
   useEffect(() => {
+    if (!group?.id || !npub) {
+      setSpaceNotificationsEnabled(false);
+      spaceNotificationsEnabledRef.current = false;
+      return;
+    }
+
+    let cancelled = false;
+
+    AsyncStorage.getItem(getSpaceNotificationsEnabledKey(group.id, npub))
+      .then(raw => {
+        if (cancelled) return;
+
+        const enabled = raw !== 'off';
+
+        setSpaceNotificationsEnabled(enabled);
+        spaceNotificationsEnabledRef.current = enabled;
+      })
+      .catch(error => {
+        console.warn('[Space Notifications] preference load failed:', error);
+
+        if (cancelled) return;
+
+        setSpaceNotificationsEnabled(true);
+        spaceNotificationsEnabledRef.current = true;
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [group?.id, npub]);
+
+  useEffect(() => {
     if (!group?.id || !group.relayUrl) return;
 
     const timer = setInterval(() => {
@@ -1343,6 +1396,60 @@ const publishSpaceMarkSnapshot = useCallback(async (
       console.warn('[Book] group refresh failed:', error);
     }
   }, [group?.id]);
+
+    const toggleSpaceNotifications = async () => {
+    if (!group || !npub) {
+      Alert.alert('Sign in required', 'Sign in before changing Space notifications.');
+      return;
+    }
+
+    if (!isAdmin && !isMember) {
+      Alert.alert('Members only', 'Only Space members can change notifications for this Space.');
+      return;
+    }
+
+    if (savingSpaceNotifications) return;
+
+    const nextEnabled = !spaceNotificationsEnabled;
+    const previousEnabled = spaceNotificationsEnabled;
+
+    setSavingSpaceNotifications(true);
+    setSpaceNotificationsEnabled(nextEnabled);
+    spaceNotificationsEnabledRef.current = nextEnabled;
+
+    try {
+      await AsyncStorage.setItem(
+        getSpaceNotificationsEnabledKey(group.id, npub),
+        nextEnabled ? 'on' : 'off'
+      );
+
+      if (nextEnabled) {
+        await registerGroupMemberForPush({
+          groupId: group.id,
+          groupName: group.name,
+          relayUrl: group.relayUrl,
+          memberNpub: npub,
+          role: currentMember?.role ?? (isAdmin ? 'admin' : 'member'),
+          status: 'active',
+          displayName: currentMember?.displayName || myDisplayName,
+        });
+      } else {
+        await removeGroupMemberFromPush({
+          groupId: group.id,
+          memberNpub: npub,
+        });
+      }
+    } catch (error) {
+      console.warn('[Space Notifications] toggle failed:', error);
+
+      setSpaceNotificationsEnabled(previousEnabled);
+      spaceNotificationsEnabledRef.current = previousEnabled;
+
+      Alert.alert('Notification setting failed', 'Could not update notifications for this Space.');
+    } finally {
+      setSavingSpaceNotifications(false);
+    }
+  };
 
   const toggleSpaceBookEnabled = async () => {
     if (!group) return;
@@ -3361,6 +3468,29 @@ const relaySettingsCard = spaceSettingsRelayOpen ? (
               </View>
               <Text style={s.spaceSettingsRowAction}>Open</Text>
             </TouchableOpacity>
+
+            {(isAdmin || isMember) && (
+              <TouchableOpacity
+                style={s.spaceSettingsRow}
+                onPress={toggleSpaceNotifications}
+                disabled={savingSpaceNotifications}
+                activeOpacity={0.85}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={s.spaceSettingsRowTitle}>Notifications</Text>
+                  <Text style={s.spaceSettingsRowHint}>
+                    Turn Space notifications on or off for this account.
+                  </Text>
+                </View>
+                <Text style={s.spaceSettingsRowAction}>
+                  {savingSpaceNotifications
+                    ? 'Saving...'
+                    : spaceNotificationsEnabled
+                      ? 'On'
+                      : 'Off'}
+                </Text>
+              </TouchableOpacity>
+            )}
 
             {canShowSchoolConsentSettings && (
               <>
