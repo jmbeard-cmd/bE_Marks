@@ -16,6 +16,7 @@ import { getGroupById, getGroupMembers } from './group-storage';
 
 const PUSH_TOKEN_KEY = 'be_expo_push_token_v1';
 const PUSH_TOKEN_OWNER_KEY = 'be_expo_push_token_owner_v1';
+const SPACE_NOTIFICATIONS_ENABLED_KEY_PREFIX = 'be_space_notifications_enabled_v1:';
 
 const PUSH_REGISTER_URL = 'https://be-marks-push.jmbeard.workers.dev/push/register';
 const PUSH_SEND_TEST_URL = 'https://be-marks-push.jmbeard.workers.dev/push/send-test';
@@ -295,6 +296,62 @@ function buildMarkEventBody(input: {
   return `${authorName} posted a new Mark`;
 }
 
+function getSpaceNotificationsEnabledKey(groupId: string, memberNpub: string): string {
+  return `${SPACE_NOTIFICATIONS_ENABLED_KEY_PREFIX}${memberNpub.trim().toLowerCase()}:${groupId}`;
+}
+
+export async function getSpaceNotificationsEnabled(input: {
+  groupId: string;
+  memberNpub: string;
+}): Promise<boolean> {
+  if (!input.groupId || !input.memberNpub) return false;
+
+  try {
+    const raw = await AsyncStorage.getItem(
+      getSpaceNotificationsEnabledKey(input.groupId, input.memberNpub)
+    );
+
+    return raw !== 'off';
+  } catch (error) {
+    console.warn('[Push] Space notification preference read failed:', error);
+    return true;
+  }
+}
+
+export async function setSpaceNotificationsEnabledPreference(input: {
+  groupId: string;
+  groupName: string;
+  relayUrl: string;
+  memberNpub: string;
+  enabled: boolean;
+  role?: 'owner' | 'admin' | 'member';
+  displayName?: string;
+}): Promise<boolean> {
+  if (!input.groupId || !input.memberNpub) return false;
+
+  await AsyncStorage.setItem(
+    getSpaceNotificationsEnabledKey(input.groupId, input.memberNpub),
+    input.enabled ? 'on' : 'off'
+  );
+
+  if (input.enabled) {
+    return registerGroupMemberForPush({
+      groupId: input.groupId,
+      groupName: input.groupName,
+      relayUrl: input.relayUrl,
+      memberNpub: input.memberNpub,
+      role: input.role,
+      status: 'active',
+      displayName: input.displayName,
+    });
+  }
+
+  return removeGroupMemberFromPush({
+    groupId: input.groupId,
+    memberNpub: input.memberNpub,
+  });
+}
+
 export async function getStoredExpoPushToken() {
   return AsyncStorage.getItem(PUSH_TOKEN_KEY);
 }
@@ -499,6 +556,21 @@ export async function registerGroupMemberForPush(input: {
   if (!input.groupId || !input.memberNpub) {
     console.log('[Push] skipped group member push registration; missing groupId/memberNpub');
     return false;
+  }
+
+  if ((input.status ?? 'active') === 'active') {
+    const spaceNotificationsEnabled = await getSpaceNotificationsEnabled({
+      groupId: input.groupId,
+      memberNpub: input.memberNpub,
+    });
+
+    if (!spaceNotificationsEnabled) {
+      console.log('[Push] skipped group member push registration; Space notifications off', {
+        groupId: input.groupId,
+        memberNpub: input.memberNpub.slice(0, 12),
+      });
+      return false;
+    }
   }
 
   return postToPushWorker(
