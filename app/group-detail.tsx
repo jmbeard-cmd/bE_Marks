@@ -147,7 +147,6 @@ type Tab = 'overview' | 'chat' | 'stickies' | 'board' | 'calendar' | 'gallery' |
 const GROUP_LOCAL_GALLERY_KEY = 'be_group_local_gallery_v1';
 const SPACE_GALLERY_CACHE_KEY_PREFIX = 'be_space_gallery_cache_v1:';
 const SPACE_TAB_SEEN_COUNTS_KEY_PREFIX = 'be_space_tab_seen_counts_v1:';
-const SPACE_NOTIFICATIONS_ENABLED_KEY_PREFIX = 'be_space_notifications_enabled_v1:';
 const SPACE_MARKS_SCROLL_RESTORE_KEY_PREFIX = 'be_space_marks_scroll_restore_v2:';
 const SPACE_MARK_RELAY_SYNC_ENABLED = true;
 
@@ -454,12 +453,6 @@ function getSpaceTabSeenCountsKey(groupId: string, readerNpub?: string | null): 
   const normalizedReader = readerNpub?.trim().toLowerCase() || 'signed-out';
 
   return `${SPACE_TAB_SEEN_COUNTS_KEY_PREFIX}${normalizedReader}:${groupId}`;
-}
-
-function getSpaceNotificationsEnabledKey(groupId: string, readerNpub?: string | null): string {
-  const normalizedReader = readerNpub?.trim().toLowerCase() || 'signed-out';
-
-  return `${SPACE_NOTIFICATIONS_ENABLED_KEY_PREFIX}${normalizedReader}:${groupId}`;
 }
 
 async function readCachedSpaceGalleryItems(groupId: string): Promise<SpaceGalleryItem[]> {
@@ -1301,38 +1294,6 @@ const publishSpaceMarkSnapshot = useCallback(async (
         if (!cancelled) {
           setSpaceNotificationsEnabled(true);
         }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [group?.id, npub]);
-
-  useEffect(() => {
-    if (!group?.id || !npub) {
-      setSpaceNotificationsEnabled(false);
-      spaceNotificationsEnabledRef.current = false;
-      return;
-    }
-
-    let cancelled = false;
-
-    AsyncStorage.getItem(getSpaceNotificationsEnabledKey(group.id, npub))
-      .then(raw => {
-        if (cancelled) return;
-
-        const enabled = raw !== 'off';
-
-        setSpaceNotificationsEnabled(enabled);
-        spaceNotificationsEnabledRef.current = enabled;
-      })
-      .catch(error => {
-        console.warn('[Space Notifications] preference load failed:', error);
-
-        if (cancelled) return;
-
-        setSpaceNotificationsEnabled(true);
-        spaceNotificationsEnabledRef.current = true;
       });
 
     return () => {
@@ -3523,29 +3484,6 @@ const relaySettingsCard = spaceSettingsRelayOpen ? (
               </View>
               <Text style={s.spaceSettingsRowAction}>Open</Text>
             </TouchableOpacity>
-
-            {(isAdmin || isMember) && (
-              <TouchableOpacity
-                style={s.spaceSettingsRow}
-                onPress={toggleSpaceNotifications}
-                disabled={savingSpaceNotifications}
-                activeOpacity={0.85}
-              >
-                <View style={{ flex: 1 }}>
-                  <Text style={s.spaceSettingsRowTitle}>Notifications</Text>
-                  <Text style={s.spaceSettingsRowHint}>
-                    Turn Space notifications on or off for this account.
-                  </Text>
-                </View>
-                <Text style={s.spaceSettingsRowAction}>
-                  {savingSpaceNotifications
-                    ? 'Saving...'
-                    : spaceNotificationsEnabled
-                      ? 'On'
-                      : 'Off'}
-                </Text>
-              </TouchableOpacity>
-            )}
 
             {(isAdmin || isMember) && (
               <TouchableOpacity
