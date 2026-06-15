@@ -119,9 +119,11 @@ import {
 } from '../src/utils/nostr-social';
 import { openAttachment } from '../src/utils/open-attachment';
 import {
+  getSpaceNotificationsEnabled,
   notifyGroupEvent,
   registerGroupMemberForPush,
   removeGroupMemberFromPush,
+  setSpaceNotificationsEnabledPreference,
 } from '../src/utils/push-notifications';
 import { uploadToR2 } from '../src/utils/r2';
 import {
@@ -872,15 +874,48 @@ const publishSpaceMarkSnapshot = useCallback(async (
     if (!SPACE_MARK_RELAY_SYNC_ENABLED) return [] as LivingMarkView[];
 
     const relayUrls = getGroupPublishRelayUrls(targetGroup);
-    const primaryRelayUrl = relayUrls[0];
 
-    if (!primaryRelayUrl) {
+    if (relayUrls.length === 0) {
       console.warn('[Space Marks] sync skipped: no valid Space relay configured.');
-      return [] as LivingMarkView[];
+      return loadSpaceMarks(targetGroup.id, spaces);
     }
 
-    const snapshots = await fetchGroupMarks(targetGroup.id, primaryRelayUrl);
-    if (snapshots.length === 0) return [] as LivingMarkView[];
+    const snapshotResults = await Promise.all(
+      relayUrls.map(async relayUrl => {
+        try {
+          return await fetchGroupMarks(targetGroup.id, relayUrl);
+        } catch (error) {
+          console.warn('[Space Marks] sync failed for relay:', relayUrl, error);
+          return [];
+        }
+      })
+    );
+
+    const snapshotsByMarkId = new Map<string, any>();
+
+    snapshotResults.flat().forEach(snapshot => {
+      const markId = snapshot?.milestone?.id;
+
+      if (!markId) return;
+
+      const existing = snapshotsByMarkId.get(markId);
+      const snapshotUpdatedAt =
+        snapshot.updatedAt ??
+        snapshot.metadata?.updatedAt ??
+        snapshot.milestone?.createdAt ??
+        0;
+      const existingUpdatedAt =
+        existing?.updatedAt ??
+        existing?.metadata?.updatedAt ??
+        existing?.milestone?.createdAt ??
+        0;
+
+      if (!existing || snapshotUpdatedAt >= existingUpdatedAt) {
+        snapshotsByMarkId.set(markId, snapshot);
+      }
+    });
+
+    const snapshots = Array.from(snapshotsByMarkId.values());
 
     for (const snapshot of snapshots) {
       await importLivingSpaceMarkSnapshot({
@@ -1246,6 +1281,36 @@ const publishSpaceMarkSnapshot = useCallback(async (
   useEffect(() => {
     if (!group?.id || !npub) {
       setSpaceNotificationsEnabled(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    getSpaceNotificationsEnabled({
+      groupId: group.id,
+      memberNpub: npub,
+    })
+      .then(enabled => {
+        if (!cancelled) {
+          setSpaceNotificationsEnabled(enabled);
+        }
+      })
+      .catch(error => {
+        console.warn('[Space Notifications] preference load failed:', error);
+
+        if (!cancelled) {
+          setSpaceNotificationsEnabled(true);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [group?.id, npub]);
+
+  useEffect(() => {
+    if (!group?.id || !npub) {
+      setSpaceNotificationsEnabled(false);
       spaceNotificationsEnabledRef.current = false;
       return;
     }
@@ -1397,7 +1462,7 @@ const publishSpaceMarkSnapshot = useCallback(async (
     }
   }, [group?.id]);
 
-    const toggleSpaceNotifications = async () => {
+  const toggleSpaceNotifications = async () => {
     if (!group || !npub) {
       Alert.alert('Sign in required', 'Sign in before changing Space notifications.');
       return;
@@ -1415,35 +1480,25 @@ const publishSpaceMarkSnapshot = useCallback(async (
 
     setSavingSpaceNotifications(true);
     setSpaceNotificationsEnabled(nextEnabled);
-    spaceNotificationsEnabledRef.current = nextEnabled;
 
     try {
-      await AsyncStorage.setItem(
-        getSpaceNotificationsEnabledKey(group.id, npub),
-        nextEnabled ? 'on' : 'off'
-      );
+      const saved = await setSpaceNotificationsEnabledPreference({
+        groupId: group.id,
+        groupName: group.name,
+        relayUrl: group.relayUrl,
+        memberNpub: npub,
+        enabled: nextEnabled,
+        role: currentMember?.role ?? (isAdmin ? 'admin' : 'member'),
+        displayName: currentMember?.displayName || myDisplayName,
+      });
 
-      if (nextEnabled) {
-        await registerGroupMemberForPush({
-          groupId: group.id,
-          groupName: group.name,
-          relayUrl: group.relayUrl,
-          memberNpub: npub,
-          role: currentMember?.role ?? (isAdmin ? 'admin' : 'member'),
-          status: 'active',
-          displayName: currentMember?.displayName || myDisplayName,
-        });
-      } else {
-        await removeGroupMemberFromPush({
-          groupId: group.id,
-          memberNpub: npub,
-        });
+      if (!saved) {
+        throw new Error('Push preference update failed.');
       }
     } catch (error) {
       console.warn('[Space Notifications] toggle failed:', error);
 
       setSpaceNotificationsEnabled(previousEnabled);
-      spaceNotificationsEnabledRef.current = previousEnabled;
 
       Alert.alert('Notification setting failed', 'Could not update notifications for this Space.');
     } finally {
@@ -3468,6 +3523,29 @@ const relaySettingsCard = spaceSettingsRelayOpen ? (
               </View>
               <Text style={s.spaceSettingsRowAction}>Open</Text>
             </TouchableOpacity>
+
+            {(isAdmin || isMember) && (
+              <TouchableOpacity
+                style={s.spaceSettingsRow}
+                onPress={toggleSpaceNotifications}
+                disabled={savingSpaceNotifications}
+                activeOpacity={0.85}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={s.spaceSettingsRowTitle}>Notifications</Text>
+                  <Text style={s.spaceSettingsRowHint}>
+                    Turn Space notifications on or off for this account.
+                  </Text>
+                </View>
+                <Text style={s.spaceSettingsRowAction}>
+                  {savingSpaceNotifications
+                    ? 'Saving...'
+                    : spaceNotificationsEnabled
+                      ? 'On'
+                      : 'Off'}
+                </Text>
+              </TouchableOpacity>
+            )}
 
             {(isAdmin || isMember) && (
               <TouchableOpacity
