@@ -58,12 +58,20 @@ import {
 } from '../src/utils/dm-storage';
 import {
   getMessagesForGroup,
+  markGroupMessageDeleted,
   saveLocalGroupSystemMessage,
+  saveRemoteGroupMessage,
+  type GroupMessage,
 } from '../src/utils/group-messages';
+import {
+  getLatestReadableGroupMessageCreatedAt,
+  markGroupChatRead,
+} from '../src/utils/group-read-state';
 import {
   createGroupSticky,
   getStickiesForGroup,
-  hideGroupSticky,
+  publishHiddenGroupStickyDeletesForGroup,
+  removeGroupStickyFromSpace,
   syncGroupStickiesFromRelay,
   type GroupBoardDisplayMode,
   type GroupSticky,
@@ -110,6 +118,8 @@ import {
   publishGroupMark,
   publishGroupMembership,
   publishGroupMessage,
+  subscribeToGroupMessageDeletes,
+  subscribeToGroupMessages,
 } from '../src/utils/nostr';
 import {
   normalizeNostrIdentity
@@ -676,6 +686,124 @@ const { id, tab: routeTab } = useLocalSearchParams<{
     return memberByNpub.get(npub) ?? null;
   }, [memberByNpub, npub]);
 
+  const markSpaceChatMessagesRead = useCallback(async (
+    groupId: string,
+    messages: GroupMessage[]
+  ) => {
+    if (tabRef.current !== 'chat') return;
+    if (!npub || messages.length === 0) return;
+
+    const latestReadAt = getLatestReadableGroupMessageCreatedAt(messages);
+
+    if (latestReadAt <= 0) return;
+
+    try {
+      await markGroupChatRead(npub, groupId, latestReadAt);
+    } catch (error) {
+      console.warn('[Space Detail] failed to mark Space chat read:', error);
+    }
+  }, [npub]);
+
+    const syncSpaceShellChatActivity = useCallback(async () => {
+    const targetGroup = group;
+
+    if (!targetGroup?.id) return;
+
+    const relayUrls = getGroupRestoreRelayUrls(targetGroup);
+
+    try {
+      const [remoteMessageResults, remoteDeleteResults] = await Promise.all([
+        Promise.all(
+          relayUrls.map(async relayUrl => {
+            try {
+              return await fetchGroupMessages(targetGroup.id, relayUrl);
+            } catch (error) {
+              console.warn('[Space Detail] chat shell message sync failed for relay:', relayUrl, error);
+              return [];
+            }
+          })
+        ),
+        Promise.all(
+          relayUrls.map(async relayUrl => {
+            try {
+              return await fetchGroupMessageDeletes(targetGroup.id, relayUrl);
+            } catch (error) {
+              console.warn('[Space Detail] chat shell delete sync failed for relay:', relayUrl, error);
+              return [];
+            }
+          })
+        ),
+      ]);
+
+      const remoteMessageMap = new Map<string, any>();
+
+      remoteMessageResults.flat().forEach(message => {
+        const key = message.clientMessageId || message.id;
+
+        if (!key) return;
+
+        remoteMessageMap.set(key, message);
+      });
+
+      for (const message of remoteMessageMap.values()) {
+        const mine =
+          !!npub &&
+          (
+            message.senderNpub === npub ||
+            (message as any).senderPubkey === npub
+          );
+
+        await saveRemoteGroupMessage({
+          id: `nostr_group_${message.id}`,
+          clientMessageId: message.clientMessageId,
+          groupId: targetGroup.id,
+          text: message.text,
+          kind: (message as any).kind,
+          systemType: (message as any).systemType,
+          replyToMessageId: message.replyToMessageId,
+          replyToClientMessageId: message.replyToClientMessageId,
+          replyPreviewText: message.replyPreviewText,
+          replyPreviewSenderName: message.replyPreviewSenderName,
+          media: message.media,
+          poll: message.poll,
+          mediaUrl: message.mediaUrl || message.imageUrl,
+          mediaType: message.mediaType || (message.imageUrl ? 'image' : undefined),
+          thumbnailUrl: message.thumbnailUrl,
+          imageUrl: message.imageUrl,
+          mine,
+          senderNpub: message.senderNpub,
+          senderName: message.senderName,
+          createdAt: message.createdAt,
+        });
+      }
+
+      for (const deleteEvent of remoteDeleteResults.flat()) {
+        await markGroupMessageDeleted({
+          groupId: targetGroup.id,
+          messageId: `nostr_group_${deleteEvent.messageId}`,
+          clientMessageId: deleteEvent.clientMessageId,
+          deletedByNpub: deleteEvent.deletedByNpub,
+          deletedAt: deleteEvent.deletedAt,
+        });
+
+        await markGroupMessageDeleted({
+          groupId: targetGroup.id,
+          messageId: deleteEvent.messageId,
+          clientMessageId: deleteEvent.clientMessageId,
+          deletedByNpub: deleteEvent.deletedByNpub,
+          deletedAt: deleteEvent.deletedAt,
+        });
+      }
+
+      const localMessages = await getMessagesForGroup(targetGroup.id);
+      setChatMessageCount(localMessages.filter(message => !message.isDeleted).length);
+
+      await markSpaceChatMessagesRead(targetGroup.id, localMessages);
+    } catch (error) {
+      console.warn('[Space Detail] chat shell sync failed:', error);
+    }
+  }, [group, markSpaceChatMessagesRead, npub]);
+
   useEffect(() => {
     spaceNotificationsEnabledRef.current = spaceNotificationsEnabled;
   }, [spaceNotificationsEnabled]);
@@ -993,6 +1121,9 @@ const publishSpaceMarkSnapshot = useCallback(async (
       setMembers(localMembers);
       setStickies(localStickies);
       setChatMessageCount(localMessages.filter(message => !message.isDeleted).length);
+      markSpaceChatMessagesRead(id, localMessages).catch(error => {
+        console.warn('[Space Detail] chat read baseline failed:', error);
+      });
       setUpcomingCount(upcoming.length);
       setCalendarEventTitles(buildCalendarEventTitleMap(calendarEvents));
 
@@ -1103,6 +1234,25 @@ const publishSpaceMarkSnapshot = useCallback(async (
       try {
         const trustedBoardAuthors = getTrustedBoardAuthors(await getGroupMembers(id));
         const restoreRelayUrls = getGroupRestoreRelayUrls(relayGroup);
+
+        const canPublishBoardDeletes = !!npub && await isGroupAdmin(id, npub);
+
+        if (canPublishBoardDeletes) {
+          const publishedDeleteCount = await publishHiddenGroupStickyDeletesForGroup({
+            groupId: id,
+            relayUrl: relayGroup.relayUrl,
+            relayUrls: getGroupPublishRelayUrls(relayGroup),
+            deletedByNpub: npub,
+          });
+
+          if (publishedDeleteCount > 0) {
+            console.log('[Group Detail] published legacy Bulletin delete tombstones:', {
+              groupId: id,
+              count: publishedDeleteCount,
+            });
+          }
+        }
+
         const stickyCandidates: GroupSticky[] = [];
 
         for (const restoreRelayUrl of restoreRelayUrls) {
@@ -1183,6 +1333,7 @@ const publishSpaceMarkSnapshot = useCallback(async (
       try {
         const localMessages = await getMessagesForGroup(id);
         setChatMessageCount(localMessages.filter(message => !message.isDeleted).length);
+        await markSpaceChatMessagesRead(id, localMessages);
         const localChatMediaItems = buildGalleryItemsFromMessages(localMessages, 'local-chat');
 
         let relayChatMediaItems: any[] = [];
@@ -1241,6 +1392,7 @@ const publishSpaceMarkSnapshot = useCallback(async (
     backfillSpaceMarksToRelay,
     hydrateMemberProfiles,
     loadSpaceMarks,
+    markSpaceChatMessagesRead,
     syncSpaceMarksFromRelay,
   ]);
 
@@ -1406,6 +1558,144 @@ const publishSpaceMarkSnapshot = useCallback(async (
 
     return () => clearInterval(timer);
   }, [refreshChatTabSeenFromLocalMessages, tab]);
+
+  useEffect(() => {
+    const targetGroup = group;
+
+    if (!targetGroup?.id) return;
+    if (tab === 'chat') return;
+
+    let cancelled = false;
+    const unsubscribeFns: Array<() => void> = [];
+    const relayUrls = getGroupRestoreRelayUrls(targetGroup);
+
+    const refreshShellChatCount = async () => {
+      const localMessages = await getMessagesForGroup(targetGroup.id);
+
+      if (cancelled) return;
+
+      setChatMessageCount(localMessages.filter(message => !message.isDeleted).length);
+      await markSpaceChatMessagesRead(targetGroup.id, localMessages);
+    };
+
+    const saveShellMessage = async (message: any) => {
+      if (cancelled || tabRef.current === 'chat') return;
+
+      const mine =
+        !!npub &&
+        (
+          message.senderNpub === npub ||
+          message.senderPubkey === npub
+        );
+
+      await saveRemoteGroupMessage({
+        id: `nostr_group_${message.id}`,
+        clientMessageId: message.clientMessageId,
+        groupId: targetGroup.id,
+        text: message.text,
+        kind: message.kind,
+        systemType: message.systemType,
+        replyToMessageId: message.replyToMessageId,
+        replyToClientMessageId: message.replyToClientMessageId,
+        replyPreviewText: message.replyPreviewText,
+        replyPreviewSenderName: message.replyPreviewSenderName,
+        media: message.media,
+        poll: message.poll,
+        mediaUrl: message.mediaUrl || message.imageUrl,
+        mediaType: message.mediaType || (message.imageUrl ? 'image' : undefined),
+        thumbnailUrl: message.thumbnailUrl,
+        imageUrl: message.imageUrl,
+        mine,
+        senderNpub: message.senderNpub,
+        senderName: message.senderName,
+        createdAt: message.createdAt,
+      });
+
+      await refreshShellChatCount();
+    };
+
+    const applyShellDelete = async (deleteEvent: any) => {
+      if (cancelled || tabRef.current === 'chat') return;
+
+      await markGroupMessageDeleted({
+        groupId: targetGroup.id,
+        messageId: `nostr_group_${deleteEvent.messageId}`,
+        clientMessageId: deleteEvent.clientMessageId,
+        deletedByNpub: deleteEvent.deletedByNpub,
+        deletedAt: deleteEvent.deletedAt,
+      });
+
+      await markGroupMessageDeleted({
+        groupId: targetGroup.id,
+        messageId: deleteEvent.messageId,
+        clientMessageId: deleteEvent.clientMessageId,
+        deletedByNpub: deleteEvent.deletedByNpub,
+        deletedAt: deleteEvent.deletedAt,
+      });
+
+      await refreshShellChatCount();
+    };
+
+    const startLiveShellChat = async () => {
+      await Promise.all(
+        relayUrls.map(async relayUrl => {
+          try {
+            const unsubscribeMessages = await subscribeToGroupMessages({
+              groupId: targetGroup.id,
+              relayUrl,
+              onMessage: saveShellMessage,
+            });
+
+            if (cancelled) {
+              unsubscribeMessages();
+            } else {
+              unsubscribeFns.push(unsubscribeMessages);
+            }
+          } catch (error) {
+            console.warn('[Space Detail] shell chat live subscribe failed for relay:', relayUrl, error);
+          }
+
+          try {
+            const unsubscribeDeletes = await subscribeToGroupMessageDeletes({
+              groupId: targetGroup.id,
+              relayUrl,
+              onDelete: applyShellDelete,
+            });
+
+            if (cancelled) {
+              unsubscribeDeletes();
+            } else {
+              unsubscribeFns.push(unsubscribeDeletes);
+            }
+          } catch (error) {
+            console.warn('[Space Detail] shell chat delete subscribe failed for relay:', relayUrl, error);
+          }
+        })
+      );
+    };
+
+    const initialTimer = setTimeout(() => {
+      void syncSpaceShellChatActivity();
+    }, 300);
+
+    const fallbackInterval = setInterval(() => {
+      void syncSpaceShellChatActivity();
+    }, 30000);
+
+    void startLiveShellChat();
+
+    return () => {
+      cancelled = true;
+      clearTimeout(initialTimer);
+      clearInterval(fallbackInterval);
+
+      unsubscribeFns.forEach(unsubscribe => {
+        try {
+          unsubscribe();
+        } catch {}
+      });
+    };
+  }, [group, markSpaceChatMessagesRead, npub, syncSpaceShellChatActivity, tab]);
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -2256,25 +2546,72 @@ const handleOpenHighlightFile = async (
 };
 
 const handleDeleteSticky = (sticky: GroupSticky) => {
+  const targetGroup = group;
+
+  if (!targetGroup) return;
+
+  if (!isAdmin) {
+    Alert.alert('Admin only', 'Only a Space owner or admin can remove Bulletin Board items.');
+    return;
+  }
+
   const media = (sticky as any).media;
   const mediaItems = media ? (Array.isArray(media) ? media : [media]) : [];
   const hasMedia = mediaItems.some(item => !!(item.mediaUrl || item.uri));
 
-  if (!hasMedia || !group) {
+  const removeSticky = async (saveMediaToGallery = false) => {
+    try {
+      const savedItems = saveMediaToGallery
+        ? await saveHighlightMediaToLocalGallery(targetGroup.id, sticky)
+        : [];
+
+      const removed = await removeGroupStickyFromSpace({
+        stickyId: sticky.id,
+        groupId: targetGroup.id,
+        relayUrl: targetGroup.relayUrl,
+        relayUrls: getGroupPublishRelayUrls(targetGroup),
+        deletedByNpub: npub ?? undefined,
+      });
+
+      if (!removed) {
+        Alert.alert('Delete failed', 'Could not publish the Bulletin Board removal to the Space relay.');
+        return;
+      }
+
+      setStickies(current =>
+        current.filter(item => item.id !== sticky.id)
+      );
+
+      if (savedItems.length > 0) {
+        setGalleryItems(current => {
+          const galleryMap = new Map<string, any>();
+
+          [...current, ...savedItems].forEach(item => {
+            galleryMap.set(item.id, item);
+          });
+
+          return Array.from(galleryMap.values()).sort(
+            (a, b) => b.createdAt - a.createdAt
+          );
+        });
+      }
+    } catch (error) {
+      console.warn('[Bulletin Board] shared delete failed:', error);
+      Alert.alert('Delete failed', 'Could not remove this Bulletin Board item.');
+    }
+  };
+
+  if (!hasMedia) {
     Alert.alert(
-      'Delete Mark?',
-      'This removes the Mark from this device. Relay deletion will be handled later.',
+      'Delete Bulletin item?',
+      'This removes the item from this Space for everyone.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: async () => {
-            await hideGroupSticky(sticky.id);
-
-            setStickies(current =>
-              current.filter(item => item.id !== sticky.id)
-            );
+          onPress: () => {
+            void removeSticky(false);
           },
         },
       ]
@@ -2284,45 +2621,21 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
   }
 
   Alert.alert(
-    'Delete Mark?',
-    'This Mark has media. Do you want to keep the media in Gallery?',
+    'Delete Bulletin item?',
+    'This item has media. Do you want to keep the media in Gallery on this device?',
     [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete only',
         style: 'destructive',
-        onPress: async () => {
-          await hideGroupSticky(sticky.id);
-
-          setStickies(current =>
-            current.filter(item => item.id !== sticky.id)
-          );
+        onPress: () => {
+          void removeSticky(false);
         },
       },
       {
         text: 'Delete + Save media',
-        onPress: async () => {
-          const savedItems = await saveHighlightMediaToLocalGallery(group.id, sticky);
-
-          await hideGroupSticky(sticky.id);
-
-          setStickies(current =>
-            current.filter(item => item.id !== sticky.id)
-          );
-
-          if (savedItems.length > 0) {
-            setGalleryItems(current => {
-              const galleryMap = new Map<string, any>();
-
-              [...current, ...savedItems].forEach(item => {
-                galleryMap.set(item.id, item);
-              });
-
-              return Array.from(galleryMap.values()).sort(
-                (a, b) => b.createdAt - a.createdAt
-              );
-            });
-          }
+        onPress: () => {
+          void removeSticky(true);
         },
       },
     ]

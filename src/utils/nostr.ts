@@ -2871,6 +2871,9 @@ export async function publishGroupSticky(input: {
   expiresAt?: number;
   authorName?: string;
   authorNpub?: string;
+  status?: 'active' | 'deleted';
+  deletedAt?: number;
+  deletedByNpub?: string;
   nsec: string;
   relayUrl: string;
   relayUrls?: string[];
@@ -2885,6 +2888,7 @@ export async function publishGroupSticky(input: {
 
     const displayMode = input.displayMode ?? 'pin';
     const priority = input.priority ?? 'normal';
+    const status = input.status ?? 'active';
 
     const tags: string[][] = [
       ['d', input.stickyId],
@@ -2892,11 +2896,24 @@ export async function publishGroupSticky(input: {
       ['group', input.groupId],
       ['display-mode', displayMode],
       ['priority', priority],
+      ['status', status],
       ['client', 'bE-Marks'],
     ];
 
     if (typeof input.expiresAt === 'number') {
       tags.push(['expires-at', String(input.expiresAt)]);
+    }
+
+        if (status === 'deleted') {
+      tags.push(['deleted', input.stickyId]);
+
+      if (typeof input.deletedAt === 'number') {
+        tags.push(['deleted-at', String(input.deletedAt)]);
+      }
+
+      if (input.deletedByNpub) {
+        tags.push(['deleted-by', input.deletedByNpub]);
+      }
     }
 
     for (const media of input.media ?? []) {
@@ -2932,8 +2949,11 @@ export async function publishGroupSticky(input: {
         expiresAt: input.expiresAt,
         authorName: input.authorName,
         authorNpub: input.authorNpub,
+        status,
+        deletedAt: input.deletedAt,
+        deletedByNpub: input.deletedByNpub,
         createdAt: now,
-        updatedAt: now,
+        updatedAt: input.deletedAt ?? now,
       }),
       pubkey: pk,
     };
