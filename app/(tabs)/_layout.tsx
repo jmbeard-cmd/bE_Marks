@@ -76,8 +76,8 @@ export default function TabLayout() {
       <Tabs.Screen
         name="timeline"
         options={{
-          title: 'Profile',
-          tabBarIcon: ({ color }) => <TimelineIcon color={color} />,
+          title: 'DMs',
+          tabBarIcon: ({ color }) => <MessagesIcon color={color} />,
           href: null,
         }}
       />
@@ -85,7 +85,7 @@ export default function TabLayout() {
         name="messages"
         options={{
           title: 'Spaces',
-          tabBarIcon: ({ color }) => <MessagesIcon color={color} />,
+          tabBarIcon: ({ color }) => <GroupsIcon color={color} />,
         }}
       />
       <Tabs.Screen
@@ -99,7 +99,7 @@ export default function TabLayout() {
 <Tabs.Screen
   name="settings"
   options={{
-    title: 'Profile',
+    title: 'Account',
     tabBarIcon: ({ color }) => <SettingsIcon color={color} />,
   }}
 />

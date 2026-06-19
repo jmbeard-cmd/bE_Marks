@@ -1,5 +1,5 @@
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Animated, DeviceEventEmitter, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Colors } from '../src/constants/theme';
 
@@ -22,6 +22,7 @@ export default function FloatingTabDock({
 }: FloatingTabDockProps) {
   const dockTranslateY = useRef(new Animated.Value(0)).current;
   const dockOpacity = useRef(new Animated.Value(1)).current;
+  const [activeOverride, setActiveOverride] = useState<'dms' | 'spaces' | null>(null);
 
   useEffect(() => {
     const subscription = DeviceEventEmitter.addListener(
@@ -54,8 +55,8 @@ export default function FloatingTabDock({
   );
 
   const getDockLabel = (routeName: string, fallbackLabel: string) => {
+    if (routeName === 'timeline') return 'DMs';
     if (routeName === 'messages') return 'Spaces';
-    if (routeName === 'timeline') return 'Marks';
     if (routeName === 'settings') return 'Account';
 
     return fallbackLabel;
@@ -91,7 +92,14 @@ return (
           const descriptor = descriptors[route.key];
           const options = descriptor?.options ?? {};
           const routeIndex = state.routes.findIndex(item => item.key === route.key);
-          const focused = state.index === routeIndex;
+          const activeRouteName = state.routes[state.index]?.name;
+
+          const focused =
+            route.name === 'timeline'
+              ? activeRouteName === 'messages' && activeOverride === 'dms'
+              : route.name === 'messages'
+                ? activeRouteName === 'messages' && activeOverride !== 'dms'
+                : state.index === routeIndex;
           const fallbackLabel =
             typeof options.tabBarLabel === 'string'
               ? options.tabBarLabel
@@ -113,6 +121,24 @@ return (
             });
 
             if (event.defaultPrevented) return;
+
+            if (route.name === 'timeline') {
+              setActiveOverride('dms');
+              DeviceEventEmitter.emit('be:spaces:setFilter', 'dms');
+              (navigation as any).navigate('messages');
+              return;
+            }
+
+            if (route.name === 'messages') {
+              setActiveOverride('spaces');
+              DeviceEventEmitter.emit('be:spaces:setFilter', 'groups');
+
+              if (!focused) {
+                navigation.navigate(route.name);
+              }
+
+              return;
+            }
 
             if (route.name === 'settings' && onOpenAccountTray) {
               onOpenAccountTray();

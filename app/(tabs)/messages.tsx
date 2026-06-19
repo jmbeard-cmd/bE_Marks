@@ -1777,6 +1777,29 @@ const result = await ImagePicker.launchImageLibraryAsync({
     DeviceEventEmitter.emit('be:floatingDock:setHidden', hidden);
   }, []);
 
+  useEffect(() => {
+    const subscription = DeviceEventEmitter.addListener(
+      'be:spaces:setFilter',
+      (nextFilter: SpaceFilter) => {
+        if (
+          nextFilter !== 'all' &&
+          nextFilter !== 'unread' &&
+          nextFilter !== 'dms' &&
+          nextFilter !== 'groups'
+        ) {
+          return;
+        }
+
+        setSpaceFilter(nextFilter);
+        setFloatingDockHidden(false);
+      }
+    );
+
+    return () => {
+      subscription.remove();
+    };
+  }, [setFloatingDockHidden]);
+
   const handleSpacesScroll = useCallback((event: any) => {
     const y = event.nativeEvent.contentOffset.y;
     const previousY = lastSpacesScrollYRef.current;
