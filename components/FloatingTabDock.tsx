@@ -1,5 +1,5 @@
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { Animated, DeviceEventEmitter, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Colors } from '../src/constants/theme';
 
@@ -22,7 +22,6 @@ export default function FloatingTabDock({
 }: FloatingTabDockProps) {
   const dockTranslateY = useRef(new Animated.Value(0)).current;
   const dockOpacity = useRef(new Animated.Value(1)).current;
-  const [activeOverride, setActiveOverride] = useState<'dms' | 'spaces' | null>(null);
 
   useEffect(() => {
     const subscription = DeviceEventEmitter.addListener(
@@ -50,13 +49,13 @@ export default function FloatingTabDock({
 
   const visibleRoutes = state.routes.filter(route =>
     route.name === 'messages' ||
-    route.name === 'timeline' ||
+    route.name === 'groups' ||
     route.name === 'settings'
   );
 
   const getDockLabel = (routeName: string, fallbackLabel: string) => {
-    if (routeName === 'timeline') return 'DMs';
-    if (routeName === 'messages') return 'Spaces';
+    if (routeName === 'messages') return 'DMs';
+    if (routeName === 'groups') return 'Spaces';
     if (routeName === 'settings') return 'Account';
 
     return fallbackLabel;
@@ -92,14 +91,7 @@ return (
           const descriptor = descriptors[route.key];
           const options = descriptor?.options ?? {};
           const routeIndex = state.routes.findIndex(item => item.key === route.key);
-          const activeRouteName = state.routes[state.index]?.name;
-
-          const focused =
-            route.name === 'timeline'
-              ? activeRouteName === 'messages' && activeOverride === 'dms'
-              : route.name === 'messages'
-                ? activeRouteName === 'messages' && activeOverride !== 'dms'
-                : state.index === routeIndex;
+          const focused = state.index === routeIndex;
           const fallbackLabel =
             typeof options.tabBarLabel === 'string'
               ? options.tabBarLabel
@@ -113,42 +105,24 @@ return (
               ? 'rgba(255,255,255,0.82)'
               : theme.textMuted;
 
-          const onPress = () => {
-            const event = navigation.emit({
-              type: 'tabPress',
-              target: route.key,
-              canPreventDefault: true,
-            });
+const onPress = () => {
+  if (route.name === 'settings' && onOpenAccountTray) {
+    onOpenAccountTray();
+    return;
+  }
 
-            if (event.defaultPrevented) return;
+  const event = navigation.emit({
+    type: 'tabPress',
+    target: route.key,
+    canPreventDefault: true,
+  });
 
-            if (route.name === 'timeline') {
-              setActiveOverride('dms');
-              DeviceEventEmitter.emit('be:spaces:setFilter', 'dms');
-              (navigation as any).navigate('messages');
-              return;
-            }
+  if (event.defaultPrevented) return;
 
-            if (route.name === 'messages') {
-              setActiveOverride('spaces');
-              DeviceEventEmitter.emit('be:spaces:setFilter', 'groups');
-
-              if (!focused) {
-                navigation.navigate(route.name);
-              }
-
-              return;
-            }
-
-            if (route.name === 'settings' && onOpenAccountTray) {
-              onOpenAccountTray();
-              return;
-            }
-
-            if (!focused) {
-              navigation.navigate(route.name);
-            }
-          };
+  if (!focused) {
+    navigation.navigate(route.name);
+  }
+};
 
           return (
             <TouchableOpacity

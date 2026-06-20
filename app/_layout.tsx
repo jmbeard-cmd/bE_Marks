@@ -301,8 +301,8 @@ enqueueStartupJob({
   }
 
   if (hasIdentity && inAuth && !allowSignedInAuthScreen) {
-    router.replace('/(tabs)/messages' as any);
-  }
+  router.replace('/(tabs)/groups' as any);
+}
 }, [ready, npub, segments]);
 
   const setThemeMode = async (mode: 'dark' | 'light') => {

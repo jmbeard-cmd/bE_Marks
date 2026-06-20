@@ -2944,7 +2944,7 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
               console.warn('[Group Members] leave notification failed:', error);
             });
 
-            router.replace('/(tabs)/messages' as any);
+            router.replace('/(tabs)/groups' as any);
           },
         },
       ]
@@ -3517,7 +3517,7 @@ const handleSpaceDetailBack = () => {
     return;
   }
 
-  router.replace('/(tabs)/messages' as any);
+  router.replace('/(tabs)/groups' as any);
 };
 
 const spaceRelayLabel =

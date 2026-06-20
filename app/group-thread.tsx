@@ -2383,9 +2383,9 @@ export function GroupChatPanel({
     }
 
     if (!groupId) {
-      router.replace('/(tabs)/messages' as any);
-      return;
-    }
+  router.replace('/(tabs)/groups' as any);
+  return;
+}
 
     router.replace({ pathname: '/group-detail', params: { id: groupId } } as any);
   };

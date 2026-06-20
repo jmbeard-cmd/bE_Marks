@@ -5,16 +5,6 @@ import AccountTray from '../../components/AccountTray';
 import FloatingTabDock from '../../components/FloatingTabDock';
 import { useIdentity } from '../_layout';
 
-function TimelineIcon({ color }: { color: string }) {
-  return (
-    <View style={s.timelineIcon}>
-      <View style={[s.tLine, { backgroundColor: color }]} />
-      <View style={[s.tLine, { backgroundColor: color, width: 14 }]} />
-      <View style={[s.tLine, { backgroundColor: color, width: 10 }]} />
-    </View>
-  );
-}
-
 function MessagesIcon({ color }: { color: string }) {
   return (
     <View style={s.messagesIcon}>
@@ -51,7 +41,7 @@ export default function TabLayout() {
   return (
     <>
 <Tabs
-  initialRouteName="messages"
+  initialRouteName="groups"
   tabBar={(props) => {
     const activeRouteName = props.state.routes[props.state.index]?.name;
 
@@ -74,26 +64,17 @@ export default function TabLayout() {
   }}
 >
       <Tabs.Screen
-        name="timeline"
+        name="messages"
         options={{
           title: 'DMs',
           tabBarIcon: ({ color }) => <MessagesIcon color={color} />,
-          href: null,
-        }}
-      />
-      <Tabs.Screen
-        name="messages"
-        options={{
-          title: 'Spaces',
-          tabBarIcon: ({ color }) => <GroupsIcon color={color} />,
         }}
       />
       <Tabs.Screen
         name="groups"
         options={{
-          title: 'Groups',
+          title: 'Spaces',
           tabBarIcon: ({ color }) => <GroupsIcon color={color} />,
-          href: null,
         }}
       />
 <Tabs.Screen
@@ -103,7 +84,9 @@ export default function TabLayout() {
     tabBarIcon: ({ color }) => <SettingsIcon color={color} />,
   }}
 />
-      {/* Hidden screens — not tabs */}
+
+      {/* Hidden legacy screens — not tabs */}
+      <Tabs.Screen name="timeline" options={{ href: null }} />
       <Tabs.Screen name="log" options={{ href: null }} />
     </Tabs>
 
@@ -116,9 +99,6 @@ export default function TabLayout() {
 }
 
 const s = StyleSheet.create({
-  timelineIcon: { gap: 3, justifyContent: 'center', height: 22 },
-  tLine: { height: 2, width: 18, borderRadius: 1 },
-
   messagesIcon: { width: 22, height: 22, alignItems: 'center', justifyContent: 'center' },
   mBubble: {
     width: 18, height: 14, borderRadius: 5, borderWidth: 1.5,
