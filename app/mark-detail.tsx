@@ -1,4 +1,4 @@
-import { useAudioPlayer } from 'expo-audio';
+﻿import { useAudioPlayer } from 'expo-audio';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import React, { useEffect, useRef, useState } from 'react';
@@ -86,10 +86,10 @@ function getCalendarEventMarkLabel(event: GroupCalendarEvent): string {
       : event.spaceEventType && event.spaceEventType !== 'event'
         ? eventTypeLabel
         : '',
-    `${formatEventDate(event)} • ${formatEventTime(event)}`,
+    `${formatEventDate(event)} â€¢ ${formatEventTime(event)}`,
   ].filter(Boolean);
 
-  return [title, ...detailParts].join(' • ');
+  return [title, ...detailParts].join(' â€¢ ');
 }
 
 // Photo with loading state and broken-URI fallback
@@ -100,7 +100,7 @@ function MilestonePhoto({ uri }: { uri: string }) {
   if (error) {
     return (
       <View style={s.photoFallback}>
-        <Text style={s.photoFallbackIcon}>🖼️</Text>
+        <Text style={s.photoFallbackIcon}>ðŸ–¼ï¸</Text>
         <Text style={s.photoFallbackText}>Image unavailable</Text>
       </View>
     );
@@ -190,7 +190,7 @@ export default function MilestoneDetail() {
       return;
     }
 
-    router.replace('/(tabs)/messages' as any);
+    router.replace('/(tabs)/groups' as any);
   };
 
   useEffect(() => {
@@ -646,7 +646,7 @@ const getReflectionAuthorLabel = (authorNpub?: string) => {
 
   if (name) return name;
 
-  return `${authorNpub.slice(0, 10)}…`;
+  return `${authorNpub.slice(0, 10)}â€¦`;
 };
 
   const saveReflection = async () => {
@@ -721,7 +721,7 @@ const authorLabel =
   (milestone.authorNpub && milestone.authorNpub === npub
     ? 'You'
     : milestone.authorNpub
-      ? `${milestone.authorNpub.slice(0, 10)}…`
+      ? `${milestone.authorNpub.slice(0, 10)}â€¦`
       : null);
 
 const openMediaViewer = (uri: string) => {
@@ -778,7 +778,7 @@ const openMediaViewer = (uri: string) => {
     ? [
         eventTitleLabel,
         eventSourceSpaceLabel ? `from ${eventSourceSpaceLabel}` : undefined,
-      ].filter(Boolean).join(' · ')
+      ].filter(Boolean).join(' Â· ')
     : undefined;
   const routeLabels = Array.from(
     new Set((livingView?.metadata.relayTargets ?? []).map(target => getRouteLabel(target.kind)))
@@ -904,7 +904,7 @@ const openMediaViewer = (uri: string) => {
           onPress={handleBack}
           style={s.backBtn}
         >
-          <Text style={[s.backText, { color: theme.gold }]}>← Back</Text>
+          <Text style={[s.backText, { color: theme.gold }]}>â† Back</Text>
         </TouchableOpacity>
         <View style={s.headerMeta}>
           <Text style={[s.headerDate, { color: theme.textMuted }]}>
@@ -978,7 +978,7 @@ const openMediaViewer = (uri: string) => {
 
             {item.type === 'video' && (
               <View style={s.heroVideoBadge}>
-                <Text style={s.heroVideoBadgeText}>▶</Text>
+                <Text style={s.heroVideoBadgeText}>â–¶</Text>
               </View>
             )}
 
@@ -1015,7 +1015,7 @@ const openMediaViewer = (uri: string) => {
 
         <View style={s.content}>
 
-          {/* ── Edit mode ── */}
+          {/* â”€â”€ Edit mode â”€â”€ */}
           {isEditing ? (
             <View style={s.editBlock}>
               <Text style={[s.sectionLabel, { color: theme.textMuted }]}>MARK</Text>
@@ -1052,7 +1052,7 @@ const openMediaViewer = (uri: string) => {
             </View>
 
           ) : (
-            /* ── View mode ── */
+            /* â”€â”€ View mode â”€â”€ */
             <>
               {title && <Text style={[s.title, { color: theme.text }]}>{title}</Text>}
               {body ? (
@@ -1069,7 +1069,7 @@ const openMediaViewer = (uri: string) => {
             <View style={s.section}>
               <Text style={[s.sectionLabel, { color: theme.textMuted }]}>VOICE NOTE</Text>
               <TouchableOpacity style={[s.mediaBtn, { backgroundColor: theme.surface, borderColor: theme.border }]} onPress={isAudioPlaying ? stopAudio : playAudio}>
-                <Text style={[s.mediaBtnIcon, { color: theme.gold }]}>{isAudioPlaying ? '⏹' : '▶'}</Text>
+                <Text style={[s.mediaBtnIcon, { color: theme.gold }]}>{isAudioPlaying ? 'â¹' : 'â–¶'}</Text>
 <Text style={[s.mediaBtnText, { color: theme.gold }]}>{isAudioPlaying ? 'Stop playback' : 'Play voice note'}</Text>
               </TouchableOpacity>
             </View>
@@ -1102,7 +1102,7 @@ const openMediaViewer = (uri: string) => {
                 >
                   {!isVideoPlaying && (
                     <View style={s.playCircle}>
-                      <Text style={s.playCircleIcon}>▶</Text>
+                      <Text style={s.playCircleIcon}>â–¶</Text>
                     </View>
                   )}
                 </TouchableOpacity>
@@ -1381,7 +1381,7 @@ const openMediaViewer = (uri: string) => {
                                     {getCalendarEventMarkLabel(event)}
                                   </Text>
                                   <Text style={[s.mentionMeta, { color: theme.textMuted }]} numberOfLines={1}>
-                                    {formatEventDate(event)} • {formatEventTime(event)}
+                                    {formatEventDate(event)} â€¢ {formatEventTime(event)}
                                   </Text>
                                 </View>
 
@@ -1679,8 +1679,8 @@ const openMediaViewer = (uri: string) => {
           <View style={[s.section, s.relaySection, { borderTopColor: theme.border }]}>
             <Text style={[s.relayStatus, { color: theme.textMuted }]}>
               {milestone.publishedToRelay
-                ? `↑ Published to relay · ${milestone.nostrEventId?.slice(0, 12)}…`
-                : '· Saved locally only'}
+                ? `â†‘ Published to relay Â· ${milestone.nostrEventId?.slice(0, 12)}â€¦`
+                : 'Â· Saved locally only'}
             </Text>
           </View>
 
@@ -1975,3 +1975,4 @@ heroVideoBadgeText: {
   textShadowRadius: 4,
 },
 });
+

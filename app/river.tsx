@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+﻿import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useEffect, useMemo, useState } from 'react';
@@ -264,7 +264,7 @@ export default function RiverScreen() {
     }
 
     if (router.canGoBack()) router.back();
-    else router.replace('/(tabs)/timeline' as any);
+    else router.replace('/(tabs)/groups' as any);
   };
 
   const openDetail = (markId: string) => {
@@ -644,3 +644,4 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     fontWeight: '900',
   },
 });
+

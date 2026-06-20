@@ -1,14 +1,14 @@
-import { useRouter } from 'expo-router';
+﻿import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
-    KeyboardAvoidingView,
-    Platform,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from 'react-native';
 import { saveMilestone } from '../../src/utils/storage';
 import { useIdentity } from '../_layout';
@@ -40,7 +40,7 @@ return (
           {'\n'}
           It could be something small.
           {'\n\n'}
-          One day, you’ll be glad you saved it.
+          One day, youâ€™ll be glad you saved it.
         </Text>
 
         <TextInput
@@ -65,7 +65,7 @@ return (
               authorNpub: npub || undefined,
             });
 
-            router.replace('/(tabs)/messages');
+            router.replace('/(tabs)/groups')
           }}
           style={({ pressed }) => [
             s.primaryBtn,
@@ -78,7 +78,7 @@ return (
         </Pressable>
 
         <Pressable
-          onPress={() => router.replace('/(tabs)/messages')}
+          onPress={() => router.replace('/(tabs)/groups')}
           style={({ pressed }) => [s.skip, pressed && s.pressed]}
         >
           <Text style={s.skipText}>Skip for now</Text>
@@ -171,3 +171,4 @@ scrollContent: {
     opacity: 0.9,
   },
 });
+

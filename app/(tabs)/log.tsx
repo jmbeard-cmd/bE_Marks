@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+﻿import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as VideoThumbnails from 'expo-video-thumbnails';
@@ -218,7 +218,7 @@ export default function LogScreen() {
   const myDisplayName =
   profile?.display_name ||
   profile?.name ||
-  (npub ? `${npub.slice(0, 12)}…` : 'Someone');
+  (npub ? `${npub.slice(0, 12)}â€¦` : 'Someone');
 
   const isLiftUpMark = markMode === 'lift-up';
 
@@ -432,7 +432,7 @@ export default function LogScreen() {
               const displayName =
                 member.displayName?.trim() ||
                 knownPerson?.displayName?.trim() ||
-                (member.npub ? `${member.npub.slice(0, 12)}…` : 'Group member');
+                (member.npub ? `${member.npub.slice(0, 12)}â€¦` : 'Group member');
 
               return {
                 id: member.npub.toLowerCase(),
@@ -608,12 +608,12 @@ export default function LogScreen() {
       return;
     }
 
-    if (shouldReturnToTimeline) {
-      router.replace('/(tabs)/timeline' as any);
-      return;
-    }
+if (shouldReturnToTimeline) {
+  router.replace('/(tabs)/groups' as any);
+  return;
+}
 
-    router.replace('/(tabs)/messages' as any);
+router.replace('/(tabs)/groups' as any);
   }, [returnGroupId, returnToGroupTab, router, shouldReturnToTimeline]);
 
   useEffect(() => {
@@ -929,7 +929,7 @@ setSaveStatus('Preparing your Mark...');
 try {
       const fullNote = title.trim() ? `${title.trim()}\n\n${note.trim()}` : note.trim();
 
-      // ── Step 1: Upload media FIRST so the URL is ready for the Nostr event ──
+      // â”€â”€ Step 1: Upload media FIRST so the URL is ready for the Nostr event â”€â”€
       setSaveStatus('Uploading media...');
       let completed = 0;
 const total = media.length || 1;
@@ -1033,7 +1033,7 @@ if (audioUri) {
   }
 }
 
-      // Warn user immediately if any media failed — don't silently drop it
+      // Warn user immediately if any media failed â€” don't silently drop it
 
       const hashTags = extractHashTags(tagInput);
 
@@ -1041,7 +1041,7 @@ if (audioUri) {
         ? Array.from(new Set([...tags, ...hashTags, LIFT_UP_TAG]))
         : Array.from(new Set([...tags, ...hashTags]));
       
-      // ── Step 2: Optionally publish to public/profile relay ──
+      // â”€â”€ Step 2: Optionally publish to public/profile relay â”€â”€
       let nostrEventId: string | undefined;
       let published = false;
 
@@ -1072,7 +1072,7 @@ if (audioUri) {
         setSaveStatus(selectedIsSharedSpace ? 'Keeping this inside the Space...' : 'Saving privately...');
       }
 
-      // ── Step 4: Save to local storage ──
+      // â”€â”€ Step 4: Save to local storage â”€â”€
       setSaveStatus('Saving Mark...');
       setProgress(85);
 
@@ -1140,7 +1140,7 @@ if (audioUri) {
         privacy: privacyHint,
       });
 
-      // ── Step 5: Publish Space relay snapshot when selected ──
+      // â”€â”€ Step 5: Publish Space relay snapshot when selected â”€â”€
       const shouldPublishGroupSpaceMark =
         (publishLane === 'space' || publishLane === 'both') &&
         !!selectedGroupId &&
@@ -1182,7 +1182,7 @@ if (audioUri) {
         }
       }
 
-      // ── Reset form ──
+      // â”€â”€ Reset form â”€â”€
       setTitle('');
       setNote('');
       setMarkMode('memory');
@@ -1215,7 +1215,7 @@ if (audioUri) {
           : 'Saved privately.';
 
       Alert.alert(
-        '✓ Saved',
+        'âœ“ Saved',
         savedMessage,
         [
           {
@@ -1336,7 +1336,7 @@ setProgress(0);
 
                   {item.type === 'video' && (
                     <View style={s.videoBadge}>
-                      <Text style={s.videoBadgeText}>▶</Text>
+                      <Text style={s.videoBadgeText}>â–¶</Text>
                     </View>
                   )}
 
@@ -1344,7 +1344,7 @@ setProgress(0);
                     style={s.removePhotoBtn}
                     onPress={() => setMedia(prev => prev.filter(m => m.id !== item.id))}
                   >
-                    <Text style={s.removePhotoText}>✕</Text>
+                    <Text style={s.removePhotoText}>âœ•</Text>
                   </TouchableOpacity>
                 </View>
               ))}
@@ -1452,7 +1452,7 @@ setProgress(0);
                 <View style={s.calendarEventLoadingRow}>
                   <ActivityIndicator size="small" color={theme.gold} />
                   <Text style={[s.calendarEventLoadingText, { color: theme.textMuted }]}>
-                    Loading events…
+                    Loading eventsâ€¦
                   </Text>
                 </View>
               ) : calendarEventOptions.length > 0 ? (
@@ -1487,8 +1487,8 @@ setProgress(0);
                           </Text>
 
                           <Text style={[s.calendarPickerEventMeta, { color: theme.textMuted }]} numberOfLines={1}>
-                            {selectedGroupSpaceId ? '' : `${option.spaceName} • `}
-                            {formatEventDate(option.event)} • {formatEventTime(option.event)}
+                            {selectedGroupSpaceId ? '' : `${option.spaceName} â€¢ `}
+                            {formatEventDate(option.event)} â€¢ {formatEventTime(option.event)}
                           </Text>
                         </View>
 
@@ -1992,3 +1992,4 @@ saveBtnSaving: { opacity: 0.85 },
 savingRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   saveBtnText: { color: '#111', fontSize: 15, fontWeight: '700', letterSpacing: 0.2 },
 });
+
