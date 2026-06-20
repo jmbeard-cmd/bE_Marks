@@ -1,22 +1,21 @@
 import { useRouter } from 'expo-router';
 import {
-    Alert,
-    Image,
-    Modal,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Alert,
+  Image,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { useIdentity } from '../app/_layout';
 import {
-    AccentPalettes,
-    type AccentPaletteKey,
+  AccentPalettes,
+  type AccentPaletteKey,
 } from '../src/constants/theme';
 import { clearIdentity as clearStoredIdentity } from '../src/utils/nostr';
-import AccountTraySocialGraphCard from './AccountTraySocialGraphCard';
 
 type AccountTrayProps = {
   visible: boolean;
@@ -119,11 +118,6 @@ export default function AccountTray({ visible, onClose }: AccountTrayProps) {
               <Text style={[s.openText, { color: theme.gold }]}>Open</Text>
             </TouchableOpacity>
 
-            <AccountTraySocialGraphCard
-              theme={theme}
-              onPress={() => openRoute('/social-graph')}
-            />
-
             <View style={[s.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
               <View style={s.cardHeader}>
                 <View>
@@ -181,9 +175,9 @@ export default function AccountTray({ visible, onClose }: AccountTrayProps) {
                 activeOpacity={0.85}
               >
                 <View style={{ flex: 1 }}>
-<Text style={[s.rowTitle, { color: theme.text }]}>App Relay Network</Text>
+<Text style={[s.rowTitle, { color: theme.text }]}>Relay Routing</Text>
 <Text style={[s.rowHint, { color: theme.textMuted }]}>
-  Personal feed, search, DM, inbox/outbox, and cache routing
+  Manage how Spaces, DMs, and backups connect to relays
 </Text>
                 </View>
                 <Text style={[s.rowAction, { color: theme.gold }]}>Open</Text>
@@ -211,7 +205,7 @@ export default function AccountTray({ visible, onClose }: AccountTrayProps) {
                 activeOpacity={0.85}
               >
                 <View style={{ flex: 1 }}>
-                  <Text style={[s.rowTitle, { color: theme.text }]}>Full Settings</Text>
+                  <Text style={[s.rowTitle, { color: theme.text }]}>Advanced Settings</Text>
                   <Text style={[s.rowHint, { color: theme.textMuted }]}>
                     Safety, storage, version, and account controls
                   </Text>
