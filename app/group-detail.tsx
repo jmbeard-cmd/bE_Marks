@@ -1,4 +1,4 @@
-import GroupBookTab from '@/components/GroupBookTab';
+﻿import GroupBookTab from '@/components/GroupBookTab';
 import GroupCalendarTab from '@/components/GroupCalendarTab';
 import SpaceArchivedBanner from '@/components/SpaceArchivedBanner';
 import SpaceBoardComposerModal from '@/components/SpaceBoardComposerModal';
@@ -235,31 +235,31 @@ type BoardDraftAttachment = {
 };
 
 const GROUP_TYPE_ICONS: Record<string, string> = {
-  softball: '🥎',
-  baseball: '⚾',
-  basketball: '🏀',
-  football: '🏈',
-  volleyball: '🏐',
-  track: '🏃',
-  crosscountry: '🏃',
-  soccer: '⚽',
-  wrestling: '🤼',
-  golf: '⛳',
-  tennis: '🎾',
-  swimming: '🏊',
-  cheer: '📣',
-  band: '🎵',
-  choir: '🎶',
-  theater: '🎭',
-  nhs: '🎓',
-  class: '📚',
-  classroom: '📚',
-  booster: '⭐',
-  faculty: '🧑‍🏫',
-  staff: '🧑‍🏫',
-  teacher: '🧑‍🏫',
-  teachers: '🧑‍🏫',
-  default: '👥',
+  softball: 'ðŸ¥Ž',
+  baseball: 'âš¾',
+  basketball: 'ðŸ€',
+  football: 'ðŸˆ',
+  volleyball: 'ðŸ',
+  track: 'ðŸƒ',
+  crosscountry: 'ðŸƒ',
+  soccer: 'âš½',
+  wrestling: 'ðŸ¤¼',
+  golf: 'â›³',
+  tennis: 'ðŸŽ¾',
+  swimming: 'ðŸŠ',
+  cheer: 'ðŸ“£',
+  band: 'ðŸŽµ',
+  choir: 'ðŸŽ¶',
+  theater: 'ðŸŽ­',
+  nhs: 'ðŸŽ“',
+  class: 'ðŸ“š',
+  classroom: 'ðŸ“š',
+  booster: 'â­',
+  faculty: 'ðŸ§‘â€ðŸ«',
+  staff: 'ðŸ§‘â€ðŸ«',
+  teacher: 'ðŸ§‘â€ðŸ«',
+  teachers: 'ðŸ§‘â€ðŸ«',
+  default: 'ðŸ‘¥',
 };
 
 function normalizeGroupType(value?: string): string {
@@ -672,7 +672,7 @@ const { id, tab: routeTab } = useLocalSearchParams<{
     return (
       profile?.display_name ||
       profile?.name ||
-      (npub ? `${npub.slice(0, 12)}…` : 'Admin')
+      (npub ? `${npub.slice(0, 12)}â€¦` : 'Admin')
     );
   }, [profile, npub]);
 
@@ -2003,7 +2003,7 @@ const publishSpaceMarkSnapshot = useCallback(async (
             onStatus: setBoardUploadStatus,
             onProgress: progress => {
               setBoardUploadStatus(
-                `Compressing video ${i + 1} of ${boardAttachments.length}… ${Math.round(progress * 100)}%`
+                `Compressing video ${i + 1} of ${boardAttachments.length}â€¦ ${Math.round(progress * 100)}%`
               );
             },
           });
@@ -2521,7 +2521,7 @@ const getBoardItemAuthorLabel = (sticky: GroupSticky): string => {
   const displayName =
     authorMember?.displayName ||
     sticky.authorName ||
-    (sticky.authorNpub ? `${sticky.authorNpub.slice(0, 12)}…` : 'Space admin');
+    (sticky.authorNpub ? `${sticky.authorNpub.slice(0, 12)}â€¦` : 'Space admin');
 
   const roleLabel =
     authorMember?.role === 'owner'
@@ -2530,7 +2530,7 @@ const getBoardItemAuthorLabel = (sticky: GroupSticky): string => {
         ? 'Admin'
         : 'Admin';
 
-  return `Signed by ${displayName} • ${roleLabel} • ${formatStickyDate(sticky.updatedAt || sticky.createdAt)}`;
+  return `Signed by ${displayName} â€¢ ${roleLabel} â€¢ ${formatStickyDate(sticky.updatedAt || sticky.createdAt)}`;
 };
 
 const handleOpenHighlightFile = async (
@@ -2643,7 +2643,7 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
 };
 
   const handleAddMemberToContacts = async (member: BEGroupMember) => {
-    const displayName = member.displayName || `${member.npub.slice(0, 12)}…`;
+    const displayName = member.displayName || `${member.npub.slice(0, 12)}â€¦`;
 
     try {
       if (!nsec) {
@@ -2691,8 +2691,8 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
       }
 
       Alert.alert(
-        existing ? 'Following updated' : 'Contact saved',
-        `${displayName} is now in your contacts and Following.`
+        existing ? 'Contact updated' : 'Contact saved',
+        `${displayName} is now in your contacts.`
       );
     } catch (error: any) {
       console.warn('[Group Members] add contact failed:', error);
@@ -2702,7 +2702,7 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
 
   const handleMessageMember = async (member: BEGroupMember) => {
     try {
-      const displayName = member.displayName || `${member.npub.slice(0, 12)}…`;
+      const displayName = member.displayName || `${member.npub.slice(0, 12)}â€¦`;
       const normalized = normalizeNostrIdentity(member.npub);
       const threads = await getDMThreads();
 
@@ -2795,7 +2795,7 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
 
             const removedName =
               member.displayName ||
-              `${member.npub.slice(0, 12)}…`;
+              `${member.npub.slice(0, 12)}â€¦`;
 
             await saveLocalGroupSystemMessage({
               groupId: group.id,
@@ -2957,7 +2957,7 @@ const handleDeleteSticky = (sticky: GroupSticky) => {
   ) => {
     if (!group || !npub) return;
 
-    const memberName = member.displayName || `${member.npub.slice(0, 12)}…`;
+    const memberName = member.displayName || `${member.npub.slice(0, 12)}â€¦`;
 
     await updateMemberRole(group.id, member.npub, nextRole);
 
@@ -3533,7 +3533,7 @@ const spaceCategoryIcon = getGroupTypeIcon(group);
 const spaceHomeMeta = [
   `${members.length} ${members.length === 1 ? 'member' : 'members'}`,
   group.season,
-].filter(Boolean).join(' • ');
+].filter(Boolean).join(' â€¢ ');
 const shouldLiftSpaceChatTray =
   spaceKeyboardHeight > 0 &&
   (
@@ -4397,14 +4397,14 @@ const relaySettingsCard = spaceSettingsRelayOpen ? (
               group.status === 'archived' ? (
                 <SpaceArchivedBanner
                   theme={theme}
-                  message="📦 This Space is archived. Marks can still be viewed."
+                  message="ðŸ“¦ This Space is archived. Marks can still be viewed."
                 />
               ) : null
             }
             ListEmptyComponent={
               <SpaceEmptyState
                 theme={theme}
-                icon="📌"
+                icon="ðŸ“Œ"
                 title="No Marks yet"
                 hint="Members can add Marks, memories, media, or important notes here."
               />
@@ -4560,7 +4560,7 @@ const relaySettingsCard = spaceSettingsRelayOpen ? (
                             <Text style={s.spaceMarkOverlayTagText} numberOfLines={1}>
                               {isLiftUpMark
                                 ? `Lift Up ${markPeopleLabel || 'someone'}`
-                                : visibleTagLabels.join(' · ')}
+                                : visibleTagLabels.join(' Â· ')}
                             </Text>
 
                             {!isLiftUpMark && hiddenTagCount > 0 && (
@@ -4614,7 +4614,7 @@ const relaySettingsCard = spaceSettingsRelayOpen ? (
                       {allTagLabels.length > 0 && (
                         <View style={s.spaceMarkTagSummaryRow}>
                           <Text style={s.spaceMarkTagSummaryText} numberOfLines={1}>
-                            {visibleTagLabels.join(' · ')}
+                            {visibleTagLabels.join(' Â· ')}
                           </Text>
 
                           {hiddenTagCount > 0 && (
@@ -4666,7 +4666,7 @@ const relaySettingsCard = spaceSettingsRelayOpen ? (
               group.status === 'archived' ? (
                 <SpaceArchivedBanner
                   theme={theme}
-                  message="📦 This Space is archived. Board items can still be viewed."
+                  message="ðŸ“¦ This Space is archived. Board items can still be viewed."
                 />
               ) : null
             }
@@ -4704,7 +4704,7 @@ const relaySettingsCard = spaceSettingsRelayOpen ? (
           isAdmin={isAdmin}
           isMember={isMember}
           npub={npub ?? undefined}
-          displayName={npub ? `${npub.slice(0, 12)}…` : undefined}
+          displayName={npub ? `${npub.slice(0, 12)}â€¦` : undefined}
           refreshing={refreshing}
           onRefresh={onRefresh}
           onCreateMarkForEvent={event => openUnifiedMarkComposer('calendar', event)}
@@ -4764,7 +4764,7 @@ const relaySettingsCard = spaceSettingsRelayOpen ? (
                     ) : null}
 
                     <View style={s.galleryVideoOverlay}>
-                      <Text style={s.galleryVideoPlay}>▶</Text>
+                      <Text style={s.galleryVideoPlay}>â–¶</Text>
                     </View>
                   </View>
                 ) : (
@@ -4781,7 +4781,7 @@ const relaySettingsCard = spaceSettingsRelayOpen ? (
           ListEmptyComponent={
             <SpaceEmptyState
               theme={theme}
-              icon="🖼️"
+              icon="ðŸ–¼ï¸"
               title="No media yet"
               hint="Photos and videos posted in chat will appear here."
             />
@@ -4944,8 +4944,8 @@ const relaySettingsCard = spaceSettingsRelayOpen ? (
             ) : null
           }
           renderItem={({ item }) => {
-            const displayName = item.displayName ?? `${item.npub.slice(0, 12)}…`;
-            const shortNpub = `${item.npub.slice(0, 12)}…`;
+            const displayName = item.displayName ?? `${item.npub.slice(0, 12)}â€¦`;
+            const shortNpub = `${item.npub.slice(0, 12)}â€¦`;
             const roleLabel =
               item.role === 'owner'
                 ? 'Owner'
@@ -5006,7 +5006,7 @@ const relaySettingsCard = spaceSettingsRelayOpen ? (
                   activeOpacity={0.75}
                   onPress={() => openMemberActions(item)}
                 >
-                  <Text style={s.memberOptionsText}>⋯</Text>
+                  <Text style={s.memberOptionsText}>â‹¯</Text>
                 </TouchableOpacity>
               </TouchableOpacity>
             );
@@ -5014,7 +5014,7 @@ const relaySettingsCard = spaceSettingsRelayOpen ? (
           ListEmptyComponent={
             <SpaceEmptyState
               theme={theme}
-              icon="👥"
+              icon="ðŸ‘¥"
               title="No members yet"
               hint="Members will appear here after they join this Space."
             />
@@ -5059,7 +5059,7 @@ const relaySettingsCard = spaceSettingsRelayOpen ? (
 
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={s.memberActionName} numberOfLines={1}>
-              {selectedMemberAction.displayName || `${selectedMemberAction.npub.slice(0, 12)}…`}
+              {selectedMemberAction.displayName || `${selectedMemberAction.npub.slice(0, 12)}â€¦`}
             </Text>
 
             <Text style={s.memberActionNpub} numberOfLines={1}>
@@ -5088,7 +5088,7 @@ const relaySettingsCard = spaceSettingsRelayOpen ? (
               handleAddMemberToContacts(member);
             }}
           >
-            <Text style={s.memberActionIcon}>＋</Text>
+            <Text style={s.memberActionIcon}>ï¼‹</Text>
             <View style={s.memberActionTextBlock}>
               <Text style={s.memberActionTitle}>Add to Contacts</Text>
               <Text style={s.memberActionHint}>Save this member for quick messaging.</Text>
@@ -5104,7 +5104,7 @@ const relaySettingsCard = spaceSettingsRelayOpen ? (
               handleMessageMember(member);
             }}
           >
-            <Text style={s.memberActionIcon}>✉️</Text>
+            <Text style={s.memberActionIcon}>âœ‰ï¸</Text>
             <View style={s.memberActionTextBlock}>
               <Text style={s.memberActionTitle}>Message</Text>
               <Text style={s.memberActionHint}>Open or start a private DM.</Text>
@@ -5120,10 +5120,10 @@ const relaySettingsCard = spaceSettingsRelayOpen ? (
               handleCopyMemberNpub(member);
             }}
           >
-            <Text style={s.memberActionIcon}>⧉</Text>
+            <Text style={s.memberActionIcon}>â§‰</Text>
             <View style={s.memberActionTextBlock}>
               <Text style={s.memberActionTitle}>Copy npub</Text>
-              <Text style={s.memberActionHint}>Copy this member’s Nostr address.</Text>
+              <Text style={s.memberActionHint}>Copy this memberâ€™s Nostr address.</Text>
             </View>
           </TouchableOpacity>
 
@@ -5143,7 +5143,7 @@ const relaySettingsCard = spaceSettingsRelayOpen ? (
                   }
                 }}
               >
-                <Text style={s.memberActionIcon}>★</Text>
+                <Text style={s.memberActionIcon}>â˜…</Text>
                 <View style={s.memberActionTextBlock}>
                   <Text style={s.memberActionTitle}>
                     {selectedMemberAction.role === 'member' ? 'Make admin' : 'Remove admin'}
@@ -5161,7 +5161,7 @@ const relaySettingsCard = spaceSettingsRelayOpen ? (
                   handleRemoveMember(member);
                 }}
               >
-                <Text style={[s.memberActionIcon, s.memberActionDangerText]}>⌫</Text>
+                <Text style={[s.memberActionIcon, s.memberActionDangerText]}>âŒ«</Text>
                 <View style={s.memberActionTextBlock}>
                   <Text style={[s.memberActionTitle, s.memberActionDangerText]}>
                     Remove from Space
@@ -7755,3 +7755,4 @@ const createStyles = (theme: typeof Colors.light) => StyleSheet.create({
     lineHeight: 32,
   },
 });
+

@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+﻿import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -113,7 +113,7 @@ export default function SettingsScreen() {
             </View>
           </View>
 
-          {/* ── ACCOUNT ── */}
+          {/* â”€â”€ ACCOUNT â”€â”€ */}
           <View style={s.section}>
             <Text style={[s.sectionLabel, { color: theme.textMuted }]}>ACCOUNT</Text>
 
@@ -200,7 +200,7 @@ export default function SettingsScreen() {
             </View>
           </View>
 
-          {/* ── RELAYS ── */}
+          {/* â”€â”€ RELAYS â”€â”€ */}
           <View style={s.section}>
             <Text style={[s.sectionLabel, { color: theme.textMuted }]}>RELAY NETWORK</Text>
 
@@ -212,7 +212,7 @@ export default function SettingsScreen() {
               <View style={{ flex: 1, paddingRight: 14 }}>
                 <Text style={[s.rowLabel, { color: theme.textSecondary }]}>Relay Network</Text>
                 <Text style={[s.rowHint, { color: theme.textMuted }]}>
-                  Manage personal relays for public Marks, profile publishing, and Following.
+                  Manage personal relays for public Marks, profile publishing, and relay-list backups.
                 </Text>
               </View>
 
@@ -222,7 +222,7 @@ export default function SettingsScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* ── APPEARANCE ── */}
+          {/* â”€â”€ APPEARANCE â”€â”€ */}
           <View style={s.section}>
             <Text style={[s.sectionLabel, { color: theme.textMuted }]}>APPEARANCE</Text>
 
@@ -257,7 +257,7 @@ export default function SettingsScreen() {
               <View style={s.paletteHeader}>
                 <View>
                   <Text style={[s.rowLabel, { color: theme.textSecondary }]}>Accent Color</Text>
-                  <Text style={[s.rowHint, { color: theme.textMuted }]}>Choose the app’s highlight color</Text>
+                  <Text style={[s.rowHint, { color: theme.textMuted }]}>Choose the appâ€™s highlight color</Text>
                 </View>
 
                 <Text style={[s.paletteCurrent, { color: theme.gold }]}>
@@ -446,3 +446,4 @@ profileCard: {
   editProfileBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, borderWidth: 0.5, borderColor: '#c9973a' },
   editProfileBtnText: { fontSize: 12, color: '#c9973a', fontWeight: '600' },
 });
+
