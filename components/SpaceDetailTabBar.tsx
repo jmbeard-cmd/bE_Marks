@@ -48,35 +48,19 @@ const SPACE_DETAIL_TABS = [
     icon: 'calendar-outline',
     activeIcon: 'calendar',
   },
-  {
-    key: 'gallery',
-    icon: 'images-outline',
-    activeIcon: 'images',
-  },
-  {
-    key: 'legacy',
-    icon: 'library-outline',
-    activeIcon: 'library',
-  },
-  {
-    key: 'book',
-    icon: 'book-outline',
-    activeIcon: 'book',
-  },
 ] as const;
 
 export default function SpaceDetailTabBar({
   activeTab,
   theme,
   onSelect,
-  showBook = true,
   counts = {},
 }: SpaceDetailTabBarProps) {
   const s = useMemo(() => createStyles(theme), [theme]);
 
   return (
     <View style={s.spaceHeaderDock}>
-      {SPACE_DETAIL_TABS.filter(item => showBook || item.key !== 'book').map(item => {
+      {SPACE_DETAIL_TABS.map(item => {
         const active = activeTab === item.key;
         const count = counts[item.key] ?? 0;
         const showCount = count > 0;
