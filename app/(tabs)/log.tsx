@@ -155,7 +155,6 @@ export default function LogScreen() {
     selectedSpaceId?: string;
     returnToGroupId?: string;
     returnToGroupTab?: string;
-    returnToTimeline?: string;
     calendarEventId?: string;
     calendarEventTitle?: string;
     savedToBook?: string;
@@ -164,7 +163,6 @@ export default function LogScreen() {
   const routeSelectedSpaceId = getRouteParam(params.selectedSpaceId);
   const returnToGroupId = getRouteParam(params.returnToGroupId);
   const routeReturnToGroupTab = getRouteParam(params.returnToGroupTab);
-  const routeReturnToTimeline = getRouteParam(params.returnToTimeline);
   const routeCalendarEventId = getRouteParam(params.calendarEventId);
   const routeCalendarEventTitle = getRouteParam(params.calendarEventTitle);
   const routeSavedToBook = getRouteParam(params.savedToBook);
@@ -593,9 +591,6 @@ export default function LogScreen() {
   };
 
   const returnGroupId = returnToGroupId?.trim() || undefined;
-  const shouldReturnToTimeline =
-    routeReturnToTimeline === '1' || routeReturnToTimeline === 'true';
-
   const navigateAfterLog = useCallback(() => {
     if (returnGroupId) {
       router.replace({
@@ -608,13 +603,8 @@ export default function LogScreen() {
       return;
     }
 
-if (shouldReturnToTimeline) {
-  router.replace('/(tabs)/groups' as any);
-  return;
-}
-
-router.replace('/(tabs)/groups' as any);
-  }, [returnGroupId, returnToGroupTab, router, shouldReturnToTimeline]);
+    router.replace('/(tabs)/groups' as any);
+  }, [returnGroupId, returnToGroupTab, router]);
 
   useEffect(() => {
     if (!returnGroupId) return;
@@ -1992,5 +1982,10 @@ saveBtnSaving: { opacity: 0.85 },
 savingRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   saveBtnText: { color: '#111', fontSize: 15, fontWeight: '700', letterSpacing: 0.2 },
 });
+
+
+
+
+
 
 
