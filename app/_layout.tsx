@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+﻿import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { createContext, useContext, useEffect, useState } from 'react';
@@ -14,7 +14,6 @@ import {
 import { startDMService, stopDMService } from '../src/utils/dm-service';
 import { clearDMStorage } from '../src/utils/dm-storage';
 import { fetchNostrProfile, getStoredIdentity, type NostrProfile } from '../src/utils/nostr';
-import { syncSocialGraphInBackground } from '../src/utils/nostr-social';
 import {
   installNotificationResponseHandler,
   registerForPushNotifications,
@@ -240,16 +239,6 @@ enqueueStartupJob({
   },
 });
 
-enqueueStartupJob({
-  id: 'social-graph-background-sync',
-  label: 'Refresh social graph in background',
-  priority: 'idle',
-  run: async () => {
-    await syncSocialGraphInBackground({
-      npub: id.npub,
-    });
-  },
-});
       }
     });
 
@@ -339,11 +328,11 @@ enqueueStartupJob({
   setNpub(p);
   setNsec(s);
 
-  // 🔥 CLEAR PROFILE (prevents cross-identity bleed)
+  // ðŸ”¥ CLEAR PROFILE (prevents cross-identity bleed)
   setProfile(null);
   setRelaysState(['wss://relay.beginningend.com']);
 
-  // 🔥 CLEAR IDENTITY-SCOPED CACHES (prevents cross-identity bleed)
+  // ðŸ”¥ CLEAR IDENTITY-SCOPED CACHES (prevents cross-identity bleed)
   Promise.all([
     clearDMStorage(),
     clearSocialGraphCache(),
@@ -359,18 +348,6 @@ enqueueStartupJob({
   priority: 'idle',
   run: async () => {
     await registerForPushNotifications(p);
-  },
-});
-
-enqueueStartupJob({
-  id: 'social-graph-sync-after-identity',
-  label: 'Refresh social graph after identity change',
-  priority: 'idle',
-  run: async () => {
-    await syncSocialGraphInBackground({
-      npub: p,
-      maxAgeSeconds: 0,
-    });
   },
 });
 
@@ -461,3 +438,6 @@ enqueueStartupJob({
   </GestureHandlerRootView>
 );
 }
+
+
+
