@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+﻿import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 type AccountTraySocialGraphCardProps = {
@@ -25,20 +25,20 @@ export default function AccountTraySocialGraphCard({
 
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text style={s.kicker}>Social graph</Text>
-          <Text style={s.title}>Following feed</Text>
+          <Text style={s.title}>Social graph</Text>
         </View>
 
         <Text style={s.openText}>Open</Text>
       </View>
 
       <Text style={s.bodyText}>
-        Follow people with your Account identity. Their public Nostr posts will only feed Timeline Following.
+        Follow people with your Account identity. This saves your social graph without mixing it into Spaces or DMs.
       </Text>
 
       <View style={s.ruleList}>
-        <Text style={s.ruleText}>• Following: people you follow</Text>
-        <Text style={s.ruleText}>• Broadcasts: official relays/channels later</Text>
-        <Text style={s.ruleText}>• Spaces: group relay routing stays separate</Text>
+        <Text style={s.ruleText}>â€¢ People: accounts you follow</Text>
+        <Text style={s.ruleText}>â€¢ Public: official relays/channels later</Text>
+        <Text style={s.ruleText}>â€¢ Spaces: group relay routing stays separate</Text>
       </View>
     </TouchableOpacity>
   );

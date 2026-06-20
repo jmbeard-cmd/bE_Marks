@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+﻿import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 type SocialGraphSummaryCardProps = {
@@ -29,7 +29,7 @@ export default function SocialGraphSummaryCard({
 
         <View style={s.headerTextWrap}>
           <Text style={s.kicker}>Account social graph</Text>
-          <Text style={s.title}>Following feed source</Text>
+          <Text style={s.title}>Social graph source</Text>
         </View>
 
         {!!onRefresh && (

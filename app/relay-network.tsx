@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+﻿import { router } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -38,19 +38,19 @@ const RELAY_LANES: {
 }[] = [
   {
     key: 'personal',
-    icon: '📡',
+    icon: 'ðŸ“¡',
     title: 'Personal Relays',
-    hint: 'Used for your public Marks, profile, Following feed, and relay list.',
+    hint: 'Used for your public Marks, profile, and relay list.',
   },
   {
     key: 'dm',
-    icon: '💬',
+    icon: 'ðŸ’¬',
     title: 'Messages',
     hint: 'Message routing is handled automatically by bE Marks for now.',
   },
   {
     key: 'space',
-    icon: '👥',
+    icon: 'ðŸ‘¥',
     title: 'Space Relays',
     hint: 'Space relay settings are managed inside each Space by admins.',
   },
@@ -259,7 +259,7 @@ export default function RelayNetworkScreen() {
       }
 
       setRelays(relaysToSave);
-      Alert.alert('✓ Relays updated', 'Your personal relay list has been published.');
+      Alert.alert('âœ“ Relays updated', 'Your personal relay list has been published.');
     } finally {
       setSavingRelays(false);
     }
@@ -290,7 +290,7 @@ export default function RelayNetworkScreen() {
         <View style={[s.heroCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
           <Text style={[s.heroTitle, { color: theme.text }]}>Personal relays</Text>
           <Text style={[s.heroText, { color: theme.textMuted }]}>
-            Choose the relays bE Marks uses for your public profile, Following feed, and personal Marks. Space relays are managed inside each Space.
+            Choose the relays bE Marks uses for your public profile, personal Marks, and relay list. Space relays are managed inside each Space.
           </Text>
         </View>
 
@@ -398,7 +398,7 @@ export default function RelayNetworkScreen() {
               <View style={s.relayDirectoryLoadingRow}>
                 <ActivityIndicator size="small" color={theme.gold} />
                 <Text style={[s.relayDiscoveryEmpty, { color: theme.textMuted }]}>
-                  Loading relay directory…
+                  Loading relay directoryâ€¦
                 </Text>
               </View>
             )}
@@ -435,7 +435,7 @@ export default function RelayNetworkScreen() {
                         {relay.url}
                       </Text>
                       <Text style={[s.relayPickerMeta, { color: theme.textMuted }]} numberOfLines={1}>
-                        {relay.source} · {relay.category}{relay.online === true ? ' · online' : ''}
+                        {relay.source} Â· {relay.category}{relay.online === true ? ' Â· online' : ''}
                       </Text>
                     </View>
 
@@ -450,7 +450,7 @@ export default function RelayNetworkScreen() {
                         {selected ? 'ON' : 'OFF'}
                       </Text>
                       <Text style={[s.relayPickerChevron, { color: theme.textMuted }]}>
-                        {expanded ? '⌃' : '⌄'}
+                        {expanded ? 'âŒƒ' : 'âŒ„'}
                       </Text>
                     </View>
                   </TouchableOpacity>
@@ -476,7 +476,7 @@ export default function RelayNetworkScreen() {
                           }}
                           activeOpacity={0.82}
                         >
-                          <Text style={[s.relayInfoClose, { color: theme.textMuted }]}>✕</Text>
+                          <Text style={[s.relayInfoClose, { color: theme.textMuted }]}>âœ•</Text>
                         </TouchableOpacity>
                       </View>
 
@@ -484,7 +484,7 @@ export default function RelayNetworkScreen() {
                         <View style={s.relayDirectoryLoadingRow}>
                           <ActivityIndicator size="small" color={theme.gold} />
                           <Text style={[s.relayDiscoveryEmpty, { color: theme.textMuted }]}>
-                            Loading relay information…
+                            Loading relay informationâ€¦
                           </Text>
                         </View>
                       ) : (
@@ -577,7 +577,7 @@ export default function RelayNetworkScreen() {
                 </Text>
 
                 <TouchableOpacity onPress={() => removeRelay(relayUrl)} activeOpacity={0.82}>
-                  <Text style={[s.relayRemove, { color: theme.textMuted }]}>✕</Text>
+                  <Text style={[s.relayRemove, { color: theme.textMuted }]}>âœ•</Text>
                 </TouchableOpacity>
               </View>
             ))}

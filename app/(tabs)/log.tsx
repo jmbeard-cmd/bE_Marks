@@ -525,8 +525,8 @@ export default function LogScreen() {
   const publicPublishHint = publicPostingLockedForChildGroup
     ? 'This Mark will save inside the Space. Public posting is turned off for child accounts.'
     : selectedGroupSpaceId
-      ? 'This Mark saves to the Space by default. Turn this on only if it should also appear on your public timeline.'
-      : 'Optional. Turn this on only when you want this Mark visible on your public timeline.';
+      ? 'This Mark saves to the Space by default. Turn this on only if it should also be posted publicly.'
+      : 'Optional. Turn this on only when you want this Mark posted publicly.';
 
   const primarySaveLabel = selectedGroupSpaceId
     ? 'Save to Space'
@@ -1992,4 +1992,5 @@ saveBtnSaving: { opacity: 0.85 },
 savingRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   saveBtnText: { color: '#111', fontSize: 15, fontWeight: '700', letterSpacing: 0.2 },
 });
+
 

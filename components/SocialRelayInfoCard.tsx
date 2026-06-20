@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+﻿import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, Text, View } from 'react-native';
 
 type SocialRelayInfoCardProps = {
@@ -30,9 +30,9 @@ export default function SocialRelayInfoCard({
       </Text>
 
       <View style={s.ruleList}>
-        <Text style={s.ruleText}>• Following: people you follow</Text>
-        <Text style={s.ruleText}>• Broadcasts: official relays/channels</Text>
-        <Text style={s.ruleText}>• Spaces: group-specific relays</Text>
+        <Text style={s.ruleText}>â€¢ People: accounts you follow</Text>
+        <Text style={s.ruleText}>â€¢ Public: official relays/channels</Text>
+        <Text style={s.ruleText}>â€¢ Spaces: group-specific relays</Text>
       </View>
 
       <View style={s.relayList}>
