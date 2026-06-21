@@ -205,7 +205,7 @@ export default function AccountTray({ visible, onClose }: AccountTrayProps) {
                 activeOpacity={0.85}
               >
                 <View style={{ flex: 1 }}>
-                  <Text style={[s.rowTitle, { color: theme.text }]}>Advanced Settings</Text>
+                  <Text style={[s.rowTitle, { color: theme.text }]}>Account Settings</Text>
                   <Text style={[s.rowHint, { color: theme.textMuted }]}>
                     Safety, storage, version, and account controls
                   </Text>
@@ -363,3 +363,4 @@ const s = StyleSheet.create({
     fontWeight: '900',
   },
 });
+

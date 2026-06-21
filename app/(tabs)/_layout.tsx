@@ -25,9 +25,9 @@ function GroupsIcon({ color }: { color: string }) {
   );
 }
 
-function SettingsIcon({ color }: { color: string }) {
+function AccountIcon({ color }: { color: string }) {
   return (
-    <View style={s.settingsIcon}>
+    <View style={s.accountIcon}>
       <View style={[s.sCircle, { borderColor: color }]} />
       <View style={[s.sDot, { backgroundColor: color }]} />
     </View>
@@ -81,7 +81,7 @@ export default function TabLayout() {
   name="account"
   options={{
     title: 'Account',
-    tabBarIcon: ({ color }) => <SettingsIcon color={color} />,
+    tabBarIcon: ({ color }) => <AccountIcon color={color} />,
   }}
 />
 
@@ -112,8 +112,9 @@ const s = StyleSheet.create({
   gCircle2: { width: 13, height: 13, borderRadius: 7, borderWidth: 1.5, position: 'absolute', left: 6, top: 2 },
   gCircle3: { width: 10, height: 10, borderRadius: 5, borderWidth: 1.5, position: 'absolute', left: 3, top: 10 },
 
-  settingsIcon: { width: 22, height: 22, alignItems: 'center', justifyContent: 'center' },
+  accountIcon: { width: 22, height: 22, alignItems: 'center', justifyContent: 'center' },
   sCircle: { width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, position: 'absolute' },
   sDot: { width: 6, height: 6, borderRadius: 3 },
 });
+
 

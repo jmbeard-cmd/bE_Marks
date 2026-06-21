@@ -24,7 +24,7 @@ import {
 } from '../../src/utils/storage';
 import { useIdentity } from '../_layout';
 
-export default function SettingsScreen() {
+export default function AccountScreen() {
     const {
     npub,
     profile,
@@ -446,4 +446,5 @@ profileCard: {
   editProfileBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, borderWidth: 0.5, borderColor: '#c9973a' },
   editProfileBtnText: { fontSize: 12, color: '#c9973a', fontWeight: '600' },
 });
+
 
