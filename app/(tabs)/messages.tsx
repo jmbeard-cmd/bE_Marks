@@ -57,7 +57,7 @@ function getInitials(name: string): string {
   return `${parts[0][0] || ''}${parts[1][0] || ''}`.toUpperCase();
 }
 
-export default function MessagesScreen() {
+export default function DMsScreen() {
   const { theme } = useIdentity();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const router = useRouter();
@@ -184,7 +184,7 @@ export default function MessagesScreen() {
       return profileNames[thread.participantPubkey];
     }
 
-    return thread.title || 'Conversation';
+    return thread.title || 'DM';
   }, [profileNames]);
 
   const filteredThreads = useMemo(() => {
@@ -236,7 +236,7 @@ export default function MessagesScreen() {
     const npubInput = newNpub.trim();
 
     if (!titleInput && !npubInput) {
-      Alert.alert('Conversation info needed', 'Enter a name, npub, or hex pubkey to start a DM.');
+      Alert.alert('DM info needed', 'Enter a name, npub, or hex pubkey to start a DM.');
       return;
     }
 
@@ -245,7 +245,7 @@ export default function MessagesScreen() {
     try {
       let participantPubkey: string | undefined;
       let participantNpub: string | undefined;
-      let title = titleInput || 'New Conversation';
+      let title = titleInput || 'New DM';
 
       if (npubInput) {
         const normalized = normalizeNostrIdentity(npubInput);
@@ -268,7 +268,7 @@ export default function MessagesScreen() {
       openThread(thread);
     } catch (error) {
       Alert.alert(
-        'Unable to start conversation',
+        'Unable to start DM',
         error instanceof Error
           ? error.message
           : 'Please enter a valid npub or hex pubkey.'
@@ -281,7 +281,7 @@ export default function MessagesScreen() {
     const title = getThreadDisplayTitle(thread);
 
     Alert.alert(
-      'Delete conversation?',
+      'Delete DM?',
       `Delete "${title}" from this device?`,
       [
         { text: 'Cancel', style: 'cancel' },
@@ -330,7 +330,7 @@ export default function MessagesScreen() {
 
           <View style={styles.threadBottom}>
             <Text style={[styles.threadPreview, hasUnread && styles.threadPreviewUnread]} numberOfLines={1}>
-              {item.lastMessage || (encrypted ? 'Encrypted conversation' : 'Local conversation')}
+              {item.lastMessage || (encrypted ? 'Encrypted DM' : 'Local DM')}
             </Text>
 
             {hasUnread && (
@@ -378,7 +378,7 @@ export default function MessagesScreen() {
           <Text style={styles.subtitle}>
             {unreadCount > 0
               ? `${unreadCount} unread private message${unreadCount === 1 ? '' : 's'}`
-              : 'Private conversations'}
+              : 'Private DMs'}
           </Text>
         </View>
 
@@ -443,7 +443,7 @@ export default function MessagesScreen() {
                   onPress={() => setComposerVisible(true)}
                   activeOpacity={0.85}
                 >
-                  <Text style={styles.emptyButtonText}>Start conversation</Text>
+                  <Text style={styles.emptyButtonText}>Start DM</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -471,7 +471,7 @@ export default function MessagesScreen() {
             <Text style={styles.inputLabel}>Name</Text>
             <TextInput
               style={styles.input}
-              placeholder="Conversation name"
+              placeholder="DM name"
               placeholderTextColor={theme.textMuted}
               value={newTitle}
               onChangeText={setNewTitle}
@@ -851,3 +851,5 @@ function createStyles(theme: Theme) {
     },
   });
 }
+
+
