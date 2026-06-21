@@ -1,4 +1,4 @@
-export default {
+﻿export default {
   expo: {
     name: "bE Marks",
     slug: "milestone-app",
@@ -13,10 +13,10 @@ export default {
       bundleIdentifier: "com.beginningend.marks",
       buildNumber: "1",
       infoPlist: {
-        NSContactsUsageDescription: "Allow bE Marks to access your contacts to start encrypted conversations.",
-        NSCameraUsageDescription: "Allow bE Marks to take photos and record videos for Marks and messages.",
+        NSContactsUsageDescription: "Allow bE Marks to access your contacts to start encrypted DMs.",
+        NSCameraUsageDescription: "Allow bE Marks to take photos and record videos for Marks, Spaces, and DMs.",
         NSMicrophoneUsageDescription: "Allow bE Marks to record voice notes and video audio.",
-        NSPhotoLibraryUsageDescription: "Allow bE Marks to select photos and videos for Marks and messages.",
+        NSPhotoLibraryUsageDescription: "Allow bE Marks to select photos and videos for Marks, Spaces, and DMs.",
         NSPhotoLibraryAddUsageDescription: "Allow bE Marks to save photos and videos you choose to keep.",
       },
     },
@@ -56,22 +56,22 @@ android: {
       [
         "expo-camera",
         {
-          cameraPermission: "Allow bE Marks to take photos and record videos for Marks and messages.",
+          cameraPermission: "Allow bE Marks to take photos and record videos for Marks, Spaces, and DMs.",
           microphonePermission: "Allow bE Marks to record audio while capturing video.",
         },
       ],
       [
         "expo-image-picker",
         {
-          photosPermission: "Allow bE Marks to select photos and videos for Marks and messages.",
-          cameraPermission: "Allow bE Marks to take photos and videos for Marks and messages.",
+          photosPermission: "Allow bE Marks to select photos and videos for Marks, Spaces, and DMs.",
+          cameraPermission: "Allow bE Marks to take photos and videos for Marks, Spaces, and DMs.",
           microphonePermission: "Allow bE Marks to record audio while capturing video.",
         },
       ],
       [
         "expo-contacts",
         {
-          contactsPermission: "Allow bE Marks to access your contacts to start encrypted conversations.",
+          contactsPermission: "Allow bE Marks to access your contacts to start encrypted DMs.",
         },
       ],
       [
@@ -98,3 +98,4 @@ android: {
     },
   },
 };
+
