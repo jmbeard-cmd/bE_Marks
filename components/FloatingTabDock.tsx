@@ -1,4 +1,4 @@
-import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
+﻿import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useEffect, useRef } from 'react';
 import { Animated, DeviceEventEmitter, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Colors } from '../src/constants/theme';
@@ -50,13 +50,13 @@ export default function FloatingTabDock({
   const visibleRoutes = state.routes.filter(route =>
     route.name === 'messages' ||
     route.name === 'groups' ||
-    route.name === 'settings'
+    route.name === 'account'
   );
 
   const getDockLabel = (routeName: string, fallbackLabel: string) => {
     if (routeName === 'messages') return 'DMs';
     if (routeName === 'groups') return 'Spaces';
-    if (routeName === 'settings') return 'Account';
+    if (routeName === 'account') return 'Account';
 
     return fallbackLabel;
   };
@@ -106,7 +106,7 @@ return (
               : theme.textMuted;
 
 const onPress = () => {
-  if (route.name === 'settings' && onOpenAccountTray) {
+  if (route.name === 'account' && onOpenAccountTray) {
     onOpenAccountTray();
     return;
   }

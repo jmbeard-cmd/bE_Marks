@@ -1,4 +1,4 @@
-import { useRouter } from 'expo-router';
+﻿import { useRouter } from 'expo-router';
 import {
   Alert,
   Image,
@@ -201,7 +201,7 @@ export default function AccountTray({ visible, onClose }: AccountTrayProps) {
 
               <TouchableOpacity
                 style={[s.row, { borderBottomColor: theme.border }]}
-                onPress={() => openRoute('/(tabs)/settings')}
+                onPress={() => openRoute('/(tabs)/account')}
                 activeOpacity={0.85}
               >
                 <View style={{ flex: 1 }}>

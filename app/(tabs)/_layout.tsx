@@ -1,4 +1,4 @@
-import { Tabs } from 'expo-router';
+﻿import { Tabs } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import AccountTray from '../../components/AccountTray';
@@ -78,14 +78,14 @@ export default function TabLayout() {
         }}
       />
 <Tabs.Screen
-  name="settings"
+  name="account"
   options={{
     title: 'Account',
     tabBarIcon: ({ color }) => <SettingsIcon color={color} />,
   }}
 />
 
-      {/* Hidden legacy screens — not tabs */}
+      {/* Hidden legacy screens â€” not tabs */}
       <Tabs.Screen name="timeline" options={{ href: null }} />
       <Tabs.Screen name="log" options={{ href: null }} />
     </Tabs>
@@ -116,3 +116,4 @@ const s = StyleSheet.create({
   sCircle: { width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, position: 'absolute' },
   sDot: { width: 6, height: 6, borderRadius: 3 },
 });
+
