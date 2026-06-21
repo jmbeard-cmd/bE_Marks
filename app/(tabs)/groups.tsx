@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+﻿import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -199,30 +199,30 @@ type ConversationContact = {
 };
 
 const GROUP_TYPE_ICONS: Record<string, string> = {
-  softball: '🥎',
-  baseball: '⚾',
-  basketball: '🏀',
-  football: '🏈',
-  soccer: '⚽',
-  volleyball: '🏐',
-  track: '🏃',
-  class: '🏫',
-  family: '👨‍👩‍👧‍👦',
-  faculty: '🧑‍🏫',
-  booster: '⭐',
-  church: '⛪',
-  community: '🏛️',
-  youth: '🌱',
-  parents: '👪',
-  travel: '🚌',
-  committee: '📋',
-  neighborhood: '🏘️',
-  friends: '🤝',
-  volunteers: '🙌',
-  music: '🎵',
-  theater: '🎭',
-  robotics: '🤖',
-  default: '👥',
+  softball: 'ðŸ¥Ž',
+  baseball: 'âš¾',
+  basketball: 'ðŸ€',
+  football: 'ðŸˆ',
+  soccer: 'âš½',
+  volleyball: 'ðŸ',
+  track: 'ðŸƒ',
+  class: 'ðŸ«',
+  family: 'ðŸ‘¨â€ðŸ‘©â€ðŸ‘§â€ðŸ‘¦',
+  faculty: 'ðŸ§‘â€ðŸ«',
+  booster: 'â­',
+  church: 'â›ª',
+  community: 'ðŸ›ï¸',
+  youth: 'ðŸŒ±',
+  parents: 'ðŸ‘ª',
+  travel: 'ðŸšŒ',
+  committee: 'ðŸ“‹',
+  neighborhood: 'ðŸ˜ï¸',
+  friends: 'ðŸ¤',
+  volunteers: 'ðŸ™Œ',
+  music: 'ðŸŽµ',
+  theater: 'ðŸŽ­',
+  robotics: 'ðŸ¤–',
+  default: 'ðŸ‘¥',
 };
 
 const GROUP_TYPE_OPTIONS = [
@@ -360,7 +360,7 @@ async function resolveDiscoveryInput(input: string): Promise<DiscoveryProfile> {
     npub = normalized.npub || nip19.npubEncode(normalized.pubkey);
   }
 
-  let displayName = nip05 || `${npub.slice(0, 12)}…`;
+  let displayName = nip05 || `${npub.slice(0, 12)}â€¦`;
   let picture: string | undefined;
 
   try {
@@ -375,7 +375,7 @@ async function resolveDiscoveryInput(input: string): Promise<DiscoveryProfile> {
       picture = profile.picture;
     }
   } catch (error) {
-    console.warn('[Messages] failed to fetch discovery profile:', error);
+    console.warn('[Spaces] failed to fetch discovery profile:', error);
   }
 
   return {
@@ -388,7 +388,7 @@ async function resolveDiscoveryInput(input: string): Promise<DiscoveryProfile> {
   };
 }
 
-export default function MessagesScreen() {
+export default function SpacesScreen() {
   const { npub, nsec, profile, theme, themeMode } = useIdentity();
   const s = useMemo(() => createStyles(theme), [theme]);
   const router = useRouter();
@@ -543,7 +543,7 @@ export default function MessagesScreen() {
             picture: profile.picture,
           });
         } catch (error) {
-          console.warn('[Messages] failed to hydrate DM profile:', error);
+          console.warn('[Spaces] failed to hydrate DM profile:', error);
         }
 
         await new Promise(resolve => setTimeout(resolve, 0));
@@ -853,14 +853,14 @@ export default function MessagesScreen() {
             saveThreadCardSnapshot(t, cachedNames, cachedPictures);
           })
           .catch(error => {
-            console.warn('[Messages] failed to load cached DM profiles:', error);
+            console.warn('[Spaces] failed to load cached DM profiles:', error);
           });
       }
 
       getContacts()
         .then(setContacts)
         .catch(error => {
-          console.warn('[Messages] failed to load contacts:', error);
+          console.warn('[Spaces] failed to load contacts:', error);
         });
 
       if (profileHydrationTimerRef.current) {
@@ -1136,7 +1136,7 @@ const loadingInitialSpaces = loadingInitialGroups;
   const myDisplayName =
     profile?.display_name ||
     profile?.name ||
-    (npub ? `${npub.slice(0, 12)}…` : 'Member');
+    (npub ? `${npub.slice(0, 12)}â€¦` : 'Member');
 
   useEffect(() => {
     let cancelled = false;
@@ -1678,7 +1678,7 @@ const result = await ImagePicker.launchImageLibraryAsync({
           </View>
 
           <Text style={encrypted ? s.threadMetaSecure : s.threadMetaLocal} numberOfLines={1}>
-            {encrypted ? '🔒 Nostr encrypted' : 'Local only — add npub to sync'}
+            {encrypted ? 'ðŸ”’ Nostr encrypted' : 'Local only â€” add npub to sync'}
           </Text>
         </View>
 
@@ -1687,7 +1687,7 @@ const result = await ImagePicker.launchImageLibraryAsync({
           onPress={() => handleDeleteThread(item)}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
-          <Text style={s.moreText}>⋯</Text>
+          <Text style={s.moreText}>â‹¯</Text>
         </TouchableOpacity>
       </TouchableOpacity>
     );
@@ -1860,13 +1860,13 @@ const subscription = DeviceEventEmitter.addListener(
     }
   >
     <Text style={s.cardViewToggleIcon}>
-      {spaceCardVariant === 'immersive' ? '▤' : '▦'}
+      {spaceCardVariant === 'immersive' ? 'â–¤' : 'â–¦'}
     </Text>
   </TouchableOpacity>
 </View>
 
       <View style={s.searchWrap}>
-        <Text style={s.searchIcon}>⌕</Text>
+        <Text style={s.searchIcon}>âŒ•</Text>
         <TextInput
           style={s.searchInput}
           value={search}
@@ -1890,11 +1890,11 @@ const subscription = DeviceEventEmitter.addListener(
         ListEmptyComponent={
           loadingInitialSpaces ? (
             <View style={s.empty}>
-             <Text style={s.emptyHint}>Loading Spaces…</Text>
+             <Text style={s.emptyHint}>Loading Spacesâ€¦</Text>
             </View>
           ) : (
             <View style={s.empty}>
-              <Text style={s.emptyIcon}>✉️</Text>
+              <Text style={s.emptyIcon}>âœ‰ï¸</Text>
 <Text style={s.emptyTitle}>
   {search.trim()
     ? 'No matches'
@@ -1916,7 +1916,7 @@ const subscription = DeviceEventEmitter.addListener(
       />
 
       <TouchableOpacity style={s.fab} onPress={handleCompose} activeOpacity={0.85}>
-        <Text style={s.fabText}>＋</Text>
+        <Text style={s.fabText}>ï¼‹</Text>
       </TouchableOpacity>
 
       <Modal visible={sheet !== 'none'} transparent animationType="slide" onRequestClose={closeSheet}>
@@ -1949,7 +1949,7 @@ const subscription = DeviceEventEmitter.addListener(
               </View>
 
               <TouchableOpacity onPress={closeSheet} style={s.closeBtn}>
-                <Text style={s.closeText}>✕</Text>
+                <Text style={s.closeText}>âœ•</Text>
               </TouchableOpacity>
             </View>
 
@@ -2128,7 +2128,7 @@ const subscription = DeviceEventEmitter.addListener(
                       setDiscoveryError('');
                       setDiscoveryProfile(null);
                     }}
-                    placeholder="npub1… or name@example.com"
+                    placeholder="npub1â€¦ or name@example.com"
                     placeholderTextColor={theme.textMuted}
                     autoCapitalize="none"
                     autoCorrect={false}
@@ -2143,7 +2143,7 @@ const subscription = DeviceEventEmitter.addListener(
                     disabled={discovering}
                   >
                     <Text style={s.discoveryLookupText}>
-                      {discovering ? 'Finding…' : 'Find'}
+                      {discovering ? 'Findingâ€¦' : 'Find'}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -2195,7 +2195,7 @@ const subscription = DeviceEventEmitter.addListener(
                           {discoveryAlreadyContact
                             ? 'Saved'
                             : savingDiscoveryContact
-                              ? 'Saving…'
+                              ? 'Savingâ€¦'
                               : 'Add Contact'}
                         </Text>
                       </TouchableOpacity>
@@ -2213,7 +2213,7 @@ const subscription = DeviceEventEmitter.addListener(
                         disabled={creating}
                       >
                         <Text style={s.discoveryPrimaryText}>
-                          {creating ? 'Starting…' : 'Message'}
+                          {creating ? 'Startingâ€¦' : 'Message'}
                         </Text>
                       </TouchableOpacity>
                     </View>
@@ -2224,7 +2224,7 @@ const subscription = DeviceEventEmitter.addListener(
               {contacts.length > 0 && (
                 <View style={s.secondarySection}>
                   <View style={s.sectionHeaderRow}>
-                    <Text style={s.sectionLabel}>BΕ CONTACTS</Text>
+                    <Text style={s.sectionLabel}>BÎ• CONTACTS</Text>
                     <Text style={s.sectionCount}>{contacts.length}</Text>
                   </View>
 
@@ -2251,7 +2251,7 @@ const subscription = DeviceEventEmitter.addListener(
                         </Text>
 
                         <Text style={contact.npub ? s.contactSecure : s.contactLocal}>
-                          {contact.npub ? '🔒' : 'Local'}
+                          {contact.npub ? 'ðŸ”’' : 'Local'}
                         </Text>
                       </TouchableOpacity>
                     ))}
@@ -2277,7 +2277,7 @@ const subscription = DeviceEventEmitter.addListener(
                   style={s.input}
                   value={newNpub}
                   onChangeText={setNewNpub}
-                  placeholder="Optional npub1… or hex pubkey"
+                  placeholder="Optional npub1â€¦ or hex pubkey"
                   placeholderTextColor={theme.textMuted}
                   autoCapitalize="none"
                   autoCorrect={false}
@@ -3192,3 +3192,4 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     fontWeight: '900',
   },
 });
+
