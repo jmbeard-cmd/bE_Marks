@@ -1275,7 +1275,7 @@ const loadingInitialSpaces = loadingInitialGroups;
     try {
       const title = contact
         ? contact.nostrName || contact.name
-        : newTitle.trim() || 'New Conversation';
+        : newTitle.trim() || 'New DM';
 
       const npubInput = contact ? contact.npub ?? '' : newNpub.trim();
 
@@ -2269,7 +2269,7 @@ const subscription = DeviceEventEmitter.addListener(
                   style={s.input}
                   value={newTitle}
                   onChangeText={setNewTitle}
-                  placeholder="Conversation name"
+                  placeholder="DM name"
                   placeholderTextColor={theme.textMuted}
                 />
 
@@ -3192,4 +3192,5 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     fontWeight: '900',
   },
 });
+
 
