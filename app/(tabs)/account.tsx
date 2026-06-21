@@ -1,4 +1,5 @@
-﻿import { router } from 'expo-router';
+﻿import Constants from 'expo-constants';
+import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -303,7 +304,7 @@ export default function AccountScreen() {
 
             <View style={[s.row, { borderBottomColor: theme.border }]}>
               <Text style={[s.rowLabel, { color: theme.textSecondary }]}>Version</Text>
-              <Text style={[s.rowValue, { color: theme.textMuted }]}>1.3.0</Text>
+              <Text style={[s.rowValue, { color: theme.textMuted }]}>{Constants.expoConfig?.version ?? '1.3.0'}</Text>
             </View>
           </View>
 
@@ -446,5 +447,7 @@ profileCard: {
   editProfileBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, borderWidth: 0.5, borderColor: '#c9973a' },
   editProfileBtnText: { fontSize: 12, color: '#c9973a', fontWeight: '600' },
 });
+
+
 
 
