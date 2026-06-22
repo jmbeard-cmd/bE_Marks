@@ -1,4 +1,5 @@
-﻿import { useFocusEffect, useRouter } from 'expo-router';
+﻿import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { nip19 } from 'nostr-tools';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -6,7 +7,6 @@ import {
   Alert,
   FlatList,
   Image,
-  Modal,
   RefreshControl,
   StyleSheet,
   Text,
@@ -15,6 +15,9 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import StartDMModal, {
+  type DMDiscoveryPerson,
+} from '../../components/dm/StartDMModal';
 import { Colors } from '../../src/constants/theme';
 import { subscribeToDMEvents } from '../../src/utils/dm-events';
 import {
@@ -58,7 +61,7 @@ function getInitials(name: string): string {
 }
 
 export default function DMsScreen() {
-  const { theme } = useIdentity();
+  const { theme, npub } = useIdentity();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const router = useRouter();
 
@@ -70,9 +73,7 @@ export default function DMsScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   const [composerVisible, setComposerVisible] = useState(false);
-  const [newTitle, setNewTitle] = useState('');
-  const [newNpub, setNewNpub] = useState('');
-  const [creating, setCreating] = useState(false);
+  const [startingPersonId, setStartingPersonId] = useState<string | null>(null);
 
   const hydrateProfiles = useCallback(async (threadList: DMThread[]) => {
     const pubkeys = Array.from(
@@ -224,41 +225,78 @@ export default function DMsScreen() {
 
   const closeComposer = useCallback(() => {
     setComposerVisible(false);
-    setNewTitle('');
-    setNewNpub('');
-    setCreating(false);
+    setStartingPersonId(null);
   }, []);
 
-  const handleCreateThread = useCallback(async () => {
-    if (creating) return;
+  const handleStartDMFromPerson = useCallback(async (person: DMDiscoveryPerson) => {
+    if (startingPersonId) return;
 
-    const titleInput = newTitle.trim();
-    const npubInput = newNpub.trim();
-
-    if (!titleInput && !npubInput) {
-      Alert.alert('DM info needed', 'Enter a name, npub, or hex pubkey to start a DM.');
-      return;
-    }
-
-    setCreating(true);
+    setStartingPersonId(person.id);
 
     try {
-      let participantPubkey: string | undefined;
-      let participantNpub: string | undefined;
-      let title = titleInput || 'New DM';
+      let participantPubkey = person.pubkeyHex?.trim().toLowerCase();
+      let participantNpub = person.npub?.trim();
 
-      if (npubInput) {
-        const normalized = normalizeNostrIdentity(npubInput);
+      if (!participantPubkey && participantNpub) {
+        const normalized = normalizeNostrIdentity(participantNpub);
         participantPubkey = normalized.pubkey;
         participantNpub = normalized.npub || nip19.npubEncode(normalized.pubkey);
+      }
 
-        if (!titleInput) {
-          title = `${participantNpub.slice(0, 14)}…`;
-        }
+      if (!participantPubkey) {
+        Alert.alert(
+          'Cannot start DM',
+          'This person does not have a DM identity available yet.'
+        );
+        return;
+      }
+
+      if (!participantNpub) {
+        participantNpub = nip19.npubEncode(participantPubkey);
+      }
+
+      let currentPubkey = '';
+
+      if (npub) {
+        try {
+          const decoded = nip19.decode(npub);
+
+          if (decoded.type === 'npub' && typeof decoded.data === 'string') {
+            currentPubkey = decoded.data.toLowerCase();
+          }
+        } catch {}
+      }
+
+      const selectedIsCurrentUser =
+        (!!npub && participantNpub.toLowerCase() === npub.toLowerCase()) ||
+        (!!currentPubkey && participantPubkey.toLowerCase() === currentPubkey);
+
+      if (selectedIsCurrentUser) {
+        Alert.alert('That is you', 'Choose another person to start a DM.');
+        return;
+      }
+
+      const existingThread = threads.find(thread => {
+        const samePubkey =
+          !!thread.participantPubkey &&
+          thread.participantPubkey.toLowerCase() === participantPubkey;
+
+        const sameNpub =
+          !!thread.participantNpub &&
+          !!participantNpub &&
+          thread.participantNpub.toLowerCase() === participantNpub.toLowerCase();
+
+        return samePubkey || sameNpub;
+      });
+
+      if (existingThread) {
+        closeComposer();
+        openThread(existingThread);
+        return;
       }
 
       const thread = await createThread({
-        title,
+        title: person.displayName,
         participantPubkey,
         participantNpub,
       });
@@ -271,11 +309,18 @@ export default function DMsScreen() {
         'Unable to start DM',
         error instanceof Error
           ? error.message
-          : 'Please enter a valid npub or hex pubkey.'
+          : 'Could not start a DM with this person.'
       );
-      setCreating(false);
+    } finally {
+      setStartingPersonId(null);
     }
-  }, [closeComposer, creating, loadThreads, newNpub, newTitle, openThread]);
+  }, [
+    closeComposer,
+    loadThreads,
+    openThread,
+    startingPersonId,
+    threads,
+  ]);
 
   const handleDeleteThread = useCallback((thread: DMThread) => {
     const title = getThreadDisplayTitle(thread);
@@ -307,10 +352,13 @@ export default function DMsScreen() {
     return (
       <TouchableOpacity
         style={[styles.threadRow, hasUnread && styles.threadRowUnread]}
-        activeOpacity={0.84}
+        activeOpacity={0.88}
         onPress={() => openThread(item)}
         onLongPress={() => handleDeleteThread(item)}
       >
+        <View pointerEvents="none" style={styles.threadCardWash} />
+        <View pointerEvents="none" style={styles.threadCardGlow} />
+
         <View style={[styles.avatar, hasUnread && styles.avatarUnread]}>
           {profilePicture ? (
             <Image source={{ uri: profilePicture }} style={styles.avatarImage} />
@@ -324,13 +372,19 @@ export default function DMsScreen() {
             <Text style={[styles.threadTitle, hasUnread && styles.threadTitleUnread]} numberOfLines={1}>
               {title}
             </Text>
-
-            <Text style={styles.threadTime}>{formatThreadTime(item.updatedAt)}</Text>
           </View>
 
-          <View style={styles.threadBottom}>
-            <Text style={[styles.threadPreview, hasUnread && styles.threadPreviewUnread]} numberOfLines={1}>
-              {item.lastMessage || (encrypted ? 'Encrypted DM' : 'Local DM')}
+          <Text style={[styles.threadPreview, hasUnread && styles.threadPreviewUnread]} numberOfLines={1}>
+            {item.lastMessage || (encrypted ? 'Encrypted DM' : 'Local DM')}
+          </Text>
+
+          <View style={styles.threadMetaRow}>
+            <Text style={encrypted ? styles.threadMetaSecure : styles.threadMetaLocal} numberOfLines={1}>
+              {encrypted ? 'Nostr encrypted' : 'Local only'}
+            </Text>
+
+            <Text style={styles.threadTimeChip} numberOfLines={1}>
+              {formatThreadTime(item.updatedAt)}
             </Text>
 
             {hasUnread && (
@@ -341,16 +395,13 @@ export default function DMsScreen() {
               </View>
             )}
           </View>
-
-          <Text style={encrypted ? styles.threadMetaSecure : styles.threadMetaLocal} numberOfLines={1}>
-            {encrypted ? '🔒 Nostr encrypted' : 'Local only — add npub to sync'}
-          </Text>
         </View>
 
         <TouchableOpacity
           style={styles.moreButton}
           onPress={() => handleDeleteThread(item)}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          activeOpacity={0.78}
         >
           <Text style={styles.moreText}>⋯</Text>
         </TouchableOpacity>
@@ -381,14 +432,6 @@ export default function DMsScreen() {
               : 'Private DMs'}
           </Text>
         </View>
-
-        <TouchableOpacity
-          style={styles.newButton}
-          onPress={() => setComposerVisible(true)}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.newButtonText}>＋</Text>
-        </TouchableOpacity>
       </View>
 
       <View style={styles.searchWrap}>
@@ -433,8 +476,8 @@ export default function DMsScreen() {
               </Text>
               <Text style={styles.emptyText}>
                 {search.trim()
-                  ? 'Try a different name, npub, or message preview.'
-                  : 'Start a private conversation with a saved contact, npub, or hex pubkey.'}
+                  ? 'Try a different name or message preview.'
+                  : 'Start a private conversation with a contact, Space member, QR card, or discoverable relay profile.'}
               </Text>
 
               {!search.trim() && (
@@ -451,68 +494,24 @@ export default function DMsScreen() {
         />
       )}
 
-      <Modal
-        visible={composerVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={closeComposer}
+            <TouchableOpacity
+        style={styles.fab}
+        onPress={() => setComposerVisible(true)}
+        activeOpacity={0.85}
+        accessibilityRole="button"
+        accessibilityLabel="Start new DM"
       >
-        <View style={styles.modalOverlay}>
-          <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={closeComposer} />
+        <Ionicons name="add" size={34} color={theme.gold} />
+      </TouchableOpacity>
 
-          <View style={styles.sheet}>
-            <View style={styles.sheetHandle} />
-
-            <Text style={styles.sheetTitle}>New DM</Text>
-            <Text style={styles.sheetHint}>
-              Add an npub or hex pubkey to make this a synced encrypted Nostr DM.
-            </Text>
-
-            <Text style={styles.inputLabel}>Name</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="DM name"
-              placeholderTextColor={theme.textMuted}
-              value={newTitle}
-              onChangeText={setNewTitle}
-              selectionColor={theme.gold}
-            />
-
-            <Text style={styles.inputLabel}>npub or hex pubkey</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="npub1… or hex pubkey"
-              placeholderTextColor={theme.textMuted}
-              value={newNpub}
-              onChangeText={setNewNpub}
-              autoCapitalize="none"
-              autoCorrect={false}
-              selectionColor={theme.gold}
-            />
-
-            <View style={styles.sheetActions}>
-              <TouchableOpacity
-                style={styles.cancelButton}
-                onPress={closeComposer}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.createButton, creating && styles.createButtonDisabled]}
-                onPress={handleCreateThread}
-                disabled={creating}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.createButtonText}>
-                  {creating ? 'Starting…' : 'Start'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      <StartDMModal
+        visible={composerVisible}
+        theme={theme}
+        currentNpub={npub}
+        busyPersonId={startingPersonId}
+        onClose={closeComposer}
+        onSelectPerson={handleStartDMFromPerson}
+      />
     </SafeAreaView>
   );
 }
@@ -551,24 +550,27 @@ function createStyles(theme: Theme) {
       marginTop: 4,
       fontWeight: '600',
     },
-    newButton: {
-      width: 46,
-      height: 46,
-      borderRadius: 23,
-      backgroundColor: theme.gold,
+    fab: {
+      position: 'absolute',
+      right: 20,
+      bottom: 92,
+      width: 48,
+      height: 48,
+      borderRadius: 24,
+      backgroundColor:
+        theme.bg === '#0D0F0E'
+          ? 'rgba(18,20,19,0.88)'
+          : theme.surface + 'EE',
+      borderWidth: 0.75,
+      borderColor: theme.gold + '66',
       alignItems: 'center',
       justifyContent: 'center',
       shadowColor: '#000',
-      shadowOpacity: 0.2,
-      shadowRadius: 12,
-      shadowOffset: { width: 0, height: 6 },
-      elevation: 7,
-    },
-    newButtonText: {
-      color: '#171411',
-      fontSize: 28,
-      fontWeight: '800',
-      marginTop: -2,
+      shadowOpacity: 0.16,
+      shadowRadius: 10,
+      shadowOffset: { width: 0, height: 5 },
+      elevation: 5,
+      zIndex: 20,
     },
     searchWrap: {
       paddingHorizontal: 20,
@@ -604,119 +606,181 @@ function createStyles(theme: Theme) {
       flexGrow: 1,
     },
     threadRow: {
+      minHeight: 94,
+      borderRadius: 22,
+      borderWidth: 0.7,
+      borderColor: theme.border,
+      backgroundColor: theme.raised,
+      paddingLeft: 14,
+      paddingRight: 54,
+      paddingVertical: 12,
+      marginBottom: 12,
       flexDirection: 'row',
       alignItems: 'center',
       gap: 12,
-      padding: 14,
-      borderRadius: 24,
-      borderWidth: 1,
-      borderColor: theme.border,
-      backgroundColor: theme.surface,
-      marginBottom: 10,
+      position: 'relative',
+      overflow: 'hidden',
+      shadowColor: theme.gold,
+      shadowOffset: { width: 0, height: 8 },
+      shadowOpacity: 0.14,
+      shadowRadius: 14,
+      elevation: 5,
     },
     threadRowUnread: {
       borderColor: theme.gold,
     },
+    threadCardWash: {
+      position: 'absolute',
+      top: -38,
+      right: -44,
+      width: 148,
+      height: 148,
+      borderRadius: 74,
+      opacity: 0.13,
+      backgroundColor: theme.gold,
+    },
+    threadCardGlow: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      bottom: 0,
+      height: 42,
+      opacity: 0.38,
+      backgroundColor: theme.surface,
+    },
     avatar: {
-      width: 50,
-      height: 50,
-      borderRadius: 25,
+      width: 56,
+      height: 56,
+      borderRadius: 18,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: theme.bg,
-      borderWidth: 1,
-      borderColor: theme.border,
+      backgroundColor: theme.surface,
+      borderWidth: 0.8,
+      borderColor: `${theme.gold}35`,
       overflow: 'hidden',
+      zIndex: 1,
     },
     avatarUnread: {
       borderColor: theme.gold,
     },
     avatarImage: {
-      width: 50,
-      height: 50,
-      borderRadius: 25,
+      width: '100%',
+      height: '100%',
     },
     avatarText: {
-      color: theme.text,
-      fontSize: 15,
+      color: theme.gold,
+      fontSize: 20,
       fontWeight: '900',
     },
     threadBody: {
       flex: 1,
       minWidth: 0,
+      zIndex: 1,
     },
     threadTop: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 8,
       marginBottom: 4,
     },
     threadTitle: {
       flex: 1,
+      minWidth: 0,
       color: theme.text,
-      fontSize: 16,
-      fontWeight: '700',
+      fontSize: 17,
+      fontWeight: '900',
+      letterSpacing: -0.2,
     },
     threadTitleUnread: {
-      fontWeight: '900',
-    },
-    threadTime: {
-      color: theme.textMuted,
-      fontSize: 11,
-      fontWeight: '700',
-    },
-    threadBottom: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
+      color: theme.text,
     },
     threadPreview: {
-      flex: 1,
       color: theme.textMuted,
-      fontSize: 13,
-      fontWeight: '600',
+      fontSize: 12,
+      lineHeight: 17,
+      fontWeight: '800',
+      marginBottom: 10,
     },
     threadPreviewUnread: {
       color: theme.text,
-      fontWeight: '800',
+    },
+    threadMetaRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flexWrap: 'nowrap',
+      gap: 6,
+    },
+    threadMetaSecure: {
+      maxWidth: 116,
+      borderRadius: 999,
+      borderWidth: 0.5,
+      borderColor: theme.border,
+      backgroundColor: theme.surface,
+      color: theme.gold,
+      paddingHorizontal: 9,
+      paddingVertical: 5,
+      fontSize: 10,
+      fontWeight: '900',
+      overflow: 'hidden',
+    },
+    threadMetaLocal: {
+      maxWidth: 116,
+      borderRadius: 999,
+      borderWidth: 0.5,
+      borderColor: theme.border,
+      backgroundColor: theme.surface,
+      color: theme.textMuted,
+      paddingHorizontal: 9,
+      paddingVertical: 5,
+      fontSize: 10,
+      fontWeight: '900',
+      overflow: 'hidden',
+    },
+    threadTimeChip: {
+      maxWidth: 72,
+      borderRadius: 999,
+      borderWidth: 0.5,
+      borderColor: theme.border,
+      backgroundColor: theme.surface,
+      color: theme.textMuted,
+      paddingHorizontal: 8,
+      paddingVertical: 5,
+      fontSize: 10,
+      fontWeight: '900',
+      overflow: 'hidden',
     },
     unreadBadge: {
-      minWidth: 22,
-      height: 22,
-      borderRadius: 11,
+      minWidth: 24,
+      height: 24,
+      borderRadius: 12,
       backgroundColor: theme.gold,
       alignItems: 'center',
       justifyContent: 'center',
-      paddingHorizontal: 6,
+      paddingHorizontal: 7,
     },
     unreadBadgeText: {
-      color: '#171411',
-      fontSize: 11,
+      color: theme.bg,
+      fontSize: 10,
       fontWeight: '900',
     },
-    threadMetaSecure: {
-      color: theme.gold,
-      fontSize: 11,
-      fontWeight: '800',
-      marginTop: 5,
-    },
-    threadMetaLocal: {
-      color: theme.textMuted,
-      fontSize: 11,
-      fontWeight: '700',
-      marginTop: 5,
-    },
     moreButton: {
-      width: 28,
-      height: 42,
+      position: 'absolute',
+      top: 14,
+      right: 14,
+      width: 34,
+      height: 34,
+      borderRadius: 17,
+      borderWidth: 0.5,
+      borderColor: theme.border,
+      backgroundColor: theme.surface,
       alignItems: 'center',
       justifyContent: 'center',
+      zIndex: 4,
     },
     moreText: {
-      color: theme.textMuted,
-      fontSize: 24,
-      fontWeight: '800',
-      marginTop: -6,
+      color: theme.gold,
+      fontSize: 20,
+      fontWeight: '900',
+      marginTop: -4,
     },
     empty: {
       flex: 1,

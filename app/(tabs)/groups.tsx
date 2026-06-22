@@ -1,4 +1,5 @@
-﻿import AsyncStorage from '@react-native-async-storage/async-storage';
+﻿import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -199,30 +200,30 @@ type ConversationContact = {
 };
 
 const GROUP_TYPE_ICONS: Record<string, string> = {
-  softball: 'ðŸ¥Ž',
-  baseball: 'âš¾',
-  basketball: 'ðŸ€',
-  football: 'ðŸˆ',
-  soccer: 'âš½',
-  volleyball: 'ðŸ',
-  track: 'ðŸƒ',
-  class: 'ðŸ«',
-  family: 'ðŸ‘¨â€ðŸ‘©â€ðŸ‘§â€ðŸ‘¦',
-  faculty: 'ðŸ§‘â€ðŸ«',
-  booster: 'â­',
-  church: 'â›ª',
-  community: 'ðŸ›ï¸',
-  youth: 'ðŸŒ±',
-  parents: 'ðŸ‘ª',
-  travel: 'ðŸšŒ',
-  committee: 'ðŸ“‹',
-  neighborhood: 'ðŸ˜ï¸',
-  friends: 'ðŸ¤',
-  volunteers: 'ðŸ™Œ',
-  music: 'ðŸŽµ',
-  theater: 'ðŸŽ­',
-  robotics: 'ðŸ¤–',
-  default: 'ðŸ‘¥',
+  softball: '\u{1F94E}',
+  baseball: '\u26BE',
+  basketball: '\u{1F3C0}',
+  football: '\u{1F3C8}',
+  soccer: '\u26BD',
+  volleyball: '\u{1F3D0}',
+  track: '\u{1F3C3}',
+  class: '\u{1F3EB}',
+  family: '\u{1F46A}',
+  faculty: '\u{1F393}',
+  booster: '\u2B50',
+  church: '\u26EA',
+  community: '\u{1F3DB}',
+  youth: '\u{1F331}',
+  parents: '\u{1F46A}',
+  travel: '\u{1F68C}',
+  committee: '\u{1F4CB}',
+  neighborhood: '\u{1F3D8}',
+  friends: '\u{1F91D}',
+  volunteers: '\u{1F64C}',
+  music: '\u{1F3B5}',
+  theater: '\u{1F3AD}',
+  robotics: '\u{1F916}',
+  default: '\u{1F465}',
 };
 
 const GROUP_TYPE_OPTIONS = [
@@ -360,7 +361,7 @@ async function resolveDiscoveryInput(input: string): Promise<DiscoveryProfile> {
     npub = normalized.npub || nip19.npubEncode(normalized.pubkey);
   }
 
-  let displayName = nip05 || `${npub.slice(0, 12)}â€¦`;
+  let displayName = nip05 || `${npub.slice(0, 12)}...`;
   let picture: string | undefined;
 
   try {
@@ -1136,7 +1137,7 @@ const loadingInitialSpaces = loadingInitialGroups;
   const myDisplayName =
     profile?.display_name ||
     profile?.name ||
-    (npub ? `${npub.slice(0, 12)}â€¦` : 'Member');
+    (npub ? `${npub.slice(0, 12)}...` : 'Member');
 
   useEffect(() => {
     let cancelled = false;
@@ -1678,7 +1679,7 @@ const result = await ImagePicker.launchImageLibraryAsync({
           </View>
 
           <Text style={encrypted ? s.threadMetaSecure : s.threadMetaLocal} numberOfLines={1}>
-            {encrypted ? 'ðŸ”’ Nostr encrypted' : 'Local only â€” add npub to sync'}
+            {encrypted ? 'Nostr encrypted' : 'Local only - add npub to sync'}
           </Text>
         </View>
 
@@ -1687,7 +1688,7 @@ const result = await ImagePicker.launchImageLibraryAsync({
           onPress={() => handleDeleteThread(item)}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
-          <Text style={s.moreText}>â‹¯</Text>
+          <Ionicons name="ellipsis-horizontal" size={22} color={theme.textMuted} />
         </TouchableOpacity>
       </TouchableOpacity>
     );
@@ -1859,14 +1860,16 @@ const subscription = DeviceEventEmitter.addListener(
         : 'Switch to immersive Space cards'
     }
   >
-    <Text style={s.cardViewToggleIcon}>
-      {spaceCardVariant === 'immersive' ? 'â–¤' : 'â–¦'}
-    </Text>
+    <Ionicons
+      name={spaceCardVariant === 'immersive' ? 'albums-outline' : 'image-outline'}
+      size={22}
+      color={theme.accent}
+    />
   </TouchableOpacity>
 </View>
 
       <View style={s.searchWrap}>
-        <Text style={s.searchIcon}>âŒ•</Text>
+        <Ionicons name="search-outline" size={22} color={theme.textMuted} />
         <TextInput
           style={s.searchInput}
           value={search}
@@ -1890,11 +1893,11 @@ const subscription = DeviceEventEmitter.addListener(
         ListEmptyComponent={
           loadingInitialSpaces ? (
             <View style={s.empty}>
-             <Text style={s.emptyHint}>Loading Spacesâ€¦</Text>
+             <Text style={s.emptyHint}>Loading Spaces...</Text>
             </View>
           ) : (
             <View style={s.empty}>
-              <Text style={s.emptyIcon}>âœ‰ï¸</Text>
+              <Ionicons name="file-tray-outline" size={34} color={theme.textMuted} />
 <Text style={s.emptyTitle}>
   {search.trim()
     ? 'No matches'
@@ -1916,7 +1919,7 @@ const subscription = DeviceEventEmitter.addListener(
       />
 
       <TouchableOpacity style={s.fab} onPress={handleCompose} activeOpacity={0.85}>
-        <Text style={s.fabText}>ï¼‹</Text>
+       <Ionicons name="add" size={34} color={theme.gold} />
       </TouchableOpacity>
 
       <Modal visible={sheet !== 'none'} transparent animationType="slide" onRequestClose={closeSheet}>
@@ -1949,7 +1952,7 @@ const subscription = DeviceEventEmitter.addListener(
               </View>
 
               <TouchableOpacity onPress={closeSheet} style={s.closeBtn}>
-                <Text style={s.closeText}>âœ•</Text>
+                <Ionicons name="close" size={22} color={theme.text} />
               </TouchableOpacity>
             </View>
 
@@ -2060,7 +2063,9 @@ const subscription = DeviceEventEmitter.addListener(
                           onPress={() => setGroupType(active ? '' : type)}
                           activeOpacity={0.84}
                         >
-                          <Text style={s.groupTypePillIcon}>{GROUP_TYPE_ICONS[type]}</Text>
+                          <Text style={s.groupTypePillIcon}>
+  {GROUP_TYPE_ICONS[type] ?? GROUP_TYPE_ICONS.default}
+</Text>
                           <Text style={[s.groupTypePillText, active && s.groupTypePillTextActive]}>
                             {type.charAt(0).toUpperCase() + type.slice(1)}
                           </Text>
@@ -2128,7 +2133,7 @@ const subscription = DeviceEventEmitter.addListener(
                       setDiscoveryError('');
                       setDiscoveryProfile(null);
                     }}
-                    placeholder="npub1â€¦ or name@example.com"
+                    placeholder="npub1... or name@example.com"
                     placeholderTextColor={theme.textMuted}
                     autoCapitalize="none"
                     autoCorrect={false}
@@ -2143,7 +2148,7 @@ const subscription = DeviceEventEmitter.addListener(
                     disabled={discovering}
                   >
                     <Text style={s.discoveryLookupText}>
-                      {discovering ? 'Findingâ€¦' : 'Find'}
+                      {discovering ? 'Finding...' : 'Find'}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -2195,7 +2200,7 @@ const subscription = DeviceEventEmitter.addListener(
                           {discoveryAlreadyContact
                             ? 'Saved'
                             : savingDiscoveryContact
-                              ? 'Savingâ€¦'
+                              ? 'Saving...'
                               : 'Add Contact'}
                         </Text>
                       </TouchableOpacity>
@@ -2213,7 +2218,7 @@ const subscription = DeviceEventEmitter.addListener(
                         disabled={creating}
                       >
                         <Text style={s.discoveryPrimaryText}>
-                          {creating ? 'Startingâ€¦' : 'Message'}
+                          {creating ? 'Starting...' : 'Message'}
                         </Text>
                       </TouchableOpacity>
                     </View>
@@ -2224,7 +2229,7 @@ const subscription = DeviceEventEmitter.addListener(
               {contacts.length > 0 && (
                 <View style={s.secondarySection}>
                   <View style={s.sectionHeaderRow}>
-                    <Text style={s.sectionLabel}>BÎ• CONTACTS</Text>
+                    <Text style={s.sectionLabel}>bE CONTACTS</Text>
                     <Text style={s.sectionCount}>{contacts.length}</Text>
                   </View>
 
@@ -2251,7 +2256,7 @@ const subscription = DeviceEventEmitter.addListener(
                         </Text>
 
                         <Text style={contact.npub ? s.contactSecure : s.contactLocal}>
-                          {contact.npub ? 'ðŸ”’' : 'Local'}
+                          {contact.npub ? 'Nostr' : 'Local'}
                         </Text>
                       </TouchableOpacity>
                     ))}
@@ -2277,7 +2282,7 @@ const subscription = DeviceEventEmitter.addListener(
                   style={s.input}
                   value={newNpub}
                   onChangeText={setNewNpub}
-                  placeholder="Optional npub1â€¦ or hex pubkey"
+                  placeholder="Optional npub1... or hex pubkey"
                   placeholderTextColor={theme.textMuted}
                   autoCapitalize="none"
                   autoCorrect={false}
@@ -2306,7 +2311,7 @@ const subscription = DeviceEventEmitter.addListener(
               >
                 <Text style={s.confirmText}>
                   {creating
-                    ? 'Saving...'
+                              ? 'Saving...'
                     : sheet === 'edit-group'
                       ? 'Save changes'
                       : sheet === 'new-group'
@@ -2974,8 +2979,8 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     marginBottom: 10,
   },
   groupTypePill: {
-    minHeight: 36,
-    borderRadius: 18,
+    minHeight: 38,
+    borderRadius: 19,
     borderWidth: 0.5,
     borderColor: theme.border,
     backgroundColor: theme.surface,
@@ -2983,6 +2988,7 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: 12,
+    paddingVertical: 8,
     marginRight: 8,
   },
   groupTypePillActive: {
@@ -2990,7 +2996,10 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     backgroundColor: theme.gold,
   },
   groupTypePillIcon: {
-    fontSize: 15,
+    width: 20,
+    textAlign: 'center',
+    fontSize: 16,
+    lineHeight: 18,
   },
   groupTypePillText: {
     color: theme.text,

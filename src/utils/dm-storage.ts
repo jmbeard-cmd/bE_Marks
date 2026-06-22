@@ -20,12 +20,24 @@ export type DMThread = {
   lastMessage: string;
 };
 
+export type DMMessageMediaType = 'image' | 'video' | 'file' | 'gif' | 'sticker';
+
+export type DMMessageMedia = {
+  id: string;
+  uri: string;
+  type: DMMessageMediaType;
+  thumbnailUrl?: string;
+  fileName?: string;
+  mimeType?: string;
+};
+
 export type DMMessage = {
   id: string;
   threadId: string;
   text: string;
   mine: boolean;
   createdAt: number;
+  media?: DMMessageMedia[];
   provisional?: boolean;
   provisionalEventId?: string;
 };
@@ -111,6 +123,32 @@ async function getParticipantThreadIndexKey(): Promise<string> {
 
 function normalizePubkey(pubkey?: string): string {
   return pubkey?.trim().toLowerCase() || '';
+}
+
+export function getDMMessagePreview(message: {
+  text?: string;
+  media?: DMMessageMedia[];
+}): string {
+  const text = message.text?.trim();
+
+  if (text) return text;
+
+  const media = Array.isArray(message.media) ? message.media : [];
+
+  if (media.length > 1) {
+    return `${media.length} attachments`;
+  }
+
+  const first = media[0];
+
+  if (!first) return '';
+
+  if (first.type === 'video') return 'Video';
+  if (first.type === 'file') return first.fileName || 'File';
+  if (first.type === 'gif') return 'GIF';
+  if (first.type === 'sticker') return 'Sticker';
+
+  return 'Photo';
 }
 
 async function readParticipantThreadIndex(): Promise<Record<string, DMParticipantThreadIndexEntry>> {
@@ -374,19 +412,25 @@ export async function createThread(input: {
 
 export async function sendLocalDM(input: {
   threadId: string;
-  text: string;
+  text?: string;
+  media?: DMMessageMedia[];
   mine?: boolean;
 }): Promise<DMMessage> {
   const messages = await getDMMessages();
   const threads = await getDMThreads();
+  const text = input.text?.trim() ?? '';
+  const media = Array.isArray(input.media) ? input.media : [];
 
   const newMessage: DMMessage = {
     id: `msg_${Date.now()}`,
     threadId: input.threadId,
-    text: input.text.trim(),
+    text,
+    media,
     mine: input.mine ?? true,
     createdAt: Math.floor(Date.now() / 1000),
   };
+
+  const preview = getDMMessagePreview(newMessage);
 
   messages.push(newMessage);
   await saveDMMessages(messages);
@@ -397,7 +441,7 @@ export async function sendLocalDM(input: {
       ? {
           ...thread,
           updatedAt: newMessage.createdAt,
-          lastMessage: newMessage.text,
+          lastMessage: preview,
         }
       : thread
   );
@@ -410,22 +454,32 @@ export async function sendLocalDM(input: {
 export async function saveRemoteDMMessage(input: {
   id: string;
   threadId: string;
-  text: string;
+  text?: string;
+  media?: DMMessageMedia[];
   mine: boolean;
   createdAt: number;
   provisionalEventId?: string;
 }): Promise<void> {
   const allMessages = await getDMMessages();
+  const text = input.text?.trim() ?? '';
+  const media = Array.isArray(input.media) ? input.media : [];
 
   const existsById = allMessages.some(message => message.id === input.id);
   if (existsById) return;
 
-  const matchingProvisionalIndex = findMatchingProvisionalIndex(allMessages, input);
+  const matchingProvisionalIndex = findMatchingProvisionalIndex(allMessages, {
+    threadId: input.threadId,
+    text,
+    mine: input.mine,
+    createdAt: input.createdAt,
+    provisionalEventId: input.provisionalEventId,
+  });
 
   const newMessage: DMMessage = {
     id: input.id,
     threadId: input.threadId,
-    text: input.text,
+    text,
+    media,
     mine: input.mine,
     createdAt: input.createdAt,
     provisionalEventId: input.provisionalEventId,
@@ -465,7 +519,9 @@ export async function saveRemoteDMMessage(input: {
     return {
       ...thread,
       updatedAt: isNewerThanThread ? newestThreadMessage.createdAt : thread.updatedAt,
-      lastMessage: isNewerThanThread ? newestThreadMessage.text : thread.lastMessage,
+      lastMessage: isNewerThanThread
+        ? getDMMessagePreview(newestThreadMessage)
+        : thread.lastMessage,
       unread:
         input.mine || replacedProvisional
           ? thread.unread

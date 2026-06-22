@@ -123,6 +123,85 @@ export interface NostrDMMessage {
   rawInnerEvent?: any;
 }
 
+export type NostrDMMediaType = 'image' | 'video' | 'file' | 'gif' | 'sticker';
+
+export type NostrDMMediaItem = {
+  id: string;
+  uri: string;
+  type: NostrDMMediaType;
+  thumbnailUrl?: string;
+  fileName?: string;
+  mimeType?: string;
+};
+
+export type NostrDMDecodedContent = {
+  text: string;
+  media: NostrDMMediaItem[];
+};
+
+const BE_DM_CONTENT_TYPE = 'be_dm_v1';
+
+export function encodeNostrDMContent(input: {
+  text?: string;
+  media?: NostrDMMediaItem[];
+}): string {
+  const text = input.text?.trim() ?? '';
+  const media = Array.isArray(input.media) ? input.media : [];
+
+  if (media.length === 0) {
+    return text;
+  }
+
+  return JSON.stringify({
+    type: BE_DM_CONTENT_TYPE,
+    version: 1,
+    text,
+    media,
+  });
+}
+
+export function decodeNostrDMContent(content: string): NostrDMDecodedContent {
+  const fallback = {
+    text: content,
+    media: [],
+  };
+
+  const trimmed = content.trim();
+
+  if (!trimmed.startsWith('{')) {
+    return fallback;
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+
+    if (parsed?.type !== BE_DM_CONTENT_TYPE) {
+      return fallback;
+    }
+
+    const media = Array.isArray(parsed.media)
+      ? parsed.media.filter((item: any) =>
+          item &&
+          typeof item.uri === 'string' &&
+          (
+            item.type === 'image' ||
+            item.type === 'video' ||
+            item.type === 'file' ||
+            item.type === 'gif' ||
+            item.type === 'sticker'
+          )
+        )
+      : [];
+
+    return {
+      text: typeof parsed.text === 'string' ? parsed.text : '',
+      media,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
 // ─── Send DM (multi-relay for speed) ──────────────────────────────
 
 export async function sendNostrDM(input: {

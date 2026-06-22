@@ -1,8 +1,12 @@
+import * as DocumentPicker from 'expo-document-picker';
+import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import * as VideoThumbnails from 'expo-video-thumbnails';
 import { nip19 } from 'nostr-tools';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Image,
   Keyboard,
@@ -15,18 +19,36 @@ import {
   View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import DMComposer from '../components/chat/DMComposer';
 import { Colors } from '../src/constants/theme';
 import { subscribeToDMEvents } from '../src/utils/dm-events';
 import {
+  getCachedDMProfiles,
+  saveCachedDMProfile,
+} from '../src/utils/dm-profile-cache';
+import {
+  getDMMessagePreview,
   getDMThreadById,
   getRecentMessagesForThread,
   markThreadRead,
   saveRemoteDMMessage,
   sendLocalDM,
-  type DMMessage
+  type DMMessage,
+  type DMMessageMedia
 } from '../src/utils/dm-storage';
-import { fetchNostrDMs, fetchNostrProfile, sendNostrDM } from '../src/utils/nostr';
+import {
+  compressImageForUpload,
+  compressVideoForUpload,
+} from '../src/utils/media-compression';
+import {
+  decodeNostrDMContent,
+  encodeNostrDMContent,
+  fetchNostrDMs,
+  fetchNostrProfile,
+  sendNostrDM,
+} from '../src/utils/nostr';
 import { sendRemoteDMNotification } from '../src/utils/push-notifications';
+import { uploadToR2 } from '../src/utils/r2';
 import { useIdentity } from './_layout';
 
 type DMThreadRouteParams = {
@@ -181,6 +203,8 @@ export default function DmThreadScreen() {
   );
   const [loadingInitialMessages, setLoadingInitialMessages] = useState(!notificationPreview);
   const [sending, setSending] = useState(false);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [hasPubkey, setHasPubkey] = useState(!!notificationSenderPubkey);
   const [profileName, setProfileName] = useState<string | null>(notificationSenderName || null);
   const [profilePicture, setProfilePicture] = useState<string | null>(null);
@@ -244,6 +268,18 @@ export default function DmThreadScreen() {
     hydratedProfilePubkeyRef.current = participantPubkey;
 
     try {
+      const cachedProfiles = await getCachedDMProfiles([participantPubkey]);
+      const cachedProfile = cachedProfiles[participantPubkey];
+
+      if (cachedProfile && !leavingRef.current) {
+        setProfileName(cachedProfile.displayName || fallbackTitle);
+        setProfilePicture(cachedProfile.picture || null);
+      }
+    } catch (error) {
+      console.warn('[DM THREAD] cached profile load failed:', error);
+    }
+
+    try {
       const npub = nip19.npubEncode(participantPubkey);
       const profile = await fetchNostrProfile(npub);
 
@@ -256,6 +292,12 @@ export default function DmThreadScreen() {
 
       setProfileName(displayName);
       setProfilePicture(profile.picture || null);
+
+      await saveCachedDMProfile({
+        pubkey: participantPubkey,
+        displayName,
+        picture: profile.picture,
+      });
     } catch (error) {
       console.warn('[DM THREAD] profile fetch failed:', error);
     }
@@ -376,10 +418,13 @@ export default function DmThreadScreen() {
     if (leavingRef.current) return;
 
     for (const msg of remoteMessages) {
+      const decodedContent = decodeNostrDMContent(msg.content);
+
       await saveRemoteDMMessage({
         id: `nostr_${msg.id}`,
         threadId,
-        text: msg.content,
+        text: decodedContent.text,
+        media: decodedContent.media,
         mine: msg.isMine,
         createdAt: msg.createdAt,
         provisionalEventId: msg.rawEvent?.id,
@@ -503,7 +548,7 @@ useFocusEffect(
 
 sendNostrDM({
   toPubkey: thread.participantPubkey,
-  content: text,
+  content: encodeNostrDMContent({ text }),
 }).then(result => {
   if (!result.success) {
     console.warn('[DM] Nostr send failed:', result.error);
@@ -569,6 +614,345 @@ const recipientNpub =
     }
   };
 
+    const uploadDMMediaAttachment = async (
+    attachment: {
+      uri: string;
+      type: 'image' | 'video' | 'file';
+      fileName?: string;
+      mimeType?: string;
+    },
+    index: number,
+    total: number
+  ): Promise<DMMessageMedia | null> => {
+    let uploadUri = attachment.uri;
+    let thumbnailUrl: string | undefined;
+
+    if (attachment.type === 'image') {
+      setUploadStatus(`Optimizing photo ${index + 1} of ${total}...`);
+
+      const compressionResult = await compressImageForUpload({
+        uri: attachment.uri,
+        onStatus: setUploadStatus,
+      });
+
+      uploadUri = compressionResult.uri;
+
+      setUploadStatus(
+        compressionResult.wasCompressed
+          ? `Uploading optimized photo ${index + 1} of ${total}...`
+          : `Uploading photo ${index + 1} of ${total}...`
+      );
+    }
+
+    if (attachment.type === 'video') {
+      const compressionResult = await compressVideoForUpload({
+        uri: attachment.uri,
+        onStatus: setUploadStatus,
+        onProgress: progress => {
+          setUploadStatus(
+            `Compressing video ${index + 1} of ${total}... ${Math.round(progress * 100)}%`
+          );
+        },
+      });
+
+      uploadUri = compressionResult.uri;
+
+      setUploadStatus(
+        compressionResult.wasCompressed
+          ? `Uploading compressed video ${index + 1} of ${total}...`
+          : `Uploading video ${index + 1} of ${total}...`
+      );
+    }
+
+    if (attachment.type === 'file') {
+      setUploadStatus(`Uploading file ${index + 1} of ${total}...`);
+    }
+
+    const uploadedUrl = await uploadToR2(
+      uploadUri,
+      attachment.type === 'video'
+        ? 'video'
+        : attachment.type === 'image'
+          ? 'photo'
+          : 'file'
+    );
+
+    if (!uploadedUrl) {
+      console.warn('[DM] upload failed for attachment:', attachment.uri);
+      return null;
+    }
+
+    if (attachment.type === 'video') {
+      try {
+        setUploadStatus(`Creating thumbnail ${index + 1} of ${total}...`);
+
+        const thumbnail = await VideoThumbnails.getThumbnailAsync(uploadUri, {
+          time: 1000,
+        });
+
+        setUploadStatus(`Uploading thumbnail ${index + 1} of ${total}...`);
+
+        const uploadedThumbnail = await uploadToR2(thumbnail.uri, 'photo');
+        thumbnailUrl = uploadedThumbnail || undefined;
+      } catch (thumbError) {
+        console.warn('[DM] thumbnail failed:', thumbError);
+      }
+    }
+
+    return {
+      id: `dm_media_${Date.now()}_${index}_${Math.random().toString(16).slice(2)}`,
+      uri: uploadedUrl,
+      type: attachment.type,
+      thumbnailUrl,
+      fileName: attachment.fileName,
+      mimeType: attachment.mimeType,
+    };
+  };
+
+  const sendDMMediaAttachments = async (
+    attachments: {
+      uri: string;
+      type: 'image' | 'video' | 'file';
+      fileName?: string;
+      mimeType?: string;
+    }[],
+    pendingLabel: string
+  ) => {
+    if (!threadId || leavingRef.current || uploadingAttachment || attachments.length === 0) return;
+
+    const caption = draft.trim();
+
+    setUploadingAttachment(true);
+    setUploadStatus(pendingLabel);
+    setDraft('');
+    setInputHeight(40);
+
+    try {
+      const uploadedMedia: DMMessageMedia[] = [];
+
+      for (let i = 0; i < attachments.length; i += 1) {
+        const uploaded = await uploadDMMediaAttachment(attachments[i], i, attachments.length);
+
+        if (uploaded) {
+          uploadedMedia.push(uploaded);
+        }
+      }
+
+      if (uploadedMedia.length === 0) {
+        Alert.alert('Upload failed', 'Could not upload the selected attachment.');
+        return;
+      }
+
+      const localMessage = await sendLocalDM({
+        threadId,
+        text: caption,
+        media: uploadedMedia,
+        mine: true,
+      });
+
+      if (!leavingRef.current) {
+        setMessages(prev => {
+          const exists = prev.some(message => message.id === localMessage.id);
+          if (exists) return prev;
+
+          const next = [localMessage, ...prev].sort((a, b) => b.createdAt - a.createdAt);
+          requestAnimationFrame(() => scrollToLatest(true));
+          return next;
+        });
+      }
+
+      const thread = await getDMThreadById(threadId);
+      const recipientPubkey = thread?.participantPubkey;
+
+      if (recipientPubkey) {
+        const recipientNpub =
+          thread.participantNpub ||
+          nip19.npubEncode(recipientPubkey);
+
+        const encryptedContent = encodeNostrDMContent({
+          text: caption,
+          media: uploadedMedia,
+        });
+
+        const preview = getDMMessagePreview({
+          text: caption,
+          media: uploadedMedia,
+        });
+
+        sendNostrDM({
+          toPubkey: recipientPubkey,
+          content: encryptedContent,
+        }).then(result => {
+          if (!result.success) {
+            console.warn('[DM] media send failed:', result.error);
+            return;
+          }
+
+          if (!npub) {
+            console.log('[DM] remote media push skipped; missing sender npub');
+            return;
+          }
+
+          let senderPubkey = '';
+
+          try {
+            const decoded = nip19.decode(npub);
+
+            if (decoded.type === 'npub') {
+              senderPubkey = decoded.data as string;
+            }
+          } catch (error) {
+            console.warn('[DM] failed to decode sender npub for media push:', error);
+          }
+
+          if (!senderPubkey) {
+            console.log('[DM] remote media push skipped; missing sender pubkey');
+            return;
+          }
+
+          sendRemoteDMNotification({
+            recipientNpub,
+            senderNpub: npub,
+            senderPubkey,
+            senderName: myDisplayName,
+            body: preview || 'Attachment',
+            eventId: result.eventIds?.[0],
+            createdAt: localMessage.createdAt,
+          }).catch(error => {
+            console.warn('[DM] remote media push failed:', error);
+          });
+        }).catch(error => {
+          console.warn('[DM] media publish error:', error);
+        });
+      }
+    } catch (error: any) {
+      Alert.alert('Attachment failed', error?.message || 'Could not send the attachment.');
+    } finally {
+      setUploadingAttachment(false);
+      setUploadStatus(null);
+
+      requestAnimationFrame(() => {
+        if (!leavingRef.current) {
+          inputRef.current?.focus();
+        }
+      });
+    }
+  };
+
+  const handlePickDMMedia = async () => {
+    if (uploadingAttachment) return;
+
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (permission.status !== 'granted') {
+      Alert.alert('Permission needed', 'Allow media access to attach photos or videos.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images', 'videos'],
+      quality: 0.9,
+      allowsMultipleSelection: true,
+      selectionLimit: 10,
+    });
+
+    if (result.canceled || !result.assets?.length) return;
+
+    const attachments = result.assets
+      .filter(asset => !!asset.uri)
+      .map(asset => ({
+        uri: asset.uri,
+        type: (asset.type === 'video' ? 'video' : 'image') as 'image' | 'video',
+        fileName: asset.fileName ?? undefined,
+        mimeType: asset.mimeType ?? undefined,
+      }));
+
+    const hasVideo = attachments.some(item => item.type === 'video');
+    const pendingLabel =
+      attachments.length > 1
+        ? `Uploading ${attachments.length} attachments...`
+        : hasVideo
+          ? 'Preparing video...'
+          : 'Preparing photo...';
+
+    await sendDMMediaAttachments(attachments, pendingLabel);
+  };
+
+  const handleTakeDMPhoto = async () => {
+    if (uploadingAttachment) return;
+
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+
+    if (permission.status !== 'granted') {
+      Alert.alert('Permission needed', 'Allow camera access to take a photo.');
+      return;
+    }
+
+    setUploadStatus('Opening camera...');
+
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ['images'],
+      quality: 0.9,
+    });
+
+    if (result.canceled || !result.assets?.[0]?.uri) {
+      setUploadStatus(null);
+      return;
+    }
+
+    await sendDMMediaAttachments(
+      [
+        {
+          uri: result.assets[0].uri,
+          type: 'image',
+          fileName: result.assets[0].fileName ?? undefined,
+          mimeType: result.assets[0].mimeType ?? undefined,
+        },
+      ],
+      'Preparing photo...'
+    );
+  };
+
+  const handlePickDMFiles = async () => {
+    if (uploadingAttachment) return;
+
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        multiple: true,
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled || !result.assets?.length) return;
+
+      const attachments = result.assets
+        .filter(asset => !!asset.uri)
+        .map(asset => ({
+          uri: asset.uri,
+          type: 'file' as const,
+          fileName: asset.name,
+          mimeType: asset.mimeType,
+        }));
+
+      const pendingLabel =
+        attachments.length > 1
+          ? `Uploading ${attachments.length} files...`
+          : 'Uploading file...';
+
+      await sendDMMediaAttachments(attachments, pendingLabel);
+    } catch (error) {
+      console.warn('[DM] file picker failed:', error);
+      Alert.alert('File error', 'Could not open the file picker.');
+    }
+  };
+
+  const handleDMEmojiPlaceholder = () => {
+    Alert.alert('Emoji coming next', 'The emoji picker will be wired into this DM composer next.');
+  };
+
+  const handleDMGifPlaceholder = () => {
+    Alert.alert('GIFs coming later', 'GIF and sticker sending will use this composer menu later.');
+  };
+
   const handleBack = () => {
     leavingRef.current = true;
 
@@ -596,6 +980,7 @@ const recipientNpub =
     const showDateDivider = !olderMsg || !isSameDay(item.createdAt, olderMsg.createdAt);
     const senderName = item.mine ? 'You' : profileName || title || 'Member';
     const initials = getInitials(senderName);
+    const mediaItems = Array.isArray(item.media) ? item.media : [];
 
     return (
       <View>
@@ -623,7 +1008,49 @@ const recipientNpub =
           )}
 
           <View style={[s.dmBubble, item.mine ? s.dmBubbleMine : s.dmBubbleOther]}>
-            <Text style={s.dmMessageText}>{item.text}</Text>
+            {mediaItems.length > 0 && (
+              <View style={s.dmMediaStack}>
+                {mediaItems.map(media => {
+                  if (media.type === 'image') {
+                    return (
+                      <Image
+                        key={media.id}
+                        source={{ uri: media.uri }}
+                        style={s.dmMediaImage}
+                        resizeMode="cover"
+                      />
+                    );
+                  }
+
+                  if (media.type === 'video') {
+                    return media.thumbnailUrl ? (
+                      <Image
+                        key={media.id}
+                        source={{ uri: media.thumbnailUrl }}
+                        style={s.dmMediaImage}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <View key={media.id} style={s.dmMediaFile}>
+                        <Text style={s.dmMediaFileText}>Video</Text>
+                      </View>
+                    );
+                  }
+
+                  return (
+                    <View key={media.id} style={s.dmMediaFile}>
+                      <Text style={s.dmMediaFileText} numberOfLines={1}>
+                        {media.fileName || 'File'}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+
+            {!!item.text.trim() && (
+              <Text style={s.dmMessageText}>{item.text}</Text>
+            )}
 
             <Text style={s.dmTimeText}>
               {formatMessageTime(item.createdAt)}
@@ -692,37 +1119,32 @@ const recipientNpub =
             renderItem={renderMessage}
           />
 
-          <View style={s.composer}>
-            <TextInput
-              ref={inputRef}
-              style={[s.input, { height: Math.max(40, Math.min(120, inputHeight)) }]}
-              placeholder={`Message ${profileName || title}…`}
-              placeholderTextColor={theme.textMuted}
-              value={draft}
-              onChangeText={setDraft}
-              multiline
-              maxLength={2000}
-              textAlignVertical="top"
-              onFocus={() => {
-                setTimeout(() => scrollToLatest(true), 200);
-              }}
-              onContentSizeChange={e => {
-                setInputHeight(e.nativeEvent.contentSize.height);
-              }}
-            />
+                    {!!uploadStatus && (
+            <View style={s.uploadStatus}>
+              <Text style={s.uploadStatusText}>{uploadStatus}</Text>
+            </View>
+          )}
 
-            <TouchableOpacity
-              style={[s.sendBtn, (!draft.trim() || sending) && s.sendBtnDim]}
-              onPress={handleSend}
-              disabled={!draft.trim() || sending}
-            >
-              {sending ? (
-                <ActivityIndicator size="small" color="#111" />
-              ) : (
-                <Text style={s.sendText}>↑</Text>
-              )}
-            </TouchableOpacity>
-          </View>
+          <DMComposer
+            theme={theme}
+            value={draft}
+            placeholder={`Message ${profileName || title}...`}
+            inputRef={inputRef}
+            inputHeight={inputHeight}
+            sending={sending}
+            uploading={uploadingAttachment}
+            onChangeText={setDraft}
+            onContentSizeChange={setInputHeight}
+            onFocus={() => {
+              setTimeout(() => scrollToLatest(true), 200);
+            }}
+            onSend={handleSend}
+            onPickPhotos={handlePickDMMedia}
+            onTakePhoto={handleTakeDMPhoto}
+            onPickFiles={handlePickDMFiles}
+            onPickEmoji={handleDMEmojiPlaceholder}
+            onPickGif={handleDMGifPlaceholder}
+          />
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -885,7 +1307,45 @@ const createStyles = (theme: typeof Colors.dark) => StyleSheet.create({
     marginTop: 5,
     alignSelf: 'flex-end',
   },
-
+  dmMediaStack: {
+    gap: 8,
+    marginBottom: 8,
+  },
+  dmMediaImage: {
+    width: 220,
+    height: 160,
+    borderRadius: 14,
+    backgroundColor: theme.surface,
+  },
+  dmMediaFile: {
+    minWidth: 190,
+    maxWidth: 240,
+    minHeight: 46,
+    borderRadius: 14,
+    borderWidth: 0.5,
+    borderColor: theme.border,
+    backgroundColor: theme.raised,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  dmMediaFileText: {
+    color: theme.text,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  uploadStatus: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderTopWidth: 0.5,
+    borderTopColor: theme.border,
+    backgroundColor: theme.bg,
+  },
+  uploadStatusText: {
+    color: theme.gold,
+    fontSize: 12,
+    fontWeight: '800',
+  },
   empty: {
     flex: 1,
     alignItems: 'center',
