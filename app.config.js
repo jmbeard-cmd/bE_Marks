@@ -90,11 +90,6 @@ android: {
     extra: {
       router: { origin: false },
       eas: { projectId: "d91d6928-a44e-462f-86d0-51a7ec3c540c" },
-      r2AccountId: process.env.R2_ACCOUNT_ID,
-      r2AccessKeyId: process.env.R2_ACCESS_KEY_ID,
-      r2SecretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
-      r2BucketName: process.env.R2_BUCKET_NAME,
-      r2PublicUrl: process.env.R2_PUBLIC_URL,
     },
   },
 };

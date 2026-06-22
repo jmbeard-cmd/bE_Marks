@@ -19,4 +19,13 @@ google-services.json
 
 # Local IDE / audit output
 .idea/
+
 audit/
+
+# Local environment / secrets
+.env
+.env.*
+*.env
+**/.env
+**/.env.*
+src/utils/.env
