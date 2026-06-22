@@ -151,6 +151,88 @@ export function getDMMessagePreview(message: {
   return 'Photo';
 }
 
+const BE_DM_CONTENT_TYPE = 'be_dm_v1';
+
+function decodeStoredDMContent(content?: string): {
+  text: string;
+  media: DMMessageMedia[];
+} {
+  const raw = content?.trim() ?? '';
+
+  if (!raw.startsWith('{')) {
+    return {
+      text: raw,
+      media: [],
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+
+    if (parsed?.type !== BE_DM_CONTENT_TYPE) {
+      return {
+        text: raw,
+        media: [],
+      };
+    }
+
+    const media = Array.isArray(parsed.media)
+      ? parsed.media
+          .filter((item: any) =>
+            item &&
+            typeof item.uri === 'string' &&
+            (
+              item.type === 'image' ||
+              item.type === 'video' ||
+              item.type === 'file' ||
+              item.type === 'gif' ||
+              item.type === 'sticker'
+            )
+          )
+          .map((item: any, index: number): DMMessageMedia => ({
+            id:
+              typeof item.id === 'string' && item.id.trim()
+                ? item.id
+                : `dm_media_${index}_${Math.abs(hashString(item.uri))}`,
+            uri: item.uri,
+            type: item.type,
+            thumbnailUrl:
+              typeof item.thumbnailUrl === 'string'
+                ? item.thumbnailUrl
+                : undefined,
+            fileName:
+              typeof item.fileName === 'string'
+                ? item.fileName
+                : undefined,
+            mimeType:
+              typeof item.mimeType === 'string'
+                ? item.mimeType
+                : undefined,
+          }))
+      : [];
+
+    return {
+      text: typeof parsed.text === 'string' ? parsed.text.trim() : '',
+      media,
+    };
+  } catch {
+    return {
+      text: raw,
+      media: [],
+    };
+  }
+}
+
+function hashString(value: string): number {
+  let hash = 0;
+
+  for (let i = 0; i < value.length; i += 1) {
+    hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0;
+  }
+
+  return hash;
+}
+
 async function readParticipantThreadIndex(): Promise<Record<string, DMParticipantThreadIndexEntry>> {
   const key = await getParticipantThreadIndexKey();
   return await readJson<Record<string, DMParticipantThreadIndexEntry>>(key, {});
@@ -461,8 +543,12 @@ export async function saveRemoteDMMessage(input: {
   provisionalEventId?: string;
 }): Promise<void> {
   const allMessages = await getDMMessages();
-  const text = input.text?.trim() ?? '';
-  const media = Array.isArray(input.media) ? input.media : [];
+  const decodedInput = decodeStoredDMContent(input.text);
+  const inputMedia = Array.isArray(input.media) ? input.media : [];
+  const media = inputMedia.length > 0 ? inputMedia : decodedInput.media;
+  const text = inputMedia.length > 0
+    ? input.text?.trim() ?? ''
+    : decodedInput.text;
 
   const existsById = allMessages.some(message => message.id === input.id);
   if (existsById) return;
@@ -540,14 +626,17 @@ export async function saveProvisionalRemoteDMMessage(input: {
   createdAt: number;
   provisionalEventId?: string;
 }): Promise<DMMessage | null> {
-  const text = input.text.trim();
+  const decodedInput = decodeStoredDMContent(input.text);
+  const text = decodedInput.text;
+  const media = decodedInput.media;
 
-  if (!text) return null;
+  if (!text && media.length === 0) return null;
 
   const message: DMMessage = {
     id: input.id,
     threadId: input.threadId,
     text,
+    media,
     mine: input.mine ?? false,
     createdAt: input.createdAt,
     provisional: true,
@@ -647,7 +736,7 @@ export async function saveProvisionalRemoteDMMessage(input: {
     return {
       ...thread,
       updatedAt: isNewerThanThread ? input.createdAt : thread.updatedAt,
-      lastMessage: isNewerThanThread ? text : thread.lastMessage,
+      lastMessage: isNewerThanThread ? getDMMessagePreview(message) : thread.lastMessage,
       unread: message.mine ? thread.unread : thread.unread + 1,
     };
   });
@@ -661,7 +750,8 @@ export async function saveRemoteDMMessagesBatch(
   inputs: {
     id: string;
     threadId: string;
-    text: string;
+    text?: string;
+    media?: DMMessageMedia[];
     mine: boolean;
     createdAt: number;
     provisionalEventId?: string;
@@ -681,16 +771,30 @@ export async function saveRemoteDMMessagesBatch(
 
     existingIds.add(input.id);
 
+    const decodedInput = decodeStoredDMContent(input.text);
+    const inputMedia = Array.isArray(input.media) ? input.media : [];
+    const media = inputMedia.length > 0 ? inputMedia : decodedInput.media;
+    const text = inputMedia.length > 0
+      ? input.text?.trim() ?? ''
+      : decodedInput.text;
+
     const newMessage: DMMessage = {
       id: input.id,
       threadId: input.threadId,
-      text: input.text,
+      text,
+      media,
       mine: input.mine,
       createdAt: input.createdAt,
       provisionalEventId: input.provisionalEventId,
     };
 
-    const matchingProvisionalIndex = findMatchingProvisionalIndex(allMessages, input);
+    const matchingProvisionalIndex = findMatchingProvisionalIndex(allMessages, {
+      threadId: input.threadId,
+      text,
+      mine: input.mine,
+      createdAt: input.createdAt,
+      provisionalEventId: input.provisionalEventId,
+    });
 
     if (matchingProvisionalIndex >= 0) {
       allMessages[matchingProvisionalIndex] = newMessage;
@@ -739,7 +843,7 @@ export async function saveRemoteDMMessagesBatch(
     return {
       ...thread,
       updatedAt: latestMessage ? latestMessage.createdAt : thread.updatedAt,
-      lastMessage: latestMessage ? latestMessage.text : thread.lastMessage,
+      lastMessage: latestMessage ? getDMMessagePreview(latestMessage) : thread.lastMessage,
       unread: thread.unread + unreadIncrease,
     };
   });
