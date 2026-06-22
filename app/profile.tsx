@@ -3,19 +3,21 @@ import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    Share,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Image,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
+import QRCode from 'react-native-qrcode-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { compressImageForUpload } from '../src/utils/media-compression';
 import { publishProfile, publishProfileWithAmber } from '../src/utils/nostr';
@@ -40,10 +42,21 @@ export default function ProfileScreen() {
   const [editPicture, setEditPicture] = useState('');
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
+  const [contactQRVisible, setContactQRVisible] = useState(false);
 
   const displayName = profile?.display_name || profile?.name || null;
   const avatarUri = profile?.picture || null;
   const shortNpub = npub ? `${npub.slice(0, 12)}...${npub.slice(-8)}` : 'No public key';
+  const contactCardPayload = npub
+    ? JSON.stringify({
+        type: 'be_contact_v1',
+        npub,
+        displayName: displayName || profile?.name || 'bE Marks Contact',
+        name: profile?.name || '',
+        picture: avatarUri || '',
+        relayUrl: relays?.[0] || '',
+      })
+    : '';
 
   const startEditProfile = () => {
     setEditName(profile?.name || '');
@@ -196,6 +209,31 @@ export default function ProfileScreen() {
     });
   };
 
+  const showContactQR = () => {
+    if (!npub) {
+      Alert.alert('No public key', 'Create or restore your bE Marks identity first.');
+      return;
+    }
+
+    setContactQRVisible(true);
+  };
+
+  const copyContactCard = async () => {
+    if (!contactCardPayload) return;
+
+    await Clipboard.setStringAsync(contactCardPayload);
+    Alert.alert('Copied', 'Your bE contact card has been copied.');
+  };
+
+  const shareContactCard = async () => {
+    if (!npub) return;
+
+    await Share.share({
+      message: contactCardPayload || npub,
+      title: 'bE Marks Contact Card',
+    });
+  };
+
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: theme.bg }}
@@ -259,15 +297,27 @@ export default function ProfileScreen() {
                   </Text>
                 )}
 
-                <TouchableOpacity
-                  style={[s.primaryButton, { backgroundColor: theme.gold }]}
-                  onPress={startEditProfile}
-                  activeOpacity={0.86}
-                >
-                  <Text style={[s.primaryButtonText, { color: theme.bg }]}>
-                    Edit Profile
-                  </Text>
-                </TouchableOpacity>
+                <View style={s.heroActions}>
+                  <TouchableOpacity
+                    style={[s.primaryButton, { backgroundColor: theme.gold }]}
+                    onPress={startEditProfile}
+                    activeOpacity={0.86}
+                  >
+                    <Text style={[s.primaryButtonText, { color: theme.bg }]}>
+                      Edit Profile
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[s.secondaryButton, { backgroundColor: theme.raised, borderColor: theme.border }]}
+                    onPress={showContactQR}
+                    activeOpacity={0.86}
+                  >
+                    <Text style={[s.secondaryButtonText, { color: theme.gold }]}>
+                      Show QR
+                    </Text>
+                  </TouchableOpacity>
+                </View>
               </>
             ) : (
               <>
@@ -349,6 +399,67 @@ export default function ProfileScreen() {
           </View>
         </ScrollView>
       </SafeAreaView>
+
+      <Modal
+        visible={contactQRVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setContactQRVisible(false)}
+      >
+        <View style={s.qrOverlay}>
+          <View style={[s.qrCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <Text style={[s.qrTitle, { color: theme.text }]}>My bE Contact QR</Text>
+            <Text style={[s.qrSubtitle, { color: theme.textMuted }]}>
+              Scan this to add me as a bE contact and start a DM.
+            </Text>
+
+            <View style={s.qrCodeWrap}>
+              {!!contactCardPayload && (
+                <QRCode
+                  value={contactCardPayload}
+                  size={230}
+                  backgroundColor="#FFFFFF"
+                  color="#000000"
+                />
+              )}
+            </View>
+
+            <Text style={[s.qrName, { color: theme.text }]} numberOfLines={1}>
+              {displayName || 'bE Marks Contact'}
+            </Text>
+
+            <Text style={[s.qrNpub, { color: theme.textMuted }]} numberOfLines={1}>
+              {shortNpub}
+            </Text>
+
+            <View style={s.qrActions}>
+              <TouchableOpacity
+                style={[s.qrSecondaryBtn, { borderColor: theme.border, backgroundColor: theme.raised }]}
+                onPress={copyContactCard}
+                activeOpacity={0.86}
+              >
+                <Text style={[s.qrSecondaryText, { color: theme.text }]}>Copy</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[s.qrSecondaryBtn, { borderColor: theme.border, backgroundColor: theme.raised }]}
+                onPress={shareContactCard}
+                activeOpacity={0.86}
+              >
+                <Text style={[s.qrSecondaryText, { color: theme.text }]}>Share</Text>
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              style={[s.qrCloseBtn, { backgroundColor: theme.gold }]}
+              onPress={() => setContactQRVisible(false)}
+              activeOpacity={0.86}
+            >
+              <Text style={[s.qrCloseText, { color: theme.bg }]}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -422,6 +533,21 @@ const s = StyleSheet.create({
     paddingVertical: 12,
   },
   primaryButtonText: {
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  heroActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  secondaryButton: {
+    borderRadius: 999,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderWidth: 0.5,
+  },
+  secondaryButtonText: {
     fontSize: 14,
     fontWeight: '900',
   },
@@ -547,5 +673,86 @@ const s = StyleSheet.create({
     maxWidth: '48%',
     textAlign: 'right',
     fontFamily: 'monospace',
+  },
+  qrOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.62)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 22,
+  },
+  qrCard: {
+    width: '100%',
+    maxWidth: 360,
+    borderRadius: 28,
+    borderWidth: 1,
+    padding: 22,
+    alignItems: 'center',
+  },
+  qrTitle: {
+    fontSize: 22,
+    fontWeight: '900',
+    textAlign: 'center',
+    marginBottom: 6,
+  },
+  qrSubtitle: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 18,
+  },
+  qrCodeWrap: {
+    width: 258,
+    height: 258,
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  qrName: {
+    maxWidth: '100%',
+    fontSize: 18,
+    fontWeight: '900',
+    textAlign: 'center',
+    marginBottom: 5,
+  },
+  qrNpub: {
+    maxWidth: '100%',
+    fontSize: 11,
+    fontWeight: '700',
+    fontFamily: 'monospace',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  qrActions: {
+    width: '100%',
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 12,
+  },
+  qrSecondaryBtn: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: 21,
+    borderWidth: 0.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  qrSecondaryText: {
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  qrCloseBtn: {
+    width: '100%',
+    minHeight: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  qrCloseText: {
+    fontSize: 14,
+    fontWeight: '900',
   },
 });

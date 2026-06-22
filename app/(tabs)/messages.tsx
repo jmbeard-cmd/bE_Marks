@@ -19,6 +19,11 @@ import StartDMModal, {
   type DMDiscoveryPerson,
 } from '../../components/dm/StartDMModal';
 import { Colors } from '../../src/constants/theme';
+import {
+  getContactByNpub,
+  saveContact,
+  updateContact,
+} from '../../src/utils/contacts-storage';
 import { subscribeToDMEvents } from '../../src/utils/dm-events';
 import {
   getCachedDMProfiles,
@@ -274,6 +279,31 @@ export default function DMsScreen() {
       if (selectedIsCurrentUser) {
         Alert.alert('That is you', 'Choose another person to start a DM.');
         return;
+      }
+
+      if (person.source === 'qr' && participantNpub) {
+        const displayName =
+          person.displayName?.trim() ||
+          `${participantNpub.slice(0, 14)}…`;
+
+        const existingContact = await getContactByNpub(participantNpub);
+
+        if (existingContact) {
+          await updateContact(existingContact.id, {
+            npub: participantNpub,
+            pubkeyHex: participantPubkey,
+            nostrName: displayName,
+            nostrAvatar: person.avatarUrl,
+          });
+        } else {
+          await saveContact({
+            name: displayName,
+            npub: participantNpub,
+            pubkeyHex: participantPubkey,
+            nostrName: displayName,
+            nostrAvatar: person.avatarUrl,
+          });
+        }
       }
 
       const existingThread = threads.find(thread => {

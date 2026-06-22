@@ -14,16 +14,18 @@ import {
     Text,
     TextInput,
     TouchableOpacity,
-    useWindowDimensions, 
+    useWindowDimensions,
     View,
 } from 'react-native';
 import { Colors } from '../../src/constants/theme';
+import type { ParsedBEContactCard } from '../../src/utils/be-contact-card';
 import { getContacts } from '../../src/utils/contacts-storage';
 import { getDMThreads } from '../../src/utils/dm-storage';
 import {
     getGroupMembers,
     getGroups,
 } from '../../src/utils/group-storage';
+import QRContactScannerModal from './QRContactScannerModal';
 
 type Theme = typeof Colors.dark;
 
@@ -198,6 +200,7 @@ export default function StartDMModal({
   const [people, setPeople] = useState<DMDiscoveryPerson[]>([]);
   const [loading, setLoading] = useState(false);
   const [keyboardInset, setKeyboardInset] = useState(0);
+  const [qrScannerVisible, setQRScannerVisible] = useState(false);
 
   const keyboardOpen = keyboardInset > 0;
   const queryActive = query.trim().length > 0;
@@ -352,12 +355,31 @@ export default function StartDMModal({
     );
   }, []);
 
-  const showQRNotice = useCallback(() => {
-    Alert.alert(
-      'QR contact cards next',
-      'QR scanning will let someone share their bE contact card without typing keys.'
-    );
+  const showQRScanner = useCallback(() => {
+    setQRScannerVisible(true);
   }, []);
+
+  const handleQRContactScanned = useCallback((card: ParsedBEContactCard) => {
+    const person: DMDiscoveryPerson = {
+      id: `qr_${card.pubkeyHex}`,
+      source: 'qr',
+      displayName: card.displayName,
+      npub: card.npub,
+      pubkeyHex: card.pubkeyHex,
+      avatarUrl: card.picture,
+      subtitle: 'Scanned bE Contact',
+      relayUrl: card.relayUrl,
+    };
+
+    if (isCurrentUserDiscoveryPerson(person, currentIdentityKeys)) {
+      setQRScannerVisible(false);
+      Alert.alert('That is you', 'Scan another person to start a DM.');
+      return;
+    }
+
+    setQRScannerVisible(false);
+    onSelectPerson(person);
+  }, [currentIdentityKeys, onSelectPerson]);
 
   const renderPerson = ({ item }: { item: DMDiscoveryPerson }) => {
     const busy = busyPersonId === item.id;
@@ -479,7 +501,7 @@ export default function StartDMModal({
 
               <TouchableOpacity
                 style={s.discoveryCard}
-                onPress={showQRNotice}
+                onPress={showQRScanner}
                 activeOpacity={0.84}
               >
                 <View style={s.discoveryIcon}>
@@ -526,6 +548,12 @@ export default function StartDMModal({
           )}
           </View>
         </KeyboardAvoidingView>
+        <QRContactScannerModal
+          visible={qrScannerVisible}
+          theme={theme}
+          onClose={() => setQRScannerVisible(false)}
+          onContactScanned={handleQRContactScanned}
+        />
       </View>
     </Modal>
   );
