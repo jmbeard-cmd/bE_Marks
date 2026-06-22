@@ -20,6 +20,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import DMComposer from '../components/chat/DMComposer';
+import ImageViewerModal, { type ViewerImage } from '../components/ImageViewerModal';
 import { Colors } from '../src/constants/theme';
 import { subscribeToDMEvents } from '../src/utils/dm-events';
 import {
@@ -225,6 +226,8 @@ export default function DmThreadScreen() {
   const [sending, setSending] = useState(false);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
+  const [selectedDMImageUri, setSelectedDMImageUri] = useState<string | null>(null);
+  const [activeDMViewerImages, setActiveDMViewerImages] = useState<ViewerImage[]>([]);
   const [hasPubkey, setHasPubkey] = useState(!!notificationSenderPubkey);
   const [profileName, setProfileName] = useState<string | null>(notificationSenderName || null);
   const [profilePicture, setProfilePicture] = useState<string | null>(null);
@@ -933,6 +936,29 @@ const recipientNpub =
     );
   };
 
+  const openDMImageViewer = useCallback((
+    mediaItems: DMMessageMedia[],
+    selectedUri: string
+  ) => {
+    const images: ViewerImage[] = mediaItems
+      .filter(media => media.type === 'image' && !!media.uri)
+      .map(media => ({
+        id: media.id || media.uri,
+        uri: media.uri,
+        thumbnailUrl: media.thumbnailUrl,
+      }));
+
+    if (images.length === 0) return;
+
+    setActiveDMViewerImages(images);
+    setSelectedDMImageUri(selectedUri);
+  }, []);
+
+  const closeDMImageViewer = useCallback(() => {
+    setSelectedDMImageUri(null);
+    setActiveDMViewerImages([]);
+  }, []);
+
   const handlePickDMFiles = async () => {
     if (uploadingAttachment) return;
 
@@ -1030,12 +1056,17 @@ const recipientNpub =
                 {mediaItems.map(media => {
                   if (media.type === 'image') {
                     return (
-                      <Image
+                      <TouchableOpacity
                         key={media.id}
-                        source={{ uri: media.uri }}
-                        style={s.dmMediaImage}
-                        resizeMode="cover"
-                      />
+                        onPress={() => openDMImageViewer(mediaItems, media.uri)}
+                        activeOpacity={0.88}
+                      >
+                        <Image
+                          source={{ uri: media.uri }}
+                          style={s.dmMediaImage}
+                          resizeMode="cover"
+                        />
+                      </TouchableOpacity>
                     );
                   }
 
@@ -1160,6 +1191,12 @@ const recipientNpub =
             onTakePhoto={handleTakeDMPhoto}
             onPickFiles={handlePickDMFiles}
             onPickGif={handleDMGifPlaceholder}
+          />
+
+          <ImageViewerModal
+            images={activeDMViewerImages}
+            selectedUri={selectedDMImageUri}
+            onClose={closeDMImageViewer}
           />
         </View>
       </KeyboardAvoidingView>
