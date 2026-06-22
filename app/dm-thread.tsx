@@ -157,6 +157,26 @@ function mergeNewestFirstMessages(
   return Array.from(byId.values()).sort((a, b) => b.createdAt - a.createdAt);
 }
 
+function normalizeDMMessageForRender(message: DMMessage): DMMessage {
+  const existingMedia = Array.isArray(message.media) ? message.media : [];
+
+  if (existingMedia.length > 0) {
+    return message;
+  }
+
+  const decoded = decodeNostrDMContent(message.text || '');
+
+  if (decoded.media.length === 0) {
+    return message;
+  }
+
+  return {
+    ...message,
+    text: decoded.text,
+    media: decoded.media,
+  };
+}
+
 export default function DmThreadScreen() {
   const { theme, npub, profile } = useIdentity();
   const s = useMemo(() => createStyles(theme), [theme]);
@@ -337,9 +357,9 @@ export default function DmThreadScreen() {
 
       if (leavingRef.current) return;
 
-      const newestFirstMessages = [...localMessages].sort(
-        (a, b) => b.createdAt - a.createdAt
-      );
+      const newestFirstMessages = localMessages
+        .map(normalizeDMMessageForRender)
+        .sort((a, b) => b.createdAt - a.createdAt);
 
       setMessages(mergeNewestFirstMessages(
         newestFirstMessages,
@@ -434,9 +454,9 @@ export default function DmThreadScreen() {
     if (leavingRef.current) return;
 
     const refreshed = await getRecentMessagesForThread(threadId, 30);
-    const newestFirstMessages = [...refreshed].sort(
-      (a, b) => b.createdAt - a.createdAt
-    );
+    const newestFirstMessages = refreshed
+      .map(normalizeDMMessageForRender)
+      .sort((a, b) => b.createdAt - a.createdAt);
 
     setMessages(mergeNewestFirstMessages(
       newestFirstMessages,
@@ -945,10 +965,6 @@ const recipientNpub =
     }
   };
 
-  const handleDMEmojiPlaceholder = () => {
-    Alert.alert('Emoji coming next', 'The emoji picker will be wired into this DM composer next.');
-  };
-
   const handleDMGifPlaceholder = () => {
     Alert.alert('GIFs coming later', 'GIF and sticker sending will use this composer menu later.');
   };
@@ -978,9 +994,10 @@ const recipientNpub =
   const renderMessage = ({ item, index }: { item: DMMessage; index: number }) => {
     const olderMsg = index < messages.length - 1 ? messages[index + 1] : null;
     const showDateDivider = !olderMsg || !isSameDay(item.createdAt, olderMsg.createdAt);
+    const displayItem = normalizeDMMessageForRender(item);
     const senderName = item.mine ? 'You' : profileName || title || 'Member';
     const initials = getInitials(senderName);
-    const mediaItems = Array.isArray(item.media) ? item.media : [];
+    const mediaItems = Array.isArray(displayItem.media) ? displayItem.media : [];
 
     return (
       <View>
@@ -1048,8 +1065,8 @@ const recipientNpub =
               </View>
             )}
 
-            {!!item.text.trim() && (
-              <Text style={s.dmMessageText}>{item.text}</Text>
+            {!!displayItem.text.trim() && (
+              <Text style={s.dmMessageText}>{displayItem.text}</Text>
             )}
 
             <Text style={s.dmTimeText}>
@@ -1142,7 +1159,6 @@ const recipientNpub =
             onPickPhotos={handlePickDMMedia}
             onTakePhoto={handleTakeDMPhoto}
             onPickFiles={handlePickDMFiles}
-            onPickEmoji={handleDMEmojiPlaceholder}
             onPickGif={handleDMGifPlaceholder}
           />
         </View>
